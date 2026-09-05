@@ -577,19 +577,25 @@ git commit -m "docs(i18n): five-locale glossary seed, confirm-not-fix list, cont
 
 Scope facts: 23 keys from #1004 + 73 from #1008; all four locales have explicit values (no `ml` placeholders); no `// REVIEW:` flags exist on them (Plans 2 and 3 did not add flags — the tracker note in the plans is the only marker); four values are English in every locale by design (`readiness.item.hiv/hbsag/hcv`, `consumables.device_tag_hint`).
 
-- [ ] **Step 1: Reviewer runs (four agents, one per locale, in parallel)**
+- [x] **Step 1: Reviewer runs (four agents, one per locale, in parallel)**
 
 Each reviewer receives: the protocol rules 1–8 verbatim, the five-column table, the glossary, the domain note ("cath lab: interventional cardiology staff app; readiness = pre-procedure lab checklist; reuse = reprocessed catheters/guidewires; audience = cath lab staff, nurses, cardiologists, CSSD, infection control; RECEPTIONIST/TECHNICIAN see state labels but not serology values"), and writes `<loc>.review.jsonl` with one row per key (96 rows, every row has a verdict). Expected outcome: mostly `confirm`; `change` where a rendering is wrong in register or meaning (the inventory already flags Tamil "critical" ≠ "important", and Platelets `தட்டணுக்கள்` vs the blood-bank `பிளேட்லெட்டுகள்`); `escalate` only for genuine ambiguity.
 
-- [ ] **Step 2: Back-translation runs (one agent per locale)**
+- [x] **Step 2: Back-translation runs (one agent per locale)**
 
 Input: the rows with `verdict == change` or `risk != none` — only `key`, `locale`, `value`. Output `<loc>.back.jsonl` rows `{"key","locale","back_en"}`.
 
-- [ ] **Step 3: Reconcile (one agent; Fable, since the batch carries clinical state labels and a critical-value warning)**
+- [x] **Step 3: Reconcile (one agent; Fable, since the batch carries clinical state labels and a critical-value warning)**
 
-Produces `apply.jsonl` (confirm + change rows), `tracker.md`, `escalations.md`, and glossary rows for every `GLOSSARY:` proposal (Critical, Platelets, Waive, Stale/expired result, External/unverified, Ordered/awaiting). Checks: placeholders identical to `en`; button/chip length ≤ 1.6×; back-translation meaning matches `en`; one rendering per concept across the 96 keys; English-by-design keys are `confirm`.
+Inputs: the four review files, the four back-translation files, the key table, the glossary, and the **external human review of 2026-09-05** (`scratchpad/open21/external-review-2026-09-05.md`, forwarded by the owner; disposition REQUEST CHANGES). The human review is authoritative where it speaks; an agent reviewer's choice that conflicts with it survives only when it rests on a verified code fact (e.g. a rendering that collides with another label on the same screen), and then the conflict is an owner escalation, never a silent agent choice.
 
-- [ ] **Step 4: Apply and regenerate**
+Produces `apply.jsonl` (confirm + change rows), `en.changes.jsonl` (English SOURCE changes the human review requires: `state.result_final` → "Final result", `check.timeout` → "Procedure safety time-out", `confirm_critical` / `confirm_critical_unnamed` → "…Give a reason for marking this check as passed despite the critical result.", `post_use_device_already_discarded` → "CSSD has already marked this device as discarded; post-use disposition recorded." — each with its four locale renderings), `tracker.md`, `escalations.md`, and glossary rows for every `GLOSSARY:` proposal. Checks: placeholders identical to `en`; button/chip length ≤ 1.6× measured in rendered grapheme clusters; back-translation meaning matches `en`; one rendering per concept across the 96 keys (exposure flag ≠ infection ≠ infection risk; acknowledgement ≠ consent; discarded ≠ destroyed ≠ deleted; critical ≠ important/complex; pass is a check status, never "normal"); English-by-design keys are `confirm`.
+
+- [x] **Step 3b: English source changes carry their tests**
+
+An `en` change edits the `'en'` block and, in the same commit, every place that asserts or matches the OLD English text anywhere in the repository: `git grep -n -F "<old text>" -- . ':!apps/staff/lib/l10n/app_strings.dart'` (Staff and Patient tests, Maestro flows, admin tests and snapshots, backend fixtures and log/analytics literals, docs). A hit in a surface this lane does not own is reported to the coordinator, not edited. The old locale translations of a changed source are NEVER carried across: all four locale values come from `en.changes.jsonl`, rendered against the new English, and the tracker's source-change table shows the five values as one row. The Staff cath widget tests (`test/features/cath_lab/*`) and the five-locale pins must stay green.
+
+- [x] **Step 4: Apply and regenerate**
 
 ```bash
 node apps/staff/scripts/i18n-review-apply.mjs scratchpad/open21/b1/apply.jsonl
@@ -599,7 +605,7 @@ node apps/staff/scripts/i18n-verify.mjs --check
 
 Expected: `git diff --stat` shows only `app_strings.dart` lines for the changed keys; `--check` green.
 
-- [ ] **Step 5: Flutter gates**
+- [x] **Step 5: Flutter gates**
 
 ```bash
 cd apps/staff && flutter analyze && flutter test test/features/cath_lab test/i18n_guard_test.dart && cd ../..
@@ -608,11 +614,11 @@ melos run format
 
 Expected: analyze unchanged (0 in cath_lab), the cath tests green (the five-locale pins `Cath consumable copy…` and `Cath readiness copy…` enumerate keys, not renderings), format clean. If `dart format` reflows a long line, run `dart format apps/staff/lib/l10n/app_strings.dart` and re-run `--check`.
 
-- [ ] **Step 6: Record**
+- [x] **Step 6: Record**
 
 Append `tracker.md`'s section to `docs/TRANSLATION_REVIEW_TRACKER.md` as `## Review completed — 2026-09-05 — Batch 1: cath lab (Plans 2 and 3), 96 keys × hi/ta/te/ml` (reviewer: Claude Fable 5.1 review pipeline; approval: owner, pending); add the glossary rows; re-measure `apps/staff/docs/LANGUAGE_HEALTH.md` headline numbers from `node apps/staff/scripts/i18n-verify.mjs` output and update the `_Last verified:_` date; update the Coverage table cells for Staff hi/ta/te/ml to `Partial — B1 cath (96 keys) approved <date> (owner)` only after the owner replies; until then write `Partial — B1 cath reviewed 2026-09-05, owner approval pending`.
 
-- [ ] **Step 7: Commit and PR**
+- [x] **Step 7: Commit and PR**
 
 ```bash
 git add apps/staff/lib/l10n/app_strings.dart apps/staff/lib/l10n/app_strings_ml_parity.g.dart docs/i18n/GLOSSARY.md docs/TRANSLATION_REVIEW_TRACKER.md apps/staff/docs/LANGUAGE_HEALTH.md docs/superpowers/plans/2026-09-05-open21-linguistic-review.md
@@ -624,6 +630,12 @@ gh pr create --draft --base main --head feat/open21-linguistic-review --title "i
 
 PR body: batch scope and counts; the changed-keys table; escalations for the owner; the tooling added (Tasks 0–2); gates run; "Draft; merge authority stays with the coordinating session; `Merge Gate` / `Full Merge Gate` reported by name with the head SHA"; end with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
 
+**Landed 2026-09-05** on `feat/open21-linguistic-review`. What the batch actually did, where it differs from the step text above:
+- The three PROPOSED English source changes are APPLIED with their four locale renderings, not held: the owner's veto window is this PR's review, so a veto is a one-commit revert rather than a re-translation. `apply.final.jsonl` (392 rows, 99 changed) = `apply.jsonl` with the `en.changes.jsonl` renderings substituted plus one `en` row per source change.
+- Counts: 91 locale values changed, 293 confirmed, 8 English source values changed, 0 escalated-and-withheld.
+- Step 3b grep result: every hit on an old English literal was in `apps/staff/test/features/cath_lab/` and was updated in the same commit. One hit is NOT edited and is reported instead — the Plan 2 build table in `docs/superpowers/plans/2026-09-04-cath-lab-readiness.md:2091`, which is a dated record of what that plan shipped; the tracker section is the record of the new values.
+- Tool work Step 0 needed before the apply: `i18n-review-apply.mjs` re-serialised every approved entry, so 298 confirms produced quote-only diffs. Confirms now leave entry lines byte-identical, a changed value keeps the entry's quote style, and `locale: 'en'` rows are accepted with an `en_old` guard against a moved key.
+
 ### Task 4: Batch 2 — terminology consistency pass
 
 **Files:**
@@ -631,8 +643,11 @@ PR body: batch scope and counts; the changed-keys table; escalations for the own
 - Outputs: `scratchpad/open21/b2/…` as above
 - Modify: `app_strings.dart`, patient `intl_*.arb` + `lib/generated/*`, `docs/i18n/GLOSSARY.md`, tracker, both `LANGUAGE_HEALTH.md`
 
-- [ ] **Step 1: Decide the glossary rows** — one agent per locale takes the clinical-risk subset first (Critical, Urgent, Emergency, Discharge, Prescription, Dose/Dosage, Platelets, Cancel, Save, Submit, Confirm, Retry, Back, Next, Done, Waive, Consent, Allergy, Vitals) and writes the chosen rendering + reason per concept; a Fable reconciler settles conflicts and records them in `GLOSSARY.md` with date.
-- [ ] **Step 2: Generate the apply set** — for each inconsistent group, every key whose locale rendering differs from the glossary rendering gets a `change` row; keys where the divergence is a genuinely different concept (e.g. "Cancel" the button vs "Cancel" an appointment) stay as they are and the group is annotated in the report.
+**Scope correction from the human review (2026-09-05):** the inventory's 478 divergent English groups are review CANDIDATES, not defects. Identical English does not prove identical meaning (Open: command vs state; Complete: command vs status; Route: medication vs navigation; Dose: medication vs radiation; Critical: dangerous state vs essential to safety; Emergency: leave administration vs triage), and the bare-label probe conflates grammatical forms ("Waive" / "Waived" / "Reason for waiving" / "Waive {item}?"), compounds ("Consent" / "Written consent"), and abbreviations ("Hb" / "Haemoglobin"), all of which legitimately differ. **No global replacement is performed from the divergence counts.**
+
+- [ ] **Step 0: Rebuild the grouping** — regenerate the terminology report with identity = `concept + clinical/workflow domain (key prefix family) + UI role (button / chip / label / sentence / error, from the key's last segment and length) + locale`, treating plural, case-form and abbreviation variants as one family. Output: `scratchpad/open21/b2/groups.md` with, per group, the members and whether any locale renders them inconsistently. Only groups whose members share concept, domain and UI role are candidates.
+- [ ] **Step 1: Decide the glossary rows** — start from the human review's base terms (Consent: hi सहमति / ta ஒப்புதல் / te సమ్మతి / ml സമ്മതം; Prescription: प्रिस्क्रिप्शन / மருந்துச்சீட்டு / ప్రిస్క్రిప్షన్ / കുറിപ്പടി; Hospital discharge: डिस्चार्ज / டிஸ்சார்ஜ் / డిశ్చార్జ్ / ഡിസ്ചാർജ്; Medication dose: खुराक / மருந்தளவு / మోతాదు / ഡോസ്) and the Batch 1 decisions; one agent per locale proposes renderings for the remaining clinical-risk concepts (Critical vs important, Urgent vs Emergency as distinct priority classes, Waive, Allergy, Vitals, and the common controls Cancel / Save / Submit / Confirm / Retry / Back / Next / Done) with reasons; a Fable reconciler settles conflicts and records them in `GLOSSARY.md` with date. Dose vs dosage regimen stay separate concepts.
+- [ ] **Step 2: Generate the apply set for the genuine problems only** — the human review's priority list: clinical critical rendered as "important"/"complex" (ta `முக்கியம்` / `முக்கியமானவை`, te `క్లిష్ట…`), emergency and urgent collapsed into one word where they are separate classes, hospital discharge rendered as bodily discharge (te `ఉత్సర్గ…`, e.g. `discharge.proceed_title` → `డిశ్చార్జ్‌ను నిర్ధారించండి`, `s4.lib.patient_records.discharge_summary` → `డిశ్చార్జ్ సారాంశం`), consent used for acknowledgement, and single-dose terms used for regimen fields; then, within a rebuilt group, keys whose rendering differs from the glossary rendering. Keys where the divergence is a different concept stay as they are and the group is annotated.
 - [ ] **Step 3: Apply** with both tools; `melos run gen-staff-ml-parity`; `cd apps/patient && flutter gen-l10n`.
 - [ ] **Step 4: Gates** — `melos run i18n-parity-check && melos run format && melos run analyze && melos run test`. The `findsOneWidget` hazard: any failing `*_l10n_test.dart` means two different concepts on one screen now share a rendering; revert that pair to distinct renderings, note it in the glossary ("distinct on <screen>"), and re-run.
 - [ ] **Step 5: Record** (tracker section `Batch 2: terminology consistency`, glossary, both LANGUAGE_HEALTH tables) and PR on `feat/open21-b2-terminology` off current main.
@@ -653,7 +668,23 @@ Per wave: extract keys (all four locales, flagged in any), reviewer × 4, back-t
 
 ### Task 6: Batch 4 — Patient priority queue (94 keys × 4)
 
-Inputs: `scratchpad/open21-patient-queue.md` (ABHA enrolment + biometric 29, consent actions 12, Ask-a-Doubt 2, MT-corruption fixes 3, the 48-key list). Reconciler: Fable (identity/consent copy). Apply with the patient tool (`--date`), then `cd apps/patient && flutter gen-l10n` and commit `lib/generated/*`; gates `node apps/patient/scripts/i18n-verify.mjs --check`, `flutter test test/features/abdm/abha_enrolment_l10n_test.dart test/features/**/*_l10n_test.dart`, `melos run format`. Fix the corrupt `intl_ta.arb` `@authPhonePrefix` metadata (contains Greek `πρόθεμα`) in the same batch. The guardianship/consent strings in `family_screen.dart` are NOT in scope (held for legal). Record + PR on `feat/open21-b4-patient-queue`.
+Inputs: `scratchpad/open21-patient-queue.md` (ABHA enrolment + biometric 29, consent actions 12, Ask-a-Doubt 2, MT-corruption fixes 3, the 48-key list) and the human review's section 2. Reconciler: Fable (identity/consent copy).
+
+**Holds set by the human review (2026-09-05):**
+- `aboutUsContent` is HELD in all five languages until the owner approves a factual English master (the current English carries equipment, volume, accreditation, outcome and "stem cell therapy for cardiac regeneration" claims this review cannot substantiate; the Jan 2026 MoHFW/DHR cardiac guidelines recommend against routine clinical use). The definite translation errors (Tamil lead-metal-free pacemaker → `லீட்லெஸ் இதயமுடுக்கி பொருத்துதல்`; `CyberKnife ரேடியோசர்ஜரி`; "closed ICU" rendered as a shut facility; "Integrity" → hi `ईमानदारी` / ta `நேர்மை` / te `నిజాయితీ` / ml `സത്യസന്ധത`) are applied when the master lands.
+- Identity and security strings (`abhaEnrol*` OTP intros, `settingsBiometricLockSubtitle`, `biometricGate*`) are HELD pending the two product decisions below; the routine controls in those groups (Send/Resend/Verify buttons, Settings/Home buttons) proceed with the Tamil polite-imperative forms the review gives.
+
+**Product changes this batch depends on (patient-app lane, `feat/open21-patient-source-fixes`, own PR, before or with 4):**
+- OTP purpose state: the second OTP step (ABHA mobile verification) must not reuse the Aadhaar-OTP intro. Add a state-specific string pair — Aadhaar step: "Enter the OTP sent to the mobile number linked to your Aadhaar."; ABHA mobile step: "Enter the OTP sent to the mobile number being verified for your ABHA." — and masked variants fed from the authoritative recipient. Verify `abhaEnrolMobileHint`'s claim that a blank field defaults to the Aadhaar-linked number against the backend, and that every state showing `abhaEnrolDoneIntro` (incl. `enrolled`, not only `linked`) guarantees persisted linkage; if not, split the completion copy by state.
+- SOS: `authSosBackendFailed` → "We could not confirm that the SOS alert was sent to the hospital. Call for emergency help. If you are already connected, stay on the line."; `authSosGuestSkipped` → say "phone app opened" / "emergency dialler opened" only when the launch succeeded and never imply staff received an alert; route the `SosException.message` display path through a localised, controlled string; replace the raw `{error}` interpolation in `abhaEnrolServerUnreachable` with a controlled localised error plus sanitised logging.
+- Biometric — OWNER DECIDED 2026-09-05 ("do what is best"): treat the lock as a protection against a holder of a signed-in phone. `toggleBiometric(false)` must require a fresh authentication (biometric, or the account credential when biometrics are unavailable) before disabling; the locked pane keeps its emergency-access affordance and its explicit route to Settings. Copy: `settingsBiometricLockSubtitle` → "Use your fingerprint or face to sign in and open prescriptions, results, notes, messages and bills. Home, appointments and video consultations do not require this biometric check." — verified against the router's guarded routes before it is written; `biometricGateLockedEscapeHint` refers to fingerprint or face VERIFICATION not working and names Settings. The absolute "…so emergency help is never blocked" claim is removed everywhere.
+- `investigationsUploadNotAvailableForDependent` source → "Report uploads are not available while viewing {name}'s profile. To upload a report for yourself, switch back to your own profile." (record-attribution issue).
+- `aboutHomeSampleAction` / `aboutFreeHomeSampleCollectionTitle` — OWNER DECIDED 2026-09-05: sample collection at home is free and available to everyone; the tests themselves are charged. Source → "Free home sample collection" with a subtitle/hint "Collection is free; tests are charged as per the price list." (or the nearest existing hint key); locales render both facts.
+- Ask a Doubt — OWNER DECIDED 2026-09-05: add a separately approved, prominent statement that the channel is not for urgent or emergency concerns (with the SOS / emergency number as the alternative), and make the "every message is read … follow up by phone or at the next visit" promise true by mechanism: verify there is a staff-side worklist where unanswered doubts surface with an owner and an escalation after a bounded time (grep the backend for the ask-a-doubt / patient-message tables and any staff route that lists them); if there is none, the lane adds a minimal one (open-doubts list on the staff clinical inbox with an "acknowledged / followed up" action and an overdue marker) before the promise is kept; if that is out of reach, the copy is narrowed to what is true and the owner is told which.
+
+Corrections applied in this batch as given by the human review: `abdmConsentGrantConfirmBody` ta; `appointmentInPersonConsultation` hi; `appointmentReasonForVisitHint` ta; `aboutHomeSampleAction` ×4; `labOrdersScheduled` ml; `familyLinkedDependentBadge` / `familySetUpLinkedDependent` ml; `abdmRegister` ta/te/ml; the eight Tamil polite imperatives; `abhaEnrolResendOtpIn` ×4 with localised units; the `conditionsBody` ml data-accuracy sentence split (not legal approval).
+
+Apply with the patient tool (`--date`), then `cd apps/patient && flutter gen-l10n` and commit `lib/generated/*`; gates `node apps/patient/scripts/i18n-verify.mjs --check`, `flutter test test/features/abdm/abha_enrolment_l10n_test.dart test/features/**/*_l10n_test.dart`, `melos run format`. Fix the corrupt `intl_ta.arb` `@authPhonePrefix` metadata (contains Greek `πρόθεμα`) in the same batch. The guardianship/consent strings in `family_screen.dart` are NOT in scope (held for legal). Record + PR on `feat/open21-b4-patient-queue`.
 
 ### Task 7: Batch 5 — Staff Malayalam placeholders (4,008 → translated)
 
