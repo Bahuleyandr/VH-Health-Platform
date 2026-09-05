@@ -108,12 +108,27 @@ test('re-applying the same decisions is a no-op', () => {
 
 // ── Shapes the real app_strings.dart has that the fixture above encodes ──
 
-test('a double-quoted entry is read and rewritten as an escaped single-quoted literal', () => {
+test('a change to a double-quoted entry is rewritten in double quotes', () => {
   const out = withFixture((f) => applyDecisions(f, [
     { key: 'a.four', locale: 'hi', value: "चार का मान", approved: true, changed: true },
   ]));
-  assert.ok(out.includes(`      'a.four': 'चार का मान',`));
+  assert.ok(out.includes(`      'a.four': "चार का मान",`), 'the entry keeps the quote style it had');
   assert.ok(!out.includes(`"चार's"`), 'the old double-quoted literal is gone');
+  assert.ok(!out.includes(`'चार का मान'`), 'the change is a wording diff only, never also a quoting diff');
+});
+
+test("a change to a double-quoted entry escapes only the double quotes in the new value", () => {
+  const out = withFixture((f) => applyDecisions(f, [
+    { key: 'a.four', locale: 'hi', value: `it's "four"`, approved: true, changed: true },
+  ]));
+  assert.ok(out.includes(`      'a.four': "it's \\"four\\"",`), out.split('\n').find((l) => l.includes('a.four')));
+});
+
+test('a change to a single-quoted entry stays single-quoted', () => {
+  const out = withFixture((f) => applyDecisions(f, [
+    { key: 'a.one', locale: 'hi', value: 'एक इकाई', approved: true, changed: true },
+  ]));
+  assert.ok(out.includes(`      'a.one': 'एक इकाई',`));
 });
 
 test('a multi-line adjacent-literal entry is joined for placeholder checks and collapsed on write', () => {
@@ -174,4 +189,55 @@ test('a confirm of a multi-line adjacent-literal entry leaves its continuation l
   ]));
   assert.ok(out.includes(`          'पाँच {count}'\n          ' वस्तु',`), 'continuation lines are kept, not collapsed');
   assert.equal(out, FIXTURE);
+});
+
+// ── English SOURCE rows (`locale: 'en'`): the review may find the source wrong ──
+
+test('an en row rewrites the source when en_old still matches the file', () => {
+  const out = withFixture((f) => applyDecisions(f, [
+    { key: 'a.one', locale: 'en', value: 'First', en_old: 'One', approved: true, changed: true },
+  ]));
+  const en = out.slice(out.indexOf(`'en': {`), out.indexOf(`'hi': {`));
+  assert.ok(en.includes(`      'a.one': 'First',`));
+  assert.ok(out.includes(`      'a.one': 'एक',`), 'the locale rows are untouched by an en-only row');
+});
+
+test('an en row whose en_old does not match the file is rejected and nothing is written', () => {
+  const out = withFixture((f) => {
+    assert.throws(() => applyDecisions(f, [
+      { key: 'a.one', locale: 'en', value: 'First', en_old: 'Uno', approved: true, changed: true },
+    ]), /en_old mismatch/);
+  });
+  assert.equal(out, FIXTURE, 'a moved or re-worded key must not be silently overwritten');
+});
+
+test('an en row without en_old is rejected', () => {
+  const out = withFixture((f) => {
+    assert.throws(() => applyDecisions(f, [
+      { key: 'a.one', locale: 'en', value: 'First', approved: true, changed: true },
+    ]), /must carry en_old/);
+  });
+  assert.equal(out, FIXTURE);
+});
+
+test('locale rows are checked against the NEW English when the same run changes the source', () => {
+  const out = withFixture((f) => applyDecisions(f, [
+    { key: 'a.two', locale: 'en', value: 'Two items', en_old: 'Two {count}', approved: true, changed: true },
+    { key: 'a.two', locale: 'hi', value: 'दो वस्तुएँ', approved: true, changed: true },
+  ]));
+  assert.ok(out.includes(`      'a.two': 'Two items',`));
+  assert.ok(out.includes(`      'a.two': 'दो वस्तुएँ',`));
+  // …and a locale row still carrying the dropped placeholder is the failure.
+  assert.throws(() => withFixture((f) => applyDecisions(f, [
+    { key: 'a.two', locale: 'en', value: 'Two items', en_old: 'Two {count}', approved: true, changed: true },
+    { key: 'a.two', locale: 'hi', value: 'दो {count}', approved: true, changed: false },
+  ])), /placeholder mismatch/);
+});
+
+test('an en source change keeps the entry quote style', () => {
+  const out = withFixture((f) => applyDecisions(f, [
+    { key: 'a.four', locale: 'en', value: 'It is four', en_old: "It's four", approved: true, changed: true },
+  ]));
+  const en = out.slice(out.indexOf(`'en': {`), out.indexOf(`'hi': {`));
+  assert.ok(en.includes(`      'a.four': "It is four",`));
 });

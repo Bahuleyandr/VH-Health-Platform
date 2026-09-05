@@ -2,16 +2,26 @@
 // apps/staff/scripts/i18n-review-apply.mjs
 //
 // Applies linguistic-review decisions to lib/l10n/app_strings.dart.
-// Decisions are JSONL rows: {"key","locale","value","approved":true,"changed":bool}.
+// Decisions are JSONL rows:
+//   {"key","locale","value","approved":true,"changed":bool[,"en_old"]}.
 // For each approved row: the entry's value is set to `value` — but when the
 // decoded current value already equals it (a confirm), the entry's line(s) are
 // left byte-for-byte untouched: no `"` → `'` requoting, no multi-line collapse,
 // so the diff carries only real changes (OPEN-21 batch 1 had 226 of 371 changed
-// lines that were quote-only confirm rewrites). Every `// REVIEW:` line
+// lines that were quote-only confirm rewrites). A row that DOES change the value
+// is rewritten in the quote style the entry already used, so a changed line is a
+// wording diff and never also a quoting diff. Every `// REVIEW:` line
 // immediately above the entry is removed either way (approval IS the flag's
 // removal — see i18n-verify.mjs), and an `ml` row whose key has no explicit
 // entry is appended to the 'ml' block so the generated parity placeholder can be
 // dropped by `--generate-ml-parity`. Nothing else in the file is touched.
+//
+// `locale: 'en'` rows are English SOURCE changes (a review may find the source
+// itself wrong). There is nothing to compare their placeholders against, so an
+// `en` row must carry `en_old` — the English the reviewer actually read — and it
+// is rejected unless the file still holds exactly that text. That is the guard
+// against applying a source edit to a key that moved or was re-worded meanwhile.
+// The locale rows for the same key are checked against the NEW English.
 //
 // Line shapes handled (measured against the real file, 2026-09-05):
 //   - entries at 6 spaces, `'key': <literal>,`;
@@ -34,13 +44,14 @@ const PLACEHOLDER_RE = /\{[a-zA-Z0-9_]+\}/g;
 // A Dart string literal, single- or double-quoted, escapes included.
 const LITERAL_RE = /'((?:[^'\\]|\\.)*)'|"((?:[^"\\]|\\.)*)"/g;
 
-export function dartString(value) {
+// `quote` is the delimiter to emit; only that delimiter needs escaping inside.
+export function dartString(value, quote = "'") {
   const escaped = String(value)
     .replace(/\\/g, '\\\\')
-    .replace(/'/g, "\\'")
+    .replace(quote === '"' ? /"/g : /'/g, `\\${quote}`)
     .replace(/\$/g, '\\$')
     .replace(/\n/g, '\\n');
-  return `'${escaped}'`;
+  return `${quote}${escaped}${quote}`;
 }
 
 function placeholders(text) {
@@ -77,8 +88,10 @@ function localeBlocks(lines) {
   return blocks;
 }
 
-// Finds the entry for `key` inside a block: returns {line, endLine, value} where
-// the entry may span continuation lines of adjacent literals ending with `,`.
+// Finds the entry for `key` inside a block: returns {line, endLine, value, quote}
+// where the entry may span continuation lines of adjacent literals ending with
+// `,`. `quote` is the delimiter of the entry's FIRST literal, reused when the
+// value is rewritten so a wording change never also shows up as a quoting change.
 function findEntry(lines, block, key) {
   const head = new RegExp(`^ {6}'${key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'\\s*:\\s*`);
   for (let i = block.start; i < block.end; i += 1) {
@@ -86,9 +99,10 @@ function findEntry(lines, block, key) {
     let endLine = i;
     while (!/,\s*$/.test(lines[endLine]) && endLine < block.end) endLine += 1;
     const joined = lines.slice(i, endLine + 1).join('\n').replace(head, '');
-    const literals = [...joined.matchAll(LITERAL_RE)]
-      .map((m) => decodeDart(m[1] !== undefined ? m[1] : m[2]));
-    return { line: i, endLine, value: literals.join('') };
+    const matches = [...joined.matchAll(LITERAL_RE)];
+    const literals = matches.map((m) => decodeDart(m[1] !== undefined ? m[1] : m[2]));
+    const quote = matches.length > 0 && matches[0][1] === undefined ? '"' : "'";
+    return { line: i, endLine, value: literals.join(''), quote };
   }
   return null;
 }
@@ -107,14 +121,35 @@ export function applyDecisions(filePath, decisions) {
   const en = blocks.en;
   if (!en) throw new Error(`'en' block not found in ${filePath}`);
 
+  // English source changes in this run: the locale rows for the same key are
+  // checked against the NEW English, not the text about to be replaced.
+  const enChanges = new Map();
+  for (const d of decisions) {
+    if (d.approved && d.locale === 'en') enChanges.set(d.key, d.value);
+  }
+
   // Validate everything before writing anything.
   for (const d of decisions) {
     if (!d.approved) continue;
-    if (!LOCALES.has(d.locale) || d.locale === 'en') throw new Error(`unknown locale ${d.locale} for ${d.key}`);
+    if (!LOCALES.has(d.locale)) throw new Error(`unknown locale ${d.locale} for ${d.key}`);
     if (!blocks[d.locale]) throw new Error(`locale block '${d.locale}' not found in ${filePath}`);
     const enEntry = findEntry(lines, en, d.key);
     if (!enEntry) throw new Error(`unknown key ${d.key}`);
-    const want = placeholders(enEntry.value).join(',');
+    if (d.locale === 'en') {
+      // No placeholder oracle for the source itself; guard the key instead.
+      if (typeof d.en_old !== 'string') {
+        throw new Error(`en row for ${d.key} must carry en_old (the English it was reviewed against)`);
+      }
+      if (d.en_old !== enEntry.value) {
+        throw new Error(
+          `en_old mismatch for ${d.key}: file has ${JSON.stringify(enEntry.value)}, `
+          + `row was reviewed against ${JSON.stringify(d.en_old)}`,
+        );
+      }
+      continue;
+    }
+    const enValue = enChanges.has(d.key) ? enChanges.get(d.key) : enEntry.value;
+    const want = placeholders(enValue).join(',');
     const got = placeholders(d.value).join(',');
     if (want !== got) throw new Error(`placeholder mismatch for ${d.key} (${d.locale}): en has [${want}], value has [${got}]`);
   }
@@ -131,7 +166,11 @@ export function applyDecisions(filePath, decisions) {
     if (entry) {
       // Confirm: value already equal → keep the existing line(s) verbatim.
       if (entry.value !== d.value) {
-        lines.splice(entry.line, entry.endLine - entry.line + 1, `      '${d.key}': ${dartString(d.value)},`);
+        lines.splice(
+          entry.line,
+          entry.endLine - entry.line + 1,
+          `      '${d.key}': ${dartString(d.value, entry.quote)},`,
+        );
       }
       stripReviewAbove(lines, entry.line);
     } else if (d.locale === 'ml') {
