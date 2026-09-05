@@ -49,13 +49,17 @@ export async function ingestMachineObservations({ payload, machineCode = null, t
   }
   const machineNo = String(machineCode || payload.machine_no || '').trim();
 
+  // Resolve ONCE, so the inbox row and the session match cannot disagree about
+  // which tenant this ingestion belongs to.
+  const resolvedTenantId = requireTenantId(tenantId);
+
   // 1. Persist the raw payload FIRST — failures stay visible + replayable.
   const inserted = await prisma.$queryRawUnsafe(
     `INSERT INTO lab_interface_messages
        (tenant_id, analyzer_code, direction, protocol, message_type, raw_message, status)
      VALUES ($1::uuid, $2, 'inbound', 'other', 'OBX^DIALYSIS', $3, 'received')
      RETURNING id`,
-    requireTenantId(tenantId),
+    resolvedTenantId,
     machineNo || 'unknown-machine',
     JSON.stringify(payload),
   );
@@ -71,12 +75,23 @@ export async function ingestMachineObservations({ payload, machineCode = null, t
     }
 
     // 2. Match the machine to its in-progress session (latest wins).
+    //
+    // The tenant predicate is LOAD-BEARING, not belt-and-braces. This runs on a
+    // plain `prisma` client with no transaction-local app.current_tenant_id, and
+    // dialysis_sessions carries only the PERMISSIVE tenant_isolation policy,
+    // which explicitly permits every row when that GUC is unset. Without the
+    // predicate a machine_no reused across tenants — a device code, not a
+    // globally unique key — matches another tenant's in-progress session and the
+    // observations land on THEIR patient. Proven against the live schema as the
+    // vhhealth_app runtime role. Do not remove it expecting RLS to backstop.
     const sessRows = await prisma.$queryRawUnsafe(
       `SELECT id, dialysis_patient_id FROM dialysis_sessions
        WHERE machine_no = $1 AND status = 'in_progress'
+         AND tenant_id = $2::uuid
        ORDER BY actual_start_at DESC NULLS LAST
        LIMIT 1`,
       machineNo,
+      resolvedTenantId,
     );
     if (!sessRows.length) {
       throw AppError.notFound(
@@ -98,6 +113,14 @@ export async function ingestMachineObservations({ payload, machineCode = null, t
       }
       if (!Object.keys(cleaned).length) continue;
       const row = await logObservation({
+        // logObservation re-checks the session INSIDE the tenant via
+        // getDialysisSessionInTenant. Omitting tenantId here handed it
+        // `undefined`, which requireTenantId resolves to DEFAULT_TENANT_ID while
+        // ALLOW_DEFAULT_TENANT=true and THROWS 403 once that flips false at the
+        // multi-tenant cutover — i.e. today it can write to the default tenant's
+        // session, and after the cutover machine ingestion stops working
+        // entirely. Pass the resolved tenant so neither happens.
+        tenantId: resolvedTenantId,
         session_id: session.id,
         recorded_by: context.actorUid || null,
         recorded_at: obs?.recorded_at || null,

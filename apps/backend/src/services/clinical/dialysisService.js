@@ -143,7 +143,7 @@ async function getDialysisPatientInTenant(tenantId, dialysisPatientId) {
 
 async function getDialysisSessionInTenant(tenantId, sessionId) {
   const rows = await prisma.$queryRawUnsafe(
-    `SELECT s.id, s.status, s.dialysis_patient_id, p.patient_uid
+    `SELECT s.id, s.status, s.dialysis_patient_id, s.tenant_id, p.patient_uid
        FROM dialysis_sessions s
        JOIN dialysis_patients p
          ON p.id = s.dialysis_patient_id
@@ -680,18 +680,26 @@ export async function logObservation({ tenantId, session_id, recorded_by, source
     eventNote = `${eventNote ? eventNote + ' · ' : ''}HIGH UF RATE >13mL/kg/hr (review)`;
   }
 
+  // tenant_id is bound EXPLICITLY from the session we just resolved in-tenant,
+  // not left to the column default. That default is
+  // COALESCE(current_setting('app.current_tenant_id'), DEFAULT_TENANT_ID), and
+  // the GUC is transaction-local — this runs on a plain client outside one — so
+  // every observation on a non-default tenant's session was being stamped with
+  // the DEFAULT tenant's id. Reads go through getDialysisSessionInTenant and
+  // filter by session_id, so nothing disappeared; the row's own tenant
+  // attribution was simply wrong, and tenant_id here has an FK to tenants.
   const sql = `
     INSERT INTO dialysis_intra_obs
       (session_id, recorded_at, bp_systolic, bp_diastolic, pulse, spo2, temp_c,
        blood_flow_ml_min, uf_rate_ml_hr, tmp_mmhg,
        arterial_pressure, venous_pressure, conductivity_ms_cm,
        uf_total_ml, event_note, intervention, intervention_dose, recorded_by,
-       source, source_device)
+       source, source_device, tenant_id)
     VALUES ($1, COALESCE($2::timestamptz, NOW()),
             $3, $4, $5, $6, $7,
             $8, $9, $10, $11, $12, $13,
             $14, $15, $16, $17, $18,
-            COALESCE($19, 'staff'), $20)
+            COALESCE($19, 'staff'), $20, $21::uuid)
     RETURNING *`;
   const rows = await prisma.$queryRawUnsafe(sql,
     session.id, body.recorded_at || null,
@@ -703,7 +711,8 @@ export async function logObservation({ tenantId, session_id, recorded_by, source
     body.uf_total_ml || null, eventNote,
     body.intervention || null, body.intervention_dose || null,
     recorded_by || null,
-    source || null, source_device || null);
+    source || null, source_device || null,
+    session.tenant_id);
   return unwrap(rows);
 }
 
