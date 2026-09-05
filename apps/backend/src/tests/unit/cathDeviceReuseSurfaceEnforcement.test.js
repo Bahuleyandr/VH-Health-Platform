@@ -565,7 +565,9 @@ describe('pre-cath lab readiness: serology VALUES are projected by the same rule
   // but the items carry value_text / value_numeric / abnormal_flag for hiv,
   // hbsag and hcv. Handing a RECEPTIONIST "hbsag: reactive" one key away from
   // the reuse strip this file redacts would make the checklist the way round
-  // the projection.
+  // the projection. Same for CRITICALITY: only a reactive marker is critical,
+  // so is_critical on the hbsag row, and the bare code in critical_items (top
+  // level AND in the labs check's metadata), name what the values withhold.
   const READINESS_ITEM = (overrides) => ({
     item_code: 'hb', required: true, state: 'result_final', value_text: '12.4',
     value_numeric: 12.4, unit: 'g/dL', abnormal_flag: null, is_critical: false,
@@ -577,9 +579,14 @@ describe('pre-cath lab readiness: serology VALUES are projected by the same rule
     item_code: 'hbsag', value_text: 'reactive', value_numeric: null, unit: null,
     abnormal_flag: 'AA', is_critical: true, lab_result_id: 77,
   });
+  const CRITICAL_POTASSIUM = READINESS_ITEM({
+    item_code: 'potassium', value_text: '6.9', value_numeric: 6.9, unit: 'mmol/L',
+    abnormal_flag: 'HH', is_critical: true, lab_result_id: 42,
+  });
   const readiness = () => ({
     case_id: 10, check_status: 'pending', auto_managed: true, critical_warning: true,
-    critical_items: ['hbsag'], items: [READINESS_ITEM({}), { ...REACTIVE_HBSAG }],
+    critical_items: ['potassium', 'hbsag'],
+    items: [READINESS_ITEM({}), { ...CRITICAL_POTASSIUM }, { ...REACTIVE_HBSAG }],
     missing: [], orderable_now: [], open_order_codes: [],
     settings: {
       lab_validity_days: 30, serology_validity_days: 90, auto_pass: true,
@@ -591,9 +598,9 @@ describe('pre-cath lab readiness: serology VALUES are projected by the same rule
   const labsCheckRow = () => ({
     id: 5, check_type: 'labs', status: 'pending', required: true,
     metadata: {
-      auto_managed: true, critical_warning: true, critical_items: ['hbsag'],
+      auto_managed: true, critical_warning: true, critical_items: ['potassium', 'hbsag'],
       auto_pending_reason: 'hiv not ordered',
-      live_evidence: [READINESS_ITEM({}), { ...REACTIVE_HBSAG }],
+      live_evidence: [READINESS_ITEM({}), { ...CRITICAL_POTASSIUM }, { ...REACTIVE_HBSAG }],
       live_evidence_refreshed_at: '2026-09-04T00:00:00.000Z',
     },
   });
@@ -617,12 +624,18 @@ describe('pre-cath lab readiness: serology VALUES are projected by the same rule
     expect(hbsagOf(labs.body.data.items)).toMatchObject({
       value_text: 'reactive', abnormal_flag: 'AA', is_critical: true,
     });
+    expect(labs.body.data.critical_items).toEqual(['potassium', 'hbsag']);
 
     const view = await request(appFor('CATH_LAB_STAFF')).get('/api/v1/cath-lab/cases/10');
     expect(view.status).toBe(200);
     expect(hbsagOf(view.body.data.case.lab_readiness.items).value_text).toBe('reactive');
+    expect(view.body.data.case.lab_readiness.critical_items).toEqual(['potassium', 'hbsag']);
     expect(hbsagOf(view.body.data.case.readiness[0].metadata.live_evidence).value_text)
       .toBe('reactive');
+    expect(hbsagOf(view.body.data.case.readiness[0].metadata.live_evidence).is_critical)
+      .toBe(true);
+    expect(view.body.data.case.readiness[0].metadata.critical_items)
+      .toEqual(['potassium', 'hbsag']);
   });
 
   it('a RECEPTIONIST gets the STATE and a null value on the readiness GET', async () => {
@@ -637,13 +650,20 @@ describe('pre-cath lab readiness: serology VALUES are projected by the same rule
     // The checklist the front desk is admitted for is all still there.
     expect(hbsag.state).toBe('result_final');
     expect(hbsag.observed_at).toBe('2026-09-01T04:00:00.000Z');
-    expect(hbsag.is_critical).toBe(true);
     expect(hbsag.source).toBe('lab_result');
+    // Criticality on a qualitative marker IS the result: false, key kept.
+    expect(hbsag.is_critical).toBe(false);
+    // ...and the name is not left sitting in the critical list either, while
+    // the advisory that SOME critical value exists still stands.
+    expect(res.body.data.critical_items).toEqual(['potassium']);
+    expect(res.body.data.critical_warning).toBe(true);
     // Blanked, never dropped: CathLabReadinessItem is additionalProperties:false
     // with every key required, so the key set must not move.
     expect(Object.keys(hbsag).sort()).toEqual(Object.keys(REACTIVE_HBSAG).sort());
-    // ...and the quantitative item beside it is untouched.
+    // ...and the quantitative items beside it are untouched: the critical
+    // potassium is still named, still flagged, still valued.
     expect(res.body.data.items[0]).toMatchObject({ item_code: 'hb', value_text: '12.4' });
+    expect(res.body.data.items[1]).toEqual(CRITICAL_POTASSIUM);
   });
 
   it('a RECEPTIONIST gets the same treatment inside GET /cases/:id', async () => {
@@ -652,14 +672,21 @@ describe('pre-cath lab readiness: serology VALUES are projected by the same rule
     expect(res.status).toBe(200);
     expect(hbsagOf(res.body.data.case.lab_readiness.items)).toMatchObject({
       value_text: null, value_numeric: null, abnormal_flag: null, state: 'result_final',
+      is_critical: false,
     });
+    expect(res.body.data.case.lab_readiness.critical_items).toEqual(['potassium']);
     // The labs CHECK row carries a verbatim copy of the same items in
     // metadata.live_evidence — redacting only lab_readiness would leave the
     // values one key over on the very same response.
     const evidence = res.body.data.case.readiness[0].metadata.live_evidence;
     expect(hbsagOf(evidence).value_text).toBeNull();
     expect(hbsagOf(evidence).abnormal_flag).toBeNull();
-    expect(evidence).toHaveLength(2);
+    expect(hbsagOf(evidence).is_critical).toBe(false);
+    // metadata carries its OWN copy of critical_items — filtering only the
+    // readiness block would leave the name one key over on this same response.
+    expect(res.body.data.case.readiness[0].metadata.critical_items).toEqual(['potassium']);
+    expect(res.body.data.case.readiness[0].metadata.critical_warning).toBe(true);
+    expect(evidence).toHaveLength(3);
     expect(res.body.data.case.readiness[0].metadata.auto_pending_reason).toBe('hiv not ordered');
   });
 
@@ -669,6 +696,8 @@ describe('pre-cath lab readiness: serology VALUES are projected by the same rule
 
     expect(res.status).toBe(200);
     expect(hbsagOf(res.body.data.items).value_text).toBeNull();
+    expect(hbsagOf(res.body.data.items).is_critical).toBe(false);
+    expect(res.body.data.critical_items).toEqual(['potassium']);
   });
 
   it('a null lab_readiness (degraded refresh) does not become an object', async () => {

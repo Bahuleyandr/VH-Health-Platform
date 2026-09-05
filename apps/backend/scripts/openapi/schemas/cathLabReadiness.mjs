@@ -137,7 +137,14 @@ const item = {
     value_numeric: nullableNumber,
     unit: nullableString,
     abnormal_flag: nullableString,
-    is_critical: { type: 'boolean' },
+    is_critical: {
+      type: 'boolean',
+      description:
+        'True when the value came back at a critical threshold. On the three serology items '
+        + '(hiv, hbsag, hcv) criticality IS the result — only a reactive marker is critical — '
+        + 'so it is withheld for roles outside the serology audience, which read false here '
+        + 'alongside the nulled value keys.'
+    },
     observed_at: nullableDateTime,
     source: { type: 'string', enum: SOURCES, nullable: true },
     lab_result_id: nullableInteger,
@@ -176,7 +183,14 @@ const readiness = {
         + 'table has to be told about.'
     },
     // Read across ALL items — required or not, waived or not.
-    critical_items: { type: 'array', items: { type: 'string', enum: ITEMS } },
+    critical_items: {
+      type: 'array',
+      description:
+        'Which items came back critical. Naming a serology item here says it is reactive, so '
+        + 'hiv, hbsag and hcv are withheld for roles outside the serology audience; '
+        + 'critical_warning still reports that SOME critical value exists.',
+      items: { type: 'string', enum: ITEMS }
+    },
     items: { type: 'array', items: { $ref: '#/components/schemas/CathLabReadinessItem' } },
     missing: {
       type: 'array',
