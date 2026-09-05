@@ -93,11 +93,15 @@ jest.unstable_mockModule('../../services/documents/cathReportPdfService.js', () 
 // the governance router; stubbed here for the same reason as the services
 // above — this suite pins the device-reuse audit trail and serology projection, not the readiness resolver, and the real
 // module pulls the whole lab-results graph in behind it.
+const refreshCaseLabReadiness = jest.fn();
 jest.unstable_mockModule('../../services/clinical/cathLabReadinessService.js', () => ({
+  // ITEM_CODES is REAL: cathLabRoutes' :item guard tests membership against it,
+  // and a stub list would let the guard pass a code the service refuses.
+  ITEM_CODES: Object.freeze(['hb', 'platelets', 'creatinine', 'potassium', 'hiv', 'hbsag', 'hcv']),
   getReadinessSettings: jest.fn(),
   orderMissingLabs: jest.fn(),
   recordExternalLabResult: jest.fn(),
-  refreshCaseLabReadiness: jest.fn(),
+  refreshCaseLabReadiness,
   refreshOpenCasesForPatient: jest.fn(),
   upsertReadinessSettings: jest.fn(),
   waiveLabItem: jest.fn(),
@@ -187,6 +191,7 @@ beforeEach(() => {
   logPhiAccess.mockClear();
   listCaseConsumableUsage.mockReset();
   getCase.mockReset();
+  refreshCaseLabReadiness.mockReset();
 });
 
 describe('device history writes one HIPAA access row per distinct patient', () => {
@@ -550,5 +555,130 @@ describe('the FROZEN serology screens on a usage row are projected by the same r
     const reception = await request(appFor('RECEPTIONIST')).get('/api/v1/cath-lab/cases/10');
     expect(reception.status).toBe(200);
     expect('consumable_usage' in reception.body.data.case).toBe(false);
+  });
+});
+
+describe('pre-cath lab readiness: serology VALUES are projected by the same rule', () => {
+  // The premise of this suite, one surface over. GET /cases/:id/readiness/labs
+  // and the lab_readiness block on GET /cases/:id are cath REPORT-READ — which
+  // is right, the front desk needs "labs pending" before the case is called —
+  // but the items carry value_text / value_numeric / abnormal_flag for hiv,
+  // hbsag and hcv. Handing a RECEPTIONIST "hbsag: reactive" one key away from
+  // the reuse strip this file redacts would make the checklist the way round
+  // the projection.
+  const READINESS_ITEM = (overrides) => ({
+    item_code: 'hb', required: true, state: 'result_final', value_text: '12.4',
+    value_numeric: 12.4, unit: 'g/dL', abnormal_flag: null, is_critical: false,
+    observed_at: '2026-09-01T04:00:00.000Z', source: 'lab_result', lab_result_id: 41,
+    investigation_id: null, specimen_id: null, ordered_at: null,
+    waived_by: null, waived_at: null, waive_reason: null, ...overrides,
+  });
+  const REACTIVE_HBSAG = READINESS_ITEM({
+    item_code: 'hbsag', value_text: 'reactive', value_numeric: null, unit: null,
+    abnormal_flag: 'AA', is_critical: true, lab_result_id: 77,
+  });
+  const readiness = () => ({
+    case_id: 10, check_status: 'pending', auto_managed: true, critical_warning: true,
+    critical_items: ['hbsag'], items: [READINESS_ITEM({}), { ...REACTIVE_HBSAG }],
+    missing: [], orderable_now: [], open_order_codes: [],
+    settings: {
+      lab_validity_days: 30, serology_validity_days: 90, auto_pass: true,
+      external_results_count: true,
+      required_items: ['hb', 'platelets', 'creatinine', 'potassium', 'hiv', 'hbsag', 'hcv'],
+    },
+    case_started: false,
+  });
+  const labsCheckRow = () => ({
+    id: 5, check_type: 'labs', status: 'pending', required: true,
+    metadata: {
+      auto_managed: true, critical_warning: true, critical_items: ['hbsag'],
+      auto_pending_reason: 'hiv not ordered',
+      live_evidence: [READINESS_ITEM({}), { ...REACTIVE_HBSAG }],
+      live_evidence_refreshed_at: '2026-09-04T00:00:00.000Z',
+    },
+  });
+
+  const hbsagOf = (items) => items.find((row) => row.item_code === 'hbsag');
+
+  beforeEach(() => {
+    refreshCaseLabReadiness.mockResolvedValue(readiness());
+    getCase.mockResolvedValue({
+      id: 10, patient_uid: CASE_PATIENT,
+      lab_readiness: readiness(), readiness: [labsCheckRow()],
+    });
+  });
+
+  it('positive control: a CATH_LAB_STAFF reads the reactive marker on both surfaces', async () => {
+    // Without this, an emptied projection below is indistinguishable from a
+    // fixture that never carried a value.
+    const labs = await request(appFor('CATH_LAB_STAFF'))
+      .get('/api/v1/cath-lab/cases/10/readiness/labs');
+    expect(labs.status).toBe(200);
+    expect(hbsagOf(labs.body.data.items)).toMatchObject({
+      value_text: 'reactive', abnormal_flag: 'AA', is_critical: true,
+    });
+
+    const view = await request(appFor('CATH_LAB_STAFF')).get('/api/v1/cath-lab/cases/10');
+    expect(view.status).toBe(200);
+    expect(hbsagOf(view.body.data.case.lab_readiness.items).value_text).toBe('reactive');
+    expect(hbsagOf(view.body.data.case.readiness[0].metadata.live_evidence).value_text)
+      .toBe('reactive');
+  });
+
+  it('a RECEPTIONIST gets the STATE and a null value on the readiness GET', async () => {
+    const res = await request(appFor('RECEPTIONIST'))
+      .get('/api/v1/cath-lab/cases/10/readiness/labs');
+
+    expect(res.status).toBe(200);
+    const hbsag = hbsagOf(res.body.data.items);
+    expect(hbsag.value_text).toBeNull();
+    expect(hbsag.value_numeric).toBeNull();
+    expect(hbsag.abnormal_flag).toBeNull();
+    // The checklist the front desk is admitted for is all still there.
+    expect(hbsag.state).toBe('result_final');
+    expect(hbsag.observed_at).toBe('2026-09-01T04:00:00.000Z');
+    expect(hbsag.is_critical).toBe(true);
+    expect(hbsag.source).toBe('lab_result');
+    // Blanked, never dropped: CathLabReadinessItem is additionalProperties:false
+    // with every key required, so the key set must not move.
+    expect(Object.keys(hbsag).sort()).toEqual(Object.keys(REACTIVE_HBSAG).sort());
+    // ...and the quantitative item beside it is untouched.
+    expect(res.body.data.items[0]).toMatchObject({ item_code: 'hb', value_text: '12.4' });
+  });
+
+  it('a RECEPTIONIST gets the same treatment inside GET /cases/:id', async () => {
+    const res = await request(appFor('RECEPTIONIST')).get('/api/v1/cath-lab/cases/10');
+
+    expect(res.status).toBe(200);
+    expect(hbsagOf(res.body.data.case.lab_readiness.items)).toMatchObject({
+      value_text: null, value_numeric: null, abnormal_flag: null, state: 'result_final',
+    });
+    // The labs CHECK row carries a verbatim copy of the same items in
+    // metadata.live_evidence — redacting only lab_readiness would leave the
+    // values one key over on the very same response.
+    const evidence = res.body.data.case.readiness[0].metadata.live_evidence;
+    expect(hbsagOf(evidence).value_text).toBeNull();
+    expect(hbsagOf(evidence).abnormal_flag).toBeNull();
+    expect(evidence).toHaveLength(2);
+    expect(res.body.data.case.readiness[0].metadata.auto_pending_reason).toBe('hiv not ordered');
+  });
+
+  it('a TECHNICIAN is projected too — cath report-read is not clinical staff', async () => {
+    const res = await request(appFor('TECHNICIAN'))
+      .get('/api/v1/cath-lab/cases/10/readiness/labs');
+
+    expect(res.status).toBe(200);
+    expect(hbsagOf(res.body.data.items).value_text).toBeNull();
+  });
+
+  it('a null lab_readiness (degraded refresh) does not become an object', async () => {
+    getCase.mockResolvedValue({ id: 10, patient_uid: CASE_PATIENT, lab_readiness: null });
+
+    const res = await request(appFor('RECEPTIONIST')).get('/api/v1/cath-lab/cases/10');
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.case.lab_readiness).toBeNull();
+    // ...and a case row that carried no readiness list does not grow one.
+    expect('readiness' in res.body.data.case).toBe(false);
   });
 });

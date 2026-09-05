@@ -22,11 +22,16 @@ import {
   refreshReadinessEvidence
 } from '../../services/clinical/cathQuickWinsService.js';
 import {
+  ITEM_CODES,
   orderMissingLabs,
   recordExternalLabResult,
   refreshCaseLabReadiness,
   waiveLabItem
 } from '../../services/clinical/cathLabReadinessService.js';
+import {
+  projectLabReadinessForRole,
+  projectReadinessChecksForRole
+} from '../../services/clinical/cathLabReadinessProjection.js';
 import {
   addReportAddendum,
   createReport,
@@ -100,17 +105,32 @@ function contextOf(req) {
     requestId: req.id || null,
     ipAddress: req.ip || null,
     userAgent: req.get?.('user-agent') || null,
-    // The four idempotency fields are what recordExternalLabResult forwards to
-    // recordResultManual's ingest-command rail: the claimed key, the body hash
-    // the claim was made on, the claim row's id and the request id. They come
-    // from req.idempotencyClaim (idempotencyMiddleware.js sets exactly
-    // { id, requestKey, requestBodyHash, scope }) and never from the body — a
-    // caller-supplied fingerprint would let a corrected value replay as the
-    // original. requestKey IS the header value, so the header stays the
-    // fallback for the routes that carry no claim layer.
-    idempotencyKey: req.idempotencyClaim?.requestKey || req.get?.('idempotency-key') || null,
-    requestFingerprint: req.idempotencyClaim?.requestBodyHash || null,
-    httpIdempotencyClaimId: req.idempotencyClaim?.id || null
+    // `idempotencyKey` is the CLAIMED key (idempotencyMiddleware.js sets
+    // req.idempotencyClaim to { id, requestKey, requestBodyHash, scope }, plus
+    // a completedReplay / recoveringInFlight marker on its two recovery
+    // paths), never a body field — a caller-supplied identity would let a
+    // corrected value replay as the original. requestKey IS the header value,
+    // so the header stays the fallback for the routes that carry no claim.
+    //
+    // The claim's ROW ID and body hash are deliberately NOT forwarded. The one
+    // service on this router that would read them —
+    // cathLabReadinessService.recordExternalLabResult, into
+    // labResultsService.recordResultManual — hands them to
+    // finaliseHttpIdempotencyInTx, which marks THIS route's HTTP claim
+    // complete/200 with the LAB layer's payload from inside the lab
+    // transaction. Two things then break: a replay answers 200 with the lab
+    // service's {result, alerts} (a whole lab row) instead of this route's
+    // published 201 {lab_result_id, item, readiness}; and a 5xx raised AFTER
+    // that transaction commits — the blood-borne marker write, the audit, the
+    // readiness refresh all still to come — can neither release the claim nor
+    // re-finalise it, so the retry replays a success for work that never
+    // happened. The middleware owns the claim on this router, exactly as the
+    // post-use route's `retainOnServerError` comment below reasons about its
+    // own retry path; the lab rail keeps its OWN content-derived fingerprint
+    // (case_id + item + value + …), which is also what makes an hiv, an hbsag
+    // and an hcv entry sent under one Idempotency-Key three distinct commands
+    // instead of one.
+    idempotencyKey: req.idempotencyClaim?.requestKey || req.get?.('idempotency-key') || null
   };
 }
 
@@ -196,6 +216,21 @@ const requireViewerAccess = roleGuard(
   'Cath image viewer access is required',
   'CATH_REPORT_VIEWER_FORBIDDEN'
 );
+
+// The service validates :item against ITEM_CODES and answers 400
+// CATH_LAB_READINESS_ITEM_UNKNOWN, but that is one layer too late: the
+// idempotency claim in front of it would already have written a register row
+// for a URL that can never succeed. This is the SAME membership test, run
+// before a key is burned — against the service's own exported ITEM_CODES, so
+// the two can never disagree about which codes exist, and answering with the
+// code at the envelope ROOT so a client reads one shape whichever layer
+// refused (relayAppError lifts an AppError's code the same way).
+function requireReadinessItemParam(req, res, next) {
+  if (ITEM_CODES.includes(String(req.params.item ?? ''))) return next();
+  return error(res, 'A lab readiness item code is required', HTTP_STATUS.BAD_REQUEST, {
+    topLevel: { code: 'CATH_LAB_READINESS_ITEM_UNKNOWN' }
+  });
+}
 
 function handleFailure(res, err, context) {
   return relayAppError(res, err, `Failed to ${context}`);
@@ -403,20 +438,26 @@ router.post('/cases', requireCathWorkflow, guardCathCaseCreate, async (req, res)
 router.get('/cases/:id', requireReportRead, guardCathCaseById, async (req, res) => {
   try {
     const cathCase = await getCase(req.params.id, { tenantId: tenantOf(req) });
+    const role = serologyRoleOf(req);
     // The case view carries the same blood-borne restriction strip the
     // consumables view does, so it takes the same role projection — otherwise
     // the narrower surface would simply be the way round the wider one.
+    //
+    // `lab_readiness` and the `labs` row inside `readiness` are the SAME
+    // narrative arriving through the pre-cath checklist: the items carry
+    // value_text / value_numeric / abnormal_flag for hiv, hbsag and hcv, and
+    // the labs check's metadata.live_evidence is a verbatim copy of them. Both
+    // are projected, or the strip beside them is redacted for nothing.
+    // undefined survives as undefined (JSON drops the key), so a case row that
+    // never carried one of these does not grow it — CathLabCase is
+    // additionalProperties:false.
     return success(res, {
       case: {
         ...cathCase,
-        consumable_usage: projectUsageScreensForRole(
-          cathCase?.consumable_usage,
-          serologyRoleOf(req)
-        ),
-        reuse_restriction: projectReuseRestrictionForRole(
-          cathCase?.reuse_restriction,
-          serologyRoleOf(req)
-        )
+        lab_readiness: projectLabReadinessForRole(cathCase?.lab_readiness, role),
+        readiness: projectReadinessChecksForRole(cathCase?.readiness, role),
+        consumable_usage: projectUsageScreensForRole(cathCase?.consumable_usage, role),
+        reuse_restriction: projectReuseRestrictionForRole(cathCase?.reuse_restriction, role)
       }
     }, 'Cath-lab case');
   } catch (err) {
@@ -585,32 +626,36 @@ router.post('/cases/:id/readiness/evidence/refresh', requireCathWorkflow, guardC
 // so the answer is the state AFTER the refresh. It is report-read plus the case
 // guard because it carries per-item lab VALUES (a potassium, an HIV result) —
 // PHI, logged by the mount's phiAccessLogger('CATH_LAB') against the case's
-// patient, which the guard has already resolved.
+// patient when the care-team guard resolves it.
+//
+// Report-read admits RECEPTIONIST and TECHNICIAN, who need "labs pending"
+// before the case is called but have no business reading WHICH blood-borne
+// marker came back reactive, so the three serology items lose their values on
+// the way out — the same rule, through the same audience predicate, that
+// redacts the reuse strip on the consumables view.
 router.get('/cases/:id/readiness/labs', requireReportRead, guardCathCaseById, async (req, res) => {
   try {
     const labs = await refreshCaseLabReadiness({
       tenantId: tenantOf(req),
       caseId: req.params.id,
-      context: contextOf(req)
+      // A GET is a read, and the refresh it drives is the system's work, not
+      // the reader's: contextOf(req) would stamp whoever opened the checklist
+      // onto cath_lab_cases.updated_by and onto the
+      // cath_lab.readiness.labs.auto_* audit row, attributing a clearance
+      // decision to a person who only looked. requestId is kept so the write
+      // is still traceable to the request that provoked it; the POST refresh
+      // above IS an act and keeps its full actor.
+      context: { requestId: req.id || null, actorUid: null, actorRole: 'SYSTEM' }
     });
-    return success(res, labs, 'Cath-lab lab readiness');
+    return success(
+      res,
+      projectLabReadinessForRole(labs, serologyRoleOf(req)),
+      'Cath-lab lab readiness'
+    );
   } catch (err) {
     return handleFailure(res, err, 'lab readiness');
   }
 });
-
-// The service validates :item against ITEM_CODES and answers 400
-// CATH_LAB_READINESS_ITEM_UNKNOWN, but that is one layer too late: the
-// idempotency claim in front of it would already have written a register row
-// for a URL that can never succeed. This refuses the obviously-malformed
-// shapes (a path segment that is not lower-case letters and underscores)
-// before a key is burned; the service stays the authority on WHICH codes exist.
-function requireReadinessItemParam(req, res, next) {
-  if (/^[a-z_]+$/.test(String(req.params.item || ''))) return next();
-  return error(res, 'A lab readiness item code is required', HTTP_STATUS.BAD_REQUEST, {
-    code: 'CATH_LAB_READINESS_ITEM_UNKNOWN'
-  });
-}
 
 router.post(
   '/cases/:id/readiness/labs/order-missing',
@@ -631,9 +676,17 @@ router.post(
   }
 );
 
-// The ONLY route that may mint an external-origin lab result. The claim's key,
-// body hash and row id reach recordResultManual through contextOf so a retry
-// re-reads the same command instead of recording the outside value twice.
+// The ONLY route that may mint an external-origin lab result. The claimed KEY
+// reaches recordResultManual through contextOf so a retry re-reads the same
+// command instead of recording the outside value twice; the claim's ROW ID and
+// body hash deliberately do NOT (see contextOf) — the middleware owns this
+// route's claim and the ingest rail derives its own fingerprint from the
+// content. retainOnServerError stays unset, and unlike the post-use route
+// above the argument is not self-blocking transitions but the release itself:
+// a 5xx here RELEASES the claim, the retry re-enters, the ingest rail replays
+// the lab row by content, and the blood-borne marker write, the audit and the
+// readiness refresh that failed the first time complete. Retaining it would
+// freeze a half-done write behind a success nobody can retry.
 router.post(
   '/cases/:id/readiness/labs/:item/external-result',
   requireCathWorkflow,

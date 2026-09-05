@@ -109,6 +109,12 @@ function stubDb({ settingsRow = null, caseRow = CASE_ROW } = {}) {
       if (/FROM cath_lab_readiness_settings/.test(sql)) return settingsRow ? [settingsRow] : [];
       if (/FROM cath_reprocessing_settings/.test(sql)) return [];
       if (/FROM lab_results/.test(sql)) return [];
+      // Before the investigations branch: the open-order read joins bookings to
+      // investigations, and the booking-only read (spec §7 step 2) selects FROM
+      // investigation_bookings, which the /FROM investigations/ pattern does
+      // not match. Ordered so neither read can be answered with the other's
+      // rows.
+      if (/FROM investigation_bookings/.test(sql)) return [];
       if (/FROM investigations/.test(sql)) return [];
       if (/FROM lab_specimens/.test(sql)) return [];
       if (/FROM cath_case_lab_readiness_items/.test(sql)) return [];
@@ -325,9 +331,12 @@ describe('the published shapes cover every key the service returns', () => {
   });
 });
 
-describe('the six operations describe the routes that exist', () => {
+describe('the seven operations describe the routes that exist', () => {
   const CATH = '/api/v1/cath-lab/cases/{id}/readiness/labs';
   const SETTINGS = '/api/v1/cath-reprocessing/lab-readiness-settings';
+  // Documented in prose only: it predates this overlay and still answers the
+  // generic Success envelope, so it carries a description and nothing else.
+  const EVIDENCE = 'POST /api/v1/cath-lab/cases/{id}/readiness/evidence/refresh';
 
   const COMMANDS = [
     [`POST ${CATH}/order-missing`, 'CathLabReadinessOrderMissingResponse', '201'],
@@ -354,19 +363,31 @@ describe('the six operations describe the routes that exist', () => {
     return document.paths[path][method.toLowerCase()];
   }
 
-  it('covers exactly the four cath routes and the two governance routes', () => {
+  it('covers exactly the four cath routes, evidence-refresh and the two governance routes', () => {
     expect(Object.keys(operations).sort()).toEqual(
-      [...COMMANDS.map(([key]) => key), ...READS.map(([key]) => key)].sort(),
+      [...COMMANDS.map(([key]) => key), ...READS.map(([key]) => key), EVIDENCE].sort(),
     );
   });
 
-  it.each([...COMMANDS.map(([key]) => key), ...READS.map(([key]) => key)])(
+  it.each([...COMMANDS.map(([key]) => key), ...READS.map(([key]) => key), EVIDENCE])(
     '%s carries a description',
     (key) => {
       expect(operations[key].description).toEqual(expect.any(String));
       expect(operations[key].description.trim().length).toBeGreaterThan(40);
     },
   );
+
+  it('the evidence refresh is documented but still generically typed', () => {
+    // Honesty rather than a shape it does not have: the handler answers
+    // { ...evidence refresh result, labs: CathLabReadiness | null }, and only
+    // the `labs` half has a schema here — so the description says so and the
+    // response stays the generic Success envelope.
+    expect(operations[EVIDENCE]).not.toHaveProperty('response');
+    expect(operations[EVIDENCE]).not.toHaveProperty('request');
+    expect(operations[EVIDENCE].description).toMatch(/labs: null/);
+    expect(generated(EVIDENCE).responses['200'].content['application/json'].schema)
+      .toEqual({ $ref: '#/components/schemas/Success' });
+  });
 
   it.each(COMMANDS)('%s claims an Idempotency-Key and answers %s at %s', (key, response, status) => {
     // The header is documented because the route REQUIRES it: all four are
@@ -375,7 +396,15 @@ describe('the six operations describe the routes that exist', () => {
       expect.objectContaining({ name: 'Idempotency-Key', in: 'header', required: true }),
     ]);
     expect(operations[key].response).toBe(response);
-    expect(Object.keys(generated(key).responses)).toEqual([status]);
+    const responses = generated(key).responses;
+    expect(Object.keys(responses)).toContain(status);
+    // Everything else on the operation is a documented §11 failure, and every
+    // one of them answers the SAME envelope — `code` at the root, not nested.
+    for (const [code, body] of Object.entries(responses)) {
+      if (code === status) continue;
+      expect({ key, code, schema: body.content['application/json'].schema })
+        .toEqual({ key, code, schema: { $ref: '#/components/schemas/CathLabReadinessErrorResponse' } });
+    }
   });
 
   it.each(READS)('%s is a read: no Idempotency-Key, answers %s', (key, response) => {
@@ -399,6 +428,36 @@ describe('the six operations describe the routes that exist', () => {
         expect.objectContaining({ type: 'string', pattern: '^[1-9][0-9]*$' }),
       ]));
     }
+  });
+
+  it('the documented §11 codes are the ones the service and the route actually raise', () => {
+    // The overlay's ERROR_CODES enum against the throw sites themselves: a code
+    // added to the service and not documented, or documented and never raised,
+    // fails here rather than being discovered by a client.
+    const ROUTE_SOURCE = readFileSync(
+      new URL('../../routes/clinical/cathLabRoutes.js', import.meta.url),
+      'utf8',
+    );
+    const raised = new Set(
+      [...`${SERVICE_SOURCE}${ROUTE_SOURCE}`.matchAll(/'(CATH_LAB_READINESS_[A-Z_]+)'/g)]
+        .map((match) => match[1])
+        // Not a failure: the audit action name for a settings write.
+        .filter((code) => code !== 'CATH_LAB_READINESS_SETTINGS_UPDATED'),
+    );
+    expect([...ENUMS.ERROR_CODES].sort()).toEqual([...raised].sort());
+    expect(schemas.CathLabReadinessErrorResponse.properties.code.enum)
+      .toEqual([...ENUMS.ERROR_CODES]);
+    // The route's own :item guard answers the SAME code the service does, so a
+    // client reads one envelope whichever layer refused it.
+    expect(ROUTE_SOURCE).toContain("topLevel: { code: 'CATH_LAB_READINESS_ITEM_UNKNOWN' }");
+  });
+
+  it('an external result must carry a value in one field or the other', () => {
+    // `required` cannot say this — WHICH field carries the value depends on the
+    // item — so without the anyOf a body with no value at all was
+    // contract-valid and only the service's 400 caught it.
+    expect(schemas.CathLabReadinessExternalResultRequest.anyOf)
+      .toEqual([{ required: ['value_text'] }, { required: ['value_numeric'] }]);
   });
 
   it('the governance operations name the mount that owns them, not the admin console', () => {

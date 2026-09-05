@@ -1253,7 +1253,6 @@ warning	operation-description	["paths","/api/v1/cath-lab/cases/{id}/post-orders"
 warning	operation-description	["paths","/api/v1/cath-lab/cases/{id}/procedure-logs","post"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/cath-lab/cases/{id}/quick-wins","get"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/cath-lab/cases/{id}/readiness","post"]	Operation "description" must be present and non-empty string.
-warning	operation-description	["paths","/api/v1/cath-lab/cases/{id}/readiness/evidence/refresh","post"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/cath-lab/cases/{id}/schedule","get"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/cath-lab/cases/{id}/schedule","post"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/cath-lab/cases/{id}/schedule/cancel","post"]	Operation "description" must be present and non-empty string.

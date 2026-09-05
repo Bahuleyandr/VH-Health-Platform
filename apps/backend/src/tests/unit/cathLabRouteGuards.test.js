@@ -48,6 +48,7 @@ const { default: cathDeviceHistoryHandler } = await import('../../routes/clinica
 const { default: cathSchedulingRouter } = await import('../../routes/clinical/cathSchedulingRoutes.js');
 const { selectCathCasePatient, selectCathReportPatient } = await import('../../routes/clinical/cathLabAccessGuards.js');
 const { canUseCathWorkflow, canViewCathReport } = await import('../../utils/roleHelpers.js');
+const { ITEM_CODES } = await import('../../services/clinical/cathLabReadinessService.js');
 const { ALL_ROLES } = await import('../../utils/roles.js');
 
 const TENANT = '11111111-2222-4333-8444-555555555555';
@@ -310,33 +311,53 @@ describe('lab readiness route chains', () => {
   it.each([
     '/cases/:id/readiness/labs/:item/external-result',
     '/cases/:id/readiness/labs/:item/waive',
-  ])('POST %s refuses a malformed :item BEFORE a key is burned', (path) => {
+  ])('POST %s refuses an unknown :item BEFORE a key is burned', (path) => {
     const stack = layerOf('post', path);
-    // The service is the authority on WHICH codes exist (it answers 400
-    // CATH_LAB_READINESS_ITEM_UNKNOWN), but it runs after the claim layer, so
-    // an obviously-malformed segment would already have written a register row
-    // for a URL that can never succeed. This layer sits in front of the claim.
+    // The service answers 400 CATH_LAB_READINESS_ITEM_UNKNOWN for a code
+    // outside ITEM_CODES, but it runs AFTER the claim layer, so a URL that can
+    // never succeed would already have written a register row. This layer sits
+    // in front of the claim and runs the SAME membership test against the
+    // service's exported ITEM_CODES — not a shape heuristic, which passed
+    // `banana` straight through to burn a key.
     const itemGuard = stack[2].handle;
     expect(itemGuard.name).toBe('requireReadinessItemParam');
     expect(/idempotency/i.test(stack[3].handle.name)).toBe(true);
 
-    let payload = null;
-    let passed = false;
-    const res = {
-      statusCode: null,
-      req: {},
-      status(code) { this.statusCode = code; return this; },
-      json(body) { payload = body; return this; },
+    const probe = () => {
+      const res = {
+        statusCode: null,
+        payload: null,
+        req: {},
+        status(code) { this.statusCode = code; return this; },
+        json(body) { this.payload = body; return this; },
+      };
+      return res;
     };
-    itemGuard({ params: { item: '../../etc' }, get: () => undefined }, res, () => { passed = true; });
-    expect(passed).toBe(false);
-    expect(res.statusCode).toBe(400);
-    expect(JSON.stringify(payload)).toContain('CATH_LAB_READINESS_ITEM_UNKNOWN');
 
-    // ...and a real item code passes through to the claim.
-    let allowed = false;
-    itemGuard({ params: { item: 'hbsag' }, get: () => undefined }, res, () => { allowed = true; });
-    expect(allowed).toBe(true);
+    // A well-shaped segment that is not an item code: the old /^[a-z_]+$/ test
+    // accepted it, and the claim in front of the service burned a key on it.
+    for (const item of ['banana', '../../etc', 'HBSAG', '', 'hbsag ']) {
+      const res = probe();
+      let passed = false;
+      itemGuard({ params: { item }, get: () => undefined }, res, () => { passed = true; });
+      expect({ item, passed }).toEqual({ item, passed: false });
+      expect({ item, status: res.statusCode }).toEqual({ item, status: 400 });
+      // Top level, not nested under details — the shape relayAppError produces
+      // for the service's own AppError, so a client reads one envelope
+      // whichever layer refused.
+      expect({ item, code: res.payload.code })
+        .toEqual({ item, code: 'CATH_LAB_READINESS_ITEM_UNKNOWN' });
+      expect(res.payload.details ?? null).toBeNull();
+    }
+
+    // ...and every real item code passes through to the claim.
+    for (const item of ITEM_CODES) {
+      const res = probe();
+      let allowed = false;
+      itemGuard({ params: { item }, get: () => undefined }, res, () => { allowed = true; });
+      expect({ item, allowed }).toEqual({ item, allowed: true });
+    }
+    expect(ITEM_CODES).toContain('hbsag');
   });
 });
 

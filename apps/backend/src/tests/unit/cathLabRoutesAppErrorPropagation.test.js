@@ -59,10 +59,14 @@ jest.unstable_mockModule('../../services/documents/cathReportPdfService.js', () 
 // the governance router; stubbed here for the same reason as the services
 // above — this suite pins the error envelope, not the readiness resolver, and the real
 // module pulls the whole lab-results graph in behind it.
+const recordExternalLabResultMock = jest.fn();
 jest.unstable_mockModule('../../services/clinical/cathLabReadinessService.js', () => ({
+  // ITEM_CODES is real: the :item guard tests membership against it, so a stub
+  // list would let the guard admit a code the service refuses.
+  ITEM_CODES: Object.freeze(['hb', 'platelets', 'creatinine', 'potassium', 'hiv', 'hbsag', 'hcv']),
   getReadinessSettings: jest.fn(),
   orderMissingLabs: jest.fn(),
-  recordExternalLabResult: jest.fn(),
+  recordExternalLabResult: recordExternalLabResultMock,
   refreshCaseLabReadiness: jest.fn(),
   refreshOpenCasesForPatient: jest.fn(),
   upsertReadinessSettings: jest.fn(),
@@ -98,8 +102,20 @@ jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   resolveTenantOrThrow: () => '00000000-0000-4000-8000-000000000001',
 }));
 
+// The claim layer, as idempotencyMiddleware really leaves it: req.idempotencyClaim
+// carries { id, requestKey, requestBodyHash, scope }. The suite below asserts
+// WHICH of those the router forwards into the service context.
+const HTTP_CLAIM = Object.freeze({
+  id: 4242,
+  requestKey: 'cath-ext-key-1',
+  requestBodyHash: 'a'.repeat(64),
+  scope: 'cath_lab_readiness_external',
+});
 jest.unstable_mockModule('../../middleware/idempotencyMiddleware.js', () => ({
-  requireIdempotencyKey: () => (_req, _res, next) => next(),
+  requireIdempotencyKey: () => (req, _res, next) => {
+    req.idempotencyClaim = { ...HTTP_CLAIM };
+    next();
+  },
 }));
 
 // Re-audit M: these routers now carry per-route patientAccessGuard selectors
@@ -135,6 +151,7 @@ app.use('/api/v1/cath-lab', cathLabRoutes);
 beforeEach(() => {
   getCaseMock.mockReset();
   listCasesMock.mockReset();
+  recordExternalLabResultMock.mockReset();
 });
 
 describe('cath-lab handleFailure() relays AppError code + details', () => {
@@ -163,5 +180,69 @@ describe('cath-lab handleFailure() relays AppError code + details', () => {
     expect(response.body.success).toBe(false);
     expect(response.body.message).toBe('Failed to list cases');
     expect(response.body.message).not.toMatch(/procedure_type/);
+  });
+});
+
+describe('contextOf does not hand the HTTP idempotency claim to the lab rail', () => {
+  // The external-result route is the one place on this router where the service
+  // context reaches a SECOND idempotency layer: recordExternalLabResult passes
+  // it into labResultsService.recordResultManual, whose ingest rail calls
+  // finaliseHttpIdempotencyInTx(claimId) INSIDE the lab transaction. Forwarding
+  // the claim's row id and body hash therefore (a) marked this route's HTTP
+  // claim complete/200 with the LAB layer's payload, so a replay answered with
+  // a whole lab row instead of the published 201 {lab_result_id, item,
+  // readiness}, and (b) left a 5xx raised after that transaction commits —
+  // marker write, audit, readiness refresh — unable to release or re-finalise
+  // the claim, so the retry replayed a success for work never done.
+  //
+  // The claimed KEY still goes: it is what makes a double-tap one command, and
+  // the service derives its own content fingerprint (case_id + item + value)
+  // from the request itself.
+  test('the external-result route forwards the KEY but neither the claim id nor the body hash', async () => {
+    recordExternalLabResultMock.mockResolvedValueOnce({
+      lab_result_id: 9, item: 'hbsag', readiness: null,
+    });
+
+    const response = await request(app)
+      .post('/api/v1/cath-lab/cases/42/readiness/labs/hbsag/external-result')
+      .set('Idempotency-Key', 'cath-ext-key-1')
+      .send({ value_text: 'non-reactive', observed_on: '2026-09-01', external_lab_name: 'Outside' });
+
+    expect(response.statusCode).toBe(201);
+    expect(recordExternalLabResultMock).toHaveBeenCalledTimes(1);
+    const context = recordExternalLabResultMock.mock.calls[0][3];
+
+    // Absent, not merely falsy: a forwarded null would still be a channel, and
+    // the next reader could not tell "the middleware set none" from "the route
+    // drops it deliberately".
+    expect('httpIdempotencyClaimId' in context).toBe(false);
+    expect('requestFingerprint' in context).toBe(false);
+    expect(context.httpIdempotencyClaimId ?? null).toBeNull();
+    expect(context.requestFingerprint ?? null).toBeNull();
+
+    // ...while the identity the service DOES need is intact — and the claim
+    // layer really did run, so this is a dropped value, not an absent one.
+    expect(context.idempotencyKey).toBe('cath-ext-key-1');
+    expect(HTTP_CLAIM.requestBodyHash).toHaveLength(64);
+    expect(context.requestId).toBe('test-request-id');
+    expect(context.actorUid).toBe('11111111-1111-4111-8111-111111111111');
+    expect(context.actorRole).toBe('DOCTOR');
+  });
+
+  test('the waive route claims a key too and forwards no more of it', async () => {
+    // Same claim layer, different scope: nothing on this router may pre-finalise
+    // an HTTP claim, so the rule is asserted on the second claiming write too.
+    const { waiveLabItem } = await import('../../services/clinical/cathLabReadinessService.js');
+    waiveLabItem.mockResolvedValueOnce({ case_id: 42, items: [] });
+
+    await request(app)
+      .post('/api/v1/cath-lab/cases/42/readiness/labs/hiv/waive')
+      .set('Idempotency-Key', 'cath-waive-key-1')
+      .send({ reason: 'emergency PCI' });
+
+    const context = waiveLabItem.mock.calls[0][3];
+    expect('httpIdempotencyClaimId' in context).toBe(false);
+    expect('requestFingerprint' in context).toBe(false);
+    expect(context.idempotencyKey).toBe('cath-ext-key-1');
   });
 });

@@ -50,6 +50,19 @@ const QUALITATIVE_VALUES = [
   'positive', 'negative', 'indeterminate', 'not detected', 'detected'
 ];
 
+// Spec §11: every machine-readable code this surface can answer with. They
+// reach the client at the ENVELOPE ROOT, not under `details` — relayAppError
+// lifts an AppError's code through responseHelper's topLevel mechanism, and
+// cathLabRoutes' own :item guard answers in the same shape so a client reads
+// one envelope whichever layer refused.
+const ERROR_CODES = [
+  'CATH_LAB_READINESS_ITEM_UNKNOWN',
+  'CATH_LAB_READINESS_VALUE_INVALID',
+  'CATH_LAB_READINESS_ORDER_FAILED',
+  'CATH_LAB_READINESS_CASE_STARTED',
+  'CATH_LAB_READINESS_ITEMS_EMPTY'
+];
+
 /** Exported for the source-pin test, which compares them against the service. */
 export const ENUMS = Object.freeze({
   ITEMS: Object.freeze([...ITEMS]),
@@ -57,7 +70,18 @@ export const ENUMS = Object.freeze({
   SOURCES: Object.freeze([...SOURCES]),
   ORDER_CODES: Object.freeze([...ORDER_CODES]),
   CHECK_STATUSES: Object.freeze([...CHECK_STATUSES]),
-  QUALITATIVE_VALUES: Object.freeze([...QUALITATIVE_VALUES])
+  QUALITATIVE_VALUES: Object.freeze([...QUALITATIVE_VALUES]),
+  ERROR_CODES: Object.freeze([...ERROR_CODES])
+});
+
+/** One `additionalResponses` entry naming the codes that status can carry. */
+const errorResponse = (description, codes) => ({
+  description: `${description} \`code\`: ${codes.join(', ')}.`,
+  content: {
+    'application/json': {
+      schema: { $ref: '#/components/schemas/CathLabReadinessErrorResponse' }
+    }
+  }
 });
 
 const nullableString = { type: 'string', nullable: true };
@@ -100,7 +124,15 @@ const item = {
       type: 'boolean',
       description: 'Whether the tenant policy requires this item; only required items gate the check.'
     },
-    state: { type: 'string', enum: STATES },
+    state: {
+      type: 'string',
+      enum: STATES,
+      description:
+        '`external_recorded` is an outside laboratory value keyed in through this API. It is '
+        + 'UNVERIFIED — never signed off here, never attributed to this laboratory — and counts '
+        + 'towards readiness only while the tenant policy says so '
+        + '(settings.external_results_count).'
+    },
     value_text: nullableString,
     value_numeric: nullableNumber,
     unit: nullableString,
@@ -135,7 +167,14 @@ const readiness = {
     case_id: { type: 'integer', minimum: 1 },
     check_status: { type: 'string', enum: CHECK_STATUSES },
     auto_managed: { type: 'boolean' },
-    critical_warning: { type: 'boolean' },
+    critical_warning: {
+      type: 'boolean',
+      description:
+        'ADVISORY ONLY: true when any item (required or not, waived or not) came back critical. '
+        + 'It never blocks the pass — `missing` is the gate — so a case can be check_status '
+        + 'pass with critical_warning true, which is precisely the case the operator at the '
+        + 'table has to be told about.'
+    },
     // Read across ALL items — required or not, waived or not.
     critical_items: { type: 'array', items: { type: 'string', enum: ITEMS } },
     items: { type: 'array', items: { $ref: '#/components/schemas/CathLabReadinessItem' } },
@@ -176,7 +215,13 @@ const readiness = {
         lab_validity_days: { type: 'integer', minimum: 1, maximum: 365 },
         serology_validity_days: { type: 'integer', minimum: 1 },
         auto_pass: { type: 'boolean' },
-        external_results_count: { type: 'boolean' },
+        external_results_count: {
+          type: 'boolean',
+          description:
+            'Whether an `external_recorded` item counts as available. These values are '
+            + 'unverified outside results, so a tenant that turns this off keeps them visible '
+            + 'on the checklist while refusing to let them clear the check.'
+        },
         required_items: { type: 'array', items: { type: 'string', enum: ITEMS } }
       }
     },
@@ -188,6 +233,24 @@ const readiness = {
 };
 
 export const schemas = {
+  CathLabReadinessErrorResponse: {
+    type: 'object',
+    additionalProperties: true,
+    description:
+      'The failure envelope for this surface. `code` sits at the ROOT beside `success` and '
+      + '`message`, never under `details`; `details` carries whatever the service attached '
+      + '(CATH_LAB_READINESS_ORDER_FAILED, for instance, reports the orders it DID place, so a '
+      + 'retry does not double them).',
+    required: ['success'],
+    properties: {
+      success: { type: 'boolean', enum: [false] },
+      message: { type: 'string' },
+      code: { type: 'string', enum: ERROR_CODES },
+      details: { type: 'object', additionalProperties: true },
+      requestId: { type: 'string', nullable: true }
+    }
+  },
+
   CathLabReadinessItem: item,
   CathLabReadiness: readiness,
   CathLabReadinessResponse: envelope('CathLabReadiness'),
@@ -236,6 +299,14 @@ export const schemas = {
       + 'value_text; a quantitative item takes value_numeric (value_text is parsed as a fallback) '
       + 'and needs a unit unless the item\'s default applies.',
     required: ['observed_on', 'external_lab_name'],
+    // A value is genuinely required, but which FIELD carries it depends on the
+    // item, so `required` alone could never say so: without this a body with an
+    // observed_on and a lab name and no value at all was contract-valid, and
+    // only the service's 400 caught it.
+    anyOf: [
+      { required: ['value_text'] },
+      { required: ['value_numeric'] }
+    ],
     properties: {
       value_text: {
         type: 'string',
@@ -331,7 +402,24 @@ export const operations = {
       + 'read plus the per-case patient guard, and the mount logs the access against the case '
       + 'patient.',
     pathParameters: { id: BIGINT_WIRE },
-    response: 'CathLabReadinessResponse'
+    response: 'CathLabReadinessResponse',
+    additionalResponses: {
+      400: errorResponse(
+        'A stored item is not resolvable — a row in state waived that has lost its who/when/why.',
+        ['CATH_LAB_READINESS_VALUE_INVALID']
+      )
+    }
+  },
+  'POST /api/v1/cath-lab/cases/{id}/readiness/evidence/refresh': {
+    summary: 'Re-evidence every readiness check on a cath case',
+    description:
+      'Re-runs the eight readiness checks against their live evidence and, ADDITIVELY, the '
+      + 'pre-procedure lab refresh. The lab half is never a precondition of the other seven: a '
+      + 'lab failure is logged and answered as `labs: null` rather than losing the work already '
+      + 'done. `data` is the evidence-refresh result plus a `labs` key carrying '
+      + 'CathLabReadiness or null — typed here only in prose because this operation predates '
+      + 'the readiness overlay and still answers the generic Success envelope.',
+    pathParameters: { id: BIGINT_WIRE }
   },
   'POST /api/v1/cath-lab/cases/{id}/readiness/labs/order-missing': {
     summary: 'Order every missing pre-cath lab',
@@ -343,7 +431,22 @@ export const operations = {
     pathParameters: { id: BIGINT_WIRE },
     parameters: [idempotencyHeaderParameter],
     responseStatus: 201,
-    response: 'CathLabReadinessOrderMissingResponse'
+    response: 'CathLabReadinessOrderMissingResponse',
+    additionalResponses: {
+      400: errorResponse(
+        'A stored item is not resolvable.',
+        ['CATH_LAB_READINESS_VALUE_INVALID']
+      ),
+      409: errorResponse(
+        'The procedure has already started; order from the case instead.',
+        ['CATH_LAB_READINESS_CASE_STARTED']
+      ),
+      500: errorResponse(
+        'An order could not be placed. `details.created` names the orders that DID land, so a '
+        + 'retry does not double them.',
+        ['CATH_LAB_READINESS_ORDER_FAILED']
+      )
+    }
   },
   'POST /api/v1/cath-lab/cases/{id}/readiness/labs/{item}/external-result': {
     summary: 'Record an outside laboratory result for one item',
@@ -358,7 +461,19 @@ export const operations = {
     parameters: [idempotencyHeaderParameter],
     request: 'CathLabReadinessExternalResultRequest',
     responseStatus: 201,
-    response: 'CathLabReadinessExternalResultResponse'
+    response: 'CathLabReadinessExternalResultResponse',
+    additionalResponses: {
+      400: errorResponse(
+        'The item code is not one of the seven (refused at the route, before the '
+        + 'Idempotency-Key is claimed), or the value, unit, lab name or observed_on is not '
+        + 'usable for that item.',
+        ['CATH_LAB_READINESS_ITEM_UNKNOWN', 'CATH_LAB_READINESS_VALUE_INVALID']
+      ),
+      409: errorResponse(
+        'The procedure has already started; record the value against the case instead.',
+        ['CATH_LAB_READINESS_CASE_STARTED']
+      )
+    }
   },
   'POST /api/v1/cath-lab/cases/{id}/readiness/labs/{item}/waive': {
     summary: 'Waive one pre-cath lab item',
@@ -369,7 +484,16 @@ export const operations = {
     pathParameters: { id: BIGINT_WIRE, item: { type: 'string', enum: ITEMS } },
     parameters: [idempotencyHeaderParameter],
     request: 'CathLabReadinessWaiveRequest',
-    response: 'CathLabReadinessResponse'
+    response: 'CathLabReadinessResponse',
+    additionalResponses: {
+      400: errorResponse(
+        'The item code is not one of the seven (refused at the route, before the '
+        + 'Idempotency-Key is claimed), or no reason was given. A waiver is NOT refused after '
+        + 'the procedure starts — proceeding without an item is a decision the team may still '
+        + 'have to record.',
+        ['CATH_LAB_READINESS_ITEM_UNKNOWN', 'CATH_LAB_READINESS_VALUE_INVALID']
+      )
+    }
   },
 
   'GET /api/v1/cath-reprocessing/lab-readiness-settings': {
@@ -388,6 +512,12 @@ export const operations = {
       + 'settings/policies writes, which are edited from the same screen).',
     parameters: [idempotencyHeaderParameter],
     request: 'CathLabReadinessSettingsUpdateRequest',
-    response: 'CathLabReadinessSettingsResponse'
+    response: 'CathLabReadinessSettingsResponse',
+    additionalResponses: {
+      400: errorResponse(
+        'required_items was explicitly empty, or named a code outside the seven.',
+        ['CATH_LAB_READINESS_ITEMS_EMPTY', 'CATH_LAB_READINESS_ITEM_UNKNOWN']
+      )
+    }
   }
 };
