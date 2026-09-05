@@ -350,7 +350,7 @@ export async function voidMarker({ tenantId, patientUid, markerId, actorUid, rea
 // not the batch's decision word. For each candidate the active lab-linked row
 // is locked and compared with what the lab result now says — same result and
 // same tested_on means skip, different means void that row
-// ('lab_result_corrected') and insert the new one, absent means insert. So a
+// (SUPERSESSION_VOID_REASON) and insert the new one, absent means insert. So a
 // sign-off announced as 'verified' over a changed value still corrects the
 // record, and one announced as 'corrected' over an unchanged value writes
 // nothing. `decision` is validated and kept only as evidence.decision.
@@ -389,6 +389,14 @@ export async function voidMarker({ tenantId, patientUid, markerId, actorUid, rea
 export const SIGNED_STATUSES = new Set(['final', 'corrected', 'amended', 'verified']);
 export const SIGN_OFF_DECISIONS = Object.freeze(['verified', 'corrected', 'amended']);
 
+// The ONLY void_reason this writer ever authors. Every other value in the
+// column comes from a person voiding a marker through voidMarker(), whose
+// reason is free text. That distinction is load-bearing for the reconciliation
+// sweep (spec §18): a row this writer superseded may be re-marked, a row a
+// person voided is a tombstone. Exported so the sweep asks the writer what its
+// own reason is rather than retyping the string and drifting from it.
+export const SUPERSESSION_VOID_REASON = 'lab_result_corrected';
+
 // One read-compare-write pass over a lab result's active marker slot, run
 // inside the caller's transaction and under its advisory lock for that lab
 // result. Returns { outcome, voided, row }:
@@ -422,9 +430,9 @@ async function upsertMarkerForLabResult(tx, {
   if (active) {
     voided = await tx.$executeRawUnsafe(
       `UPDATE patient_bloodborne_markers
-          SET voided_at = NOW(), voided_by = $3::uuid, void_reason = 'lab_result_corrected'
+          SET voided_at = NOW(), voided_by = $3::uuid, void_reason = $4
         WHERE tenant_id = $1::uuid AND id = $2::bigint`,
-      tenantId, Number(active.id), actor,
+      tenantId, Number(active.id), actor, SUPERSESSION_VOID_REASON,
     );
   }
   const inserted = await recordMarkerTx(tx, {

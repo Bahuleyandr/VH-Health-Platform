@@ -17,10 +17,17 @@ import prisma, {
   ensureTenantRlsRuntimeRoleGrants,
   setTenantTx,
 } from '../lib/prisma.js';
+// Exactly what scripts/reconcile-bloodborne-markers.mjs imports FIRST, and for
+// the same reason: it registers quarantineDevicesExposedToPatient, so the
+// exposure fan-out in this process is the production one and not an empty set.
+// The count is asserted before the fan-out cases run.
+import { exposureHandlerCount } from '../services/clinical/exposureHandlerBootstrap.js';
 import {
+  SUPERSESSION_VOID_REASON,
   clinicalDate,
   isoDate,
   recordMarkersFromSignedResults,
+  registerExposureHandler,
   voidMarker,
 } from '../services/clinical/bloodborneMarkerService.js';
 import {
@@ -48,6 +55,12 @@ let previousRuntimeRole;
 const runtimeRoleProvisioning = new Map();
 
 const resultIds = [];
+
+// Captured at MODULE LOAD, before this file registers a probe of its own: this
+// number is exactly what the exposureHandlerBootstrap import at the top
+// contributed to this process. Zero here is the defect the reviews found — a
+// sweep repairing reactive markers with nobody listening.
+const HANDLERS_FROM_BOOTSTRAP = exposureHandlerCount();
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -96,6 +109,120 @@ async function seedUnsignedResult({ testCode = 'HIV', valueText = 'Reactive' } =
   return id;
 }
 
+// The device-exposure fixture chain: the only thing this file needs from the
+// cath side is a reprocessable device the register can see as "used on this
+// patient", because quarantineDevicesExposedToPatient joins
+// cath_reprocessable_devices to cath_case_consumable_usage on patient_uid and
+// used_at and reads nothing else.
+//
+// WHY IT IS SEEDED WITH TRIGGERS OFF. Migration 753 governs how a usage row may
+// claim inventory authority, and its BEFORE trigger demands a matching
+// pharmacy_stock_movements receipt (or, on the terminal arm, a RESOLVED row in
+// the authority-recovery worklist with its own signed event) before it will
+// accept the row at all. Reproducing that governance here would be a fixture
+// several times the size of the case it supports, and NONE of it is what is
+// under test: the assertion is that the sweep's REACTIVE repair reaches the
+// exposure handler and the handler quarantines the device. So the seed runs
+// with session_replication_role='replica' for that one transaction — CHECK
+// constraints still apply (the row still carries a real facility, inventory
+// item and batch, per chk_cath_usage_exact_inventory_authority_753); only the
+// 753 authority TRIGGER and the FK triggers are skipped, on a disposable deep
+// test database, the same lever this file's own teardown already pulls.
+// cath-device-reuse.deep.test.js owns the governed path.
+async function seedExposedDevice() {
+  return setTenantTx(TENANT, async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+    await tx.$executeRawUnsafe("SELECT set_config('app.audit_bypass', 'on', true)");
+    const facility = await tx.$queryRawUnsafe(
+      `INSERT INTO facilities (tenant_id, facility_code, display_name, status, is_default)
+       VALUES ($1::uuid, 'BBM-SWEEP-FAC', 'BBM Sweep Facility', 'active', FALSE)
+       RETURNING id`,
+      TENANT,
+    );
+    const facilityId = Number(facility[0].id);
+    const location = await tx.$queryRawUnsafe(
+      `INSERT INTO facility_locations
+         (tenant_id, facility_id, location_code, display_name, location_kind, status)
+       VALUES ($1::uuid, $2::int, 'BBM-SWEEP-STORE', 'BBM Sweep Store', 'pharmacy', 'active')
+       RETURNING id`,
+      TENANT, facilityId,
+    );
+    const pharmacyCatalog = await tx.$queryRawUnsafe(
+      `INSERT INTO pharmacy_catalog (tenant_id, name)
+       VALUES ($1::uuid, 'BBM sweep consumable')
+       RETURNING id`,
+      TENANT,
+    );
+    const inventoryItem = await tx.$queryRawUnsafe(
+      `INSERT INTO pharmacy_inventory_items
+         (tenant_id, sku_code, display_name, facility_id, catalog_id, status)
+       VALUES ($1::uuid, 'BBM-SWEEP-SKU', 'BBM sweep consumable', $2::int, $3::int, 'active')
+       RETURNING id`,
+      TENANT, facilityId, Number(pharmacyCatalog[0].id),
+    );
+    const inventoryItemId = Number(inventoryItem[0].id);
+    const batch = await tx.$queryRawUnsafe(
+      `INSERT INTO pharmacy_inventory_batches
+         (tenant_id, inventory_item_id, batch_number, expiry_date, received_quantity,
+          remaining_quantity, facility_id, storage_location_id, status)
+       VALUES ($1::uuid, $2::int, 'BBM-SWEEP-B1', CURRENT_DATE + 365, 10, 10,
+               $3::int, $4::int, 'in_stock')
+       RETURNING id`,
+      TENANT, inventoryItemId, facilityId, Number(location[0].id),
+    );
+    const catalog = await tx.$queryRawUnsafe(
+      `INSERT INTO cath_consumable_catalog
+         (tenant_id, item_name, category, is_implant, batch_tracked, status,
+          facility_id, inventory_item_id)
+       VALUES ($1::uuid, 'BBM sweep reusable catheter', 'catheter', FALSE, FALSE,
+               'active', $2::int, $3::int)
+       RETURNING id`,
+      TENANT, facilityId, inventoryItemId,
+    );
+    const catalogItemId = Number(catalog[0].id);
+    const kase = await tx.$queryRawUnsafe(
+      `INSERT INTO cath_lab_cases
+         (tenant_id, patient_uid, facility_id, requested_procedure, status,
+          created_by, updated_by)
+       VALUES ($1::uuid, $2::uuid, $3::int, 'Diagnostic coronary angiogram', 'in_progress',
+               $4::uuid, $4::uuid)
+       RETURNING id`,
+      TENANT, PATIENT, facilityId, SIGNER,
+    );
+    const usage = await tx.$queryRawUnsafe(
+      `INSERT INTO cath_case_consumable_usage
+         (tenant_id, case_id, catalog_item_id, patient_uid, quantity, batch_tracked,
+          is_implant, used_at, facility_id, inventory_item_id, inventory_batch_id,
+          inventory_decrement_status)
+       VALUES ($1::uuid, $2::bigint, $3::bigint, $4::uuid, 1, FALSE, FALSE, NOW(),
+               $5::int, $6::int, $7::int, 'decremented')
+       RETURNING id`,
+      TENANT, Number(kase[0].id), catalogItemId, PATIENT, facilityId, inventoryItemId,
+      Number(batch[0].id),
+    );
+    const usageId = Number(usage[0].id);
+    const device = await tx.$queryRawUnsafe(
+      `INSERT INTO cath_reprocessable_devices
+         (tenant_id, facility_id, catalog_item_id, origin_usage_id, max_cycles_snapshot,
+          status, created_by)
+       VALUES ($1::uuid, $2::int, $3::bigint, $4::bigint, 5, 'available', $5::uuid)
+       RETURNING id, device_tag`,
+      TENANT, facilityId, catalogItemId, usageId, SIGNER,
+    );
+    return { deviceId: Number(device[0].id), usageId, catalogItemId, facilityId };
+  });
+}
+
+async function deviceRow(deviceId) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT id, status, exposure_flag, exposure_markers, quarantine_reason
+       FROM cath_reprocessable_devices
+      WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+    TENANT, deviceId,
+  );
+  return rows[0];
+}
+
 async function markerRowsFor(labResultId, tenantId = TENANT) {
   return prisma.$queryRawUnsafe(
     `SELECT id, patient_uid, marker, result, tested_on, source, lab_result_id,
@@ -125,6 +252,37 @@ async function cleanup() {
     `DELETE FROM patient_bloodborne_markers WHERE tenant_id IN ($1::uuid, $2::uuid)`,
     TENANT, OTHER_TENANT,
   ).catch(() => {});
+  // The exposure fan-out below writes through the REAL cath handler, so its
+  // rows and its fixture chain are this file's to clear. Devices before usage
+  // (fk_cath_consumable_usage_device and fk_cath_reprocessable_devices_origin_usage
+  // are both RESTRICT), and the audit/alert sinks the handler appends to before
+  // the users delete takes the patient out from under them.
+  await setTenantTx(TENANT, async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+    await tx.$executeRawUnsafe("SELECT set_config('app.audit_bypass', 'on', true)");
+    for (const table of [
+      'notification_outbox',
+      'cds_alerts',
+      'audit_logs',
+      'cath_reprocessable_devices',
+      'cath_case_consumable_usage',
+      'cath_lab_cases',
+      'cath_consumable_catalog',
+      'cath_reprocessing_settings',
+      'pharmacy_inventory_batches',
+      'pharmacy_inventory_items',
+      'pharmacy_catalog',
+      'facility_locations',
+      'facilities',
+    ]) {
+      await tx.$executeRawUnsafe(
+        `DELETE FROM ${table} WHERE tenant_id IN ($1::uuid, $2::uuid)`,
+        TENANT, OTHER_TENANT,
+      );
+    }
+  }).catch((err) => {
+    console.warn(`bloodborne-marker-reconciliation teardown: cath residue delete failed: ${err?.message}`);
+  });
   // A lab_results write fans out beyond lab_results itself: migration 753's
   // BEFORE-trigger bumps pharmacy_patient_safety_versions on every insert, and
   // the pathway projector inbox takes clinical events. Neither is FK-bound to
@@ -216,8 +374,11 @@ d('blood-borne marker reconciliation sweep (deep)', () => {
     await expect(candidateIds()).resolves.toContain(resultId);
 
     const summary = await reconcileTenant({ tenantId: TENANT });
-    expect(summary).toMatchObject({ recorded: 1, voided: 0, failed: 0 });
-    expect(summary.examples).toContain(resultId);
+    expect(summary).toMatchObject({ recorded: 1, voided: 0, failed: 0, would_fail: 0 });
+    expect(summary.candidate_examples).toContain(resultId);
+    // repaired_examples names what actually got a row, which is the number an
+    // operator reading the summary is looking for.
+    expect(summary.repaired_examples).toContain(resultId);
 
     const rows = await markerRowsFor(resultId);
     expect(rows).toHaveLength(1);
@@ -273,7 +434,17 @@ d('blood-borne marker reconciliation sweep (deep)', () => {
     expect(Number(rows[0].id)).toBe(Number(active.id));
   }, 60000);
 
-  test('a result whose only marker row is VOIDED becomes a candidate again', async () => {
+  // -------------------------------------------------------------------------
+  // Voided markers: who voided it decides whether the sweep may re-mark.
+  //
+  // Owner-vetoable decision, 2026-09-05. The sweep used to treat ANY voided row
+  // as an absent one and re-mark the lab result on the very next run, which
+  // silently undid a deliberate clinical act and would have done so every run
+  // forever. A row a PERSON voided is now a tombstone; a row the WRITER
+  // superseded is not.
+  // -------------------------------------------------------------------------
+
+  test('a marker a person VOIDED is a tombstone: the result is never re-marked', async () => {
     const resultId = await seedSignedResult({ testCode: 'HBSAG', valueText: 'Reactive' });
     await reconcileTenant({ tenantId: TENANT });
     const [recorded] = await activeMarkerFor(resultId);
@@ -290,9 +461,43 @@ d('blood-borne marker reconciliation sweep (deep)', () => {
       reason: 'voided by the reconciliation deep suite',
     });
 
-    // ...and once voided the lab result is unrepresented again, so the sweep
-    // must offer it. This is the assertion the `voided_at IS NULL` predicate
-    // in the anti-join exists for.
+    // ...and it STAYS excluded. voidMarker is how a clinician says "this marker
+    // does not belong on this patient"; the operator running a sweep is not
+    // that clinician, and re-marking would overrule them on a schedule.
+    // Deleting the tombstone predicate from the candidate query is the mutation
+    // this case is calibrated against.
+    await expect(candidateIds()).resolves.not.toContain(resultId);
+
+    const summary = await reconcileTenant({ tenantId: TENANT });
+    expect(summary.candidate_examples).not.toContain(resultId);
+
+    // Still exactly the one voided row: nothing was resurrected.
+    const rows = await markerRowsFor(resultId);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].voided_at).not.toBeNull();
+    expect(rows[0].void_reason).toBe('voided by the reconciliation deep suite');
+  }, 60000);
+
+  test('a marker the WRITER superseded is repairable again', async () => {
+    const resultId = await seedSignedResult({ testCode: 'HIV', valueText: 'Reactive' });
+    await reconcileTenant({ tenantId: TENANT });
+    const [recorded] = await activeMarkerFor(resultId);
+    expect(recorded).toBeTruthy();
+
+    // The writer's own supersession, written the way upsertMarkerForLabResult
+    // writes it. Seeded rather than driven because the writer voids and
+    // re-inserts in ONE transaction, so "superseded, with no active row" is a
+    // state only a partial write leaves behind — which is the very state this
+    // sweep exists to find.
+    await prisma.$executeRawUnsafe(
+      `UPDATE patient_bloodborne_markers
+          SET voided_at = NOW(), voided_by = $3::uuid, void_reason = $4
+        WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+      TENANT, Number(recorded.id), SIGNER, SUPERSESSION_VOID_REASON,
+    );
+
+    // The writer saying "the result changed" is not a person saying "this is
+    // wrong", so the lab result is unrepresented and the sweep must offer it.
     await expect(candidateIds()).resolves.toContain(resultId);
 
     const summary = await reconcileTenant({ tenantId: TENANT });
@@ -305,6 +510,35 @@ d('blood-borne marker reconciliation sweep (deep)', () => {
     // A fresh row, not a resurrection of the voided one.
     expect(Number(rows[1].id)).toBeGreaterThan(Number(recorded.id));
     expect(rows[1]).toMatchObject({ result: 'reactive', source: 'lab_result', lab_result_id: resultId });
+  }, 60000);
+
+  test('one person-void tombstones a result even beside a writer supersession', async () => {
+    const resultId = await seedSignedResult({ testCode: 'HCV', valueText: 'Reactive' });
+    await reconcileTenant({ tenantId: TENANT });
+    const [first] = await activeMarkerFor(resultId);
+
+    await prisma.$executeRawUnsafe(
+      `UPDATE patient_bloodborne_markers
+          SET voided_at = NOW(), voided_by = $3::uuid, void_reason = $4
+        WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+      TENANT, Number(first.id), SIGNER, SUPERSESSION_VOID_REASON,
+    );
+    await reconcileTenant({ tenantId: TENANT });
+    const [second] = await activeMarkerFor(resultId);
+    expect(Number(second.id)).toBeGreaterThan(Number(first.id));
+
+    await voidMarker({
+      tenantId: TENANT,
+      patientUid: PATIENT,
+      markerId: Number(second.id),
+      actorUid: SIGNER,
+      reason: 'clinician says this serology is not this patient',
+    });
+
+    // Two voided rows now, one of each kind. The tombstone wins: NOT EXISTS
+    // over the person-voided row is enough on its own.
+    await expect(candidateIds()).resolves.not.toContain(resultId);
+    await expect(markerRowsFor(resultId)).resolves.toHaveLength(2);
   }, 60000);
 
   test('unsigned and non-serology results are never candidates', async () => {
@@ -333,7 +567,8 @@ d('blood-borne marker reconciliation sweep (deep)', () => {
     const summary = await reconcileTenant({ tenantId: TENANT, dryRun: true });
     expect(summary.candidates).toBeGreaterThanOrEqual(1);
     expect(summary).toMatchObject({ recorded: 0, voided: 0, skipped: 0, failed: 0 });
-    expect(summary.examples).toContain(resultId);
+    expect(summary.candidate_examples).toContain(resultId);
+    expect(summary.repaired_examples).toEqual([]);
     await expect(markerRowsFor(resultId)).resolves.toHaveLength(0);
     // Still there to be repaired afterwards.
     await expect(candidateIds()).resolves.toContain(resultId);
@@ -403,7 +638,7 @@ d('blood-borne marker reconciliation sweep (deep)', () => {
     });
 
     const summary = await reconcileTenant({ tenantId: TENANT });
-    expect(summary.examples).not.toContain(theirs);
+    expect(summary.candidate_examples).not.toContain(theirs);
     await expect(activeMarkerFor(mine)).resolves.toHaveLength(1);
     // The other tenant's result is untouched...
     await expect(markerRowsFor(theirs, OTHER_TENANT)).resolves.toHaveLength(0);
@@ -453,4 +688,138 @@ d('blood-borne marker reconciliation sweep (deep)', () => {
     // in the other tenant's context cannot see this tenant's result.
     expect(crossTenant).not.toContain(resultId);
   }, 60000);
+
+  // -------------------------------------------------------------------------
+  // Head-of-line blocking, and the gaps no sweep can close.
+  // -------------------------------------------------------------------------
+
+  test('a result with no signing actor is excluded from the window and counted', async () => {
+    // recorded_by is NOT NULL behind an FK to users, so this gap is permanent.
+    // Excluding it in SQL is what stops it consuming a slot in every window
+    // forever; counting it is what stops the exclusion being silent, because
+    // "0 candidates" and "0 candidates, 1 unrepairable" are different answers
+    // to whether the serology record is whole.
+    const orphan = await seedSignedResult({
+      testCode: 'HBSAG', valueText: 'Reactive', signedBy: null,
+    });
+    await expect(candidateIds()).resolves.not.toContain(orphan);
+
+    const summary = await reconcileTenant({ tenantId: TENANT, dryRun: true });
+    expect(summary.candidate_examples).not.toContain(orphan);
+    expect(summary.unrepairable_excluded).toBeGreaterThanOrEqual(1);
+    expect(summary.unrepairable_missing_actor).toBeGreaterThanOrEqual(1);
+  }, 60000);
+
+  test('two permanently failing rows do not pin the window within one run', async () => {
+    // The two future-dated NON-reactive results below fail in the writer every
+    // time they are driven and keep their place at the head of
+    // ORDER BY result.id; with a page size of two they fill the first page
+    // exactly. A sweep that re-issued the same LIMIT would hand itself the same
+    // two rows forever and never reach the third. OTHER_TENANT, so the residue
+    // the cases above leave in TENANT cannot change which rows land in which
+    // page.
+    const firstFailure = await seedSignedResult({
+      testCode: 'HIV', valueText: 'Non-reactive', daysBack: -5,
+      tenantId: OTHER_TENANT, patientUid: OTHER_PATIENT, signedBy: OTHER_SIGNER,
+    });
+    const secondFailure = await seedSignedResult({
+      testCode: 'HCV', valueText: 'Non-reactive', daysBack: -5,
+      tenantId: OTHER_TENANT, patientUid: OTHER_PATIENT, signedBy: OTHER_SIGNER,
+    });
+    const repairable = await seedSignedResult({
+      testCode: 'HBSAG', valueText: 'Reactive',
+      tenantId: OTHER_TENANT, patientUid: OTHER_PATIENT, signedBy: OTHER_SIGNER,
+    });
+    expect(secondFailure).toBeGreaterThan(firstFailure);
+    expect(repairable).toBeGreaterThan(secondFailure);
+
+    const summary = await reconcileTenant({ tenantId: OTHER_TENANT, pageSize: 2 });
+    expect(summary.candidates).toBe(3);
+    expect(summary.failed).toBe(2);
+    expect(summary.repaired_examples).toEqual([repairable]);
+    await expect(activeMarkerFor(repairable, OTHER_TENANT)).resolves.toHaveLength(1);
+
+    // The two failures are still candidates: an unusable date is a real gap and
+    // the sweep reports it every run rather than pretending it was repaired.
+    const remaining = await candidateIds(OTHER_TENANT);
+    expect(remaining).toEqual(expect.arrayContaining([firstFailure, secondFailure]));
+    expect(remaining).not.toContain(repairable);
+  }, 60000);
+
+  // -------------------------------------------------------------------------
+  // Spec §5.1 / §7: repairing a REACTIVE marker must reach the exposure
+  // handlers, because that is what quarantines the devices used on the patient.
+  // -------------------------------------------------------------------------
+
+  describe('exposure fan-out', () => {
+    let offProbe = null;
+    const seen = [];
+
+    beforeAll(() => {
+      offProbe = registerExposureHandler(async (event) => { seen.push(event); });
+    });
+
+    afterAll(() => {
+      if (offProbe) offProbe();
+    });
+
+    beforeEach(() => {
+      seen.length = 0;
+    });
+
+    test('the production handler is registered in the sweep process', () => {
+      // The bootstrap import at the top of this file is the only thing that
+      // makes this true here, exactly as it is in the operator script, and the
+      // count was taken before this suite's own probe so it cannot be the
+      // probe being counted.
+      expect(HANDLERS_FROM_BOOTSTRAP).toBeGreaterThanOrEqual(1);
+      expect(exposureHandlerCount()).toBe(HANDLERS_FROM_BOOTSTRAP + 1);
+    });
+
+    test('a reactive repair notifies handlers with the patient and the marker row', async () => {
+      const resultId = await seedSignedResult({ testCode: 'HBSAG', valueText: 'Reactive' });
+      const summary = await reconcileTenant({ tenantId: TENANT });
+      expect(summary.recorded).toBeGreaterThanOrEqual(1);
+      const [marker] = await activeMarkerFor(resultId);
+
+      const event = seen.find((row) => Number(row.markerRowId) === Number(marker.id));
+      expect(event).toBeTruthy();
+      expect(event).toMatchObject({
+        tenantId: TENANT,
+        patientUid: PATIENT,
+        marker: 'hbsag',
+        result: 'reactive',
+        labResultId: resultId,
+      });
+    }, 60000);
+
+    test('a device used on that patient is quarantined by the REAL handler', async () => {
+      const { deviceId } = await seedExposedDevice();
+      await expect(deviceRow(deviceId)).resolves.toMatchObject({
+        status: 'available', exposure_flag: false,
+      });
+
+      const resultId = await seedSignedResult({ testCode: 'HIV', valueText: 'Reactive' });
+      const summary = await reconcileTenant({ tenantId: TENANT });
+      expect(summary.recorded).toBeGreaterThanOrEqual(1);
+      await expect(activeMarkerFor(resultId)).resolves.toHaveLength(1);
+
+      // This is the assertion the bootstrap exists for. Without that import the
+      // marker still lands and the sweep still reports a clean repair, and this
+      // device stays 'available' — a reprocessable device that touched a
+      // patient with a reactive HIV result, released back into the register.
+      const device = await deviceRow(deviceId);
+      expect(device.status).toBe('quarantined');
+      expect(device.exposure_flag).toBe(true);
+      expect(device.exposure_markers).toContain('hiv');
+    }, 120000);
+
+    test('a NON-reactive repair notifies nobody', async () => {
+      const resultId = await seedSignedResult({ testCode: 'HCV', valueText: 'Non reactive' });
+      await reconcileTenant({ tenantId: TENANT });
+      const [marker] = await activeMarkerFor(resultId);
+      expect(marker.result).toBe('non_reactive');
+      expect(seen.find((row) => Number(row.markerRowId) === Number(marker.id))).toBeUndefined();
+    }, 60000);
+  });
 });
