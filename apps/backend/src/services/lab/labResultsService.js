@@ -138,6 +138,31 @@ const RESULTABLE_BOOKING_STATUSES = new Set([
 const CORRECTIVE_SIGNOFF_DECISIONS = new Set(['corrected', 'amended']);
 const SUPPORTED_SIGNOFF_DECISIONS = new Set(['verified', ...CORRECTIVE_SIGNOFF_DECISIONS]);
 
+// Statuses an UNSIGNED result may hold and still be eligible for the initial
+// verified sign-off.
+//
+// 'final' is here because the ORU ingest stores OBX-11 = 'F' as status 'final'
+// with signed_off_at NULL — an analyzer asserting SOURCE finality, which is a
+// different thing from this hospital's LOCAL authorisation. Those rows were
+// unsignable: the guard below demanded 'preliminary', and the stamping UPDATE's
+// verified branch matched only 'preliminary', so a pathologist who selected one
+// got LAB_SIGNOFF_ILLEGAL_INITIAL_STATE on every attempt and the result could
+// never reach the patient, the report PDF or discharge terminality. Worse, one
+// such row failed the WHOLE batch through the stamped.length !== ids.length
+// check, so a single analyzer-final analyte blocked sign-off of every other
+// result selected with it.
+//
+// listPendingSignOff already surfaces exactly this shape
+// (signed_off_at IS NULL AND status IN ('preliminary','final')), so the
+// worklist and the sign-off contract disagreed. The worklist encodes the
+// intent; this set makes the contract agree with it.
+//
+// Signing an unsigned 'final' re-writes status to 'final' (idempotent) and
+// stamps signed_off_at/by, so the source assertion is preserved and the local
+// authorisation is recorded. This does NOT relax the corrective branch, which
+// still requires an already-signed predecessor.
+const INITIAL_SIGNOFF_ELIGIBLE_STATUSES = new Set(['preliminary', 'final']);
+
 // Sign-off decisions the blood-borne marker recorder accepts (spec 2026-09-04
 // §7.1). Kept as its own set so a sign-off vocabulary that later grows a
 // decision the recorder rejects skips the hook instead of throwing inside it.
@@ -2421,9 +2446,12 @@ export async function signOffResults({
           'LAB_SIGNOFF_CORRECTION_PROVENANCE_REQUIRED',
         );
       }
-    } else if (owned.some((row) => row.signed_off_at || String(row.status || '').toLowerCase() !== 'preliminary')) {
+    } else if (owned.some((row) => (
+      row.signed_off_at
+      || !INITIAL_SIGNOFF_ELIGIBLE_STATUSES.has(String(row.status || '').toLowerCase())
+    ))) {
       throw AppError.conflict(
-        'Initial verified sign-off requires unsigned preliminary results',
+        'Initial verified sign-off requires unsigned preliminary or analyzer-final results',
         'LAB_SIGNOFF_ILLEGAL_INITIAL_STATE',
       );
     }
@@ -2474,7 +2502,12 @@ export async function signOffResults({
         WHERE id = ANY($3::int[])
           AND tenant_id = $4::uuid
           AND (
-            ($2 = 'verified' AND signed_off_at IS NULL AND LOWER(status) = 'preliminary')
+            -- Must stay in step with INITIAL_SIGNOFF_ELIGIBLE_STATUSES above:
+            -- if the guard admits a status this branch does not, the guard
+            -- passes, the UPDATE matches no row, and the caller gets a
+            -- LAB_SIGNOFF_STATE_RACE that no retry can clear.
+            ($2 = 'verified' AND signed_off_at IS NULL
+              AND LOWER(status) IN ('preliminary', 'final'))
             OR ($2 IN ('corrected', 'amended') AND signed_off_at IS NOT NULL
                 AND LOWER(status) IN ('final', 'corrected', 'verified', 'amended'))
           )
