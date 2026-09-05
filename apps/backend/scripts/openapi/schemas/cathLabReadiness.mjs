@@ -6,9 +6,12 @@
 // tenant policy that decides what "ready" means.
 // Spec: docs/superpowers/plans/2026-09-04-cath-lab-readiness.md
 //
-// Every shape here mirrors cathLabReadinessService.js exactly, and is PINNED to
-// it by src/tests/unit/cathLabReadinessOpenApiSource.test.js, which drives the
-// real resolver and the real refresh (with a stub db) and compares key sets —
+// Every shape here mirrors the readiness service exactly — which since the
+// rules / persistence / actions split is three modules behind one facade
+// (cathLabReadinessRules, cathLabReadinessService, cathLabReadinessActions) —
+// and is PINNED to them by src/tests/unit/cathLabReadinessOpenApiSource.test.js,
+// which drives the real resolver and the real refresh (with a stub db) and
+// compares key sets —
 // the schemas are additionalProperties:false, so a key the service adds and
 // this file does not declare is a response that violates its own contract.
 //

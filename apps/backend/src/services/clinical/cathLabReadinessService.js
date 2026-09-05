@@ -1,6 +1,8 @@
 // apps/backend/src/services/clinical/cathLabReadinessService.js
 //
-// Pre-procedure lab readiness for cath cases. Spec:
+// Pre-procedure lab readiness for cath cases: the PERSISTENCE half — tenant
+// settings, the refresh that resolves the seven items and writes them, and the
+// check-level automation over them. Spec:
 // docs/superpowers/specs/2026-09-04-cath-pre-procedure-lab-readiness-design.md
 //
 // Seven items under the existing `labs` readiness check, resolved from
@@ -8,390 +10,70 @@
 // passes the check on availability and flips it back only if it set it; a
 // critical value warns and never blocks (owner decision).
 //
-// Cycles. This module imports labResultsService (for recordExternalLabResultRow,
-// the outside-lab entry point) and orderService (to place the missing orders).
-// Only labResultsService reaches back to the readiness refresh, and it does so
-// through a DYNAMIC import of refreshOpenCasesForPatient, never a static one;
-// orderService does not reach back at all. cathLabService imports THIS module
-// for getCase, so this module must not import cathLabService — which is why the
-// readiness gate recompute is inlined below (recomputeCaseStatusTx) rather than
-// borrowed from cathLabService.evaluateReadinessGate.
-
-import { createHash } from 'node:crypto';
+// WHERE THE REST OF IT LIVES. This file used to be all three halves at once:
+//
+//   * cathLabReadinessRules.js   — the pure vocabulary, `resolveItemState` and
+//     `computeCheckDecision`. No I/O, no clock, no tenant, so the behaviour the
+//     whole feature turns on can be driven directly.
+//   * cathLabReadinessActions.js — waive, un-waive, order-missing and the
+//     outside-result entry: the four writes, and the only code here that
+//     reaches orderService, labResultsService and the marker rail.
+//   * cathParamGuards.js         — requireUuid / positiveInt / cleanText / num
+//     / tenantOr / withTenant, shared by all three.
+//
+// THIS FILE IS ALSO THE FACADE: it re-exports every name from all three, so
+// every existing `from './cathLabReadinessService.js'` — the routes,
+// cathLabService, the deep suite, the unit suites and the OpenAPI source pin —
+// keeps working unchanged. New code may import the narrower module directly.
+//
+// Cycles. cathLabReadinessActions.js imports caseRowTx, recordReadinessAudit
+// and refreshCaseLabReadiness from HERE while this file re-exports it: a
+// deliberate ES-module cycle, safe because all three are hoisted `function`
+// declarations and neither module calls the other during evaluation.
+// labResultsService reaches the refresh only through a DYNAMIC import of
+// refreshOpenCasesForPatient, never a static one, and orderService does not
+// reach back at all. cathLabService imports this module for getCase, so this
+// module must not import cathLabService — which is why the readiness gate
+// recompute is inlined below (recomputeCaseStatusTx) rather than borrowed from
+// cathLabService.evaluateReadinessGate.
 
 import { setTenant, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
-import { epochMsOrNull } from '../../utils/dbInstant.js';
-import { requireTenantId } from '../tenant/tenantService.js';
-import { createInvestigationOrder } from '../investigation/orderService.js';
-import { recordExternalLabResultRow } from '../lab/labResultsService.js';
+import { BLOODBORNE_MARKER_ITEM_CODES, orderCodesCovering } from '../lab/labAnalyteCodes.js';
 import {
-  BLOODBORNE_MARKER_ITEM_CODES,
-  LAB_ANALYTE_ITEMS,
-  LAB_ANALYTE_ITEM_CODES,
-  analyteItemForResult,
-  orderCodesCovering,
-} from '../lab/labAnalyteCodes.js';
-import { recordMarkers } from './bloodborneMarkerService.js';
-import { clinicalDate, normalizeSerologyValue } from './bloodborneMarkerRules.js';
-
-export const ITEM_CODES = LAB_ANALYTE_ITEM_CODES;
-export const ITEM_STATES = Object.freeze([
-  'result_final', 'result_preliminary', 'external_recorded', 'sample_sent_awaiting_result',
-  'ordered_awaiting_sample', 'not_ordered', 'stale', 'waived',
-]);
-// Migration 766's cath_case_lab_readiness_items_source_check vocabulary, in the
-// order the constraint spells it. Pinned by cathLabReadinessMigration.test.js.
-export const ITEM_SOURCES = Object.freeze(['lab_result', 'external', 'waiver']);
-export const AVAILABLE_STATES = Object.freeze(['result_final', 'result_preliminary', 'waived']);
-export const SETTINGS_DEFAULTS = Object.freeze({
-  required_items: [...ITEM_CODES],
-  lab_validity_days: 30,
-  auto_pass: true,
-  external_results_count: true,
-});
-export const DEFAULT_SEROLOGY_VALIDITY_DAYS = 90;
-
-const SIGNED_STATUSES = new Set(['final', 'corrected', 'amended', 'verified']);
-const OPEN_ORDER_STATUSES_EXCLUDED = new Set(['COMPLETED', 'CANCELLED']);
-const SPECIMEN_SENT_STATES = new Set(['collected', 'in_transit', 'received', 'processing']);
-const CRITICAL_FLAGS = new Set(['HH', 'LL', 'AA']);
-
-export function isCriticalResult(row) {
-  return Boolean(row?.is_critical) || CRITICAL_FLAGS.has(String(row?.abnormal_flag || '').toUpperCase());
-}
-
-const MS_PER_DAY = 86_400_000;
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-
-// Milliseconds since the epoch from anything a row can carry here: an epoch-ms
-// twin (the driver hands `::bigint` back as a BigInt), a driver-materialised
-// Date, an ISO string, or a plain number. NaN for everything else — every
-// caller tests with Number.isFinite, never with truthiness, because 0 is a
-// legitimate (if absurd) instant and `Number(null)` is also 0.
-function toMs(value) {
-  if (value === null || value === undefined) return NaN;
-  if (typeof value === 'bigint') return Number(value);
-  if (typeof value === 'number') return Number.isFinite(value) ? value : NaN;
-  const ms = value instanceof Date ? value.getTime() : Date.parse(String(value));
-  return Number.isFinite(ms) ? ms : NaN;
-}
-
-// The house rule for an instant that will be compared against the process
-// clock: read the `<column>_epoch_ms` twin the query selects beside the column
-// (src/utils/dbInstant.js, scripts/check-timestamptz-clock-comparisons.mjs),
-// never the driver-materialised Date, which the pg driver shifts by the
-// DATABASE SESSION timezone. The Date stays as the fallback so this pure
-// resolver still works on the plain ISO rows the unit tests hand it, and on any
-// caller that has not added the twin to its SELECT yet.
-function instantMs(row, field) {
-  const twin = epochMsOrNull(row?.[`${field}_epoch_ms`]);
-  return twin == null ? toMs(row?.[field]) : twin;
-}
-
-// lab_results.external_reported_on is the day the OUTSIDE laboratory reported
-// the value; performed_at on such a row is only when somebody keyed it in here,
-// which can be months later. A DATE carries no time zone, so a string form is
-// read as IST midnight — the ward's day, the convention clinicalDate() uses.
-function externalReportedMs(value) {
-  if (value === null || value === undefined) return NaN;
-  if (value instanceof Date) return toMs(value);
-  const text = String(value).trim();
-  return ISO_DATE.test(text) ? toMs(`${text}T00:00:00+05:30`) : NaN;
-}
-
-// When the value became true of the patient, as an absolute instant.
-function observedMs(row) {
-  if (row?.result_origin === 'external_lab') {
-    const reported = externalReportedMs(row.external_reported_on);
-    if (Number.isFinite(reported)) return reported;
-  }
-  const performed = instantMs(row, 'performed_at');
-  return Number.isFinite(performed) ? performed : instantMs(row, 'received_at');
-}
-
-// observed_at / ordered_at land in TIMESTAMPTZ columns, so they are written
-// from the epoch value — a true instant — rather than from whatever shape
-// (naive timestamp, DATE, driver Date) the source row happened to carry.
-function msToIso(ms) {
-  return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
-}
-
-// Fresh means IN THE PAST and no older than the window. The lower bound is the
-// point: a future-dated row is not evidence of anything, so it can never be
-// fresh, and sortMs ranks it last so it never outranks a real value either. A
-// lone future-dated result therefore resolves as `stale` — it is the latest but
-// not fresh — which is the restrictive direction. Open orders inherit the same
-// bound; a future-dated order is dropped and the item reads not_ordered rather
-// than ordered_awaiting_sample, and the check counts both as missing.
-function withinWindow(value, asOf, windowDays) {
-  const ms = toMs(value);
-  const age = toMs(asOf) - ms;
-  return Number.isFinite(ms) && age >= 0 && age <= windowDays * MS_PER_DAY;
-}
-
-// Most-recent-first, ties broken on id descending. Ranks are COMPARED, never
-// subtracted, because an unusable rank is -Infinity and `-Infinity - -Infinity`
-// is NaN — a comparator that returns NaN silently leaves the array unsorted.
-// The id tiebreak follows the same rule: a booking-derived open order carries
-// no investigations row and therefore no `id`, and `Number(null) - Number(null)`
-// would be NaN too.
-function rankBy(msOf) {
-  const idRank = (row) => {
-    const n = Number(row?.id);
-    return Number.isFinite(n) ? n : -Infinity;
-  };
-  return (a, b) => {
-    const am = msOf(a);
-    const bm = msOf(b);
-    if (am !== bm) return bm - am;
-    const ai = idRank(a);
-    const bi = idRank(b);
-    if (ai === bi) return 0;
-    return ai < bi ? 1 : -1;
-  };
-}
-
-// The evidence copied off a lab_results row onto the item.
-function resultFields(row) {
-  return {
-    value_text: row.value_text ?? null,
-    value_numeric: row.value_numeric == null ? null : Number(row.value_numeric),
-    unit: row.unit ?? null,
-    abnormal_flag: row.abnormal_flag ?? null,
-    is_critical: isCriticalResult(row),
-    observed_at: msToIso(observedMs(row)),
-    source: row.result_origin === 'external_lab' ? 'external' : 'lab_result',
-    lab_result_id: Number(row.id),
-  };
-}
-
-function matchesItem(item, row) {
-  return analyteItemForResult(row) === item;
-}
-
-function orderCoversItem(item, order) {
-  const code = String(order.test_code || '').trim().toUpperCase();
-  return LAB_ANALYTE_ITEMS[item].orderCodes.includes(code);
-}
-
-// One item's state from the patient's rows. Pure; the caller fetches rows.
-export function resolveItemState({
-  item,
-  results = [],
-  orders = [],
-  specimens = [],
-  waiver = null,
-  windowDays,
-  asOf = new Date(),
-}) {
-  const base = {
-    item_code: item, state: 'not_ordered', value_text: null, value_numeric: null, unit: null,
-    abnormal_flag: null, is_critical: false, observed_at: null, source: null, lab_result_id: null,
-    investigation_id: null, specimen_id: null, ordered_at: null,
-    // Present, and null, on EVERY item rather than only on waived ones: the
-    // refresh builds its UPSERT straight from this object, so a lifted waiver
-    // has to arrive as three explicit NULLs or the old waiver survives the
-    // rewrite and the row still names a person who cleared nothing.
-    waived_by: null, waived_at: null, waive_reason: null,
-  };
-  const asOfMs = toMs(asOf);
-  // A row whose instant is unusable OR in the future ranks last, so it never
-  // outranks a real value; ties then break on id descending.
-  const rankResult = (row) => {
-    const ms = observedMs(row);
-    return Number.isFinite(ms) && ms <= asOfMs ? ms : -Infinity;
-  };
-  const rankOrder = (row) => {
-    const ms = instantMs(row, 'requested_at');
-    return Number.isFinite(ms) && ms <= asOfMs ? ms : -Infinity;
-  };
-
-  // The `cancelled` filter is defensive rather than observed: no writer produces
-  // that status today — the HL7 ingest collapses OBX-11 X/W/D to 'preliminary'
-  // upstream, so a retracted outside value arrives here as a preliminary one.
-  // Follow-up: carry the retraction through the ingest, then this starts firing.
-  const candidates = results
-    .filter((row) => matchesItem(item, row) && String(row.status || '').toLowerCase() !== 'cancelled')
-    .sort(rankBy(rankResult));
-  const latest = candidates[0] || null;
-  const latestFresh = latest && withinWindow(observedMs(latest), asOf, windowDays) ? latest : null;
-
-  // Open orders are resolved BEFORE the result branch, not instead of it: a
-  // repeat draw already in flight stays visible on the item even when a fresh
-  // result has answered it, so nobody is told to order what is already ordered.
-  // `booking_id` reaches here from the caller's LEFT JOIN with
-  // investigation_bookings — the investigations table carries no such column.
-  const openOrders = orders
-    .filter((order) => orderCoversItem(item, order)
-      && !OPEN_ORDER_STATUSES_EXCLUDED.has(String(order.status || '').toUpperCase())
-      && withinWindow(instantMs(order, 'requested_at'), asOf, windowDays))
-    .sort(rankBy(rankOrder));
-  const openOrder = openOrders[0] || null;
-  // Deterministic by id — the highest is the latest draw for that booking. The
-  // caller's ORDER BY is not a contract this pure function may lean on.
-  const specimen = openOrder && openOrder.booking_id != null
-    ? specimens
-      .filter((row) => Number(row.booking_id) === Number(openOrder.booking_id))
-      .sort((a, b) => Number(b.id) - Number(a.id))[0] || null
-    : null;
-  const orderPointer = openOrder
-    ? {
-      // A booking with no investigations row IS an open order (spec §7 step 2)
-      // but has no investigation to point at: null, never Number(null) === 0,
-      // which would fail the item schema's `minimum: 1` and bind a 0 the FK
-      // could never satisfy.
-      investigation_id: openOrder.id == null ? null : Number(openOrder.id),
-      specimen_id: specimen ? Number(specimen.id) : null,
-      ordered_at: msToIso(instantMs(openOrder, 'requested_at')),
-    }
-    : {};
-
-  let resolved;
-  if (latestFresh) {
-    const status = String(latestFresh.status || '').toLowerCase();
-    const signed = SIGNED_STATUSES.has(status)
-      && Number.isFinite(instantMs(latestFresh, 'signed_off_at'));
-    // The result decides the state; the in-flight order only adds its pointers.
-    resolved = {
-      ...base,
-      ...resultFields(latestFresh),
-      state: latestFresh.result_origin === 'external_lab'
-        ? 'external_recorded'
-        : (signed ? 'result_final' : 'result_preliminary'),
-      ...orderPointer,
-    };
-  } else if (openOrder) {
-    const sent = specimen
-      ? SPECIMEN_SENT_STATES.has(String(specimen.status || '').toLowerCase())
-      : Number.isFinite(instantMs(openOrder, 'collected_at'));
-    resolved = {
-      ...base,
-      state: sent ? 'sample_sent_awaiting_result' : 'ordered_awaiting_sample',
-      ...orderPointer,
-    };
-  } else if (latest) {
-    resolved = { ...base, ...resultFields(latest), state: 'stale' };
-  } else {
-    resolved = base;
-  }
-
-  if (!waiver) return resolved;
-  // Migration 766's cath_case_lab_readiness_items_waiver_check requires all
-  // three of who/when/why on any row in state 'waived'. Refusing here turns a
-  // 23514 raised in the middle of a cath-case read into a 400 that names the
-  // gap; waiveLabItem always supplies them, so this is the corrupt-row path.
-  if (!waiver.waived_by || !waiver.waived_at || !waiver.waive_reason) {
-    throw AppError.badRequest(
-      'a waived lab item needs waived_by, waived_at and waive_reason',
-      'CATH_LAB_READINESS_VALUE_INVALID',
-    );
-  }
-  // A waiver decides the STATE, not the evidence: the value that prompted it
-  // stays on the item, so a waived potassium of 6.9 still raises the critical
-  // warning the operator standing at the table needs to see.
-  return {
-    ...resolved,
-    state: 'waived',
-    source: 'waiver',
-    waived_by: waiver.waived_by,
-    waived_at: waiver.waived_at,
-    waive_reason: waiver.waive_reason,
-  };
-}
-
-// The human-readable "why is this still pending" line. Derived from `missing`
-// on EVERY pass, never carried forward: the reason is a statement about the
-// items as they stand now, and a stored one goes stale the moment a sample is
-// drawn (see the refresh, which recomputes it while the check stays
-// auto-pending).
-export function pendingReasonFor(missing = []) {
-  if (!missing.length) return null;
-  return missing.map((row) => `${row.item} ${String(row.state).replace(/_/g, ' ')}`).join('; ');
-}
-
-// Does this item need nothing further from the team? Exported because the case
-// LIST answers the same question over the stored rows without running a
-// refresh, and a second copy of the external-results rule there would be a
-// second thing to keep in step with the tenant setting.
-export function isItemAvailable(item, settings) {
-  if (AVAILABLE_STATES.includes(item.state)) return true;
-  return item.state === 'external_recorded' && settings.external_results_count === true;
-}
-
-const isAvailable = isItemAvailable;
-
-// What automation may do to the `labs` check row given the items.
-// nextStatus: 'pass' | 'pending' | null (leave the row alone).
-export function computeCheckDecision({ items, settings, check, caseRow }) {
-  const required = items.filter((item) => item.required !== false);
-  const missing = required.filter((item) => !isAvailable(item, settings)).map((item) => ({ item: item.item_code, state: item.state }));
-  // Criticality is read across ALL items — required or not, waived or not.
-  // `missing` is the gate and stays required-only; this is the WARNING, and a
-  // potassium of 6.9 is a potassium of 6.9 whether the team waived the item or
-  // never required it. resolveItemState leaves the value on a waived item for
-  // exactly this reason.
-  const criticalItems = items.filter((item) => isCriticalResult(item)).map((item) => item.item_code);
-  const autoManaged = check?.metadata?.auto_managed === true;
-  const status = String(check?.status || 'pending').toLowerCase();
-  const started = Boolean(caseRow?.actual_start_at);
-  let nextStatus = null;
-  let autoPendingReason = null;
-  // `!started` on BOTH branches: automation asserts readiness only while the
-  // assertion can still change what happens. Opening an in_progress/completed
-  // case would otherwise re-run this and flip a pending labs check to pass with
-  // completed_at = NOW() — a readiness claim stamped after the procedure it was
-  // supposed to gate, plus an auto_pass audit row to match. Once the case is on
-  // the table the row is history: leave it exactly as the team left it.
-  if (missing.length === 0 && !started) {
-    if (settings.auto_pass === true && (status === 'pending' || (status === 'pass' && autoManaged))) {
-      nextStatus = status === 'pass' ? null : 'pass';
-    }
-  } else if (status === 'pass' && autoManaged && !started) {
-    // Deliberately not gated on settings.auto_pass: turning auto-pass off stops
-    // automation making NEW assertions, but retracting one it already made is a
-    // correction, and it moves the gate in the restrictive direction.
-    nextStatus = 'pending';
-    autoPendingReason = pendingReasonFor(missing);
-  }
-  return { nextStatus, criticalWarning: criticalItems.length > 0, criticalItems, missing, autoPendingReason };
-}
+  DEFAULT_SEROLOGY_VALIDITY_DAYS,
+  ITEM_CODES,
+  OPEN_ORDER_STATUSES_EXCLUDED,
+  SETTINGS_DEFAULTS,
+  computeCheckDecision,
+  instantMs,
+  msToIso,
+  orderCoversItem,
+  pendingReasonFor,
+  resolveItemState,
+  toMs,
+  withinWindow,
+} from './cathLabReadinessRules.js';
+import {
+  cleanText,
+  num,
+  positiveInt,
+  requireUuid,
+  tenantOr,
+  withTenant,
+} from './cathParamGuards.js';
 
 // ---------------------------------------------------------------------------
-// Shared validation and small helpers
+// Small helpers that belong to the WRITE path
 //
-// Every raw parameter below is bound and cast; nothing is interpolated into a
-// statement. positiveInt is deliberately stricter than Number(): '12abc',
-// ' 12 ' and '1e3' all become 12/1000 under Number and would then be bound to
-// a ::bigint the caller never wrote.
+// int4OrNull and deepEqual are about what may be bound to this module's own
+// columns and about whether a stored jsonb already says what the refresh is
+// about to write. Neither is a rule and neither is a parameter guard, so both
+// stay here with the statements they exist for.
 // ---------------------------------------------------------------------------
 
 const POSTGRES_INT4_MAX = 2_147_483_647;
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const SHA256_HEX = /^[0-9a-f]{64}$/;
-
-const tenantOr = (value) => requireTenantId(value);
-
-function requireUuid(value, label) {
-  const text = String(value ?? '').trim();
-  if (!UUID_PATTERN.test(text)) {
-    throw AppError.badRequest(`${label} must be a UUID`, 'CATH_LAB_BAD_UUID');
-  }
-  return text.toLowerCase();
-}
-
-function positiveInt(value, label, max = Number.MAX_SAFE_INTEGER) {
-  const text = String(value ?? '').trim();
-  if (!/^[0-9]+$/.test(text)) {
-    throw AppError.badRequest(`${label} must be a positive integer`, 'CATH_LAB_BAD_ID');
-  }
-  const n = Number(text);
-  if (!Number.isSafeInteger(n) || n <= 0 || n > max) {
-    throw AppError.badRequest(`${label} must be a positive integer`, 'CATH_LAB_BAD_ID');
-  }
-  return n;
-}
 
 // A lab_results / investigations / lab_specimens id copied onto a readiness
 // item. These columns are int4 in both directions; a value that would not
@@ -403,71 +85,6 @@ function int4OrNull(value) {
   const n = Number(value);
   if (!Number.isSafeInteger(n) || n <= 0 || n > POSTGRES_INT4_MAX) return null;
   return n;
-}
-
-function cleanText(value, max = 2000) {
-  if (value === null || value === undefined) return null;
-  const text = String(value).trim();
-  return text ? text.slice(0, max) : null;
-}
-
-function num(value) {
-  if (value === null || value === undefined) return value;
-  if (typeof value === 'bigint') return Number(value);
-  if (typeof value?.toNumber === 'function') return value.toNumber();
-  return value;
-}
-
-// A quantitative outside value, or null. Deliberately NOT Number(): `Number`
-// turns null, '', [] and false into 0 and true into 1, so a request that named
-// no value at all used to be stored as a creatinine of 0 — a value that reads
-// as normal and passes the gate. Only an explicit finite number, or a plain
-// decimal string, is a value here.
-const DECIMAL_TEXT = /^\d+(\.\d+)?$/;
-function numericValueOrNull(value) {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  if (typeof value === 'string' && DECIMAL_TEXT.test(value.trim())) return Number(value.trim());
-  return null;
-}
-
-// lab_results.value_numeric and the readiness item's copy of it are both
-// NUMERIC(15, 4) -- eleven digits ahead of the point, so anything from 1e11 up
-// does not fit the column. Postgres raises that as 22003 halfway through the
-// insert, which reaches the ward as a 500 naming no field at all. The COLUMN's
-// bound is therefore stated here, where the answer is a 400 that names it.
-const VALUE_NUMERIC_EXCLUSIVE_MAX = 1e11;
-
-// The quantitative value an outside entry is filing, or a 400. Exported so the
-// rule can be pinned on its own: it is the difference between "no value was
-// sent" and "a creatinine of 0 was sent", and the second reads as normal.
-export function externalNumericValue(rawNumeric, rawText) {
-  const value = numericValueOrNull(rawNumeric) ?? numericValueOrNull(rawText);
-  if (
-    value === null
-    || !Number.isFinite(value)
-    || value < 0
-    || value >= VALUE_NUMERIC_EXCLUSIVE_MAX
-  ) {
-    throw AppError.badRequest(
-      'value_numeric must be a non-negative number below 1e11 (NUMERIC(15, 4))',
-      'CATH_LAB_READINESS_VALUE_INVALID',
-    );
-  }
-  return value;
-}
-
-// A real calendar day, not merely ten characters shaped like one: the regex
-// alone accepts 2026-13-45, which then raises 22008 on the ::date cast in the
-// middle of the write and surfaces as a 500. Round-tripping through Date.UTC
-// is what rejects an overflowed month or day here, as a 400.
-function isCalendarDate(text) {
-  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
-  if (!parts) return false;
-  const [year, month, day] = [Number(parts[1]), Number(parts[2]), Number(parts[3])];
-  const roundTrip = new Date(Date.UTC(year, month - 1, day));
-  return roundTrip.getUTCFullYear() === year
-    && roundTrip.getUTCMonth() === month - 1
-    && roundTrip.getUTCDate() === day;
 }
 
 // Structural equality for the JSON the check row already carries. Key ORDER is
@@ -488,14 +105,10 @@ function deepEqual(left, right) {
   return leftKeys.every((key) => Object.hasOwn(right, key) && deepEqual(left[key], right[key]));
 }
 
-function withTenant(tenantId, db, fn) {
-  return db ? fn(db) : setTenant(tenantId, fn);
-}
-
 // audit_logs shape mirrors cssdService.js:208 — (tenant_id, uid, role, action,
 // resource, resource_id, metadata, actor_uid, created_at). `role` is
 // VARCHAR(50) and `action`/`resource`/`resource_id` are VARCHAR(100).
-async function recordReadinessAudit(tx, {
+export async function recordReadinessAudit(tx, {
   tenantId, action, resource, resourceId, context = {}, metadata = {},
 }) {
   await tx.$executeRawUnsafe(
@@ -648,7 +261,7 @@ const CASE_LOCK_CLAUSES = Object.freeze({
   'no key update': 'FOR NO KEY UPDATE',
 });
 
-async function caseRowTx(client, tenantId, caseId, { lock = false } = {}) {
+export async function caseRowTx(client, tenantId, caseId, { lock = false } = {}) {
   const lockClause = lock ? (CASE_LOCK_CLAUSES[lock] ?? CASE_LOCK_CLAUSES.update) : '';
   const rows = await client.$queryRawUnsafe(
     `SELECT id, tenant_id, patient_uid, encounter_id, facility_id, status, urgency, actual_start_at
@@ -1184,442 +797,52 @@ export async function refreshOpenCasesForPatient({ tenantId, patientUid } = {}) 
   }
 }
 
+
 // ---------------------------------------------------------------------------
-// Actions: waive, un-waive, order the missing, record an outside result
-// ---------------------------------------------------------------------------
-
-function requireItem(value) {
-  const item = String(value ?? '').trim().toLowerCase();
-  if (!ITEM_CODES.includes(item)) {
-    throw AppError.badRequest(
-      `item must be one of ${ITEM_CODES.join(', ')}`,
-      'CATH_LAB_READINESS_ITEM_UNKNOWN',
-    );
-  }
-  return item;
-}
-
-// Once the patient is on the table the pre-procedure record is HISTORY: what
-// the team knew before the case is not editable after it. The same rule the
-// order and outside-result paths already state, and the same code
-// (CATH_LAB_READINESS_CASE_STARTED) — spelled once so the two waiver paths
-// cannot drift from it. The caller passes the row it has ALREADY LOCKED, so
-// the decision is made against a case row no concurrent writer can start
-// underneath it.
-function requireCaseNotStarted(cathCase, message) {
-  if (cathCase?.actual_start_at) {
-    throw AppError.conflict(message, 'CATH_LAB_READINESS_CASE_STARTED');
-  }
-}
-
-export async function waiveLabItem(caseId, itemCode, input = {}, context = {}) {
-  const tid = tenantOr(input.tenantId);
-  const item = requireItem(itemCode);
-  const reason = cleanText(input.reason, 500);
-  if (!reason) {
-    throw AppError.badRequest(
-      'reason is required to waive a lab item',
-      'CATH_LAB_READINESS_VALUE_INVALID',
-    );
-  }
-  const actor = requireUuid(context.actorUid, 'actorUid');
-  return setTenantTx(tid, async (tx) => {
-    const cathCase = await caseRowTx(tx, tid, caseId, { lock: true });
-    requireCaseNotStarted(
-      cathCase,
-      'The procedure has started; the pre-procedure record is closed to new waivers',
-    );
-    await tx.$executeRawUnsafe(
-      `INSERT INTO cath_case_lab_readiness_items
-         (tenant_id, case_id, item_code, required, state, source,
-          waived_by, waived_at, waive_reason, refreshed_at)
-       VALUES ($1::uuid, $2::bigint, $3, TRUE, 'waived', 'waiver', $4::uuid, NOW(), $5, NOW())
-       ON CONFLICT (tenant_id, case_id, item_code) DO UPDATE SET
-         state = 'waived',
-         source = 'waiver',
-         waived_by = EXCLUDED.waived_by,
-         waived_at = NOW(),
-         waive_reason = EXCLUDED.waive_reason,
-         refreshed_at = NOW()`,
-      tid, cathCase.id, item, actor, reason,
-    );
-    await recordReadinessAudit(tx, {
-      tenantId: tid,
-      action: 'cath_lab.readiness.labs.item_waived',
-      resource: 'cath_case_lab_readiness_items',
-      resourceId: `${cathCase.id}:${item}`,
-      context,
-      metadata: { case_id: cathCase.id, item, reason },
-    });
-    return refreshCaseLabReadiness({ tenantId: tid, caseId: cathCase.id, db: tx, context });
-  });
-}
-
-// Lifting a waiver. The gate is not "undo": the waiver row and its audit trail
-// stay in the log, and this writes a SECOND decision over them — the item goes
-// back to being resolved from the patient's own lab evidence, which may leave
-// it missing again and take the check off pass.
+// Facade
 //
-// The state is not GUESSED here. Clearing the three waiver columns and running
-// the refresh on the SAME transaction is what re-resolves the item, so a
-// lifted waiver reads exactly what it would have read had it never been
-// waived — including the value that was already on the row, which
-// resolveItemState keeps on a waived item. `state` and `source` are set to the
-// no-evidence pair rather than left saying `waived`, because migration 766's
-// cath_case_lab_readiness_items_waiver_check refuses a `waived` row without a
-// who/when/why the statement has just nulled; the refresh below overwrites
-// both from the evidence a statement later.
-export async function unwaiveLabItem(caseId, itemCode, input = {}, context = {}) {
-  const tid = tenantOr(input.tenantId);
-  const item = requireItem(itemCode);
-  // Optional: WHY the waiver is being lifted. A waiver needs a reason because
-  // it clears a gate; lifting one restores the gate, so it is the restrictive
-  // direction and is not held up for prose.
-  const reason = cleanText(input.reason, 500);
-  requireUuid(context.actorUid, 'actorUid');
-  return setTenantTx(tid, async (tx) => {
-    const cathCase = await caseRowTx(tx, tid, caseId, { lock: true });
-    requireCaseNotStarted(
-      cathCase,
-      'The procedure has started; the pre-procedure record is closed to waiver changes',
-    );
-    const rows = await tx.$queryRawUnsafe(
-      `SELECT state, waive_reason
-         FROM cath_case_lab_readiness_items
-        WHERE tenant_id = $1::uuid
-          AND case_id = $2::bigint
-          AND item_code = $3
-        FOR UPDATE`,
-      tid, cathCase.id, item,
-    );
-    const stored = rows[0] || null;
-    // Read under the case lock and asserted from the STORED row, not from what
-    // the caller believes: a second tap that arrives after the first has
-    // already lifted the waiver is told so rather than writing a no-op audit
-    // row saying a waiver was removed.
-    if (!stored || String(stored.state) !== 'waived') {
-      throw AppError.conflict(
-        `The ${item} item is not waived`,
-        'CATH_LAB_READINESS_NOT_WAIVED',
-      );
-    }
-    const previousReason = stored.waive_reason ?? null;
-    await tx.$executeRawUnsafe(
-      `UPDATE cath_case_lab_readiness_items
-          SET state = 'not_ordered',
-              source = NULL,
-              waived_by = NULL,
-              waived_at = NULL,
-              waive_reason = NULL,
-              refreshed_at = NOW()
-        WHERE tenant_id = $1::uuid
-          AND case_id = $2::bigint
-          AND item_code = $3`,
-      tid, cathCase.id, item,
-    );
-    await recordReadinessAudit(tx, {
-      tenantId: tid,
-      action: 'cath_lab.readiness.labs.unwaived',
-      resource: 'cath_case_lab_readiness_items',
-      resourceId: `${cathCase.id}:${item}`,
-      context,
-      // The reason the waiver GAVE is the thing being withdrawn, so it is
-      // carried onto the row that withdraws it: the log otherwise says an
-      // override was lifted without saying which override.
-      metadata: {
-        case_id: cathCase.id, item, reason, previous_reason: previousReason,
-      },
-    });
-    return refreshCaseLabReadiness({ tenantId: tid, caseId: cathCase.id, db: tx, context });
-  });
-}
+// Everything the three sibling modules export, re-exported here so an importer
+// that only knows this file is unaffected by the split. Explicit name lists
+// rather than `export *`: what this module publishes is a contract, and a name
+// added to a sibling should reach it as a reviewed line rather than by
+// accident.
+// ---------------------------------------------------------------------------
 
-// Catalogue display names for the six orderable codes (migration 102). The
-// codes themselves come from labAnalyteCodes.orderCodesCovering, which stays
-// the single source of truth for WHICH orders cover which items.
-const CATALOGUE_TEST_NAMES = Object.freeze({
-  CBC: 'Complete Blood Count',
-  PLT: 'Platelet Count',
-  CREATININE: 'Serum Creatinine',
-  KFT: 'Kidney Function Test',
-  ELECTROLYTES: 'Serum Electrolytes',
-  HIV: 'HIV 1 & 2 Antibody (ELISA)',
-  HBSAG: 'Hepatitis B Surface Antigen',
-  HCV: 'Hepatitis C Antibody',
-});
+export {
+  AVAILABLE_STATES,
+  DEFAULT_SEROLOGY_VALIDITY_DAYS,
+  ITEM_CODES,
+  ITEM_SOURCES,
+  ITEM_STATES,
+  OPEN_ORDER_STATUSES_EXCLUDED,
+  SETTINGS_DEFAULTS,
+  computeCheckDecision,
+  externalNumericValue,
+  instantMs,
+  isCalendarDate,
+  isCriticalResult,
+  isItemAvailable,
+  msToIso,
+  orderCoversItem,
+  pendingReasonFor,
+  resolveItemState,
+  toMs,
+  withinWindow,
+} from './cathLabReadinessRules.js';
 
-// cath_lab_cases.urgency (elective | routine | urgent | emergency — the
-// vocabulary cathLabService.createCase normalises to) mapped onto the priority
-// vocabulary createInvestigationOrder accepts (PRIORITY_LEVELS in
-// config/investigationConfig.js: STAT | URGENT | HIGH | NORMAL | LOW). A
-// primary-PCI patient's pre-procedure bloods must not sit on the lab worklist
-// behind an elective case's on a 24-hour turnaround clock: STAT is a 1-hour
-// target, URGENT 4. Anything unrecognised falls back to NORMAL, which is the
-// value this path used unconditionally before.
-const CATH_URGENCY_ORDER_PRIORITY = Object.freeze({
-  emergency: 'STAT',
-  urgent: 'URGENT',
-  routine: 'NORMAL',
-  elective: 'NORMAL',
-});
+export {
+  orderMissingLabs,
+  orderPriorityForUrgency,
+  recordExternalLabResult,
+  unwaiveLabItem,
+  waiveLabItem,
+} from './cathLabReadinessActions.js';
 
-export function orderPriorityForUrgency(urgency) {
-  return CATH_URGENCY_ORDER_PRIORITY[String(urgency ?? '').trim().toLowerCase()] || 'NORMAL';
-}
-
-export async function orderMissingLabs(caseId, input = {}, context = {}) {
-  const tid = tenantOr(input.tenantId);
-  const actor = requireUuid(context.actorUid, 'actorUid');
-  const before = await refreshCaseLabReadiness({ tenantId: tid, caseId, context });
-  if (before.case_started) {
-    throw AppError.conflict(
-      'The procedure has started; order labs from the case instead',
-      'CATH_LAB_READINESS_CASE_STARTED',
-    );
-  }
-  const codes = before.orderable_now.filter((code) => !before.open_order_codes.includes(code));
-  const patientRows = await setTenant(tid, (client) => client.$queryRawUnsafe(
-    `SELECT u.id, c.urgency
-       FROM users u
-       JOIN cath_lab_cases c
-         ON c.patient_uid = u.uid
-        AND c.tenant_id = u.tenant_id
-      WHERE c.tenant_id = $1::uuid
-        AND c.id = $2::bigint
-      LIMIT 1`,
-    tid, positiveInt(caseId, 'case_id'),
-  ));
-  if (!patientRows[0]) {
-    throw AppError.notFound('Cath-lab case patient not found', 'CATH_LAB_CASE_NOT_FOUND');
-  }
-  const created = [];
-  const skipped = before.orderable_now
-    .filter((code) => before.open_order_codes.includes(code))
-    .map((code) => ({ code, reason: 'already_ordered' }));
-  const priority = orderPriorityForUrgency(patientRows[0].urgency);
-  for (const code of codes) {
-    try {
-      // createInvestigationOrder returns { investigation, patient_name,
-      // duplicate_warning } — the order row is one level in, not the return.
-      const order = await createInvestigationOrder({
-        patient_id: Number(patientRows[0].id),
-        doctor_uid: actor,
-        orderedBy: actor,
-        test_name: CATALOGUE_TEST_NAMES[code] || code,
-        test_code: code,
-        type: 'LAB',
-        priority,
-        notes: `Pre-cath lab readiness (case ${before.case_id})`,
-        tenantId: tid,
-        actorRole: context.actorRole || null,
-      });
-      created.push({ code, investigation_id: Number(order.investigation.id) });
-    } catch (err) {
-      // AppError.internal takes (message, code) and NOTHING else — a third
-      // argument is silently dropped, which is how this error used to reach the
-      // ward as a bare INTERNAL_ERROR. Constructed directly so both the code and
-      // the partial progress survive: some orders may already be on the lab's
-      // worklist, and re-running order-missing must not double them.
-      throw new AppError(
-        `Could not place the ${code} order: ${err?.code || err?.message}`,
-        500,
-        'CATH_LAB_READINESS_ORDER_FAILED',
-        { code, cause: err?.code || null, created: created.map((row) => row.code) },
-      );
-    }
-  }
-  await setTenantTx(tid, (tx) => recordReadinessAudit(tx, {
-    tenantId: tid,
-    action: 'cath_lab.readiness.labs.orders_placed',
-    resource: 'cath_lab_cases',
-    resourceId: before.case_id,
-    context,
-    metadata: { created, skipped },
-  }));
-  const after = await refreshCaseLabReadiness({ tenantId: tid, caseId, context });
-  return { created, skipped, readiness: after };
-}
-
-const QUALITATIVE_TOKENS = Object.freeze([
-  'reactive', 'non-reactive', 'nonreactive', 'non reactive',
-  'positive', 'negative', 'indeterminate', 'not detected', 'detected',
-]);
-
-// The fingerprint the ingest-command rail requires. An outside entry has no
-// HTTP body of its own when it arrives through a service call, so the
-// fingerprint is taken over the fields that define the result: the same value
-// twice replays, a corrected value is a new command.
-function externalEntryFingerprint(parts) {
-  return createHash('sha256').update(JSON.stringify(parts)).digest('hex');
-}
-
-export async function recordExternalLabResult(caseId, itemCode, input = {}, context = {}) {
-  const tid = tenantOr(input.tenantId);
-  const item = requireItem(itemCode);
-  const def = LAB_ANALYTE_ITEMS[item];
-  const actor = requireUuid(context.actorUid, 'actorUid');
-  const labName = cleanText(input.external_lab_name, 160);
-  const reportRef = cleanText(input.external_report_ref, 120);
-  const notes = cleanText(input.notes, 2000);
-  const observedOn = String(input.observed_on ?? '').trim();
-  if (!labName) {
-    throw AppError.badRequest('external_lab_name is required', 'CATH_LAB_READINESS_VALUE_INVALID');
-  }
-  // "Today" is the ward's today (Asia/Kolkata), not UTC's: between 18:30 and
-  // midnight IST a same-day report is tomorrow in UTC and would be refused.
-  // isCalendarDate, not the bare shape regex: 2026-13-45 is ten characters in
-  // the right pattern and raises 22008 on the ::date cast further down, which
-  // reaches the ward as a 500 rather than as the 400 it is.
-  if (!isCalendarDate(observedOn) || observedOn > clinicalDate(new Date())) {
-    throw AppError.badRequest(
-      'observed_on must be a past or present date (YYYY-MM-DD)',
-      'CATH_LAB_READINESS_VALUE_INVALID',
-    );
-  }
-  const valueText = cleanText(input.value_text, 255);
-  let valueNumeric = null;
-  let unit = cleanText(input.unit, 40) || def.unit;
-  if (def.kind === 'qualitative') {
-    const token = String(valueText || '').toLowerCase();
-    if (!QUALITATIVE_TOKENS.some((allowed) => token === allowed)) {
-      throw AppError.badRequest(
-        `value_text must be one of ${QUALITATIVE_TOKENS.join(', ')}`,
-        'CATH_LAB_READINESS_VALUE_INVALID',
-      );
-    }
-    unit = null;
-  } else {
-    // NOT `Number(input.value_numeric ?? valueText)`: that turns null, '', []
-    // and false into 0 and true into 1, so a request naming no value at all was
-    // stored as a creatinine of 0 — a value that reads as normal, passes the
-    // gate and clears the case. Only an explicit finite number, or a plain
-    // decimal string in either field, is a value.
-    valueNumeric = externalNumericValue(input.value_numeric, valueText);
-    if (!unit) {
-      throw AppError.badRequest(
-        'unit is required for a quantitative result',
-        'CATH_LAB_READINESS_VALUE_INVALID',
-      );
-    }
-  }
-  const cathCase = await setTenant(tid, (client) => caseRowTx(client, tid, caseId));
-  if (cathCase.actual_start_at) {
-    throw AppError.conflict(
-      'The procedure has started; outside results are recorded on the case, not the checklist',
-      'CATH_LAB_READINESS_CASE_STARTED',
-    );
-  }
-
-  // abnormal_flag is NOT computed here, and that is spec §8.2 honoured rather
-  // than skipped: an outside numeric value must carry the same flag an in-house
-  // one would, and on this platform lab_results.abnormal_flag is owned by the
-  // GOVERNED threshold policy, not by whoever writes the row.
-  // labThresholdExceptionService rewrites reference_range, reference_range_low /
-  // _high and abnormal_flag from the policy assessment immediately after the
-  // insert (and nulls them when no policy matches the analyte, leaving
-  // criticality_status 'threshold_unavailable'). The panel path says the same
-  // thing by inserting abnormal_flag: null outright. Deriving a flag here from
-  // lab_reference_ranges would either be overwritten a statement later or, worse
-  // where no policy matches, give an OUTSIDE value a flag the in-house value for
-  // the same analyte does not carry — the exact inconsistency §8.2 exists to
-  // prevent. The readiness item copies whatever the governed rail decided.
-
-  const storedValue = def.kind === 'qualitative' ? valueText : String(valueNumeric);
-  const fingerprint = SHA256_HEX.test(String(context.requestFingerprint || ''))
-    ? String(context.requestFingerprint)
-    : externalEntryFingerprint({
-      case_id: cathCase.id,
-      item,
-      value: storedValue,
-      unit,
-      observed_on: observedOn,
-      external_lab_name: labName,
-      external_report_ref: reportRef,
-    });
-  // One Idempotency-Key, one lab command PER ITEM. The header names the
-  // caller's REQUEST; the lab rail keys its command table on
-  // (tenant_id, actor_uid, command_scope, command_key), so handing it the bare
-  // header would make the SECOND item of an hiv/hbsag/hcv trio sent under one
-  // key collide with the first and fail LAB_RESULT_COMMAND_BODY_MISMATCH (422)
-  // — then serve that 422 back from the HTTP claim for the rest of the key's
-  // life. Suffixing the item code makes different items distinct commands while
-  // a genuine retry of the SAME item still replays (same key, same
-  // fingerprint). The suffix is budgeted inside the rail's 200-character
-  // command_key limit, so a caller key at the cap cannot push the joined key
-  // over it. With no header the content-derived fallback already carries the
-  // item.
-  const callerKey = cleanText(context.idempotencyKey, Math.max(1, 199 - item.length));
-  const idempotencyKey = callerKey
-    ? `${callerKey}:${item}`
-    : `cath-readiness-ext:${cathCase.id}:${item}:${fingerprint.slice(0, 32)}`;
-
-  // recordExternalLabResultRow, NOT recordResultManual with a flag: the escape
-  // is a separate entry point no route can reach, and this module is the only
-  // permitted caller (pinned by tests/unit/labExternalResultCallSites.test.js).
-  const recorded = await recordExternalLabResultRow({
-    tenantId: tid,
-    performed_by: actor,
-    performed_by_role: context.actorRole || null,
-    qualitative: def.kind === 'qualitative',
-    result: {
-      patient_uid: cathCase.patient_uid,
-      test_code: def.canonicalAnalyteCode,
-      test_name: `${def.canonicalAnalyteCode} (external lab)`,
-      value_text: storedValue,
-      unit,
-      comments: notes,
-      result_origin: 'external_lab',
-      external_lab_name: labName,
-      external_report_ref: reportRef,
-      external_reported_on: observedOn,
-      performed_at: `${observedOn}T00:00:00+05:30`,
-    },
-  }, {
-    idempotencyKey,
-    requestBodySha256: fingerprint,
-    httpIdempotencyClaimId: context.httpIdempotencyClaimId || null,
-    requestId: context.requestId || null,
-  });
-  const labResult = recorded.result;
-
-  // Serology also lands on the patient's blood-borne marker record (Plan 1's
-  // rail), so the reuse resolver and the cath capture sheet see the outside
-  // value too. `external_report` markers must carry the lab link.
-  if (def.marker) {
-    await recordMarkers({
-      tenantId: tid,
-      patientUid: cathCase.patient_uid,
-      actorUid: actor,
-      entries: [{
-        marker: def.marker,
-        result: normalizeSerologyValue(valueText),
-        tested_on: observedOn,
-        source: 'external_report',
-        lab_result_id: Number(labResult.id),
-        evidence: {
-          external_lab_name: labName,
-          external_report_ref: reportRef,
-          raw_value: valueText,
-        },
-      }],
-    });
-  }
-  await setTenantTx(tid, (tx) => recordReadinessAudit(tx, {
-    tenantId: tid,
-    action: 'CATH_LAB_EXTERNAL_RESULT_RECORDED',
-    resource: 'lab_results',
-    resourceId: Number(labResult.id),
-    context,
-    metadata: {
-      case_id: cathCase.id,
-      item,
-      external_lab_name: labName,
-      external_report_ref: reportRef,
-      observed_on: observedOn,
-    },
-  }));
-  const readiness = await refreshCaseLabReadiness({
-    tenantId: tid, caseId: cathCase.id, context,
-  });
-  return { lab_result_id: Number(labResult.id), item, readiness };
-}
+export {
+  cleanText,
+  num,
+  positiveInt,
+  requireUuid,
+  tenantOr,
+  withTenant,
+} from './cathParamGuards.js';

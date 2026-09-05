@@ -1354,7 +1354,7 @@ void main() {
       backendCodes,
       reason:
           'cathReadinessItemCodes in cath_readiness_models.dart must match '
-          'LAB_ANALYTE_ITEMS (which is cathLabReadinessService.ITEM_CODES) '
+          'LAB_ANALYTE_ITEMS (which is cathLabReadinessRules.ITEM_CODES) '
           'in the same order — the checklist renders one row per code and '
           'localises each by name.',
     );
@@ -1362,14 +1362,14 @@ void main() {
 
   test(
     'cathReadinessItemStates is pinned against the backend ITEM_STATES source '
-    '(apps/backend/src/services/clinical/cathLabReadinessService.js)',
+    '(apps/backend/src/services/clinical/cathLabReadinessRules.js)',
     () {
       final repoRoot = _findRepoRoot(Directory.current);
       final backendFile = repoRoot == null
           ? null
           : File(
               '${repoRoot.path}/apps/backend/src/services/clinical/'
-              'cathLabReadinessService.js',
+              'cathLabReadinessRules.js',
             );
       if (backendFile == null || !backendFile.existsSync()) {
         markTestSkipped(
@@ -1387,8 +1387,10 @@ void main() {
         match,
         isNotNull,
         reason:
-            'ITEM_STATES not found in cathLabReadinessService.js — has it been '
-            'renamed or restructured?',
+            'ITEM_STATES not found in cathLabReadinessRules.js — has it been '
+            'renamed or restructured? It moved there from '
+            'cathLabReadinessService.js when the readiness service was split '
+            'into rules / persistence / actions.',
       );
       final backendStates = RegExp(r"'([^']+)'")
           .allMatches(match!.group(1)!)
@@ -1401,7 +1403,7 @@ void main() {
         backendStates,
         reason:
             'cathReadinessItemStates in cath_readiness_models.dart must match '
-            'ITEM_STATES in cathLabReadinessService.js, in the same order — a '
+            'ITEM_STATES in cathLabReadinessRules.js, in the same order — a '
             'state with no entry here renders as a humanised code with no '
             'colour, which is how "critical, not ordered" comes to look calm.',
       );

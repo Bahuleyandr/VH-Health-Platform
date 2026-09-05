@@ -21,7 +21,7 @@
 library;
 
 /// The seven readiness item codes, in the order
-/// `cathLabReadinessService.ITEM_CODES` (which is
+/// `cathLabReadinessRules.ITEM_CODES` (which is
 /// `labAnalyteCodes.LAB_ANALYTE_ITEM_CODES`) spells them. Pinned against that
 /// source by `cath_readiness_checklist_test.dart`.
 const cathReadinessItemCodes = <String>[
@@ -34,7 +34,7 @@ const cathReadinessItemCodes = <String>[
   'hcv',
 ];
 
-/// The item-state vocabulary, in `cathLabReadinessService.ITEM_STATES` order.
+/// The item-state vocabulary, in `cathLabReadinessRules.ITEM_STATES` order.
 /// Pinned against that source by `cath_readiness_checklist_test.dart`.
 const cathReadinessItemStates = <String>[
   'result_final',
@@ -226,7 +226,7 @@ class CathLabReadinessItem {
 /// count as available, with the state it is stuck in.
 ///
 /// The server is the only authority on this list and the client cannot
-/// recompute it. `cathLabReadinessService.isAvailable` counts an
+/// recompute it. `cathLabReadinessRules.isItemAvailable` counts an
 /// `external_recorded` item only where the tenant has `external_results_count`
 /// on, and that setting is not projected into this payload — so a client-side
 /// "what is missing" would call an externally-recorded item done on a tenant
