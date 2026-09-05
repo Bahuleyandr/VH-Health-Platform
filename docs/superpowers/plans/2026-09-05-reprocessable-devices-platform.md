@@ -2,13 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** One department-agnostic reprocessable-device register, policy shape, state machine, serology gate and CSSD queue serving dialysis and OT — dialysers minted at first capture and dedicated to one patient with a derived cycle count and a TCV discard rule; instrument sets enrolled at issue with load-driven cycle evidence and exposure holds; the dialysis serology divergence closed by deriving the legacy columns from the marker record; isolation machines modelled warn-only with a recorded override. Cath's register is untouched.
+**Goal:** One department-agnostic reprocessable-device register, policy shape, state machine, serology gate and CSSD queue serving dialysis and OT — dialysers minted at first capture and dedicated to one patient with a derived cycle count and a TCV discard rule; instrument sets enrolled at issue with load-driven cycle evidence and exposure holds; the dialysis reuse path and the isolation-machine rule consuming the Phase 1 isolation resolver live (the derivation of `dialysis_patients.*_status` itself is the Phase 1 lane's — spec §3.3); isolation machines modelled warn-only with a recorded override; the Phase 2 census that gates the eventual column DROP. Cath's register is untouched.
 
-**Architecture:** Five new tables (`reprocessing_domain_settings`, `reprocessing_domain_policies`, `reprocessable_devices`, `reprocessable_device_usages`, `reprocessable_device_dialysis_links`) plus `dialysis_machines`, columns on `dialysis_sessions` / `dialyzer_reuse_register` / `surgical_implants`, defaults on `dialysis_patients`, one widened CHECK pair on `patient_bloodborne_markers`, and six `(tenant_id, id)` backing uniques — one forward migration, **767**. A pure rules module (`reprocessableDeviceRules.js`) carries 765's state machine, a generalised disposition function with a `quarantine` rule, the isolation-warning rule and the TCV verdict; `reprocessableDeviceService.js` owns the register, transitions (including the `uncapture` release for cases cancelled before use), history and the platform exposure handler; `dialysisReuseService.js` owns capture, the un-capture on cancel, the one-command reprocessing record, machines and the serology sync (including on marker void); `cssdReuseHooks.js` runs inside `cssdService`'s four existing transactions (issue, return, cancel, load). Routes: dialysis additions, a `/reprocessable-devices` sub-tree on CSSD, one theatre read, and a new `/api/v1/reprocessing` governance mount. Staff gets a dialysis feature from zero and a theatre sets panel; Admin gets a domain filter on the CSSD Devices tab, a reprocessing-policies page, and dialysis machine/dialyser panels.
+**Architecture:** Five new tables (`reprocessing_domain_settings`, `reprocessing_domain_policies`, `reprocessable_devices`, `reprocessable_device_usages`, `reprocessable_device_dialysis_links`) plus `dialysis_machines`, columns on `dialysis_sessions` / `dialyzer_reuse_register` / `surgical_implants`, and six `(tenant_id, id)` backing uniques — one forward migration, **`NNN`** (the next free number at push time; **767 is the Phase 1 lane's**). `dialysis_patients` and `patient_bloodborne_markers` are not touched by this lane. A pure rules module (`reprocessableDeviceRules.js`) carries 765's state machine, a generalised disposition function with a `quarantine` rule, the isolation-warning rule over a Phase 1 `Decision` and the TCV verdict; `reprocessableDeviceService.js` owns the register, transitions (including the `uncapture` release for cases cancelled before use), history and the platform exposure handler; `dialysisIsolationAdapter.js` is the one binding to the Phase 1 resolver (`resolveDialysisIsolation`, spec §3.3) and fails closed without it; `dialysisReuseService.js` owns capture, the un-capture on cancel, the one-command reprocessing record and machines, reading every dialysis decision live through the adapter; `dialysisIsolationCensus.js` and its script are the Phase 2 gate; `cssdReuseHooks.js` runs inside `cssdService`'s four existing transactions (issue, return, cancel, load). Routes: dialysis additions, a `/reprocessable-devices` sub-tree on CSSD, one theatre read, and a new `/api/v1/reprocessing` governance mount. Staff gets a dialysis feature from zero and a theatre sets panel; Admin gets a domain filter on the CSSD Devices tab, a reprocessing-policies page, and dialysis machine/dialyser panels.
 
 **Tech Stack:** Node 26 ESM backend (Express, raw SQL via `setTenantTx`, Postgres 17 RLS), jest ESM, OpenAPI overlays; Flutter Staff app (`AppStrings` five-locale map, `ApiClient`, `IdempotencyAttemptRegistry`); Next.js Admin (`@tanstack/react-query`, `core.ts` typed helpers, `useIdempotencyKey`).
 
-**Spec:** `docs/superpowers/specs/2026-09-05-reprocessable-devices-platform-design.md`. **Depends on Plans 1–3 merged** (`bloodborneMarkerService.js`, `cathDeviceReuseService.js`, `cathLabReadinessProjection.js`, the canary) — all on `github/main` at `b27a730d3`.
+**Spec:** `docs/superpowers/specs/2026-09-05-reprocessable-devices-platform-design.md`. **Depends on Plans 1–3 merged** (`bloodborneMarkerService.js`, `cathDeviceReuseService.js`, `cathLabReadinessProjection.js`, the canary) — all on `github/main` at `b27a730d3`. **The dialysis arm (Task 4) DEPENDS ON Phase 1** — the dialysis isolation derivation lane (dev-ea; migration 767; `resolveDialysisIsolation`) being on `main`; Task 4 Step 0b gates it, and Task 9 merges nothing before it. Tasks 1–3 and 5–8 are unblocked.
 
 **Base:** `github/main`, branch `feat/reprocessable-devices-platform`.
 
@@ -17,9 +17,11 @@
 ## Conventions
 
 - All of Plan 1's conventions apply verbatim: tenant transactions (`setTenantTx`), raw SQL, `AppError`, npm-run jest, immutable migrations, schema drift mirror, scratch DB, commit trailer, `[full-ci]` last commit, draft PR, no merge.
-- **Never edit `168_*`, `418_*`, `421_*`–`423_*`, `565_*`, `764_*`–`766_*`.** Every schema change is in `767_reprocessable_devices_platform.sql`.
-- **`cath_reprocessable_devices` and the two 753 plpgsql functions are not touched.** The new tables are on neither assert's table list; 767 re-declares no plpgsql body.
-- **Baseline-owned tables (`dialysis_patients`, `dialysis_sessions`, `ot_schedules`, `surgical_implants`, `clinical_ai_biomed_devices`) are altered only with `ALTER TABLE … ADD COLUMN / ADD CONSTRAINT / ALTER COLUMN` and `CREATE UNIQUE INDEX`.** An inline re-declaration trips the census gate. The manifest and `expectedAbsentCount` (411) do not change.
+- **Never edit `168_*`, `418_*`, `421_*`–`423_*`, `565_*`, `764_*`–`766_*`, nor `767_*` (Phase 1's).** Every schema change is in `NNN_reprocessable_devices_platform.sql`.
+- **`cath_reprocessable_devices` and the two 753 plpgsql functions are not touched.** The new tables are on neither assert's table list; `NNN` re-declares no plpgsql body.
+- **Baseline-owned tables (`dialysis_sessions`, `ot_schedules`, `surgical_implants`, `clinical_ai_biomed_devices`) are altered only with `ALTER TABLE … ADD COLUMN / ADD CONSTRAINT` and `CREATE UNIQUE INDEX`.** An inline re-declaration trips the census gate. The manifest and `expectedAbsentCount` (411) do not change. `dialysis_patients` and `patient_bloodborne_markers` are **not altered** by this lane.
+- **Nothing in this lane writes `dialysis_patients.hbsag_status / hcv_status / hiv_status`** — no sync, no latch, no union read, no enrol guard, no `recordSerology` change, no backfill. All of that is the Phase 1 lane's (spec §3.3); `dialysisSerologyWriters.test.js` pins it.
+- **Every dialysis decision reads a live `Decision` through `dialysisIsolationAdapter.js`** — never the frozen `reuse_screen` / `post_use_screen`, never `resolveReuseStatus`, never the columns. `includeMarkers` is forwarded by no caller in this lane. Without the Phase 1 module the adapter fails closed (`RPD_ISOLATION_RESOLVER_UNAVAILABLE`, 503); no stub is ever reachable from product code.
 - **Every FK is a tenant-pinned composite; every composite `SET NULL` carries its column list; only the two patient-keyed FKs are `DEFERRABLE INITIALLY DEFERRED`.**
 - **No relation fields in `schema.prisma` for the new FKs** — scalars, `@@unique`, `@@index` only (`check:prisma-relations` budget).
 - **Every new role gate is an intersection with the mount audience and asserted as a subset in a test** (prefix-mount lockout class). `REPROCESSING_POLICY_ROUTE_ROLES` is an alias of `CATH_REPROCESSING_POLICY_ROUTE_ROLES`, applied at the mount in `app.js`.
@@ -27,7 +29,7 @@
 - **Every raw-SQL parameter that appears more than once carries the same explicit cast at every site** (765's parse-time trap, 42P08 "inconsistent types deduced for parameter": Prisma sends params untyped and Postgres deduces `character varying` from `SET status = $3` and `text` from `$3 = 'in_case'`; the same for `SET discard_reason = $9` against `$9 IN (...)`, and for a `NUMERIC` insert value reused in `CASE WHEN $5 IS NULL`). Before committing any task with raw SQL, grep its statements for a `$n` that appears twice and confirm both sites are cast.
 - **Staff strings:** every new key in all FIVE locale maps of `apps/staff/lib/l10n/app_strings.dart` (`'en': {` ≈3731, `'hi': {` ≈11563, `'ta': {` ≈19899, `'te': {` ≈28910, `'ml': {` ≈37845); every non-English rendering preceded by `// REVIEW: engineering placeholder pending OPEN-21 linguistic review`.
 - **Commits use pathspecs**, never `git add -A`: subagents mutate a live worktree, and a pathspec commit cannot pick up a neighbour's stray file.
-- **Migration number** computed against `github/main` and every open branch at write time (Task 0) and re-checked before the final push. This plan uses **767**.
+- **Migration number `NNN`** = the next free number against `github/main` and every open branch at push time (Task 0; re-checked at Task 9). **767 is the Phase 1 lane's**; this plan takes the number after it (768 if nothing else lands first). `check:migration-numbers` (`check-migration-number-collisions.mjs`) checks collisions, not contiguity, so Plan 4 may carry 768 on a branch before 767 has merged — but Task 9 merges nothing until Phase 1 is on `main`. Every `NNN` in this plan (file name, comments, commit messages) is resolved once at Task 0 Step 2.
 
 ---
 
@@ -35,20 +37,20 @@
 
 | File | Responsibility |
 |---|---|
-| Create `apps/backend/src/migrations/767_reprocessable_devices_platform.sql` | Six backing uniques, five new tables, `dialysis_machines`, `dialysis_sessions` / `dialysis_patients` / `dialyzer_reuse_register` / `surgical_implants` / `patient_bloodborne_markers` changes, RLS, GRANT block. |
+| Create `apps/backend/src/migrations/NNN_reprocessable_devices_platform.sql` | Six backing uniques, five new tables, `dialysis_machines`, `dialysis_sessions` / `dialyzer_reuse_register` / `surgical_implants` changes, RLS, GRANT block. (`dialysis_patients` and `patient_bloodborne_markers`: not touched — Phase 1.) |
 | Modify `apps/backend/prisma/schema.prisma`, `src/lib/prisma.js`, `src/tests/unit/prismaCoverage.test.js`, `scripts/seed-comprehensive-test-data.mjs` | Mirror; runtime-grant lists; pins; seeder overrides. |
 | Create `src/services/clinical/reprocessableDeviceRules.js` + `src/tests/unit/reprocessableDeviceRules.test.js` | Pure rules. |
 | Create `src/services/clinical/reprocessableDeviceService.js` | Settings, policies, register, transitions, CSSD actions, capture/return tx helpers, history + PHI trail, label, exposure handler. |
 | Create `src/services/clinical/reprocessableDeviceProjection.js` + test | Role projection for dialysis roster and serology rows (deliberately no isolation projection, spec §3.5). |
-| Create `src/services/clinical/dialysisReuseService.js`; modify `dialysisService.js` (`scheduleSession`, `startSession`, `cancelSession`, `recordReuseRegister`, `recordSerology`, `validateReuseRegisterInput`), `routes/clinical/dialysisRoutes.js`; create `middleware/dialysisSerologyFieldGuard.js` | Capture, un-capture on cancel, reprocessing record, isolation (assessed before the schedule insert), machines, serology sync, enrol guard. |
-| Modify `src/services/clinical/bloodborneMarkerRules.js`, `bloodborneMarkerService.js` | `dialysis_surveillance` source; the marker **void** registry (`registerMarkerVoidHandler`) and its post-commit call in `voidMarker`. |
+| Create `src/services/clinical/dialysisIsolationAdapter.js` + test | The one binding to the Phase 1 resolver (`resolveDialysisIsolation`): batch + single-uid, `includeMarkers` default off, `snapshotOf` strips markers, fails closed (503) without Phase 1; named stub for unit tests. |
+| Create `src/services/clinical/dialysisReuseService.js`; modify `dialysisService.js` (`scheduleSession`, `startSession`, `cancelSession`, `recordReuseRegister`, `validateReuseRegisterInput`), `routes/clinical/dialysisRoutes.js` | Capture (freezes the `Decision` as the evidence snapshot), un-capture on cancel, reprocessing record (re-resolves live), isolation (assessed before the schedule insert, live), machines. **DEPENDS ON Phase 1.** `enrolPatient` / `recordSerology` untouched. |
+| Create `src/services/clinical/dialysisIsolationCensus.js`, `scripts/dialysis-isolation-census.mjs` + deep test | The Phase 2 gate: per-tenant orphan `patient_uid` count and un-backfilled legacy-positive count (`bool_or` over the roster). No Phase 1 dependency. |
 | Modify `src/services/clinical/dialysisMachineService.js` (pre-flight, separate commit, only if `main` has not) | Tenant predicate on the machine-ingest session match. |
 | Create `src/services/cssd/cssdReuseHooks.js`; modify `cssdService.js`, `routes/cssd/cssdRoutes.js`, `routes/theatre/theatreRoutes.js` | OT hooks (issue, return, cancel, load), `/reprocessable-devices` sub-tree, `/issues` claim, theatre sets read. |
 | Create `src/routes/clinical/reprocessingPolicyRoutes.js`; modify `config/routeRolePolicy.js`, `app.js` | Governance mount. |
-| Create `src/tests/unit/reprocessableDeviceRouteWiring.test.js`, `dialysisSerologyWriters.test.js`, `dialysisReuseHookCallSites.test.js`, `cssdReuseHookCallSites.test.js`, `bloodborneMarkerVoidHandlers.test.js`, `dialysisMachineIngestTenantScope.test.js`; modify `serologyDisclosureCanary.test.js` + fixture | Wiring census, call-site pins (six write paths), void registry, ingest tenant pin, canary mounts. |
-| Create `src/tests/reprocessable-devices-dialysis.deep.test.js`, `reprocessable-devices-ot.deep.test.js` | Deep suites. |
-| Create `scripts/openapi/schemas/reprocessableDevices.mjs`; modify `bloodborneMarkers.mjs`, `scripts/generate-openapi.mjs`; regenerate `src/docs/openapi.json`, sync core | Contracts. |
-| Create `scripts/backfill-dialysis-markers.mjs` | Operator backfill. |
+| Create `src/tests/unit/reprocessableDeviceRouteWiring.test.js`, `dialysisSerologyWriters.test.js` (no lane module writes the roster columns), `dialysisReuseHookCallSites.test.js`, `cssdReuseHookCallSites.test.js`, `dialysisMachineIngestTenantScope.test.js`; modify `serologyDisclosureCanary.test.js` + fixture | Wiring census, call-site pins (six write paths), no-roster-write pin, ingest tenant pin, canary mounts. |
+| Create `src/tests/reprocessable-devices-dialysis.deep.test.js` (DEPENDS ON Phase 1; skipped by name without it), `reprocessable-devices-ot.deep.test.js`, `dialysis-isolation-census.deep.test.js` | Deep suites. |
+| Create `scripts/openapi/schemas/reprocessableDevices.mjs`; modify `scripts/generate-openapi.mjs`; regenerate `src/docs/openapi.json`, sync core | Contracts (`bloodborneMarkers.mjs` unchanged — the surveillance source is Phase 1's). |
 | Modify `src/config/rolePolicyGraph.js`; regenerate `apps/staff/lib/core/config/staff_role_contract.g.dart` | `dialysis` Staff feature. |
 | Staff: create `lib/features/dialysis/**`, `lib/core/widgets/reuse_restriction_strip.dart`, `lib/features/theatre/widgets/theatre_sets_panel.dart`; modify `role_config.dart`, `app_router.dart`, `staff_route_policy.dart`, `theatre_screen.dart`, `theatre_api_service.dart`, `app_strings.dart`; tests | Dialysis feature, theatre sets panel, strings. |
 | Admin: create `src/lib/api/reprocessableDevices.ts`, `dashboard/cssd/components/ReprocessableDeviceActions.tsx`, `dashboard/quality/reprocessing/page.tsx` + `components/DomainPolicyPanel.tsx`, `dashboard/dialysis/components/MachinesTab.tsx`, `DialyserPanel.tsx`; modify `DevicesTab.tsx`, `SessionTab.tsx`, `RosterTab.tsx`, `TodayBoardTab.tsx`, `lib/api/cssd.ts`, `IssueActions.tsx`, `navConfig.ts`, `app/api/proxy/[...path]/route.ts`; tests | Domain filter, policies page, dialysis panels. |
@@ -75,7 +77,7 @@ for ref in $(git for-each-ref --format='%(refname)' refs/remotes/github/); do
 done | sed -E 's#.*/([0-9]+)_.*#\1#' | sort -n | uniq | tail -3
 ```
 
-Expected tail: `764`, `765`, `766`. This plan uses **767**. Substitute if claimed; re-run immediately before the final push.
+Expected tail once Phase 1 has landed: `765`, `766`, `767`. **767 is the Phase 1 lane's** (dialysis isolation derivation, dev-ea); this plan takes the next free number — `NNN` = 768 unless another branch has claimed it, in which case the next after that. Resolve `NNN` here, once, and substitute it in the migration file name, the SQL header, the `prisma.js` / `prismaCoverage` comments, the seeder comments and the commit messages (`grep -rn "NNN" apps/backend docs/superpowers/plans/2026-09-05-reprocessable-devices-platform.md` finds every site). Re-run immediately before the final push (Task 9 Step 1). If Phase 1 has NOT landed yet the tail still ends `766` — the number is still 768 (767 is reserved, and the collisions gate does not require contiguity), and Task 9 waits.
 
 - [ ] **Step 3: Scratch database**
 
@@ -86,23 +88,25 @@ export DATABASE_URL="postgres://<user>:<pass>@127.0.0.1:55432/vh_rpd_<initials>"
 
 ---
 
-## Task 1: Migration 767, mirror, runtime grants, pins, seeder overrides
+## Task 1: Migration `NNN`, mirror, runtime grants, pins, seeder overrides
 
 **Files:**
-- Create: `apps/backend/src/migrations/767_reprocessable_devices_platform.sql`
+- Create: `apps/backend/src/migrations/NNN_reprocessable_devices_platform.sql`
 - Modify: `apps/backend/prisma/schema.prisma`, `apps/backend/src/lib/prisma.js` (≈1293 and ≈1315), `apps/backend/src/tests/unit/prismaCoverage.test.js` (≈1369–1382), `apps/backend/scripts/seed-comprehensive-test-data.mjs` (`TABLE_COLUMN_SEED_OVERRIDES`, after the `cath_case_lab_readiness_items` entry)
 
 Facts confirmed against the tree before writing (re-verify; do not assume):
 
-- `ux_facilities_tenant_id (tenant_id, id)` exists (598) and `ux_users_tenant_uid_for_pathways (tenant_id, uid)` exists (580). No `(tenant_id, id)` unique exists on `dialysis_sessions`, `ot_schedules`, `instrument_sets`, `sterilization_loads`, `set_issue_log` or `clinical_ai_biomed_devices` — 767 creates all six.
-- `dialysis_patients.hbsag_status` etc. and their CHECKs exist (baseline lines 7938–7963; census entries `enforced: true`). `isolation_required` is a stored generated column. `dialysis_patients` and `dialysis_sessions` have **no FK from `tenant_id` to `tenants`** (168 declared none) — 767 does not add one; the composite uniques are enough for the child FKs.
-- `patient_bloodborne_markers_lab_link_check` (764) reads `(source = 'clinical_declaration') = (lab_result_id IS NULL)`; a `dialysis_surveillance` row has no lab link, so **both** the source CHECK and the lab-link CHECK are dropped and re-added by name.
+- `ux_facilities_tenant_id (tenant_id, id)` exists (598) and `ux_users_tenant_uid_for_pathways (tenant_id, uid)` exists (580). No `(tenant_id, id)` unique exists on `dialysis_sessions`, `ot_schedules`, `instrument_sets`, `sterilization_loads`, `set_issue_log` or `clinical_ai_biomed_devices` — `NNN` creates all six.
+- `dialysis_patients.hbsag_status` etc. and their CHECKs exist (baseline lines 7938–7963; census entries `enforced: true`). `isolation_required` is a stored generated column. **`NNN` does not touch `dialysis_patients`** — the default flip and every other change to the three columns is Phase 1's (767). `dialysis_patients` and `dialysis_sessions` have **no FK from `tenant_id` to `tenants`** (168 declared none) — `NNN` does not add one; the composite uniques are enough for the child FKs.
+- **`NNN` does not touch `patient_bloodborne_markers`** — the `dialysis_surveillance` source and the lab-link CHECK widening are Phase 1's. If 767 has already landed when this runs, its CHECKs are simply there; this migration must not re-declare them.
 - `medication_safety_reviews.review_type` is `VARCHAR(80)` with no CHECK (269:196): no migration for the new `review_type` value.
 
 - [ ] **Step 1: Write the migration**
 
 ```sql
--- 767_reprocessable_devices_platform.sql
+-- NNN_reprocessable_devices_platform.sql   (NNN = the next free number at push
+-- time; 767 belongs to the dialysis isolation derivation lane, which this
+-- platform CONSUMES and does not duplicate - see the spec, section 3.3)
 --
 -- Department-agnostic reprocessable-device platform, first consumers dialysis
 -- and OT (spec docs/superpowers/specs/2026-09-05-reprocessable-devices-platform-design.md).
@@ -152,16 +156,16 @@ Facts confirmed against the tree before writing (re-verify; do not assume):
 --     one place this register's CHECKs differ from 765's.
 --   * facility_id is NULLABLE: neither dialysis_sessions nor instrument_sets
 --     carries a facility today; the upstream backfill is a separate decision.
---   * dialysis_patients.hbsag_status/hcv_status/hiv_status become DERIVED from
---     patient_bloodborne_markers (service-side sync, marker record the only
---     writer, never downgrading an existing 'positive'); their defaults move
---     to 'unknown'. patient_bloodborne_markers gains source
---     'dialysis_surveillance' (both the source CHECK and the lab-link CHECK are
---     re-added by name).
+--   * dialysis_patients and patient_bloodborne_markers are deliberately NOT
+--     touched here. The three roster serology columns, their defaults, the
+--     read-time isolation resolver that weighs them beside the marker record,
+--     the dialysis_surveillance marker source and the legacy backfill are the
+--     Phase 1 lane's (migration 767). This platform reads that lane's
+--     resolver for every dialysis decision and writes nothing to the roster.
 --
--- Baseline-owned tables touched (dialysis_patients, dialysis_sessions,
--- ot_schedules, surgical_implants, clinical_ai_biomed_devices) are altered only
--- with ALTER TABLE / CREATE UNIQUE INDEX; the inline-check census manifest is
+-- Baseline-owned tables touched (dialysis_sessions, ot_schedules,
+-- surgical_implants, clinical_ai_biomed_devices) are altered only with
+-- ALTER TABLE / CREATE UNIQUE INDEX; the inline-check census manifest is
 -- unchanged. Every CHECK is named. Every FK is a tenant-pinned composite;
 -- composite SET NULL actions carry the column list; the two patient-keyed FKs
 -- are DEFERRABLE INITIALLY DEFERRED for the patient-merge sweep.
@@ -537,17 +541,7 @@ ALTER TABLE dialysis_sessions
     CHECK (num_nonnulls(isolation_override_reason, isolation_override_by, isolation_override_at) IN (0, 3));
 
 -- ---------------------------------------------------------------------------
--- 10. dialysis_patients: the three serology columns are DERIVED from the
---     marker record from here on (service-side sync; never downgrading an
---     existing 'positive'). 'negative' as a default was a claim nobody made.
--- ---------------------------------------------------------------------------
-ALTER TABLE dialysis_patients
-  ALTER COLUMN hbsag_status SET DEFAULT 'unknown',
-  ALTER COLUMN hcv_status SET DEFAULT 'unknown',
-  ALTER COLUMN hiv_status SET DEFAULT 'unknown';
-
--- ---------------------------------------------------------------------------
--- 11. dialyzer_reuse_register (418): the statutory log gains identity (D6) and
+-- 10. dialyzer_reuse_register (418): the statutory log gains identity (D6) and
 --     the fields the common Indian forms carry. Existing columns, CHECKs and
 --     the per-session unique are untouched.
 -- ---------------------------------------------------------------------------
@@ -582,7 +576,7 @@ CREATE INDEX idx_dialyzer_reuse_register_device ON dialyzer_reuse_register (tena
   WHERE device_id IS NOT NULL;
 
 -- ---------------------------------------------------------------------------
--- 12. surgical_implants: the sterilisation-load evidence FK it lacked (D5).
+-- 11. surgical_implants: the sterilisation-load evidence FK it lacked (D5).
 --     Baseline-owned: ALTER only. sterilization_lot (free text) stays.
 -- ---------------------------------------------------------------------------
 ALTER TABLE surgical_implants
@@ -593,21 +587,12 @@ ALTER TABLE surgical_implants
     FOREIGN KEY (tenant_id, sterilization_load_id) REFERENCES sterilization_loads (tenant_id, id)
     ON DELETE SET NULL (sterilization_load_id);
 
--- ---------------------------------------------------------------------------
--- 13. patient_bloodborne_markers (764): a fourth source, dialysis_surveillance,
---     which like clinical_declaration carries no lab link. Both CHECKs re-added
---     under their 764 names.
--- ---------------------------------------------------------------------------
-ALTER TABLE patient_bloodborne_markers
-  DROP CONSTRAINT IF EXISTS patient_bloodborne_markers_source_check,
-  ADD CONSTRAINT patient_bloodborne_markers_source_check
-    CHECK (source IN ('lab_result', 'external_report', 'clinical_declaration', 'dialysis_surveillance')),
-  DROP CONSTRAINT IF EXISTS patient_bloodborne_markers_lab_link_check,
-  ADD CONSTRAINT patient_bloodborne_markers_lab_link_check
-    CHECK ((source IN ('clinical_declaration', 'dialysis_surveillance')) = (lab_result_id IS NULL));
+-- (No step touches patient_bloodborne_markers or dialysis_patients: the
+--  dialysis_surveillance source, the 764 CHECK-pair widening and the roster
+--  column defaults are migration 767's - the Phase 1 lane.)
 
 -- ---------------------------------------------------------------------------
--- 14. RLS on the five new tables and dialysis_machines
+-- 12. RLS on the five new tables and dialysis_machines
 -- ---------------------------------------------------------------------------
 ALTER TABLE reprocessing_domain_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE reprocessing_domain_settings FORCE ROW LEVEL SECURITY;
@@ -712,7 +697,7 @@ CREATE POLICY tenant_isolation ON dialysis_machines
   );
 
 -- ---------------------------------------------------------------------------
--- 15. Runtime-role grants. Same to_regrole-guarded shape as 764/765: skip a
+-- 13. Runtime-role grants. Same to_regrole-guarded shape as 764/765: skip a
 --     role the deployment never provisioned. All six tables are updated in
 --     place (a policy edit, a cycle count, a dedication, a machine class) so the
 --     contract is SELECT + INSERT + UPDATE; DELETE and TRUNCATE stay revoked -
@@ -767,26 +752,17 @@ cd apps/backend
 node scripts/ci-setup-db.mjs
 psql "$DATABASE_URL" -c "SELECT count(*) FROM pg_constraint WHERE conrelid = 'reprocessable_devices'::regclass AND contype = 'c';"
 psql "$DATABASE_URL" -c "SELECT conname FROM pg_constraint WHERE conrelid = 'reprocessable_device_usages'::regclass AND contype = 'f' ORDER BY 1;"
-psql "$DATABASE_URL" -c "SELECT conname, pg_get_constraintdef(oid) FROM pg_constraint WHERE conrelid = 'patient_bloodborne_markers'::regclass AND conname IN ('patient_bloodborne_markers_source_check','patient_bloodborne_markers_lab_link_check');"
-psql "$DATABASE_URL" -c "SELECT column_default FROM information_schema.columns WHERE table_name = 'dialysis_patients' AND column_name = 'hbsag_status';"
 psql "$DATABASE_URL" -c "SELECT indexname FROM pg_indexes WHERE indexname IN ('ux_dialysis_sessions_tenant_id','ux_ot_schedules_tenant_id','ux_instrument_sets_tenant_id','ux_sterilization_loads_tenant_id','ux_set_issue_log_tenant_id','ux_clinical_ai_biomed_devices_tenant_id') ORDER BY 1;"
+git diff --stat -- apps/backend/prisma/schema.prisma | tail -1
 ```
 
-Expected: `15` CHECKs on the register; **eight** `contype = 'f'` rows on usages, in `ORDER BY 1`: `fk_reprocessable_device_usages_captured_by`, `…_device`, `…_dialysis_session`, `…_load`, `…_ot_schedule`, `…_patient`, `…_set_issue`, then `reprocessable_device_usages_tenant_id_fkey` — the table's own `tenant_id REFERENCES tenants(id)` is a foreign key like the seven named ones and the count query does not distinguish it; the two marker CHECKs naming `dialysis_surveillance`; `'unknown'::character varying`; six index names.
+Expected: `15` CHECKs on the register; **eight** `contype = 'f'` rows on usages, in `ORDER BY 1`: `fk_reprocessable_device_usages_captured_by`, `…_device`, `…_dialysis_session`, `…_load`, `…_ot_schedule`, `…_patient`, `…_set_issue`, then `reprocessable_device_usages_tenant_id_fkey` — the table's own `tenant_id REFERENCES tenants(id)` is a foreign key like the seven named ones and the count query does not distinguish it; six index names. The `schema.prisma` diff (after Step 3) must show **no** change on the `dialysis_patients` or `patient_bloodborne_markers` models — if it does, this migration touched a Phase 1 table.
 
 - [ ] **Step 3: Mirror in `schema.prisma`**
 
 Run `npx prisma db pull --print --url "$DATABASE_URL"` and copy the emitted `reprocessing_domain_settings`, `reprocessing_domain_policies`, `reprocessable_devices`, `reprocessable_device_usages`, `reprocessable_device_dialysis_links`, `dialysis_machines` models and the new fields on `dialysis_sessions`, `dialyzer_reuse_register`, `surgical_implants` — **scalars, `@@id`/`@@unique`/`@@index` only. Delete every relation field and every back-relation the pull emits** (the `check:prisma-relations` budget lists the permitted relations; a new one fails `db:generate`). `device_tag` mirrors as `String? @default(dbgenerated("('RD'::text || lpad((id)::text, GREATEST(8, length((id)::text)), '0'::text))")) @db.VarChar(24)`. The partial cycle unique mirrors as `@@unique([tenant_id, device_id, reuse_cycle], map: "ux_reprocessable_device_usages_cycle")` only if the pull emits it — Prisma drops partial indexes from `db pull`, and `check-schema-drift.mjs` diffs against a full pull, so mirror exactly what the pull prints, no more.
 
-**The three existing `dialysis_patients` defaults change too.** `check-schema-drift.mjs` diffs a full `prisma db pull`, and step 10 of the migration moves the column defaults, so the mirror at `prisma/schema.prisma:9107-9109` must move with them or the drift check fails:
-
-```prisma
-  hbsag_status        String?   @default("unknown") @db.VarChar(20)
-  hcv_status          String?   @default("unknown") @db.VarChar(20)
-  hiv_status          String?   @default("unknown") @db.VarChar(20)
-```
-
-(they read `@default("negative")` today; `isolation_required` on the next line is untouched). Then:
+**Do not touch the `dialysis_patients` mirror** (`prisma/schema.prisma:9107-9109`, `@default("negative")` today). Its defaults move to `'unknown'` in Phase 1's migration 767, and Phase 1 moves the mirror with them; if 767 is already on `main` the lines already read `"unknown"` and this lane leaves them so. `check-schema-drift.mjs` diffs a full `prisma db pull`, so a mirror line this lane changed without a matching DDL change of its own would fail the drift check — which is the right outcome. Then:
 
 ```bash
 node scripts/check-schema-drift.mjs
@@ -823,7 +799,7 @@ and after `'cath_case_lab_readiness_items_id_seq'` in `runtime_nextval_sequences
 (mind the trailing comma on the previous last element). In `apps/backend/src/tests/unit/prismaCoverage.test.js`, after the `cath_case_lab_readiness_items` expectation (≈1376) add:
 
 ```js
-      // Migration 767, same once-per-database reach: settings and policies are
+      // Migration NNN (reprocessable devices platform), same once-per-database reach: settings and policies are
       // edited in place, a device's cycle count and status move, a dedication
       // and a machine class are corrected - none is ever deleted.
       for (const table of [
@@ -847,7 +823,7 @@ Run: `npm test -- --testPathPatterns unit/prismaCoverage` — Expected: PASS.
 In `apps/backend/scripts/seed-comprehensive-test-data.mjs`, inside `TABLE_COLUMN_SEED_OVERRIDES` after the `cath_case_lab_readiness_items` entry:
 
 ```js
-  // mig 767: one honest, inert settings row. reactive_patient_rule has no column
+  // mig NNN: one honest, inert settings row. reactive_patient_rule has no column
   // default on purpose (the honest default differs per domain), so the walker
   // must be told 'discard' for the dialysis row it seeds.
   reprocessing_domain_settings: {
@@ -855,7 +831,7 @@ In `apps/backend/scripts/seed-comprehensive-test-data.mjs`, inside `TABLE_COLUMN
     domain: 'dialysis',
     reactive_patient_rule: 'discard'
   },
-  // mig 767: the one policy shape that permits nothing (mirrors the 765
+  // mig NNN: the one policy shape that permits nothing (mirrors the 765
   // 'catheter' row). The domain/category CHECK is a two-column disjunction the
   // walker cannot derive on its own.
   reprocessing_domain_policies: {
@@ -868,7 +844,7 @@ In `apps/backend/scripts/seed-comprehensive-test-data.mjs`, inside `TABLE_COLUMN
     function_check_required: false,
     tcv_min_pct: null
   },
-  // mig 767: a dialysis device is a real row on its own (a serial is its
+  // mig NNN: a dialysis device is a real row on its own (a serial is its
   // identity), unlike 765's register which needs a first-use clinical event.
   reprocessable_devices: {
     tenant_id: ctx => ctx.tenantId,
@@ -900,7 +876,7 @@ In `apps/backend/scripts/seed-comprehensive-test-data.mjs`, inside `TABLE_COLUMN
     discarded_by: null,
     created_by: ctx => ctx.doctor.uid
   },
-  // mig 767: a CLOSED usage (returned, dispositioned) so the seeded device can
+  // mig NNN: a CLOSED usage (returned, dispositioned) so the seeded device can
   // sit 'available' with no open pointer; the owner pair is the dialysis arm.
   // dialysis_sessions sorts before this table; users always exists.
   reprocessable_device_usages: {
@@ -956,8 +932,8 @@ Expected: second seed run reports 0 new rows; contracts green; `1 | 1 | 1 | 1`.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add apps/backend/src/migrations/767_reprocessable_devices_platform.sql apps/backend/prisma/schema.prisma apps/backend/src/lib/prisma.js apps/backend/src/tests/unit/prismaCoverage.test.js apps/backend/scripts/seed-comprehensive-test-data.mjs
-git commit -m "feat(db): reprocessable devices platform register, policies, dialysis machines, 418/implant/marker changes (mig 767)
+git add apps/backend/src/migrations/NNN_reprocessable_devices_platform.sql apps/backend/prisma/schema.prisma apps/backend/src/lib/prisma.js apps/backend/src/tests/unit/prismaCoverage.test.js apps/backend/scripts/seed-comprehensive-test-data.mjs
+git commit -m "feat(db): reprocessable devices platform register, policies, dialysis machines, 418/implant changes (mig NNN)
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
@@ -981,7 +957,7 @@ import {
   computeDispositionOptions,
   computeIsolationWarnings,
   deviceTransition,
-  mapMarkerStatusToLegacy,
+  exposureMarkersForIsolationClass,
   normalizeDeviceTag,
   settingsDefaultsFor,
   tcvVerdict,
@@ -991,9 +967,12 @@ import {
 const policy = { reprocessable: true, max_cycles: 6, allowed_cycle_types: ['chemical'], function_check_required: false, tcv_min_pct: 80 };
 const dialysisSettings = { reactive_patient_rule: 'discard', unknown_serology_rule: 'warn', serology_validity_days: 90, isolation_enforcement: 'warn' };
 const otSettings = { reactive_patient_rule: 'quarantine', unknown_serology_rule: 'warn', serology_validity_days: 90, isolation_enforcement: 'warn' };
+// The cath/OT resolveReuseStatus shape (computeDispositionOptions reads only .status, so the dialysis Decision drives it the same way).
 const clear = { status: 'clear', reasons: ['HIV, HBsAg and HCV non-reactive within window'], markers: [] };
 const restricted = { status: 'restricted', reasons: ['HBsAg reactive 2026-08-12'], markers: [{ marker: 'hbsag', result: 'reactive' }] };
 const unknown = { status: 'unknown', reasons: ['HCV not on record'], markers: [] };
+// The Phase 1 Decision shape (spec §3.3) the isolation rule reads.
+const dec = (status, isolation_class = null, evidence = 'marker') => ({ status, asOf: '2026-09-05T00:00:00.000Z', reasons: [], evidence, isolation_class });
 const usage = { id: 1, post_use_disposition: null };
 const device = (over = {}) => ({ id: 9, cycle_count: 1, max_cycles_snapshot: 6, status: 'in_case', exposure_flag: false, ...over });
 
@@ -1096,31 +1075,48 @@ describe('computeDispositionOptions', () => {
   });
 });
 
-describe('computeIsolationWarnings', () => {
+describe('computeIsolationWarnings (over a Phase 1 Decision, spec §3.3 / §3.4)', () => {
   const machine = (isolation_class) => ({ machine_no: 'HD-01', isolation_class, status: 'active' });
   test('clear patient on an unregistered machine: silence', () => {
-    expect(computeIsolationWarnings({ restriction: clear, machine: null, enforcement: 'warn' })).toEqual({ codes: [], required_class: null, blocked: false });
+    expect(computeIsolationWarnings({ decision: dec('clear'), machine: null, enforcement: 'warn' })).toEqual({ codes: [], required_class: null, blocked: false });
   });
-  test('restricted patient on an unregistered machine warns', () => {
-    expect(computeIsolationWarnings({ restriction: restricted, machine: null, enforcement: 'warn' })).toMatchObject({ codes: ['DIALYSIS_MACHINE_UNREGISTERED'], required_class: 'hbsag' });
+  test('restricted patient on an unregistered machine warns; required_class is the Decision\'s isolation_class', () => {
+    expect(computeIsolationWarnings({ decision: dec('restricted', 'hbsag'), machine: null, enforcement: 'warn' })).toMatchObject({ codes: ['DIALYSIS_MACHINE_UNREGISTERED'], required_class: 'hbsag' });
   });
   test('restricted patient on a general machine: mismatch, warn-only', () => {
-    expect(computeIsolationWarnings({ restriction: restricted, machine: machine('general'), enforcement: 'warn' })).toEqual({ codes: ['DIALYSIS_ISOLATION_MACHINE_MISMATCH'], required_class: 'hbsag', blocked: false });
+    expect(computeIsolationWarnings({ decision: dec('restricted', 'hbsag'), machine: machine('general'), enforcement: 'warn' })).toEqual({ codes: ['DIALYSIS_ISOLATION_MACHINE_MISMATCH'], required_class: 'hbsag', blocked: false });
   });
   test('restricted patient on a general machine under block: blocked', () => {
-    expect(computeIsolationWarnings({ restriction: restricted, machine: machine('general'), enforcement: 'block' }).blocked).toBe(true);
+    expect(computeIsolationWarnings({ decision: dec('restricted', 'hbsag'), machine: machine('general'), enforcement: 'block' }).blocked).toBe(true);
   });
   test('restricted patient on the matching or a mixed machine: silence', () => {
-    expect(computeIsolationWarnings({ restriction: restricted, machine: machine('hbsag'), enforcement: 'block' }).codes).toEqual([]);
-    expect(computeIsolationWarnings({ restriction: restricted, machine: machine('isolation_mixed'), enforcement: 'block' }).codes).toEqual([]);
+    expect(computeIsolationWarnings({ decision: dec('restricted', 'hbsag'), machine: machine('hbsag'), enforcement: 'block' }).codes).toEqual([]);
+    expect(computeIsolationWarnings({ decision: dec('restricted', 'hbsag'), machine: machine('isolation_mixed'), enforcement: 'block' }).codes).toEqual([]);
   });
-  test('two reactive markers require isolation_mixed', () => {
-    const two = { status: 'restricted', reasons: [], markers: [{ marker: 'hbsag', result: 'reactive' }, { marker: 'hcv', result: 'reactive' }] };
-    expect(computeIsolationWarnings({ restriction: two, machine: machine('hbsag'), enforcement: 'warn' })).toMatchObject({ codes: ['DIALYSIS_ISOLATION_MACHINE_MISMATCH'], required_class: 'isolation_mixed' });
+  test('an isolation_mixed Decision is satisfied by a mixed machine only; a restricted Decision with no class is treated as mixed', () => {
+    expect(computeIsolationWarnings({ decision: dec('restricted', 'isolation_mixed'), machine: machine('hbsag'), enforcement: 'warn' })).toMatchObject({ codes: ['DIALYSIS_ISOLATION_MACHINE_MISMATCH'], required_class: 'isolation_mixed' });
+    expect(computeIsolationWarnings({ decision: dec('restricted', null), machine: machine('isolation_mixed'), enforcement: 'block' })).toEqual({ codes: [], required_class: 'isolation_mixed', blocked: false });
   });
-  test('unknown serology warns; a clear patient on an isolation machine warns', () => {
-    expect(computeIsolationWarnings({ restriction: unknown, machine: machine('general'), enforcement: 'warn' }).codes).toEqual(['DIALYSIS_SEROLOGY_UNKNOWN']);
-    expect(computeIsolationWarnings({ restriction: clear, machine: machine('hcv'), enforcement: 'warn' }).codes).toEqual(['DIALYSIS_GENERAL_PATIENT_ON_ISOLATION_MACHINE']);
+  test('UNKNOWN never isolates and never blocks: no code on any machine under warn or block (spec §3.3)', () => {
+    for (const enforcement of ['warn', 'block']) {
+      for (const m of [null, machine('general'), machine('hcv'), machine('isolation_mixed')]) {
+        expect(computeIsolationWarnings({ decision: dec('unknown', null, 'none'), machine: m, enforcement })).toEqual({ codes: [], required_class: null, blocked: false });
+      }
+    }
+    expect(computeIsolationWarnings({ decision: null, machine: machine('general'), enforcement: 'block' })).toEqual({ codes: [], required_class: null, blocked: false });
+  });
+  test('a clear patient on an isolation machine warns (general-patient code); a clear Decision from a legacy declaration counts as clear', () => {
+    expect(computeIsolationWarnings({ decision: dec('clear'), machine: machine('hcv'), enforcement: 'warn' }).codes).toEqual(['DIALYSIS_GENERAL_PATIENT_ON_ISOLATION_MACHINE']);
+    expect(computeIsolationWarnings({ decision: dec('clear', null, 'legacy_declaration'), machine: machine('general'), enforcement: 'block' }).codes).toEqual([]);
+  });
+});
+
+describe('exposureMarkersForIsolationClass', () => {
+  test('a single class names its one marker; isolation_mixed, null and junk name none (the flag is the truth)', () => {
+    expect(exposureMarkersForIsolationClass('hbsag')).toEqual(['hbsag']);
+    expect(exposureMarkersForIsolationClass('hcv')).toEqual(['hcv']);
+    expect(exposureMarkersForIsolationClass('hiv')).toEqual(['hiv']);
+    for (const cls of ['isolation_mixed', null, undefined, 'general', 'HBSAG']) expect(exposureMarkersForIsolationClass(cls)).toEqual([]);
   });
 });
 
@@ -1143,25 +1139,9 @@ describe('validatePolicyInput', () => {
   });
 });
 
-describe('mapMarkerStatusToLegacy', () => {
-  const rows = (r) => ({ status: r.status, markers: r.markers });
-  test('reactive latches to positive; fresh non-reactive is negative; pending is pending; absent is unknown', () => {
-    const resolver = rows({ status: 'unknown', markers: [
-      { marker: 'hbsag', result: 'reactive', within_window: false },
-      { marker: 'hcv', result: 'non_reactive', within_window: true },
-      { marker: 'hiv', result: 'pending', within_window: true },
-    ] });
-    expect(mapMarkerStatusToLegacy(resolver, { hbsag_status: 'unknown', hcv_status: 'unknown', hiv_status: 'unknown' })).toEqual({ hbsag_status: 'positive', hcv_status: 'negative', hiv_status: 'pending' });
-    expect(mapMarkerStatusToLegacy(rows({ status: 'unknown', markers: [] }), { hbsag_status: 'unknown', hcv_status: 'unknown', hiv_status: 'unknown' })).toEqual({ hbsag_status: 'unknown', hcv_status: 'unknown', hiv_status: 'unknown' });
-  });
-  test('an existing positive is NEVER downgraded by a sync that knows less', () => {
-    expect(mapMarkerStatusToLegacy(rows({ status: 'clear', markers: [{ marker: 'hbsag', result: 'non_reactive', within_window: true }] }), { hbsag_status: 'positive', hcv_status: 'negative', hiv_status: 'negative' }).hbsag_status).toBe('positive');
-  });
-  test('a stale non-reactive maps to unknown, not negative', () => {
-    expect(mapMarkerStatusToLegacy(rows({ status: 'unknown', markers: [{ marker: 'hcv', result: 'non_reactive', within_window: false }] }), { hbsag_status: 'unknown', hcv_status: 'unknown', hiv_status: 'unknown' }).hcv_status).toBe('unknown');
-  });
-});
 ```
+
+(There is deliberately no legacy-column mapper in this module: the derivation of `dialysis_patients.*_status` is the Phase 1 lane's, spec §3.3.)
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -1342,28 +1322,32 @@ export function computeDispositionOptions({ domain, usage, policy, settings, res
   return { ...base, dispositions: ['reprocess', 'discard'] };
 }
 
-const MARKER_CLASS = Object.freeze({ hbsag: 'hbsag', hcv: 'hcv', hiv: 'hiv' });
+// The Phase 1 Decision (spec §3.3): status is the one field; isolation_class is
+// the routing instruction Phase 1 computes (one core marker -> its class, two
+// or more -> isolation_mixed). This module never derives a class from markers.
+export const DECISION_STATUSES = Object.freeze(['restricted', 'unknown', 'clear']);
 
-// The isolation class a restricted patient needs, from the resolver's markers:
-// one reactive core marker -> its class; two or more -> isolation_mixed;
-// restricted for a marker with no machine class (cjd, other) -> isolation_mixed.
-export function requiredIsolationClass(restriction) {
-  if (restriction?.status !== 'restricted') return null;
-  const reactive = (Array.isArray(restriction.markers) ? restriction.markers : [])
-    .filter((m) => m?.result === 'reactive')
-    .map((m) => MARKER_CLASS[m.marker] || 'isolation_mixed');
-  const classes = [...new Set(reactive)];
-  if (classes.length === 0) return 'isolation_mixed';
-  if (classes.length > 1 || classes[0] === 'isolation_mixed') return 'isolation_mixed';
-  return classes[0];
+// Decision.isolation_class -> the one marker a single class names. A dialysis
+// device's exposure_markers come from here at post-use (a Decision carries no
+// markers). isolation_mixed and null name none: the exposure FLAG is the truth,
+// the list is detail.
+const ISOLATION_CLASS_MARKER = Object.freeze({ hbsag: 'hbsag', hcv: 'hcv', hiv: 'hiv' });
+export function exposureMarkersForIsolationClass(isolationClass) {
+  const marker = ISOLATION_CLASS_MARKER[isolationClass];
+  return marker ? [marker] : [];
 }
 
-// §3.4. A clear patient on an unregistered machine produces NOTHING: otherwise
-// every session warns on day one and a warning nobody reads is not a warning.
-export function computeIsolationWarnings({ restriction, machine, enforcement = 'warn' }) {
+// §3.4 over a live Decision. A clear patient on an unregistered machine produces
+// NOTHING: otherwise every session warns on day one and a warning nobody reads
+// is not a warning. An UNKNOWN patient produces nothing either, and is never
+// blocked (spec §3.3: zero markers exist cluster-wide; unknown-isolates would
+// isolate every patient on day one; the amber state is Phase 1's roster chip).
+export function computeIsolationWarnings({ decision, machine, enforcement = 'warn' }) {
   const codes = [];
-  const status = restriction?.status === 'clear' || restriction?.status === 'restricted' ? restriction.status : 'unknown';
-  const required = requiredIsolationClass(restriction);
+  const status = DECISION_STATUSES.includes(decision?.status) ? decision.status : 'unknown';
+  // A restricted Decision always carries a class by Phase 1's rule; if one ever
+  // arrives without, the safe reading is "needs the most restrictive machine".
+  const required = status === 'restricted' ? (decision.isolation_class || 'isolation_mixed') : null;
   let blocked = false;
   if (status === 'restricted') {
     if (!machine) {
@@ -1372,9 +1356,7 @@ export function computeIsolationWarnings({ restriction, machine, enforcement = '
       codes.push('DIALYSIS_ISOLATION_MACHINE_MISMATCH');
       blocked = enforcement === 'block';
     }
-  } else if (status === 'unknown') {
-    codes.push('DIALYSIS_SEROLOGY_UNKNOWN');
-  } else if (machine && machine.isolation_class !== 'general') {
+  } else if (status === 'clear' && machine && machine.isolation_class !== 'general') {
     codes.push('DIALYSIS_GENERAL_PATIENT_ON_ISOLATION_MACHINE');
   }
   return { codes, required_class: required, blocked };
@@ -1390,42 +1372,21 @@ export function tcvVerdict({ baseline, measured, minPct = DEFAULT_TCV_MIN_PCT })
   return { ok: pct >= Number(minPct), pct };
 }
 
-const CORE = Object.freeze(['hbsag', 'hcv', 'hiv']);
-
-// The derived dialysis_patients columns (§3.3). Latched reactive -> positive;
-// fresh non_reactive -> negative; pending -> pending; anything else or absent
-// -> unknown. NEVER downgrades an existing 'positive': a value typed before the
-// marker record existed must not be flipped by a sync that knows less.
-export function mapMarkerStatusToLegacy(resolution, current = {}) {
-  const markers = Array.isArray(resolution?.markers) ? resolution.markers : [];
-  const out = {};
-  for (const marker of CORE) {
-    const column = `${marker}_status`;
-    const row = markers.find((m) => m?.marker === marker) || null;
-    let next = 'unknown';
-    if (row?.result === 'reactive') next = 'positive';
-    else if (row?.result === 'non_reactive' && row.within_window === true) next = 'negative';
-    else if (row?.result === 'pending') next = 'pending';
-    out[column] = current?.[column] === 'positive' ? 'positive' : next;
-  }
-  return out;
-}
-
 export default {
   DOMAINS, CATEGORIES_BY_DOMAIN, DEVICE_STATUSES, CYCLE_TYPES, DIALYSIS_CYCLE_TYPES, FUNCTION_CHECK_RESULTS,
   DISCARD_REASONS, POST_USE_DISPOSITIONS, REACTIVE_PATIENT_RULES, UNKNOWN_SEROLOGY_RULES, ISOLATION_ENFORCEMENT,
   ISOLATION_CLASSES, ENROLLED_VIA, CAPTURE_SOURCES, REPROCESSING_AGENTS, DEFAULT_TCV_MIN_PCT, DEVICE_TAG_PATTERN,
-  DEVICE_ACTIONS, requireDomain, deviceTransition, normalizeDeviceTag, settingsDefaultsFor, validatePolicyInput,
-  computeDispositionOptions, requiredIsolationClass, computeIsolationWarnings, tcvVerdict, mapMarkerStatusToLegacy,
+  DEVICE_ACTIONS, DECISION_STATUSES, requireDomain, deviceTransition, normalizeDeviceTag, settingsDefaultsFor, validatePolicyInput,
+  computeDispositionOptions, computeIsolationWarnings, exposureMarkersForIsolationClass, tcvVerdict,
 };
 ```
 
 - [ ] **Step 4: Run to verify pass**
 
 Run: `npm test -- --testPathPatterns unit/reprocessableDeviceRules`
-Expected: PASS, 50 tests (1 domains + 9 allowed + 7 refused + 1 uncapture shape + 6 tag + 2 defaults + 12 disposition + 7 isolation + 1 tcv + 1 policy + 3 legacy-map). If the parity test fails on `reason_codes` for the max-cycles device under `override_allowed`, read both functions side by side — the order is flag, ceiling, screen in both, and the fix is in the new module, never in cath's.
+Expected: PASS, 49 tests (1 domains + 9 allowed + 7 refused + 1 uncapture shape + 6 tag + 2 defaults + 12 disposition + 8 isolation + 1 tcv + 1 policy + 1 exposure-markers). If the parity test fails on `reason_codes` for the max-cycles device under `override_allowed`, read both functions side by side — the order is flag, ceiling, screen in both, and the fix is in the new module, never in cath's.
 
-- [ ] **Step 5: Mutation check** — swap the flag and ceiling branches in `computeDispositionOptions`, run, confirm the "device flag is checked BEFORE the ceiling" test and the parity test go red; restore.
+- [ ] **Step 5: Mutation checks** — swap the flag and ceiling branches in `computeDispositionOptions`, run, confirm the "device flag is checked BEFORE the ceiling" test and the parity test go red; restore. Add `else if (status === 'unknown') codes.push('DIALYSIS_SEROLOGY_UNKNOWN');` to `computeIsolationWarnings`, run, confirm the "UNKNOWN never isolates" test goes red; restore.
 
 - [ ] **Step 6: Commit**
 
@@ -1466,14 +1427,12 @@ The deep coverage for this module lands with the two domain suites (Tasks 4 and 
 // usage rows and the dialysis link row do - so the CSSD routes read it without
 // a PHI logger.
 
-import { CLINICAL_STAFF_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 import { setTenant, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { code39Svg } from '../../utils/barcode/code39.js';
 import { logPhiAccess, logPhiAccessBatch } from '../../utils/hipaaAudit.js';
 import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
-import { normalizeRole } from '../../utils/roles.js';
 import { persistCdsAlert } from '../emr/cdsEngine.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { MARKERS, registerExposureHandler, resolveReuseStatus } from './bloodborneMarkerService.js';
@@ -1913,7 +1872,12 @@ export async function captureDeviceTx(tx, { device, patientUid, owner, captureSo
 
 // Settles the open usage of a device: disposition, post_use_screen, return
 // transition, then quarantine/discard when the disposition says so.
-export async function returnDeviceTx(tx, { device, usage, disposition, postUseScreen, options, discardReason = null, discardNote = null, acknowledgementReason = null, context }) {
+// exposureMarkers: OT leaves it null and the markers come from the screen
+// (resolveReuseStatus carries them); dialysis passes the list derived from the
+// Decision's isolation_class (a Decision carries no markers - spec §3.3).
+// deviceMetadata rides on the return transition (dialysis stamps
+// exposure_isolation_class for a mixed-class exposure).
+export async function returnDeviceTx(tx, { device, usage, disposition, postUseScreen, options, discardReason = null, discardNote = null, acknowledgementReason = null, exposureMarkers = null, deviceMetadata = {}, context }) {
   const tid = device.tenant_id;
   if (!usage || usage.device_id !== device.id || usage.returned_at) throw AppError.conflict('No open usage for this device', 'RPD_USAGE_NOT_OPEN');
   if (!options.dispositions.includes(disposition)) throw AppError.conflict(`Disposition ${disposition} is not permitted`, 'RPD_DISPOSITION_NOT_ALLOWED', { allowed: options.dispositions, discard_reason: options.discard_reason, quarantine_reason: options.quarantine_reason, blocked_code: options.blocked_code });
@@ -1931,8 +1895,8 @@ export async function returnDeviceTx(tx, { device, usage, disposition, postUseSc
       WHERE tenant_id = $1::uuid AND id = $2::bigint`,
     tid, usage.id, postUseScreen ? JSON.stringify(postUseScreen) : null, dispositionCode, actor, cleanText(acknowledgementReason, 2000),
   );
-  const markers = (postUseScreen?.markers || []).filter((m) => m.result === 'reactive').map((m) => m.marker);
-  let settled = await applyDeviceTransitionTx(tx, device, 'return', { exposureFlag: options.exposure, exposureMarkers: options.exposure ? markers : null }, context);
+  const markers = Array.isArray(exposureMarkers) ? exposureMarkers : (postUseScreen?.markers || []).filter((m) => m.result === 'reactive').map((m) => m.marker);
+  let settled = await applyDeviceTransitionTx(tx, device, 'return', { exposureFlag: options.exposure, exposureMarkers: options.exposure && markers.length ? markers : null, metadata: deviceMetadata }, context);
   if (disposition === 'quarantine') settled = await applyDeviceTransitionTx(tx, settled, 'quarantine', { quarantineReason: options.quarantine_reason || 'bloodborne_exposure', exposureFlag: true, exposureMarkers: markers.length ? markers : null }, context);
   if (disposition === 'discard') settled = await applyDeviceTransitionTx(tx, settled, 'discard', { discardReason: discardReason || options.discard_reason || 'other', discardNote, exposureFlag: (discardReason || options.discard_reason) === 'bloodborne_exposure', exposureMarkers: markers.length && (discardReason || options.discard_reason) === 'bloodborne_exposure' ? markers : null }, context);
   return { device: settled, disposition: dispositionCode };
@@ -1989,15 +1953,12 @@ export async function recordReuseSafetyReview(tx, { tenantId, patientUid, domain
 }
 
 // ---------------------------------------------------------------------------
-// Role projection helpers shared with the domain services
+// Role projection helpers shared with the domain services. The predicate is
+// cath's (spec §3.5: the SAME predicate, deliberately not a second list) and
+// the restriction projection lives in reprocessableDeviceProjection.js so its
+// unit test needs no database; both are re-exported here for the routes.
 // ---------------------------------------------------------------------------
-const SEROLOGY_DETAIL_ROLES = new Set(CLINICAL_STAFF_ROUTE_ROLES);
-export function roleSeesSerologyDetail(role) { return SEROLOGY_DETAIL_ROLES.has(normalizeRole(role) || ''); }
-export function projectReuseRestrictionForRole(restriction, role) {
-  if (!restriction || typeof restriction !== 'object') return restriction;
-  if (roleSeesSerologyDetail(role)) return restriction;
-  return { status: restriction.status, validity_days: restriction.validity_days, evaluated_at: restriction.evaluated_at, reasons: [], markers: [] };
-}
+export { projectReuseRestrictionForRole, roleSeesSerologyDetail } from './reprocessableDeviceProjection.js';
 
 // ---------------------------------------------------------------------------
 // History (PHI with no single subject) + label
@@ -2093,11 +2054,8 @@ export async function quarantineDevicesExposedToPatient(event) {
       logger.error(`Late-reactive reprocessable device sweep failed for device ${num(id)}: ${err?.message}`, { tenantId: tid, deviceId: num(id), marker });
     }
   }
-  // The derived dialysis columns follow the marker record whatever the sweep found.
-  try {
-    const { syncDialysisPatientSerology } = await import('./dialysisReuseService.js');
-    await syncDialysisPatientSerology({ tenantId: tid, patientUid, context });
-  } catch (err) { logger.error(`Dialysis serology sync after reactive marker failed: ${err?.message}`, { tenantId: tid }); }
+  // Nothing is written to dialysis_patients here: the roster derives its state
+  // at read time through the Phase 1 resolver (spec §3.3). No sync step.
   if (!affected.length) return { affected: [], failed };
   const tags = affected.map((d) => `${d.device_tag} (${d.domain})`).join(', ');
   try {
@@ -2123,14 +2081,27 @@ registerExposureHandler(quarantineDevicesExposedToPatient);
 ```js
 // apps/backend/src/services/clinical/reprocessableDeviceProjection.js
 //
-// Role projection for the dialysis read surfaces this lane changes (§3.5).
-// Same predicate as the cath projections (roleSeesSerologyDetail), never a
-// second list. Keys are BLANKED, never dropped: the admin and staff clients
-// parse fixed shapes.
+// Role projection for the read surfaces this lane changes (§3.5). Same
+// predicate as the cath projections (roleSeesSerologyDetail), never a second
+// list. Keys are BLANKED, never dropped: the admin and staff clients parse
+// fixed shapes.
 import { roleSeesSerologyDetail } from './cathDeviceReuseService.js';
 
+export { roleSeesSerologyDetail };
 export const DIALYSIS_PATIENT_SEROLOGY_KEYS = Object.freeze(['hbsag_status', 'hcv_status', 'hiv_status']);
 export const DIALYSIS_SEROLOGY_ROW_KEYS = Object.freeze(['hbsag', 'hbs_titre', 'anti_hcv', 'hcv_pcr', 'hiv']);
+
+// Two restriction shapes cross this seam and both are projected the same way -
+// status-level fields survive, reasons and markers do not:
+//   * the cath/OT resolveReuseStatus object { status, validity_days, evaluated_at, reasons, markers }
+//   * the dialysis Phase 1 Decision { status, asOf, evidence, isolation_class, reasons, markers? } (spec §3.3),
+//     told apart by `evidence`. isolation_class survives: routing, not disclosure (§3.5).
+export function projectReuseRestrictionForRole(restriction, role) {
+  if (!restriction || typeof restriction !== 'object') return restriction;
+  if (roleSeesSerologyDetail(role)) return restriction;
+  if ('evidence' in restriction) return { status: restriction.status, asOf: restriction.asOf ?? null, evidence: restriction.evidence, isolation_class: restriction.isolation_class ?? null, reasons: [] };
+  return { status: restriction.status, validity_days: restriction.validity_days, evaluated_at: restriction.evaluated_at, reasons: [], markers: [] };
+}
 
 function blank(row, keys) {
   if (!row || typeof row !== 'object' || Array.isArray(row)) return row;
@@ -2153,14 +2124,30 @@ export function projectDialysisSerologyRowsForRole(rows, role) {
 // machine class is a routing instruction every dialysis role must read, and
 // blanking it protects nothing (GET /machines shows every class; the mismatch
 // codes recover it by elimination). The marker VALUES above stay blanked.
-export default { projectDialysisPatientForRole, projectDialysisPatientsForRole, projectDialysisSerologyRowsForRole };
+export default { projectReuseRestrictionForRole, projectDialysisPatientForRole, projectDialysisPatientsForRole, projectDialysisSerologyRowsForRole };
 ```
 
 ```js
 // apps/backend/src/tests/unit/reprocessableDeviceProjection.test.js
-import projection, { projectDialysisPatientForRole, projectDialysisSerologyRowsForRole } from '../../services/clinical/reprocessableDeviceProjection.js';
+import projection, { projectDialysisPatientForRole, projectDialysisSerologyRowsForRole, projectReuseRestrictionForRole } from '../../services/clinical/reprocessableDeviceProjection.js';
 
 const patient = { id: 1, hbsag_status: 'positive', hcv_status: 'negative', hiv_status: 'unknown', isolation_required: true };
+describe('restriction projection - both shapes', () => {
+  const cathShape = { status: 'restricted', validity_days: 90, evaluated_at: '2026-09-05T00:00:00.000Z', reasons: ['HBsAg reactive 2026-08-12'], markers: [{ marker: 'hbsag', result: 'reactive' }] };
+  const decision = { status: 'restricted', asOf: '2026-09-05T00:00:00.000Z', reasons: ['HBsAg reactive 2026-08-12'], evidence: 'marker', isolation_class: 'hbsag', markers: [{ marker: 'hbsag', result: 'reactive' }] };
+  test('a non-audience role keeps the status fields and loses reasons/markers - cath/OT shape', () => {
+    expect(projectReuseRestrictionForRole(cathShape, 'DIALYSIS_TECHNICIAN')).toEqual({ status: 'restricted', validity_days: 90, evaluated_at: cathShape.evaluated_at, reasons: [], markers: [] });
+  });
+  test('a non-audience role keeps status / asOf / evidence / isolation_class and loses reasons and any markers - Decision shape', () => {
+    const out = projectReuseRestrictionForRole(decision, 'BLOOD_BANK_STAFF');
+    expect(out).toEqual({ status: 'restricted', asOf: decision.asOf, evidence: 'marker', isolation_class: 'hbsag', reasons: [] });
+    expect('markers' in out).toBe(false);
+  });
+  test('an audience role reads either shape unchanged', () => {
+    expect(projectReuseRestrictionForRole(cathShape, 'DOCTOR')).toBe(cathShape);
+    expect(projectReuseRestrictionForRole(decision, 'DOCTOR')).toBe(decision);
+  });
+});
 describe('dialysis serology projection', () => {
   test('a non-audience role sees the advisory and none of the markers; keys stay', () => {
     const out = projectDialysisPatientForRole(patient, 'DIALYSIS_TECHNICIAN');
@@ -2173,7 +2160,7 @@ describe('dialysis serology projection', () => {
       .toEqual([{ test_date: '2026-08-01', hbsag: null, hbs_titre: null, anti_hcv: null, hcv_pcr: null, hiv: null, is_seroconversion: false }]);
   });
   test('no isolation projection exists: the required machine class is routing, not disclosure (spec §3.5)', () => {
-    expect(Object.keys(projection).sort()).toEqual(['projectDialysisPatientForRole', 'projectDialysisPatientsForRole', 'projectDialysisSerologyRowsForRole']);
+    expect(Object.keys(projection).sort()).toEqual(['projectDialysisPatientForRole', 'projectDialysisPatientsForRole', 'projectDialysisSerologyRowsForRole', 'projectReuseRestrictionForRole']);
   });
 });
 ```
@@ -2192,16 +2179,16 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-## Task 4: Dialysis — capture, one-command reprocessing record, isolation, machines, derived serology
+## Task 4: Dialysis — capture, one-command reprocessing record, isolation, machines (consumes the Phase 1 resolver)
+
+**DEPENDS ON Phase 1.** Every dialysis *decision* in this task — the frozen capture snapshot, the isolation rule at schedule / start / reassign, the post-use disposition — reads `resolveDialysisIsolation` from the dialysis isolation derivation lane (dev-ea, migration 767; spec §3.3). Step 0b checks that the resolver is on `github/main` before any of it is written. Until it is: Steps 1 (adapter + named stub), 4 (census), 5 (pins) and every unit test can land; Step 2's service compiles against the adapter; the dialysis deep suite is *skipped by name*. Nothing in this task falls back to a stub or to the roster columns at runtime — with a dialyser policy on and no resolver importable, the dialysis paths fail closed with `RPD_ISOLATION_RESOLVER_UNAVAILABLE` (503). This lane writes **nothing** to `dialysis_patients.hbsag_status / hcv_status / hiv_status`: no sync, no latch, no union read, no enrol guard, no `recordSerology` change, no backfill — all Phase 1's (spec §3.3, hand-over notes there).
 
 **Files:**
-- Create: `apps/backend/src/services/clinical/dialysisReuseService.js`
-- Modify: `apps/backend/src/services/clinical/dialysisService.js` (`validateReuseRegisterInput` :33, `enrolPatient` ≈223, `scheduleSession` :440, `startSession` :493, `cancelSession` :625, `recordReuseRegister` :928, `recordSerology` :1100)
-- Modify: `apps/backend/src/services/clinical/bloodborneMarkerRules.js` (`SOURCES`; the marker void registry beside the exposure registry :225–255), `bloodborneMarkerService.js` (the two lab-link guards ≈190–195; `voidMarker` :309 notifies post-commit)
+- Create: `apps/backend/src/services/clinical/dialysisIsolationAdapter.js`, `apps/backend/src/services/clinical/dialysisReuseService.js`, `apps/backend/src/services/clinical/dialysisIsolationCensus.js`, `apps/backend/scripts/dialysis-isolation-census.mjs`
+- Modify: `apps/backend/src/services/clinical/dialysisService.js` (`validateReuseRegisterInput` :33, `scheduleSession` :440, `startSession` :493, `cancelSession` :625, `recordReuseRegister` :928 — **not** `enrolPatient` and **not** `recordSerology`, which are Phase 1's)
 - Modify (pre-flight, separate commit, only if `main` has not): `apps/backend/src/services/clinical/dialysisMachineService.js` (:74–80 and the `logObservation` call ≈100)
-- Create: `apps/backend/src/middleware/dialysisSerologyFieldGuard.js`
-- Modify: `apps/backend/src/routes/clinical/dialysisRoutes.js`
-- Create: `apps/backend/src/tests/unit/dialysisSerologyWriters.test.js`, `dialysisReuseHookCallSites.test.js`, `bloodborneMarkerVoidHandlers.test.js`, `dialysisMachineIngestTenantScope.test.js`, `apps/backend/src/tests/reprocessable-devices-dialysis.deep.test.js`
+- Modify: `apps/backend/src/routes/clinical/dialysisRoutes.js`, `apps/backend/src/config/routeRolePolicy.js`
+- Create: `apps/backend/src/tests/unit/dialysisIsolationAdapter.test.js`, `dialysisSerologyWriters.test.js`, `dialysisReuseHookCallSites.test.js`, `dialysisMachineIngestTenantScope.test.js`, `apps/backend/src/tests/reprocessable-devices-dialysis.deep.test.js`, `apps/backend/src/tests/dialysis-isolation-census.deep.test.js`
 
 - [ ] **Step 0: Pre-flight — the machine-ingest tenant predicate (adjacent defect owned by another session)**
 
@@ -2219,7 +2206,7 @@ In `ingestMachineObservations`, hoist the tenant once above the inbox insert —
 
 ```js
     // 2. Match the machine to its in-progress session (latest wins) - IN THIS
-    //    TENANT. machine_no is a per-tenant label (767's dialysis_machines is
+    //    TENANT. machine_no is a per-tenant label (NNN's dialysis_machines is
     //    unique on (tenant_id, machine_no)), so the same number exists in
     //    several tenants and a tenant-blind match lands observations on the
     //    wrong patient.
@@ -2251,7 +2238,7 @@ With the pin:
 ```js
 // apps/backend/src/tests/unit/dialysisMachineIngestTenantScope.test.js
 // The machine-ingest path matches a session by machine_no, a label that is
-// unique per TENANT (767: dialysis_machines (tenant_id, machine_no)). Textual
+// unique per TENANT (NNN: dialysis_machines (tenant_id, machine_no)). Textual
 // pin that the match and the observation write both carry the tenant.
 import { readFileSync } from 'node:fs';
 const source = readFileSync(new URL('../../services/clinical/dialysisMachineService.js', import.meta.url), 'utf8');
@@ -2278,123 +2265,169 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 Expected: PASS (the new pin plus any existing `dialysisMachine*` suite; if an existing suite stubs `prisma.$queryRawUnsafe` with positional expectations, update its expected argument list to `[machineNo, tenantId]`). Name this commit in the PR body's follow-ups whether or not it was needed.
 
-- [ ] **Step 1: The fourth marker source, and the marker void registry**
+- [ ] **Step 0b: Pre-flight — is Phase 1 on `main`?**
 
-In `bloodborneMarkerRules.js` change `SOURCES` to `Object.freeze(['lab_result', 'external_report', 'clinical_declaration', 'dialysis_surveillance'])`. In `bloodborneMarkerService.js` replace the two guards at ≈190–195 with:
-
-```js
-  // Mirrors patient_bloodborne_markers_lab_link_check (767): lab_result and
-  // external_report rows always carry the lab result id; clinical declarations
-  // and dialysis surveillance draws never do.
-  const NO_LAB_LINK_SOURCES = ['clinical_declaration', 'dialysis_surveillance'];
-  if (!NO_LAB_LINK_SOURCES.includes(safeSource) && safeLabResultId == null) {
-    throw AppError.badRequest(`lab_result_id is required for ${safeSource} markers`, 'BLOODBORNE_MARKER_INVALID');
-  }
-  if (NO_LAB_LINK_SOURCES.includes(safeSource) && safeLabResultId != null) {
-    throw AppError.badRequest(`${safeSource} markers do not reference a lab result`, 'BLOODBORNE_MARKER_INVALID');
-  }
+```bash
+git fetch github main
+git ls-tree --name-only github/main apps/backend/src/migrations/ | grep -c '/767_'
+git show github/main:apps/backend/src/services/clinical/dialysisIsolationResolver.js 2>/dev/null | grep -c 'export async function resolveDialysisIsolation'
+git show github/main:apps/backend/src/services/clinical/dialysisIsolationResolver.js 2>/dev/null | grep -n -E "isolation_class|includeMarkers|evidence" | head
 ```
 
-Run: `npm test -- --testPathPatterns "unit/bloodborneMarker"` — Expected: PASS (existing suites; a pinned `SOURCES` list, if any, is updated to the four values in the same change).
+Expected once Phase 1 has landed: `1`, `1`, and lines naming `evidence`, `includeMarkers` and `isolation_class`. Record the module path (the constant `PHASE1_RESOLVER_MODULE` in Step 1 is the only line to change if dev-ea named it differently) and whether `isolation_class` is on the `Decision` (spec §3.3 — this lane's one addition to the agreed four fields; if it is missing, stop and raise it with dev-ea rather than deriving a class from marker detail here). If the first two print `0`: write Steps 1, 4 and 5 now, write Step 2 against the adapter, leave Step 7's dialysis suite behind its guard, and name the dependency in the PR body. Do not invent a resolver; do not read the columns; do not change `describeIfPhase1` into `describe`.
 
-**The void registry.** The derived `dialysis_patients` columns must follow the marker record on a void as on a reactive (spec §3.3): a voided fresh non-reactive reverts `'negative' → 'unknown'`; a voided reactive leaves `'positive'` (the latch). `voidMarker` (`bloodborneMarkerService.js:309`) writes inside `setTenantTx` and returns; nothing observes it. Add, in `bloodborneMarkerRules.js` directly after `notifyExposureHandlers` (≈:255), the same registry shape:
+- [ ] **Step 1: The resolver adapter and its named stub**
 
 ```js
-// ---------------------------------------------------------------------------
-// Void handlers — invoked post-commit whenever a marker row is voided. The
-// derived dialysis_patients columns (767) follow the record on a void as on a
-// reactive: a voided fresh non-reactive reverts 'negative' -> 'unknown';
-// 'positive' never downgrades (that latch is the consumer's rule, not this
-// registry's). Same contract as the exposure registry: every handler runs,
-// a throwing handler is logged and does not stop the others.
-// ---------------------------------------------------------------------------
+// apps/backend/src/services/clinical/dialysisIsolationAdapter.js
+//
+// The ONE place this lane touches the Phase 1 dialysis isolation resolver
+// (spec §3.3). Everything dialysis-side - the frozen capture snapshot, the
+// isolation rule at schedule/start/reassign, the post-use disposition - reads
+// a Decision through here, LIVE, inside the caller's transaction.
+//
+// Contract consumed (agreed with dev-ea; isolation_class is this lane's ask):
+//   resolveDialysisIsolation({ tenantId, patientUids, db, includeMarkers = false })
+//     -> Map<patientUid, Decision>
+//   Decision = { status: 'restricted'|'unknown'|'clear', asOf, reasons: [],
+//                evidence: 'marker'|'legacy_declaration'|'none',
+//                isolation_class: 'hbsag'|'hcv'|'hiv'|'isolation_mixed'|null,
+//                markers?: [...] /* ONLY when includeMarkers */ }
+//
+// Rules this adapter enforces on our side of the seam:
+//   * includeMarkers defaults to false and is forwarded ONLY when a caller says
+//     so. No caller in THIS lane passes it (the roster / patient-detail surface
+//     that may is Phase 1's); the flag exists here so that surface has one seam.
+//   * snapshotOf() strips `markers`: the frozen reuse_screen / post_use_screen
+//     never carry marker detail.
+//   * A missing resolver is a 503, never a fallback: with a dialyser policy on
+//     and no Phase 1 module, capture / reprocess / schedule / start fail closed
+//     (RPD_ISOLATION_RESOLVER_UNAVAILABLE). The roster columns are not read.
+//   * A Decision outside the three statuses, or with an unknown isolation
+//     class, is refused (RPD_ISOLATION_DECISION_INVALID) - a wrong shape must
+//     not route a patient.
+//   * Phase 1's own single-uid wrapper is NOT imported: one binding, not two.
+import { AppError } from '../../utils/AppError.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
-const voidHandlers = new Set();
+// Confirmed at Task 4 Step 0b against github/main; the only line to touch on a
+// Phase 1 rename.
+let PHASE1_RESOLVER_MODULE = './dialysisIsolationResolver.js';
+export const DECISION_STATUSES = Object.freeze(['restricted', 'unknown', 'clear']);
+export const DECISION_ISOLATION_CLASSES = Object.freeze(['hbsag', 'hcv', 'hiv', 'isolation_mixed']);
 
-export function registerMarkerVoidHandler(handler) {
-  if (typeof handler !== 'function') {
-    throw new TypeError('registerMarkerVoidHandler expects a function');
-  }
-  voidHandlers.add(handler);
-  return () => voidHandlers.delete(handler);
-}
+let resolverPromise = null;
+let stub = null;
 
-export function __clearMarkerVoidHandlersForTests() {
-  voidHandlers.clear();
-}
-
-export async function notifyMarkerVoidHandlers(event) {
-  if (!event) return;
-  for (const handler of voidHandlers) {
-    try {
-      await handler(event);
-    } catch (err) {
-      logger.error(`Blood-borne marker void handler failed: ${err?.message}`, {
-        marker: event?.marker,
-        tenantId: event?.tenantId,
-        patientUid: event?.patientUid,
-        markerRowId: event?.markerRowId,
-        error: err?.message,
-        code: err?.code || null,
-        stack: err?.stack || null,
+async function loadResolver() {
+  if (stub) return stub;
+  if (!resolverPromise) {
+    resolverPromise = import(PHASE1_RESOLVER_MODULE)
+      .then((m) => {
+        if (typeof m.resolveDialysisIsolation !== 'function') throw new Error('resolveDialysisIsolation export missing');
+        return m.resolveDialysisIsolation;
+      })
+      .catch((err) => {
+        resolverPromise = null;
+        throw AppError.serviceUnavailable('Dialysis isolation resolver is not available on this build', 'RPD_ISOLATION_RESOLVER_UNAVAILABLE', { cause: err?.message || String(err) });
       });
-    }
   }
+  return resolverPromise;
 }
+
+export function assertDecision(decision, patientUid) {
+  if (!decision || !DECISION_STATUSES.includes(decision.status)) {
+    throw AppError.internal(`Isolation resolver returned no usable decision for ${patientUid}`, 'RPD_ISOLATION_DECISION_INVALID');
+  }
+  if (decision.isolation_class != null && !DECISION_ISOLATION_CLASSES.includes(decision.isolation_class)) {
+    throw AppError.internal(`Isolation resolver returned an unknown isolation_class for ${patientUid}`, 'RPD_ISOLATION_DECISION_INVALID');
+  }
+  return decision;
+}
+
+// Batch: Map<patientUid, Decision>. Always pass the caller's tx client.
+export async function isolationDecisionsTx(tx, { tenantId, patientUids, includeMarkers = false }) {
+  const tid = requireTenantId(tenantId);
+  const uids = [...new Set((patientUids || []).map((u) => String(u)))];
+  if (!uids.length) return new Map();
+  const resolve = await loadResolver();
+  const out = await resolve({ tenantId: tid, patientUids: uids, db: tx, includeMarkers: includeMarkers === true });
+  for (const uid of uids) assertDecision(out?.get?.(uid), uid);
+  return out;
+}
+
+// Single uid: the per-session paths (schedule, start, reassign, capture, reprocess, session read).
+export async function isolationDecisionTx(tx, { tenantId, patientUid, includeMarkers = false }) {
+  const map = await isolationDecisionsTx(tx, { tenantId, patientUids: [patientUid], includeMarkers });
+  return map.get(String(patientUid));
+}
+
+// What gets FROZEN on a usage row (spec §3.3): the Decision minus marker detail.
+export function snapshotOf(decision) {
+  if (!decision) return null;
+  const { markers, ...rest } = decision; // eslint-disable-line no-unused-vars
+  return { ...rest, reasons: Array.isArray(rest.reasons) ? [...rest.reasons] : [] };
+}
+
+// Test seams. Unit tests install a named stub or point the module path at a
+// missing file; the deep suite NEVER does either (it is skipped without Phase 1).
+export function __stubDialysisIsolationResolver(fn) { stub = typeof fn === 'function' ? fn : null; resolverPromise = null; }
+export function __setPhase1ResolverModuleForTests(path) { PHASE1_RESOLVER_MODULE = path; resolverPromise = null; }
+export function __clearDialysisIsolationStubForTests() { stub = null; resolverPromise = null; PHASE1_RESOLVER_MODULE = './dialysisIsolationResolver.js'; }
 ```
 
-In `bloodborneMarkerService.js` add `notifyMarkerVoidHandlers` to the `bloodborneMarkerRules.js` import list (:24–34; `export *` at :16 already re-exports the registry to consumers) and make `voidMarker` notify **after** its transaction commits — the handler reads through a separate connection, so it must not run inside the tx:
-
 ```js
-export async function voidMarker({ tenantId, patientUid, markerId, actorUid, reason }) {
-  // ... validation as today, unchanged ...
-  const voided = await setTenantTx(tid, async (tx) => {
-    // ... the existing lock / already-voided check / UPDATE ... RETURNING, unchanged ...
-    return normalizeMarkerRow(updated[0]);
-  });
-  // Post-commit, like recordMarkers' exposure notification (:262): consumers
-  // re-read the record on another connection and must see the void.
-  await notifyMarkerVoidHandlers({ tenantId: tid, patientUid: uid, marker: voided.marker, result: voided.result, markerRowId: voided.id, voidedBy: actor });
-  return voided;
-}
-```
-
-(the only change inside the function is `return setTenantTx(...)` → `const voided = await setTenantTx(...)`, then the notify and `return voided`). The registry's unit test, no database:
-
-```js
-// apps/backend/src/tests/unit/bloodborneMarkerVoidHandlers.test.js
+// apps/backend/src/tests/unit/dialysisIsolationAdapter.test.js
 import { jest } from '@jest/globals';
-import { __clearMarkerVoidHandlersForTests, notifyMarkerVoidHandlers, registerMarkerVoidHandler } from '../../services/clinical/bloodborneMarkerRules.js';
+import {
+  __clearDialysisIsolationStubForTests, __setPhase1ResolverModuleForTests, __stubDialysisIsolationResolver,
+  isolationDecisionTx, isolationDecisionsTx, snapshotOf,
+} from '../../services/clinical/dialysisIsolationAdapter.js';
 
-const event = { tenantId: '00000000-0000-4000-8000-000000000001', patientUid: '00000000-0000-4000-8000-000000000002', marker: 'hcv', result: 'non_reactive', markerRowId: 42, voidedBy: '00000000-0000-4000-8000-000000000003' };
-afterEach(() => __clearMarkerVoidHandlersForTests());
+const TENANT = '00000000-0000-4000-8000-000000000001';
+const A = '00000000-0000-4000-8000-00000000000a';
+const decision = (over = {}) => ({ status: 'restricted', asOf: '2026-09-05T00:00:00.000Z', reasons: ['HBsAg reactive 2026-08-12'], evidence: 'marker', isolation_class: 'hbsag', ...over });
+afterEach(() => __clearDialysisIsolationStubForTests());
 
-test('a registered handler receives the void event once, with the row identity', async () => {
-  const handler = jest.fn(async () => {});
-  registerMarkerVoidHandler(handler);
-  await notifyMarkerVoidHandlers(event);
-  expect(handler).toHaveBeenCalledTimes(1);
-  expect(handler).toHaveBeenCalledWith(event);
+test('calls the resolver with the tx client, the tenant and the uids; includeMarkers is false unless told', async () => {
+  const resolve = jest.fn(async ({ patientUids }) => new Map(patientUids.map((u) => [u, decision()])));
+  __stubDialysisIsolationResolver(resolve);
+  const tx = { tag: 'tx' };
+  const out = await isolationDecisionTx(tx, { tenantId: TENANT, patientUid: A });
+  expect(out.status).toBe('restricted');
+  expect(resolve).toHaveBeenCalledWith({ tenantId: TENANT, patientUids: [A], db: tx, includeMarkers: false });
+  await isolationDecisionsTx(tx, { tenantId: TENANT, patientUids: [A, A], includeMarkers: true });
+  expect(resolve).toHaveBeenLastCalledWith({ tenantId: TENANT, patientUids: [A], db: tx, includeMarkers: true });
 });
-test('a throwing handler does not stop the others', async () => {
-  const order = [];
-  registerMarkerVoidHandler(async () => { order.push('first'); throw new Error('boom'); });
-  registerMarkerVoidHandler(async () => { order.push('second'); });
-  await expect(notifyMarkerVoidHandlers(event)).resolves.toBeUndefined();
-  expect(order).toEqual(['first', 'second']);
+test('the frozen snapshot carries no marker detail and copies reasons', () => {
+  const d = decision({ markers: [{ marker: 'hbsag', result: 'reactive' }] });
+  const snap = snapshotOf(d);
+  expect(snap).toEqual({ status: 'restricted', asOf: d.asOf, reasons: d.reasons, evidence: 'marker', isolation_class: 'hbsag' });
+  expect('markers' in snap).toBe(false);
+  expect(snap.reasons).not.toBe(d.reasons);
+  expect(snapshotOf(null)).toBeNull();
 });
-test('unregistering stops delivery; a non-function is refused; a null event is a no-op', async () => {
-  const handler = jest.fn(async () => {});
-  const off = registerMarkerVoidHandler(handler);
-  off();
-  await notifyMarkerVoidHandlers(event);
-  expect(handler).not.toHaveBeenCalled();
-  expect(() => registerMarkerVoidHandler('nope')).toThrow(TypeError);
-  await expect(notifyMarkerVoidHandlers(null)).resolves.toBeUndefined();
+test('a decision outside the three statuses, with an unknown class, or missing for a uid is refused', async () => {
+  __stubDialysisIsolationResolver(async () => new Map([[A, decision({ status: 'isolated' })]]));
+  await expect(isolationDecisionTx({}, { tenantId: TENANT, patientUid: A })).rejects.toMatchObject({ code: 'RPD_ISOLATION_DECISION_INVALID' });
+  __stubDialysisIsolationResolver(async () => new Map([[A, decision({ isolation_class: 'hbv' })]]));
+  await expect(isolationDecisionTx({}, { tenantId: TENANT, patientUid: A })).rejects.toMatchObject({ code: 'RPD_ISOLATION_DECISION_INVALID' });
+  __stubDialysisIsolationResolver(async () => new Map());
+  await expect(isolationDecisionTx({}, { tenantId: TENANT, patientUid: A })).rejects.toMatchObject({ code: 'RPD_ISOLATION_DECISION_INVALID' });
+});
+test('an empty uid list resolves to an empty map without calling the resolver', async () => {
+  const resolve = jest.fn();
+  __stubDialysisIsolationResolver(resolve);
+  expect((await isolationDecisionsTx({}, { tenantId: TENANT, patientUids: [] })).size).toBe(0);
+  expect(resolve).not.toHaveBeenCalled();
+});
+test('with no Phase 1 module the adapter fails closed (503 RPD_ISOLATION_RESOLVER_UNAVAILABLE), never answers', async () => {
+  __setPhase1ResolverModuleForTests('./__no_such_resolver__.js');
+  await expect(isolationDecisionTx({}, { tenantId: TENANT, patientUid: A })).rejects.toMatchObject({ code: 'RPD_ISOLATION_RESOLVER_UNAVAILABLE', statusCode: 503 });
 });
 ```
 
-Run: `npm test -- --testPathPatterns "unit/bloodborneMarkerVoidHandlers|unit/bloodborneMarker"` — Expected: PASS, 3 new tests. The consumer that registers is `dialysisReuseService.js` (Step 2, last lines); the end-to-end revert is asserted in the deep suite (Step 7).
+Run: `npm test -- --testPathPatterns unit/dialysisIsolationAdapter` — Expected: PASS, 5 tests, no database, with or without Phase 1 on the checkout.
 
 - [ ] **Step 2: Write `dialysisReuseService.js`**
 
@@ -2402,31 +2435,27 @@ Run: `npm test -- --testPathPatterns "unit/bloodborneMarkerVoidHandlers|unit/blo
 // apps/backend/src/services/clinical/dialysisReuseService.js
 //
 // Dialysis consumer of the reprocessable-device platform: dialyser capture with
-// per-patient dedication, the ONE-command reprocessing record (post-use +
-// reprocess, written onto the 418 statutory row), the isolation-machine warn
-// rule, the machine master, and the derived dialysis_patients serology columns.
+// per-patient dedication, the un-capture on cancel, the ONE-command
+// reprocessing record (post-use + reprocess, written onto the 418 statutory
+// row), the isolation-machine warn rule, and the machine master.
 //
 // Spec: docs/superpowers/specs/2026-09-05-reprocessable-devices-platform-design.md §3.3, §3.4, §5.1.
 //
-// THIS MODULE IS THE ONLY SHIPPING WRITER of dialysis_patients.hbsag_status /
-// hcv_status / hiv_status (pinned by tests/unit/dialysisSerologyWriters.test.js).
-//
-// Every patient-facing serology read here goes through
-// resolveDialysisRestriction (the UNION of the marker record and the legacy
-// columns, §3.3) - never resolveReuseStatus directly - so the frozen
-// reuse_screen / post_use_screen carry legacy_source when the restriction came
-// from the enrolment columns.
+// THIS MODULE WRITES NOTHING TO dialysis_patients.hbsag_status / hcv_status /
+// hiv_status (pinned by tests/unit/dialysisSerologyWriters.test.js): the
+// derivation is the Phase 1 lane's. Every dialysis decision here reads a LIVE
+// Decision through dialysisIsolationAdapter - never the frozen reuse_screen,
+// never resolveReuseStatus, never the columns.
 
 import { setTenant, setTenantTx } from '../../lib/prisma.js';
-import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
-import { recordMarkers, registerMarkerVoidHandler, resolveReuseStatus } from './bloodborneMarkerService.js';
+import { isolationDecisionTx, snapshotOf } from './dialysisIsolationAdapter.js';
 import {
   ISOLATION_CLASSES, REPROCESSING_AGENTS, applyDeviceTransitionTx, captureDeviceTx, categoryPolicyTx, cleanText,
-  computeDispositionOptions, computeIsolationWarnings, getDomainSettings, lockDeviceBySerialTx, lockDeviceByTagTx,
-  lockDeviceTx, mapMarkerStatusToLegacy, mintDeviceTx, nonNegativeInt, normalizeUsage, num, oneOf, positiveInt,
-  recordReuseSafetyReview, requireUuid, returnDeviceTx, tcvVerdict, uncaptureDeviceTx,
+  computeDispositionOptions, computeIsolationWarnings, exposureMarkersForIsolationClass, getDomainSettings,
+  lockDeviceBySerialTx, lockDeviceByTagTx, lockDeviceTx, mintDeviceTx, nonNegativeInt, normalizeUsage, num, oneOf,
+  positiveInt, recordReuseSafetyReview, requireUuid, returnDeviceTx, tcvVerdict, uncaptureDeviceTx,
 } from './reprocessableDeviceService.js';
 
 const tenantOr = (v) => requireTenantId(v);
@@ -2438,64 +2467,6 @@ async function auditTx(tx, { tenantId, action, resource, resourceId, context = {
      VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::jsonb, $2::uuid, NOW())`,
     tenantId, context.actorUid ? requireUuid(context.actorUid, 'actorUid') : null, cleanText(context.actorRole, 50), action, resource, String(resourceId), JSON.stringify(metadata),
   );
-}
-
-// ---------------------------------------------------------------------------
-// Restriction: the UNION of the marker record and the legacy columns (§3.3)
-// ---------------------------------------------------------------------------
-const LEGACY_LABEL = Object.freeze({ hbsag: 'HBsAg', hcv: 'HCV', hiv: 'HIV' });
-
-export async function resolveDialysisRestriction({ tenantId, patientUid, settings, db = null }) {
-  const tid = tenantOr(tenantId);
-  const uid = requireUuid(patientUid, 'patientUid');
-  const run = (fn) => (db ? fn(db) : setTenant(tid, fn));
-  const resolved = await resolveReuseStatus({ tenantId: tid, patientUid: uid, validityDays: settings.serology_validity_days, db });
-  if (resolved.status === 'restricted') return { ...resolved, legacy_source: false };
-  // EVERY roster row of the patient, not the latest: a patient re-enrolled
-  // after a transfer or a modality change has more than one dialysis_patients
-  // row, and a 'positive' typed on the older one must not be missed.
-  const legacy = (await run((c) => c.$queryRawUnsafe(
-    `SELECT bool_or(hbsag_status = 'positive') AS hbsag, bool_or(hcv_status = 'positive') AS hcv, bool_or(hiv_status = 'positive') AS hiv
-       FROM dialysis_patients WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid`, tid, uid)))[0];
-  const positives = ['hbsag', 'hcv', 'hiv'].filter((m) => legacy?.[m] === true);
-  if (!positives.length) return { ...resolved, legacy_source: false };
-  return {
-    ...resolved, status: 'restricted', legacy_source: true,
-    reasons: [...positives.map((m) => `${LEGACY_LABEL[m]} positive on dialysis enrolment record (pre-marker)`), ...resolved.reasons],
-    markers: [...positives.map((m) => ({ marker: m, label: null, result: 'reactive', tested_on: '', source: 'dialysis_enrolment', age_days: null, within_window: false })), ...resolved.markers],
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Derived columns: the marker record is the only writer; never downgrades.
-// ---------------------------------------------------------------------------
-export async function syncDialysisPatientSerology({ tenantId, patientUid, context = { actorUid: null, actorRole: 'SYSTEM' } }) {
-  const tid = tenantOr(tenantId);
-  const uid = requireUuid(patientUid, 'patientUid');
-  const settings = await getDomainSettings({ tenantId: tid, domain: DOMAIN });
-  const resolution = await resolveReuseStatus({ tenantId: tid, patientUid: uid, validityDays: settings.serology_validity_days });
-  return setTenantTx(tid, async (tx) => {
-    const rows = await tx.$queryRawUnsafe(`SELECT id, hbsag_status, hcv_status, hiv_status FROM dialysis_patients WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid FOR UPDATE`, tid, uid);
-    const synced = [];
-    for (const row of rows) {
-      const next = mapMarkerStatusToLegacy(resolution, row);
-      if (next.hbsag_status === row.hbsag_status && next.hcv_status === row.hcv_status && next.hiv_status === row.hiv_status) continue;
-      await tx.$executeRawUnsafe(`UPDATE dialysis_patients SET hbsag_status = $3, hcv_status = $4, hiv_status = $5, updated_at = NOW() WHERE tenant_id = $1::uuid AND id = $2::int`, tid, row.id, next.hbsag_status, next.hcv_status, next.hiv_status);
-      await auditTx(tx, { tenantId: tid, action: 'dialysis.patient.serology_synced', resource: 'dialysis_patients', resourceId: row.id, context, metadata: { from: { hbsag: row.hbsag_status, hcv: row.hcv_status, hiv: row.hiv_status }, to: next } });
-      synced.push(num(row.id));
-    }
-    return { synced };
-  });
-}
-
-// recordSerology's marker writer (replaces the direct column promotion).
-const SURVEILLANCE_POLARITY = Object.freeze({ positive: 'reactive', negative: 'non_reactive', pending: 'pending' });
-export async function recordSurveillanceMarkers({ tenantId, patientUid, serologyRowId, testDate, values, actorUid }) {
-  const entries = [['hbsag', values.hbsag], ['hcv', values.anti_hcv], ['hiv', values.hiv]]
-    .filter(([, v]) => v !== null && v !== undefined && v !== '')
-    .map(([marker, v]) => ({ marker, result: SURVEILLANCE_POLARITY[String(v).toLowerCase()] || 'indeterminate', tested_on: testDate, source: 'dialysis_surveillance', evidence: { origin: 'dialysis_serology', dialysis_serology_id: num(serologyRowId) } }));
-  if (!entries.length) return { recorded: [], skipped: [] };
-  return recordMarkers({ tenantId, patientUid, entries, actorUid });
 }
 
 // ---------------------------------------------------------------------------
@@ -2541,17 +2512,19 @@ export async function updateMachine({ tenantId, id, ...body }, context = {}) {
   });
 }
 
-// The isolation read + rule with its two refusals, and NOTHING written. Used
-// BEFORE scheduleSession's INSERT (so a block leaves no orphan scheduled row -
-// today's scheduleSession inserts with the bare client outside any tx,
-// dialysisService.js:466-481) and by evaluateIsolationForSessionTx for start
-// and reassign, where the session row already exists.
+// The isolation read + rule with its two refusals, and NOTHING written. Reads a
+// LIVE Decision (never a frozen snapshot: a marker recorded between capture and
+// start must reach the machine assignment - spec §3.3). Used BEFORE
+// scheduleSession's INSERT (so a block leaves no orphan scheduled row - today's
+// scheduleSession inserts with the bare client outside any tx,
+// dialysisService.js:466-481) and by evaluateIsolationForSessionTx for start and
+// reassign, where the session row already exists.
 export async function assessIsolationTx(tx, { tenantId, patientUid, machineNo, overrideReason = null, requireReasonWhenWarned = false, context = {} }) {
   const tid = tenantOr(tenantId);
   const settings = await getDomainSettings({ tenantId: tid, domain: DOMAIN, db: tx });
-  const restriction = await resolveDialysisRestriction({ tenantId: tid, patientUid, settings, db: tx });
+  const decision = await isolationDecisionTx(tx, { tenantId: tid, patientUid });
   const machine = machineNo ? (await tx.$queryRawUnsafe(`SELECT ${MACHINE_SELECT} FROM dialysis_machines WHERE tenant_id = $1::uuid AND machine_no = $2 AND status <> 'retired'`, tid, cleanText(machineNo, 40)))[0] || null : null;
-  const verdict = computeIsolationWarnings({ restriction, machine, enforcement: settings.isolation_enforcement });
+  const verdict = computeIsolationWarnings({ decision, machine, enforcement: settings.isolation_enforcement });
   const reason = cleanText(overrideReason, 2000);
   const actor = context.actorUid ? requireUuid(context.actorUid, 'actorUid') : null;
   if (verdict.blocked) throw AppError.conflict('This patient must be dialysed on an isolation machine of the required class', 'DIALYSIS_ISOLATION_MACHINE_BLOCKED', { codes: verdict.codes, required_class: verdict.required_class });
@@ -2563,19 +2536,22 @@ export async function assessIsolationTx(tx, { tenantId, patientUid, machineNo, o
   return {
     codes: verdict.codes, required_class: verdict.required_class, blocked: false,
     warn_only: settings.isolation_enforcement === 'warn', enforcement_enabled: settings.isolation_enforcement === 'block',
-    override: overridden ? { reason, by: actor } : null, restriction, machine_no: machineNo || null, enforcement: settings.isolation_enforcement,
+    override: overridden ? { reason, by: actor } : null, decision: snapshotOf(decision), machine_no: machineNo || null, enforcement: settings.isolation_enforcement,
   };
 }
 
 export async function recordIsolationAuditTx(tx, { tenantId, session, isolation, context = {} }) {
-  await auditTx(tx, { tenantId: tenantOr(tenantId), action: isolation.override ? 'dialysis.session.isolation_overridden' : 'dialysis.session.isolation_evaluated', resource: 'dialysis_sessions', resourceId: session.id, context, metadata: { codes: isolation.codes, required_class: isolation.required_class, machine_no: isolation.machine_no, enforcement: isolation.enforcement, override_reason: isolation.override?.reason ?? null } });
+  // The Decision's status / evidence / asOf / isolation_class are audited; its
+  // reasons and any markers never are (spec §7.2).
+  const d = isolation.decision || {};
+  await auditTx(tx, { tenantId: tenantOr(tenantId), action: isolation.override ? 'dialysis.session.isolation_overridden' : 'dialysis.session.isolation_evaluated', resource: 'dialysis_sessions', resourceId: session.id, context, metadata: { codes: isolation.codes, required_class: isolation.required_class, machine_no: isolation.machine_no, enforcement: isolation.enforcement, decision: { status: d.status ?? null, evidence: d.evidence ?? null, as_of: d.asOf ?? null, isolation_class: d.isolation_class ?? null }, override_reason: isolation.override?.reason ?? null } });
 }
 
 // Called by startSession / PATCH /sessions/:id/machine inside THEIR transaction
 // with the session row locked: assess, then persist codes + mode pair onto the
 // existing row. Requires the override reason when warnings exist at START;
 // blocks under 'block'. (scheduleSession calls assessIsolationTx directly and
-// writes the result in its INSERT - Step 3(b).)
+// writes the result in its INSERT - Step 3(a).)
 export async function evaluateIsolationForSessionTx(tx, { tenantId, session, patientUid, machineNo, overrideReason = null, requireReasonWhenWarned = false, context = {} }) {
   const tid = tenantOr(tenantId);
   const isolation = await assessIsolationTx(tx, { tenantId: tid, patientUid, machineNo, overrideReason, requireReasonWhenWarned, context });
@@ -2597,7 +2573,7 @@ export async function evaluateIsolationForSessionTx(tx, { tenantId, session, pat
 // ---------------------------------------------------------------------------
 async function lockSessionTx(tx, tenantId, sessionId) {
   const rows = await tx.$queryRawUnsafe(
-    `SELECT s.id, s.status, s.machine_no, s.dialyser, s.reuse_count, s.dialysis_patient_id, p.patient_uid
+    `SELECT s.id, s.status, s.machine_no, s.dialyser, s.reuse_count, s.dialysis_patient_id, s.actual_start_at, p.patient_uid
        FROM dialysis_sessions s JOIN dialysis_patients p ON p.id = s.dialysis_patient_id AND p.tenant_id = s.tenant_id
       WHERE s.tenant_id = $1::uuid AND s.id = $2::int FOR UPDATE OF s`, tenantId, positiveInt(sessionId, 'session_id'));
   if (!rows[0]) throw AppError.notFound('Session not found', 'DIALYSIS_SESSION_NOT_FOUND');
@@ -2640,9 +2616,10 @@ async function captureTx(tx, { tid, session, body, captureSource, context }) {
   } else if (baseline !== null && link.baseline_tcv_ml == null) {
     await tx.$executeRawUnsafe(`UPDATE reprocessable_device_dialysis_links SET baseline_tcv_ml = $3::numeric, baseline_tcv_measured_at = NOW(), updated_at = NOW() WHERE tenant_id = $1::uuid AND device_id = $2::bigint`, tid, device.id, baseline);
   }
-  // The UNION read (§3.3), not the raw resolver: the frozen reuse_screen must
-  // say legacy_source when the restriction came from the enrolment columns.
-  const screen = await resolveDialysisRestriction({ tenantId: tid, patientUid: session.patient_uid, settings, db: tx });
+  // The EVIDENCE SNAPSHOT (spec §3.3): what the capturing user saw, frozen once
+  // as reuse_screen. It is never re-read for a decision - the reprocessing
+  // record and the isolation rule re-resolve live.
+  const screen = snapshotOf(await isolationDecisionTx(tx, { tenantId: tid, patientUid: session.patient_uid }));
   const samePatient = link.dedicated_patient_uid === session.patient_uid;
   let acknowledgement = null;
   if (device.exposure_flag && !samePatient) {
@@ -2669,7 +2646,8 @@ export async function captureDialyser({ tenantId, sessionId, ...body }, context 
 // Cancel (§5.1 Cancel): a SCHEDULED session that is cancelled or marked no-show
 // releases its captured dialyser; anything else refuses, and the refusal fails
 // the cancel. Called by dialysisService.cancelSession inside ITS transaction
-// with the session row locked, BEFORE the status UPDATE (Step 3(f)).
+// with the session row locked, BEFORE the status UPDATE (Step 3(d)). Needs no
+// resolver: releasing a never-used device is not a serology decision.
 // ---------------------------------------------------------------------------
 export async function onSessionCancelledTx(tx, { tenantId, session, target, context = {} }) {
   const tid = tenantOr(tenantId);
@@ -2697,13 +2675,15 @@ export async function getSessionDialyser({ tenantId, sessionId }) {
     if (!session) throw AppError.notFound('Session not found', 'DIALYSIS_SESSION_NOT_FOUND');
     const settings = await getDomainSettings({ tenantId: tid, domain: DOMAIN, db: tx });
     const policy = await categoryPolicyTx(tx, tid, DOMAIN, 'dialyser');
-    const restriction = await resolveDialysisRestriction({ tenantId: tid, patientUid: session.patient_uid, settings, db: tx });
+    // LIVE decision for the read (spec §3.3); the usage row's reuse_screen is
+    // history and is returned inside `usage`, not here.
+    const decision = snapshotOf(await isolationDecisionTx(tx, { tenantId: tid, patientUid: session.patient_uid }));
     const usage = normalizeUsage((await tx.$queryRawUnsafe(`SELECT * FROM reprocessable_device_usages WHERE tenant_id = $1::uuid AND dialysis_session_id = $2::int`, tid, session.id))[0] || null);
     const device = usage ? await lockDeviceTx(tx, tid, usage.device_id).catch(() => null) : null;
     const link = device ? (await tx.$queryRawUnsafe(`SELECT dedicated_patient_uid, baseline_tcv_ml FROM reprocessable_device_dialysis_links WHERE tenant_id = $1::uuid AND device_id = $2::bigint`, tid, device.id))[0] || null : null;
-    const options = usage && device ? computeDispositionOptions({ domain: DOMAIN, usage, policy, settings, restriction, device }) : null;
-    const isolation = { codes: session.isolation_warning_codes || [], required_class: restriction.status === 'restricted' ? computeIsolationWarnings({ restriction, machine: null, enforcement: settings.isolation_enforcement }).required_class : null, warn_only: session.isolation_warn_only, enforcement_enabled: session.isolation_enforcement_enabled, override: session.isolation_override_reason ? { reason: session.isolation_override_reason, by: session.isolation_override_by, at: session.isolation_override_at } : null };
-    return { usage, device, link, reuse_restriction: restriction, allowed_dispositions: options, isolation, policy_enabled: Boolean(policy?.reprocessable) };
+    const options = usage && device ? computeDispositionOptions({ domain: DOMAIN, usage, policy, settings, restriction: decision, device }) : null;
+    const isolation = { codes: session.isolation_warning_codes || [], required_class: decision.status === 'restricted' ? decision.isolation_class : null, warn_only: session.isolation_warn_only, enforcement_enabled: session.isolation_enforcement_enabled, override: session.isolation_override_reason ? { reason: session.isolation_override_reason, by: session.isolation_override_by, at: session.isolation_override_at } : null };
+    return { usage, device, link, reuse_restriction: decision, allowed_dispositions: options, isolation, policy_enabled: Boolean(policy?.reprocessable) };
   });
 }
 
@@ -2716,7 +2696,7 @@ export async function recordDialyserReprocessing({ tenantId, sessionId, body, no
   return setTenantTx(tid, async (tx) => {
     const policy = await categoryPolicyTx(tx, tid, DOMAIN, 'dialyser');
     const session = await lockSessionTx(tx, tid, sessionId);
-    if (!policy?.reprocessable) return legacyWrite(tx, session);            // dark: byte-for-byte 418 behaviour
+    if (!policy?.reprocessable) return legacyWrite(tx, session);            // dark: byte-for-byte 418 behaviour, no resolver touched
     let usage = await usageForSessionTx(tx, tid, session.id);
     let device = usage ? await lockDeviceTx(tx, tid, usage.device_id) : null;
     if (!usage) {
@@ -2725,7 +2705,7 @@ export async function recordDialyserReprocessing({ tenantId, sessionId, body, no
       usage = captured.usage; device = captured.device;
     }
     // normalized.reuseCycleCount is null when the body omitted the count
-    // (validateReuseRegisterInput ran with requireCycleCount: false, Step 3(d));
+    // (validateReuseRegisterInput ran with requireCycleCount: false, Step 3(c));
     // a typed count must equal the device's, or the write is refused.
     if (normalized.reuseCycleCount !== null && normalized.reuseCycleCount !== usage.reuse_cycle) throw AppError.conflict('reuse_cycle_count is derived from the device', 'DIALYZER_REUSE_CYCLE_DERIVED', { device_cycle: usage.reuse_cycle, typed: normalized.reuseCycleCount });
     const existing = (await tx.$queryRawUnsafe(`SELECT * FROM dialyzer_reuse_register WHERE tenant_id = $1::uuid AND session_id = $2::int FOR UPDATE`, tid, session.id))[0] || null;
@@ -2737,8 +2717,12 @@ export async function recordDialyserReprocessing({ tenantId, sessionId, body, no
       return rows[0];
     }
     const settings = await getDomainSettings({ tenantId: tid, domain: DOMAIN, db: tx });
-    const restriction = await resolveDialysisRestriction({ tenantId: tid, patientUid: session.patient_uid, settings, db: tx });
-    const options = computeDispositionOptions({ domain: DOMAIN, usage, policy, settings, restriction, device });
+    // RE-RESOLVE, live (spec §3.3). The frozen usage.reuse_screen is NOT the
+    // input here: a marker recorded between capture and this command must
+    // change the disposition. What we act on is frozen afterwards as
+    // post_use_screen.
+    const decision = snapshotOf(await isolationDecisionTx(tx, { tenantId: tid, patientUid: session.patient_uid }));
+    const options = computeDispositionOptions({ domain: DOMAIN, usage, policy, settings, restriction: decision, device });
     const disposition = normalized.status === 'in_use' ? 'reprocess' : normalized.status === 'quarantined' ? 'quarantine' : 'discard';
     const acknowledgement = cleanText(body.acknowledgement?.reason, 2000);
     if (disposition === 'reprocess' && options.blocked_code) throw AppError.conflict('Serology must be on record before this dialyser is reprocessed', options.blocked_code, { allowed: options.dispositions });
@@ -2760,7 +2744,12 @@ export async function recordDialyserReprocessing({ tenantId, sessionId, body, no
       await recordReuseSafetyReview(tx, { tenantId: tid, patientUid: session.patient_uid, domain: DOMAIN, findingCode: options.exposure ? 'BLOODBORNE_RESTRICTED_OVERRIDE' : 'SEROLOGY_UNKNOWN_ACKNOWLEDGED', message: `Dialyser ${device.device_tag} reprocessed under acknowledgement`, reason: acknowledgement, actorUid: context.actorUid, payload: { device_id: device.id, usage_id: usage.id } });
     }
     const allowed = finalDisposition === 'discard' && !options.dispositions.includes('discard') ? [...options.dispositions, 'discard'] : options.dispositions;
-    const returned = await returnDeviceTx(tx, { device, usage, disposition: finalDisposition, postUseScreen: restriction, options: { ...options, dispositions: allowed }, discardReason, discardNote: cleanText(normalized.discardReason || body.notes, 2000), acknowledgementReason: acknowledgement, context });
+    // A Decision carries no markers; the device's exposure_markers come from
+    // its isolation_class (a single class names its marker; isolation_mixed
+    // sets the flag alone and says so in metadata - spec §3.3).
+    const exposureMarkers = exposureMarkersForIsolationClass(decision.isolation_class);
+    const deviceMetadata = decision.status === 'restricted' && decision.isolation_class === 'isolation_mixed' ? { exposure_isolation_class: 'isolation_mixed' } : {};
+    const returned = await returnDeviceTx(tx, { device, usage, disposition: finalDisposition, postUseScreen: decision, options: { ...options, dispositions: allowed }, discardReason, discardNote: cleanText(normalized.discardReason || body.notes, 2000), acknowledgementReason: acknowledgement, exposureMarkers, deviceMetadata, context });
     let settled = returned.device;
     if (finalDisposition === 'reprocess') settled = await applyDeviceTransitionTx(tx, settled, 'reprocessed', { cycleType: 'chemical', functionCheck: 'pass', note: body.notes }, context);
     const registerStatus = finalDisposition === 'reprocess' ? 'in_use' : finalDisposition === 'quarantine' ? 'quarantined' : 'discarded';
@@ -2781,32 +2770,22 @@ export async function recordDialyserReprocessing({ tenantId, sessionId, body, no
       cleanText(body.disinfectant, 80), context.actorUid, registerStatus, registerDiscard, cleanText(body.notes, 2000), settled.id, usage.id, measured, tcv.pct, agent, contact,
       body.disinfectant_concentration_pct == null || body.disinfectant_concentration_pct === '' ? null : Number(body.disinfectant_concentration_pct),
     );
-    await auditTx(tx, { tenantId: tid, action: 'dialysis.reuse_register.recorded', resource: 'dialyzer_reuse_register', resourceId: rows[0].id, context, metadata: { session_id: session.id, device_tag: settled.device_tag, disposition: returned.disposition, tcv_pct: tcv.pct, integrity, idempotency_key: context.idempotencyKey ?? null } });
+    await auditTx(tx, { tenantId: tid, action: 'dialysis.reuse_register.recorded', resource: 'dialyzer_reuse_register', resourceId: rows[0].id, context, metadata: { session_id: session.id, device_tag: settled.device_tag, disposition: returned.disposition, tcv_pct: tcv.pct, integrity, decision_status: decision.status, idempotency_key: context.idempotencyKey ?? null } });
     return { ...rows[0], device: settled, disposition: returned.disposition };
   });
 }
-
-// ---------------------------------------------------------------------------
-// Marker void -> derived columns (§3.3). Registered at module load, as the
-// exposure handler is; the sync's no-downgrade rule makes a voided reactive
-// leave 'positive' standing and a voided fresh non-reactive revert 'negative'
-// -> 'unknown'.
-// ---------------------------------------------------------------------------
-registerMarkerVoidHandler(async (event) => {
-  await syncDialysisPatientSerology({ tenantId: event.tenantId, patientUid: event.patientUid, context: { actorUid: event.voidedBy || null, actorRole: 'SYSTEM' } });
-});
 ```
+
+(`$6` appears twice in the register INSERT — cast `::int` at both; the same discipline as Task 3.) `returnDeviceTx` takes the two new optional fields `exposureMarkers` / `deviceMetadata` — Task 3's signature note names them; when absent it derives the markers from the screen exactly as before, which is what OT still does.
 
 - [ ] **Step 3: Wire `dialysisService.js`**
 
-(a) `enrolPatient`: delete `hbsag_status`, `hcv_status`, `hiv_status` from the INSERT's column list and the three `COALESCE($8, 'negative')`… placeholders (renumber the remaining parameters); after the insert, `await syncDialysisPatientSerology({ tenantId, patientUid: body.patient_uid })` inside a try/catch that logs at warn (import from `./dialysisReuseService.js`).
-
-(b) `scheduleSession` (:440–481): the reads above the INSERT (`getDialysisPatientInTenant`, the active access, the active prescription) stay as they are. From `const sql = \`INSERT INTO dialysis_sessions` to the end of the function, replace with — the isolation rule is assessed **before** the insert inside one transaction, and the INSERT carries the result, so a `block` refusal leaves no orphan row:
+(a) `scheduleSession` (:440–481): the reads above the INSERT (`getDialysisPatientInTenant`, the active access, the active prescription) stay as they are. From `const sql = \`INSERT INTO dialysis_sessions` to the end of the function, replace with — the isolation rule is assessed **before** the insert inside one transaction, and the INSERT carries the result, so a `block` refusal leaves no orphan row:
 
 ```js
   return setTenantTx(tenantOr(tenantId), async (tx) => {
-    // 767: assess BEFORE the insert (a block must leave no orphan scheduled
-    // row); nothing to assess without a machine.
+    // NNN: assess BEFORE the insert (a block must leave no orphan scheduled
+    // row); nothing to assess without a machine. Live Decision (spec §3.3).
     const isolation = body.machine_no
       ? await assessIsolationTx(tx, { tenantId, patientUid: patient.patient_uid, machineNo: body.machine_no, overrideReason: body.isolation_override_reason, requireReasonWhenWarned: false, context: { actorUid: body.actorUid || body.conducted_by || null, actorRole: body.actorRole || null } })
       : null;
@@ -2848,11 +2827,11 @@ registerMarkerVoidHandler(async (event) => {
   });
 ```
 
-(`$21` appears twice, cast at both; `assessIsolationTx` / `recordIsolationAuditTx` imported from `./dialysisReuseService.js`.)
+(`$21` appears twice, cast at both; `assessIsolationTx` / `recordIsolationAuditTx` imported from `./dialysisReuseService.js`.) **Behaviour on a build without Phase 1:** with `machine_no` present this path now calls the resolver and fails closed with `RPD_ISOLATION_RESOLVER_UNAVAILABLE` — which is why Step 0b gates this step, and why the plan's Task 9 merges nothing until Phase 1 is on `main`.
 
-(c) `startSession` becomes a `setTenantTx` that locks the session with its patient, runs the status transition UPDATE as today, then `await evaluateIsolationForSessionTx(tx, { tenantId, session: row, patientUid: sess.patient_uid, machineNo: body.machine_no ?? row.machine_no, overrideReason: body.isolation_override_reason, requireReasonWhenWarned: true, context })` where `context` is `{ actorUid: body.started_by || null, actorRole: body.actorRole || null }` (the route passes `started_by: req.user?.uid, actorRole: req.user?.role`). The returned row carries `isolation`.
+(b) `startSession` becomes a `setTenantTx` that locks the session with its patient, runs the status transition UPDATE as today, then `await evaluateIsolationForSessionTx(tx, { tenantId, session: row, patientUid: sess.patient_uid, machineNo: body.machine_no ?? row.machine_no, overrideReason: body.isolation_override_reason, requireReasonWhenWarned: true, context })` where `context` is `{ actorUid: body.started_by || null, actorRole: body.actorRole || null }` (the route passes `started_by: req.user?.uid, actorRole: req.user?.role`). The returned row carries `isolation`.
 
-(d) `validateReuseRegisterInput` (:33) gains an option — the count is required on the legacy path and optional when a dialyser policy exists (the device derives it; every deep call below omits it):
+(c) `validateReuseRegisterInput` (:33) gains an option — the count is required on the legacy path and optional when a dialyser policy exists (the device derives it; every deep call below omits it):
 
 ```js
 export function validateReuseRegisterInput(body = {}, { requireCycleCount = true } = {}) {
@@ -2873,11 +2852,11 @@ export function validateReuseRegisterInput(body = {}, { requireCycleCount = true
 ```js
 export async function recordReuseRegister({ tenantId, session_id, processed_by, ...body }) {
   if (!session_id) throw AppError.badRequest('session_id required');
-  // 767: the cycle count is DERIVED when a dialyser policy exists, so it is
+  // NNN: the cycle count is DERIVED when a dialyser policy exists, so it is
   // optional here; the legacy path re-validates with the count required.
   const normalized = validateReuseRegisterInput(body, { requireCycleCount: false });
 
-  // The pre-767 behaviour, byte for byte, run by recordDialyserReprocessing
+  // The pre-NNN behaviour, byte for byte, run by recordDialyserReprocessing
   // when no reprocessable dialyser policy exists. `sess` is the row it locked.
   const legacyWrite = async (tx, sess) => {
     if (!body.dialyzer_serial) throw AppError.badRequest('dialyzer_serial required');
@@ -2940,9 +2919,9 @@ export async function recordReuseRegister({ tenantId, session_id, processed_by, 
 }
 ```
 
-(`lockSessionTx` in `dialysisReuseService.js` selects `s.id, s.status, s.machine_no, s.dialyser, s.reuse_count, s.dialysis_patient_id, p.patient_uid` — everything `legacyWrite` reads from `sess`.)
+(`lockSessionTx` in `dialysisReuseService.js` selects `s.id, s.status, s.machine_no, s.dialyser, s.reuse_count, s.dialysis_patient_id, s.actual_start_at, p.patient_uid` — everything `legacyWrite` reads from `sess`.)
 
-(e) `cancelSession` (:625) moves from the bare client into `setTenantTx` with the row locked, and runs the un-capture hook **before** its status UPDATE (spec §5.1 Cancel). A refusal from the hook (`RPD_RETURN_REQUIRED`, `RPD_USAGE_NOT_CANCELLABLE`) fails the cancel — no best-effort:
+(d) `cancelSession` (:625) moves from the bare client into `setTenantTx` with the row locked, and runs the un-capture hook **before** its status UPDATE (spec §5.1 Cancel). A refusal from the hook (`RPD_RETURN_REQUIRED`, `RPD_USAGE_NOT_CANCELLABLE`) fails the cancel — no best-effort. The hook needs no resolver, so this path is Phase 1-independent:
 
 ```js
 export async function cancelSession({ tenantId, id, reason, mark_no_show, actorUid = null, actorRole = null }) {
@@ -2957,7 +2936,7 @@ export async function cancelSession({ tenantId, id, reason, mark_no_show, actorU
     if (!SESSION_TRANSITIONS[sess.status]?.includes(target)) {
       throw AppError.invalidTransition(sess.status, target, SESSION_TRANSITIONS[sess.status] || []);
     }
-    // 767: release a captured dialyser BEFORE the status moves. The hook
+    // NNN: release a captured dialyser BEFORE the status moves. The hook
     // refuses (and so fails this cancel) when use was recorded or the session
     // had started; a scheduled session with a captured dialyser releases it.
     const released = await onSessionCancelledTx(tx, { tenantId: tid, session: sess, target, context: { actorUid, actorRole } });
@@ -2975,80 +2954,184 @@ export async function cancelSession({ tenantId, id, reason, mark_no_show, actorU
 
 (`onSessionCancelledTx` imported from `./dialysisReuseService.js`; the route passes `actorUid: req.user?.uid, actorRole: req.user?.role` — Step 6.)
 
-(f) `recordSerology`: replace the promotion block (≈1134–1146) with
+**Not touched in this file:** `enrolPatient` (its `'negative'` default and any body guard are Phase 1's) and `recordSerology` (its promotion of the three columns, the `dialysis_surveillance` source and the `'reactive'`/`'positive'` disjointness at :1115–1117 / :1135 are Phase 1's — spec §3.3). If either has changed on `main` by the time this task runs, that is Phase 1 having landed; merge and carry on.
+
+- [ ] **Step 4: The Phase 2 census — service and script (no Phase 1 dependency)**
 
 ```js
-  // The marker record is the only writer of dialysis_patients.*_status now
-  // (767): record the draw as dialysis_surveillance markers and let the sync
-  // derive the columns. A failure here must not lose the surveillance row.
-  try {
-    await recordSurveillanceMarkers({ tenantId: tenantOr(tenantId), patientUid: patient.patient_uid, serologyRowId: unwrap(rows).id, testDate: body.test_date || null, values: body, actorUid: body.reported_by || body.actorUid });
-    await syncDialysisPatientSerology({ tenantId: tenantOr(tenantId), patientUid: patient.patient_uid, context: { actorUid: body.reported_by || null, actorRole: 'SYSTEM' } });
-  } catch (err) {
-    logger.warn('dialysis surveillance marker write failed', { tenantId, dialysis_patient_id: patient.id, error: err.message });
-  }
-```
-
-`recordMarkers` requires `actorUid`; the route passes `reported_by: req.user?.uid` already — confirm at `router.post('/patients/:id/serology'` and add `actorUid: req.user?.uid` if it does not.
-
-- [ ] **Step 4: Enrol guard**
-
-```js
-// apps/backend/src/middleware/dialysisSerologyFieldGuard.js
+// apps/backend/src/services/clinical/dialysisIsolationCensus.js
 //
-// dialysis_patients.hbsag_status / hcv_status / hiv_status are DERIVED from
-// patient_bloodborne_markers from migration 767 on; the enrolment body may not
-// set them. Same posture as labResultOriginGuard: the service would ignore the
-// fields anyway, but silently dropping a field a client sent looks like
-// acceptance, and a 400 naming the field does not.
-import { HTTP_STATUS } from '../config/responseCodes.js';
-import { error } from '../utils/responseHelper.js';
+// The Phase 2 gate (spec §3.3, §7.6): before any migration drops
+// dialysis_patients.hbsag_status / hcv_status / hiv_status, both counts below
+// must read ZERO in every production tenant. Read-only. Reads the columns and
+// the marker table directly - it needs neither the Phase 1 resolver nor a
+// dialyser policy, and it is deliberately NOT the union read (that is Phase 1's;
+// this only counts what the union read could never see or has not yet absorbed).
+import { setTenant } from '../../lib/prisma.js';
+import { requireTenantId } from '../tenant/tenantService.js';
 
-export const DIALYSIS_SEROLOGY_FIELDS = Object.freeze(['hbsag_status', 'hcv_status', 'hiv_status']);
+const CORE = Object.freeze(['hbsag', 'hcv', 'hiv']);
 
-export function rejectDialysisSerologyFields(req, res, next) {
-  const body = req.body || {};
-  const present = DIALYSIS_SEROLOGY_FIELDS.filter((field) => body[field] !== undefined);
-  if (present.length) {
-    return error(res, `Fields not allowed on this route: ${present.join(', ')}`, HTTP_STATUS.BAD_REQUEST, { code: 'DIALYSIS_SEROLOGY_FIELDS_NOT_ALLOWED', fields: present });
-  }
-  return next();
+export async function runDialysisIsolationCensus({ tenantId, db = null } = {}) {
+  const tid = requireTenantId(tenantId);
+  const run = (fn) => (db ? fn(db) : setTenant(tid, fn));
+  // 1. Orphans: roster rows whose (tenant_id, patient_uid) has no users row.
+  //    168_dialysis_unit.sql:30 declares patient_uid with NO FK; 764:69 requires
+  //    one on the marker table - so an orphan row can never hold a marker.
+  const [orphans] = await run((c) => c.$queryRawUnsafe(
+    `SELECT count(*)::int AS rows, count(DISTINCT p.patient_uid)::int AS uids,
+            COALESCE(array_agg(DISTINCT p.patient_uid::text) FILTER (WHERE p.patient_uid IS NOT NULL), '{}') AS uid_list
+       FROM dialysis_patients p
+       LEFT JOIN users u ON u.tenant_id = p.tenant_id AND u.uid = p.patient_uid
+      WHERE p.tenant_id = $1::uuid AND u.uid IS NULL`, tid));
+  // 2. Un-backfilled positives: bool_or over EVERY roster row of the patient
+  //    (a re-enrolled patient has more than one; the older row's 'positive'
+  //    counts), minus patients with a non-voided reactive marker for that marker.
+  const perMarker = await run((c) => c.$queryRawUnsafe(
+    `WITH legacy AS (
+       SELECT p.patient_uid,
+              bool_or(p.hbsag_status = 'positive') AS hbsag,
+              bool_or(p.hcv_status = 'positive')   AS hcv,
+              bool_or(p.hiv_status = 'positive')   AS hiv
+         FROM dialysis_patients p WHERE p.tenant_id = $1::uuid GROUP BY p.patient_uid),
+     flat AS (
+       SELECT patient_uid, m.marker
+         FROM legacy, LATERAL (VALUES ('hbsag', hbsag), ('hcv', hcv), ('hiv', hiv)) AS m(marker, positive)
+        WHERE m.positive)
+     SELECT f.marker, count(*)::int AS n, array_agg(f.patient_uid::text ORDER BY f.patient_uid) AS patient_uids
+       FROM flat f
+      WHERE NOT EXISTS (
+        SELECT 1 FROM patient_bloodborne_markers b
+         WHERE b.tenant_id = $1::uuid AND b.patient_uid = f.patient_uid AND b.marker = f.marker
+           AND b.result = 'reactive' AND b.voided_at IS NULL)
+      GROUP BY f.marker ORDER BY f.marker`, tid));
+  const [denominators] = await run((c) => c.$queryRawUnsafe(
+    `SELECT count(*)::int AS roster_rows, count(*) FILTER (WHERE status = 'active')::int AS active_roster_rows FROM dialysis_patients WHERE tenant_id = $1::uuid`, tid));
+  const byMarker = Object.fromEntries(CORE.map((m) => [m, 0]));
+  const patients = new Set();
+  for (const row of perMarker) { byMarker[row.marker] = row.n; for (const uid of row.patient_uids || []) patients.add(uid); }
+  const columns = CORE.reduce((sum, m) => sum + byMarker[m], 0);
+  return {
+    tenant_id: tid,
+    roster_rows: denominators.roster_rows, active_roster_rows: denominators.active_roster_rows,
+    orphan_patient_uid_rows: orphans.rows, orphan_patient_uids: orphans.uid_list,
+    unbackfilled_positive_patients: patients.size, unbackfilled_positive_columns: columns, unbackfilled_by_marker: byMarker,
+    gate_clear: orphans.rows === 0 && columns === 0,
+  };
 }
 ```
 
-- [ ] **Step 5: Call-site pin**
+```js
+#!/usr/bin/env node
+// apps/backend/scripts/dialysis-isolation-census.mjs
+//
+// The Phase 2 gate (spec §7.6): per tenant, the orphan patient_uid count and the
+// un-backfilled legacy-positive count. Both must be zero in every production
+// tenant before the DROP migration is written. Read-only; safe at any hour.
+//   node scripts/dialysis-isolation-census.mjs --tenant <uuid> [--json]
+//   node scripts/dialysis-isolation-census.mjs --all-tenants [--json]
+import prisma from '../src/lib/prisma.js';
+import { runDialysisIsolationCensus } from '../src/services/clinical/dialysisIsolationCensus.js';
+
+const arg = (name) => { const i = process.argv.indexOf(`--${name}`); return i === -1 ? null : process.argv[i + 1]; };
+const tenantArg = arg('tenant'); const all = process.argv.includes('--all-tenants'); const json = process.argv.includes('--json');
+if (!tenantArg && !all) { console.error('usage: --tenant <uuid> | --all-tenants [--json]'); process.exit(2); }
+const tenants = all ? (await prisma.$queryRawUnsafe(`SELECT id::text AS id, name FROM tenants ORDER BY name`)) : [{ id: tenantArg, name: null }];
+const results = [];
+for (const t of tenants) results.push({ tenant_name: t.name, ...(await runDialysisIsolationCensus({ tenantId: t.id })) });
+if (json) console.log(JSON.stringify(results, null, 2));
+else for (const r of results) console.log(`${r.tenant_name || r.tenant_id}: orphan rows ${r.orphan_patient_uid_rows} (${r.orphan_patient_uids.length} uids), un-backfilled positives ${r.unbackfilled_positive_patients} patients / ${r.unbackfilled_positive_columns} columns [hbsag ${r.unbackfilled_by_marker.hbsag} hcv ${r.unbackfilled_by_marker.hcv} hiv ${r.unbackfilled_by_marker.hiv}] of ${r.roster_rows} roster rows -> gate ${r.gate_clear ? 'CLEAR' : 'NOT CLEAR'}`);
+await prisma.$disconnect();
+process.exit(results.every((r) => r.gate_clear) ? 0 : 1);
+```
+
+```js
+// apps/backend/src/tests/dialysis-isolation-census.deep.test.js
+// The Phase 2 gate against a real database, own tenant (…d1a2). No Phase 1
+// dependency: it reads the columns and the marker table.
+import prisma, { setTenantTx } from '../lib/prisma.js';
+import { recordMarkers, voidMarker } from '../services/clinical/bloodborneMarkerService.js';
+import { clinicalDate } from '../services/clinical/bloodborneMarkerRules.js';
+import { runDialysisIsolationCensus } from '../services/clinical/dialysisIsolationCensus.js';
+
+const describeIfDb = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL ? describe : describe.skip;
+const TENANT = '00000000-0000-4000-8000-0000000d1a20';
+const P1 = 'd1a20000-0000-4000-8000-000000000001'; // real user, legacy positive on the OLDER of two rows
+const P2 = 'd1a20000-0000-4000-8000-000000000002'; // real user, legacy positive backed by a marker
+const ORPHAN = 'd1a20000-0000-4000-8000-00000000dead'; // no users row - inserts because 168 declares no FK
+const ACTOR = 'd1a20000-0000-4000-8000-0000000000ac';
+const sql = (t, ...a) => prisma.$queryRawUnsafe(t, ...a);
+
+describeIfDb('dialysis isolation census (Phase 2 gate)', () => {
+  beforeAll(async () => {
+    await sql(`INSERT INTO tenants (id, name, slug) VALUES ($1::uuid, 'RPD Census', 'rpd-census') ON CONFLICT (id) DO NOTHING`, TENANT);
+    for (const [uid, role] of [[P1, 'PATIENT'], [P2, 'PATIENT'], [ACTOR, 'NURSING_STAFF']]) {
+      await sql(`INSERT INTO users (uid, tenant_id, email, role, name, status, is_active) VALUES ($1::uuid, $2::uuid, $3, $4, $3, 'active', true) ON CONFLICT (uid) DO NOTHING`, uid, TENANT, `${uid}@rpd.test`, role);
+    }
+    // Written with raw SQL on purpose: enrolPatient's defaults are Phase 1's business and this suite must not depend on them.
+    await setTenantTx(TENANT, async (tx) => {
+      await tx.$executeRawUnsafe(`INSERT INTO dialysis_patients (tenant_id, patient_uid, modality, hcv_status, status) VALUES ($1::uuid, $2::uuid, 'hd', 'positive', 'inactive')`, TENANT, P1); // older row
+      await tx.$executeRawUnsafe(`INSERT INTO dialysis_patients (tenant_id, patient_uid, modality, hcv_status, status) VALUES ($1::uuid, $2::uuid, 'hd', 'negative', 'active')`, TENANT, P1); // newer row
+      await tx.$executeRawUnsafe(`INSERT INTO dialysis_patients (tenant_id, patient_uid, modality, hbsag_status, status) VALUES ($1::uuid, $2::uuid, 'hd', 'positive', 'active')`, TENANT, P2);
+      await tx.$executeRawUnsafe(`INSERT INTO dialysis_patients (tenant_id, patient_uid, modality, hiv_status, status) VALUES ($1::uuid, $2::uuid, 'hd', 'positive', 'active')`, TENANT, ORPHAN);
+    });
+    await recordMarkers({ tenantId: TENANT, patientUid: P2, actorUid: ACTOR, entries: [{ marker: 'hbsag', result: 'reactive', tested_on: clinicalDate(new Date()), source: 'clinical_declaration' }] });
+  }, 30000);
+
+  test('counts the orphan row, the older-row positive (bool_or) and the orphan positive; a marker-backed positive counts zero', async () => {
+    const out = await runDialysisIsolationCensus({ tenantId: TENANT });
+    expect(out).toMatchObject({ orphan_patient_uid_rows: 1, orphan_patient_uids: [ORPHAN], roster_rows: 4, gate_clear: false });
+    // P1 (hcv, on the OLDER row) and ORPHAN (hiv) are un-backfilled; P2 (hbsag) has its marker.
+    expect(out.unbackfilled_by_marker).toEqual({ hbsag: 0, hcv: 1, hiv: 1 });
+    expect(out).toMatchObject({ unbackfilled_positive_patients: 2, unbackfilled_positive_columns: 2 });
+  });
+
+  test('a voided reactive marker does not back a positive', async () => {
+    const [row] = await sql(`SELECT id FROM patient_bloodborne_markers WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND marker = 'hbsag' AND voided_at IS NULL`, TENANT, P2);
+    await voidMarker({ tenantId: TENANT, patientUid: P2, markerId: Number(row.id), actorUid: ACTOR, reason: 'entered on the wrong patient' });
+    expect((await runDialysisIsolationCensus({ tenantId: TENANT })).unbackfilled_by_marker.hbsag).toBe(1);
+  });
+
+  test('a clean tenant reads 0 / 0 and the gate is clear', async () => {
+    const CLEAN = '00000000-0000-4000-8000-0000000d1a21';
+    await sql(`INSERT INTO tenants (id, name, slug) VALUES ($1::uuid, 'RPD Census clean', 'rpd-census-clean') ON CONFLICT (id) DO NOTHING`, CLEAN);
+    expect(await runDialysisIsolationCensus({ tenantId: CLEAN })).toMatchObject({ orphan_patient_uid_rows: 0, unbackfilled_positive_patients: 0, unbackfilled_positive_columns: 0, gate_clear: true });
+  });
+});
+```
+
+Run: `npm test -- --testPathPatterns dialysis-isolation-census.deep` — Expected: PASS, 3 tests, twice on a fresh database. If `dialysis_patients` carries a NOT NULL column the raw INSERTs above do not name, add it with its baseline default — do not switch to `enrolPatient`. Mutation check: replace `bool_or(...)` with a `DISTINCT ON (patient_uid) … ORDER BY id DESC` read and confirm the first test goes red on `hcv: 0`.
+
+- [ ] **Step 5: Pins**
 
 ```js
 // apps/backend/src/tests/unit/dialysisSerologyWriters.test.js
 // STRUCTURAL PIN: dialysis_patients.hbsag_status / hcv_status / hiv_status are
-// derived from the marker record (spec §3.3). Exactly one shipping module may
-// write them. Textual on purpose (the labExternalResultCallSites pattern).
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join, relative, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+// the Phase 1 lane's (spec §3.3). NO module this lane creates may write them.
+// Textual on purpose (the labExternalResultCallSites pattern). Phase 1's own
+// writers live in files this list does not name; this pin is not theirs.
+import { readFileSync } from 'node:fs';
 
-const SRC_ROOT = fileURLToPath(new URL('../../', import.meta.url));
-const ALLOWED = ['services/clinical/dialysisReuseService.js'];
-const SKIP = new Set(['node_modules', 'tests', 'migrations', 'docs']);
+const LANE_MODULES = [
+  'services/clinical/dialysisReuseService.js',
+  'services/clinical/dialysisIsolationAdapter.js',
+  'services/clinical/dialysisIsolationCensus.js',
+  'services/clinical/reprocessableDeviceService.js',
+  'services/cssd/cssdReuseHooks.js',
+];
 const WRITE = /(UPDATE\s+dialysis_patients[\s\S]{0,400}?SET[\s\S]{0,400}?(hbsag_status|hcv_status|hiv_status)\s*=)|(INSERT\s+INTO\s+dialysis_patients[\s\S]{0,600}?(hbsag_status|hcv_status|hiv_status))/i;
 
-function files(dir, out = []) {
-  for (const name of readdirSync(dir)) {
-    if (SKIP.has(name)) continue;
-    const full = join(dir, name);
-    if (statSync(full).isDirectory()) files(full, out);
-    else if (full.endsWith('.js')) out.push(full);
-  }
-  return out;
-}
-
-test('only dialysisReuseService writes the derived serology columns', () => {
-  const offenders = files(SRC_ROOT).filter((f) => WRITE.test(readFileSync(f, 'utf8'))).map((f) => relative(SRC_ROOT, f).split(sep).join('/')).filter((f) => !ALLOWED.includes(f));
+test('no module this lane creates writes the roster serology columns', () => {
+  const offenders = LANE_MODULES.filter((rel) => WRITE.test(readFileSync(new URL(`../../${rel}`, import.meta.url), 'utf8')));
   expect(offenders).toEqual([]);
+});
+test('the adapter is the only lane module that names the Phase 1 resolver', () => {
+  const importers = LANE_MODULES.filter((rel) => /resolveDialysisIsolation|dialysisIsolationResolver/.test(readFileSync(new URL(`../../${rel}`, import.meta.url), 'utf8')));
+  expect(importers).toEqual(['services/clinical/dialysisIsolationAdapter.js']);
 });
 ```
 
-Run: `npm test -- --testPathPatterns unit/dialysisSerologyWriters` — Expected: PASS once Step 3(a) and 3(f) are done; FAIL naming `dialysisService.js` before (the mutation check for this pin is running it before Step 3).
+Run: `npm test -- --testPathPatterns unit/dialysisSerologyWriters` — Expected: PASS. (Mutation: add `UPDATE dialysis_patients SET hbsag_status = 'x'` to `dialysisReuseService.js`, confirm red, remove.)
 
 The second pin — the dialysis half of the six pinned write paths (the OT four are in Task 5 Step 3):
 
@@ -3085,9 +3168,20 @@ test('startSession evaluates isolation inside its transaction', () => {
   expect(body).toMatch(/setTenantTx\(/);
   expect(body).toMatch(/evaluateIsolationForSessionTx\(/);
 });
+test('dialysisReuseService never reads a frozen reuse_screen as a decision input', () => {
+  const reuse = readFileSync(new URL('../../services/clinical/dialysisReuseService.js', import.meta.url), 'utf8');
+  // The snapshot is written (reuseScreen: screen) and returned inside `usage`;
+  // no decision path reads usage.reuse_screen or usage.post_use_screen.
+  expect(reuse).not.toMatch(/usage\.reuse_screen|usage\.post_use_screen/);
+  // Every decision path re-resolves.
+  for (const fnName of ['assessIsolationTx', 'captureTx', 'getSessionDialyser', 'recordDialyserReprocessing']) {
+    const start = reuse.indexOf(`function ${fnName}(`); expect(start).toBeGreaterThan(-1);
+    expect(reuse.slice(start, reuse.indexOf('\n}\n', start))).toMatch(/isolationDecisionTx\(/);
+  }
+});
 ```
 
-Run: `npm test -- --testPathPatterns unit/dialysisReuseHookCallSites` — Expected: PASS after Step 3; before it, all three FAIL (the mutation check for this pin).
+Run: `npm test -- --testPathPatterns unit/dialysisReuseHookCallSites` — Expected: PASS after Step 3; before it, the first three FAIL (the mutation check for this pin).
 
 - [ ] **Step 6: Dialysis routes**
 
@@ -3097,7 +3191,6 @@ In `apps/backend/src/routes/clinical/dialysisRoutes.js` add to the imports:
 import { DIALYSIS_MACHINE_ADMIN_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
-import { rejectDialysisSerologyFields } from '../../middleware/dialysisSerologyFieldGuard.js';
 import { projectReuseRestrictionForRole } from '../../services/clinical/reprocessableDeviceService.js';
 import { projectDialysisPatientForRole, projectDialysisPatientsForRole, projectDialysisSerologyRowsForRole } from '../../services/clinical/reprocessableDeviceProjection.js';
 import * as reuse from '../../services/clinical/dialysisReuseService.js';
@@ -3113,7 +3206,7 @@ const DIALYSIS_MACHINE_ADMIN_CANDIDATES = rolesFrom(['NURSING_INCHARGE', 'IP_INC
 export const DIALYSIS_MACHINE_ADMIN_ROUTE_ROLES = DIALYSIS_ROUTE_ROLES.filter((role) => DIALYSIS_MACHINE_ADMIN_CANDIDATES.includes(role));
 ```
 
-Change the enrol route to `router.post('/patients', requireStaffOrAdmin, rejectDialysisSerologyFields, guardDialysisEnrolCreate, wrap(...))`. Project the existing reads: `GET /patients` → `projectDialysisPatientsForRole(rows, req.user?.role)`; `GET /patients/:id` → project the row and its `serology` array; `GET /today` rows carry only `isolation_required` and need no projection. Actors onto the three session writes: `POST /sessions` (:209) passes `actorUid: req.user?.uid, actorRole: req.user?.role` beside the existing `conducted_by`; `POST /sessions/:id/start` (:230) passes `started_by: req.user?.uid, actorRole: req.user?.role`; `POST /sessions/:id/cancel` (:269) passes `actorUid: req.user?.uid, actorRole: req.user?.role` beside `reason` / `mark_no_show` (the un-capture audit names the actor, and an override needs one). Then, after the existing `GET /sessions/:id/reuse-register` route, add:
+`POST /patients` is **not** changed by this lane (the enrol default and any body guard are Phase 1's). Project the existing reads: `GET /patients` → `projectDialysisPatientsForRole(rows, req.user?.role)`; `GET /patients/:id` → project the row and its `serology` array (this lane adds no resolver call to that route: a resolver-backed roster/patient-detail surface is Phase 1's, and an existing read must not start answering 503 on a build without Phase 1); `GET /today` rows carry only `isolation_required` and need no projection. Actors onto the three session writes: `POST /sessions` (:209) passes `actorUid: req.user?.uid, actorRole: req.user?.role` beside the existing `conducted_by`; `POST /sessions/:id/start` (:230) passes `started_by: req.user?.uid, actorRole: req.user?.role`; `POST /sessions/:id/cancel` (:269) passes `actorUid: req.user?.uid, actorRole: req.user?.role` beside `reason` / `mark_no_show` (the un-capture audit names the actor, and an override needs one). Then, after the existing `GET /sessions/:id/reuse-register` route, add:
 
 ```js
 // ---------------------------------------------------------------------------
@@ -3132,8 +3225,8 @@ router.post('/sessions/:id/dialyser', requireStaffOrAdmin, guardDialysisSessionP
     return { ...out, reuse_restriction: projectReuseRestrictionForRole(out.reuse_restriction, req.user?.role) };
   }));
 
-// reuse_restriction is projected; isolation is NOT (spec §3.5): the required
-// machine class is routing, and every dialysis role reads it.
+// reuse_restriction (the live Decision) is projected; isolation is NOT (spec
+// §3.5): the required machine class is routing, and every dialysis role reads it.
 router.get('/sessions/:id/dialyser', requireStaffOrAdmin, guardDialysisSessionParam, wrap(async (req) => {
   const out = await reuse.getSessionDialyser({ tenantId: tenantOf(req), sessionId: req.params.id });
   return { ...out, reuse_restriction: projectReuseRestrictionForRole(out.reuse_restriction, req.user?.role) };
@@ -3172,21 +3265,31 @@ router.post('/sessions/:id/reuse-register', requireStaffOrAdmin, guardDialysisSe
   }));
 ```
 
-- [ ] **Step 7: Deep suite**
+- [ ] **Step 7: Deep suite — DEPENDS ON Phase 1, skipped by name without it**
 
 ```js
 // apps/backend/src/tests/reprocessable-devices-dialysis.deep.test.js
 //
 // Dialysis consumer of the reprocessable-device platform against a real
 // database, own tenant (…d1a1). Spec 2026-09-05 §3.3, §3.4, §5.1, §8.
+//
+// DEPENDS ON Phase 1: every decision below reads the real resolver. Without it
+// on this checkout the suite is SKIPPED BY NAME (never run against a stub, never
+// against the columns). The census suite next door has no such dependency.
+import { existsSync } from 'node:fs';
 import prisma, { ensureTenantRlsRuntimeRoleGrants, setTenantTx } from '../lib/prisma.js';
-import { recordMarkers, voidMarker } from '../services/clinical/bloodborneMarkerService.js';
-import { cancelSession, enrolPatient, recordReuseRegister, recordSerology, scheduleSession, startSession } from '../services/clinical/dialysisService.js';
+import { recordMarkers } from '../services/clinical/bloodborneMarkerService.js';
+import { cancelSession, enrolPatient, recordReuseRegister, scheduleSession, startSession } from '../services/clinical/dialysisService.js';
 import { captureDialyser, createMachine, getSessionDialyser } from '../services/clinical/dialysisReuseService.js';
 import { quarantineDevicesExposedToPatient, upsertDomainPolicies, upsertDomainSettings } from '../services/clinical/reprocessableDeviceService.js';
 import { clinicalDate } from '../services/clinical/bloodborneMarkerRules.js';
 
-const describeIfDb = process.env.DATABASE_URL || process.env.TEST_DATABASE_URL ? describe : describe.skip;
+const hasDb = Boolean(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
+const PHASE1_RESOLVER = new URL('../services/clinical/dialysisIsolationResolver.js', import.meta.url);
+const hasPhase1 = existsSync(PHASE1_RESOLVER);
+const describeIfPhase1 = hasDb && hasPhase1 ? describe : describe.skip;
+if (hasDb && !hasPhase1) console.warn('SKIPPED reprocessable-devices-dialysis.deep: Phase 1 resolver (dialysisIsolationResolver.js) is not on this checkout - spec §3.3');
+
 const TENANT = '00000000-0000-4000-8000-0000000d1a10';
 const OTHER_TENANT = '00000000-0000-4000-8000-0000000d1a11';
 const PATIENT_A = 'd1a10000-0000-4000-8000-00000000000a';
@@ -3194,17 +3297,17 @@ const PATIENT_B = 'd1a10000-0000-4000-8000-00000000000b';
 const ACTOR = 'd1a10000-0000-4000-8000-0000000000ac';
 const ctx = { actorUid: ACTOR, actorRole: 'NURSING_STAFF', tenantId: TENANT, requestId: 'rpd-dialysis-deep' };
 const today = () => clinicalDate(new Date());
-// The six 767 tables the runtime role may SELECT / INSERT / UPDATE and never DELETE.
+// The six NNN tables the runtime role may SELECT / INSERT / UPDATE and never DELETE.
 const RPD_TABLES = ['reprocessing_domain_settings', 'reprocessing_domain_policies', 'reprocessable_devices', 'reprocessable_device_usages', 'reprocessable_device_dialysis_links', 'dialysis_machines'];
 const RUNTIME_ROLES = ['vhhealth_app', 'vhhealth_runtime'];
 const RLS_ROLE = 'vhhealth_runtime';
 const runtimeRoleProvisioning = new Map();
 
 async function sql(text, ...args) { return prisma.$queryRawUnsafe(text, ...args); }
-const deviceRow = async (id) => (await sql(`SELECT status, cycle_count, current_usage_id FROM reprocessable_devices WHERE id = $1::bigint`, id))[0];
-const usageRow = async (sessionId) => (await sql(`SELECT post_use_disposition, returned_at, reuse_cycle FROM reprocessable_device_usages WHERE dialysis_session_id = $1::int`, sessionId))[0];
+const deviceRow = async (id) => (await sql(`SELECT status, cycle_count, current_usage_id, exposure_flag, exposure_markers FROM reprocessable_devices WHERE id = $1::bigint`, id))[0];
+const usageRow = async (sessionId) => (await sql(`SELECT post_use_disposition, returned_at, reuse_cycle, reuse_screen, post_use_screen FROM reprocessable_device_usages WHERE dialysis_session_id = $1::int`, sessionId))[0];
 
-describeIfDb('reprocessable devices - dialysis', () => {
+describeIfPhase1('reprocessable devices - dialysis', () => {
   let rosterA; let rosterB; let sessionA1; let sessionA2; let sessionB; let sessionC2;
   let deviceA1; let deviceA4;
   beforeAll(async () => {
@@ -3218,9 +3321,10 @@ describeIfDb('reprocessable devices - dialysis', () => {
     }
     // Tenants, users (patients + actor), roster rows, sessions. Mirror the fixture
     // shape cath-device-reuse.deep.test.js uses for tenants/users, re-keyed.
-    // PATIENT_A carries NO markers on purpose: the first reprocess walks the
-    // unknown + warn acknowledgement path, and the void test needs a patient
-    // whose only marker rows are the surveillance ones recordSerology writes.
+    // PATIENT_A carries NO markers on purpose: under Phase 1's rule a
+    // marker-less patient is `unknown` (Q1 decides what a legacy 'negative'
+    // means; this fixture does not lean on it), so the first reprocess walks
+    // the unknown + warn acknowledgement path.
     await sql(`INSERT INTO tenants (id, name, slug) VALUES ($1::uuid, 'RPD Dialysis', 'rpd-dialysis'), ($2::uuid, 'RPD Other', 'rpd-other') ON CONFLICT (id) DO NOTHING`, TENANT, OTHER_TENANT);
     for (const [uid, role] of [[PATIENT_A, 'PATIENT'], [PATIENT_B, 'PATIENT'], [ACTOR, 'NURSING_STAFF']]) {
       await sql(`INSERT INTO users (uid, tenant_id, email, role, name, status, is_active) VALUES ($1::uuid, $2::uuid, $3, $4, $3, 'active', true) ON CONFLICT (uid) DO NOTHING`, uid, TENANT, `${uid}@rpd.test`, role);
@@ -3229,24 +3333,26 @@ describeIfDb('reprocessable devices - dialysis', () => {
     await upsertDomainPolicies({ tenantId: TENANT, domain: 'dialysis', policies: [{ category: 'dialyser', reprocessable: true, max_cycles: 3, allowed_cycle_types: ['chemical'], tcv_min_pct: 80 }] }, ctx);
     rosterA = await enrolPatient({ tenantId: TENANT, patient_uid: PATIENT_A, modality: 'hd' });
     rosterB = await enrolPatient({ tenantId: TENANT, patient_uid: PATIENT_B, modality: 'hd' });
+    // Whatever enrolPatient wrote into the three columns is Phase 1's: this
+    // suite never asserts or writes them. Neutralise the fixture so Q1's
+    // answer cannot change these tests: nothing declared, no marker.
+    await setTenantTx(TENANT, (tx) => tx.$executeRawUnsafe(`UPDATE dialysis_patients SET hbsag_status = 'unknown', hcv_status = 'unknown', hiv_status = 'unknown' WHERE tenant_id = $1::uuid AND id IN ($2, $3)`, TENANT, rosterA.id, rosterB.id));
     sessionA1 = await scheduleSession({ tenantId: TENANT, dialysis_patient_id: rosterA.id, session_date: today(), machine_no: 'HD-01', actorUid: ACTOR });
     sessionA2 = await scheduleSession({ tenantId: TENANT, dialysis_patient_id: rosterA.id, session_date: today(), machine_no: 'HD-01', actorUid: ACTOR });
     sessionB = await scheduleSession({ tenantId: TENANT, dialysis_patient_id: rosterB.id, session_date: today(), machine_no: 'HD-02', actorUid: ACTOR });
   }, 30000);
 
-  test('enrolment defaults the derived columns to unknown', async () => {
-    expect(rosterA).toMatchObject({ hbsag_status: 'unknown', hcv_status: 'unknown', hiv_status: 'unknown' });
-  });
-
-  test('capture mints, dedicates, freezes the union screen, and writes the legacy session columns', async () => {
+  test('capture mints, dedicates, freezes the Decision as reuse_screen (no markers key), and writes the legacy session columns', async () => {
     const out = await captureDialyser({ tenantId: TENANT, sessionId: sessionA1.id, manufacturer_serial: 'DLZ-A-001', model_name: 'F60', baseline_tcv_ml: 100 }, ctx);
     expect(out.device.device_tag).toMatch(/^RD[0-9]{8,19}$/);
     expect(out.device.status).toBe('in_case');
     expect(out.usage.reuse_cycle).toBe(0);
     expect(out.link.dedicated_patient_uid).toBe(PATIENT_A);
-    expect(out.reuse_restriction).toMatchObject({ status: 'unknown', legacy_source: false });
+    expect(out.reuse_restriction).toMatchObject({ status: 'unknown', evidence: 'none', isolation_class: null });
+    expect(out.reuse_restriction).not.toHaveProperty('markers');
     const [s] = await sql(`SELECT dialyser, reuse_count FROM dialysis_sessions WHERE id = $1`, sessionA1.id);
     expect(s).toEqual({ dialyser: 'F60', reuse_count: 0 });
+    expect((await usageRow(sessionA1.id)).reuse_screen).toMatchObject({ status: 'unknown' });
     deviceA1 = out.device.id;
   });
 
@@ -3264,6 +3370,7 @@ describeIfDb('reprocessable devices - dialysis', () => {
     expect(row.reuse_cycle_count).toBe(0);                                          // derived: the body carried no count
     expect(Number(row.tcv_pct_of_baseline)).toBe(85);
     expect(row.device_id).toBe(row.device.id);
+    expect((await usageRow(sessionA1.id)).post_use_screen).toMatchObject({ status: 'unknown' });
     const [review] = await sql(`SELECT finding_code, status FROM medication_safety_reviews WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND review_type = 'reprocessable_device_reuse' ORDER BY id DESC LIMIT 1`, TENANT, PATIENT_A);
     expect(review).toMatchObject({ finding_code: 'SEROLOGY_UNKNOWN_ACKNOWLEDGED', status: 'overridden' });
   });
@@ -3287,58 +3394,42 @@ describeIfDb('reprocessable devices - dialysis', () => {
     expect((await usageRow(sessionA2.id)).post_use_disposition).toBe('discarded_tcv_below_threshold');
   });
 
-  test('a restricted patient under discard offers discard only and the register records it', async () => {
+  test('a restricted patient under discard offers discard only; the register records it and the device names the class marker', async () => {
     await recordMarkers({ tenantId: TENANT, patientUid: PATIENT_B, actorUid: ACTOR, entries: [{ marker: 'hbsag', result: 'reactive', tested_on: today(), source: 'clinical_declaration' }] });
     const cap = await captureDialyser({ tenantId: TENANT, sessionId: sessionB.id, manufacturer_serial: 'DLZ-B-001' }, ctx);
-    expect(cap.reuse_restriction.status).toBe('restricted');
+    expect(cap.reuse_restriction).toMatchObject({ status: 'restricted', evidence: 'marker', isolation_class: 'hbsag' });
     const view = await getSessionDialyser({ tenantId: TENANT, sessionId: sessionB.id });
     expect(view.allowed_dispositions.dispositions).toEqual(['discard']);
     expect(view.isolation.required_class).toBe('hbsag');                          // not projected: routing, not disclosure (§3.5)
     await expect(recordReuseRegister({ tenantId: TENANT, session_id: sessionB.id, processed_by: ACTOR, integrity_test_result: 'pass', status: 'in_use' })).rejects.toMatchObject({ code: 'RPD_DISPOSITION_NOT_ALLOWED' });
     const row = await recordReuseRegister({ tenantId: TENANT, session_id: sessionB.id, processed_by: ACTOR, integrity_test_result: 'not_done', status: 'discarded', discard_reason: 'HBsAg reactive' });
     expect(row.device.discard_reason).toBe('bloodborne_exposure');
-    expect(row.device.exposure_markers).toEqual(['hbsag']);
+    expect(row.device.exposure_markers).toEqual(['hbsag']);                        // from Decision.isolation_class, not marker detail
   });
 
-  test('the reactive marker synced the derived column through the exposure handler', async () => {
-    const [p] = await sql(`SELECT hbsag_status, isolation_required FROM dialysis_patients WHERE id = $1`, rosterB.id);
-    expect(p).toEqual({ hbsag_status: 'positive', isolation_required: true });
-  });
-
-  test('a legacy positive with no marker row still restricts (union read)', async () => {
-    await setTenantTx(TENANT, (tx) => tx.$executeRawUnsafe(`UPDATE dialysis_patients SET hcv_status = 'positive' WHERE id = $1`, rosterA.id));
-    const view = await getSessionDialyser({ tenantId: TENANT, sessionId: sessionA1.id });
-    expect(view.reuse_restriction.status).toBe('restricted');
-    expect(view.reuse_restriction.legacy_source).toBe(true);
-  });
-
-  test('recordSerology writes a dialysis_surveillance marker and never touches the columns directly', async () => {
-    await recordSerology({ tenantId: TENANT, dialysis_patient_id: rosterA.id, hbsag: 'positive', anti_hcv: 'negative', hiv: 'negative', test_date: today(), reported_by: ACTOR, actorUid: ACTOR });
-    const rows = await sql(`SELECT source, marker, result FROM patient_bloodborne_markers WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND source = 'dialysis_surveillance' ORDER BY marker`, TENANT, PATIENT_A);
-    expect(rows.map((r) => `${r.marker}:${r.result}`)).toEqual(['hbsag:reactive', 'hcv:non_reactive', 'hiv:non_reactive']);
-    const [p] = await sql(`SELECT hbsag_status, hcv_status, hiv_status FROM dialysis_patients WHERE id = $1`, rosterA.id);
-    expect(p).toEqual({ hbsag_status: 'positive', hcv_status: 'positive', hiv_status: 'negative' }); // hcv: the legacy latch from the union test
-  });
-
-  test('void: a voided fresh non-reactive reverts negative -> unknown; a voided reactive never downgrades positive', async () => {
-    const rows = await sql(`SELECT id, marker FROM patient_bloodborne_markers WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND source = 'dialysis_surveillance' AND voided_at IS NULL`, TENANT, PATIENT_A);
-    const byMarker = Object.fromEntries(rows.map((r) => [r.marker, Number(r.id)]));
-    await voidMarker({ tenantId: TENANT, patientUid: PATIENT_A, markerId: byMarker.hiv, actorUid: ACTOR, reason: 'entered on the wrong patient' });
-    let [p] = await sql(`SELECT hiv_status FROM dialysis_patients WHERE id = $1`, rosterA.id);
-    expect(p.hiv_status).toBe('unknown');                                          // the void handler ran the sync
-    await voidMarker({ tenantId: TENANT, patientUid: PATIENT_A, markerId: byMarker.hbsag, actorUid: ACTOR, reason: 'entered on the wrong patient' });
-    [p] = await sql(`SELECT hbsag_status FROM dialysis_patients WHERE id = $1`, rosterA.id);
-    expect(p.hbsag_status).toBe('positive');                                       // the latch: never downgraded
-  });
-
-  test('isolation: unregistered machine + restricted warns and needs a reason at start; mismatch under block refuses at start AND at scheduling with no orphan row', async () => {
-    const s = await scheduleSession({ tenantId: TENANT, dialysis_patient_id: rosterB.id, session_date: today(), machine_no: 'HD-09', actorUid: ACTOR });
-    expect(s.isolation.codes).toEqual(['DIALYSIS_MACHINE_UNREGISTERED']);         // assessed before the insert, written by it
+  test('snapshot vs decision: a marker recorded AFTER capture reaches the machine assignment at start and the disposition at the record; the frozen reuse_screen is unchanged', async () => {
+    const s = await scheduleSession({ tenantId: TENANT, dialysis_patient_id: rosterA.id, session_date: today(), machine_no: 'HD-01', actorUid: ACTOR });
+    expect(s.isolation.codes).toEqual([]);                                          // unknown: silent per session (§3.4)
+    const cap = await captureDialyser({ tenantId: TENANT, sessionId: s.id, manufacturer_serial: 'DLZ-A-003', baseline_tcv_ml: 100 }, ctx);
+    expect(cap.reuse_restriction.status).toBe('unknown');
+    await recordMarkers({ tenantId: TENANT, patientUid: PATIENT_A, actorUid: ACTOR, entries: [{ marker: 'hcv', result: 'reactive', tested_on: today(), source: 'clinical_declaration' }] });
+    // The exposure handler flagged the in_case dialyser; the register did not move it.
+    expect(await deviceRow(cap.device.id)).toMatchObject({ status: 'in_case', exposure_flag: true, exposure_markers: ['hcv'] });
+    // Start re-resolves: unregistered machine + now-restricted patient warns and needs a reason.
     await expect(startSession({ tenantId: TENANT, id: s.id, started_by: ACTOR })).rejects.toMatchObject({ code: 'DIALYSIS_ISOLATION_OVERRIDE_REQUIRED' });
     const started = await startSession({ tenantId: TENANT, id: s.id, started_by: ACTOR, isolation_override_reason: 'isolation bay full; machine cleaned per protocol' });
-    expect(started.isolation).toMatchObject({ codes: ['DIALYSIS_MACHINE_UNREGISTERED'], required_class: 'hbsag' });
+    expect(started.isolation).toMatchObject({ codes: ['DIALYSIS_MACHINE_UNREGISTERED'], required_class: 'hcv' });
+    // The record re-resolves too: A is restricted under discard, so reprocess is not on offer...
+    await expect(recordReuseRegister({ tenantId: TENANT, session_id: s.id, processed_by: ACTOR, integrity_test_result: 'pass', status: 'in_use', measured_tcv_ml: 90 })).rejects.toMatchObject({ code: 'RPD_DISPOSITION_NOT_ALLOWED' });
+    // ...while the frozen capture snapshot still says what the capturing user saw.
+    const u = await usageRow(s.id);
+    expect(u.reuse_screen).toMatchObject({ status: 'unknown' });
+    expect(u.post_use_screen).toBeNull();
+  });
+
+  test('isolation: mismatch under block refuses at start AND at scheduling with no orphan row; an unknown patient is never blocked and raises no code, even under block on an isolation machine', async () => {
     await createMachine({ tenantId: TENANT, machine_no: 'HD-10', isolation_class: 'general' }, ctx);
-    // Schedule on the general machine while enforcement is still warn (a mismatch WARNS)...
+    // Schedule B (restricted, hbsag) on the general machine while enforcement is still warn (a mismatch WARNS)...
     const s2 = await scheduleSession({ tenantId: TENANT, dialysis_patient_id: rosterB.id, session_date: today(), machine_no: 'HD-10', actorUid: ACTOR });
     expect(s2.isolation.codes).toEqual(['DIALYSIS_ISOLATION_MACHINE_MISMATCH']);
     // ...then flip to block: start refuses regardless of reason...
@@ -3349,6 +3440,17 @@ describeIfDb('reprocessable devices - dialysis', () => {
     await expect(scheduleSession({ tenantId: TENANT, dialysis_patient_id: rosterB.id, session_date: today(), machine_no: 'HD-10', actorUid: ACTOR })).rejects.toMatchObject({ code: 'DIALYSIS_ISOLATION_MACHINE_BLOCKED' });
     const [after] = await sql(`SELECT count(*)::int AS n FROM dialysis_sessions WHERE dialysis_patient_id = $1 AND machine_no = 'HD-10'`, rosterB.id);
     expect(after.n).toBe(before.n);
+    await upsertDomainSettings({ tenantId: TENANT, domain: 'dialysis', isolation_enforcement: 'warn' }, ctx);
+    // An UNKNOWN patient is never blocked and raises no unknown code, even under block, on any machine.
+    await createMachine({ tenantId: TENANT, machine_no: 'HD-11', isolation_class: 'hcv' }, ctx);
+    const PATIENT_U = 'd1a10000-0000-4000-8000-00000000000c';
+    await sql(`INSERT INTO users (uid, tenant_id, email, role, name, status, is_active) VALUES ($1::uuid, $2::uuid, $3, 'PATIENT', $3, 'active', true) ON CONFLICT (uid) DO NOTHING`, PATIENT_U, TENANT, `${PATIENT_U}@rpd.test`);
+    const rosterU = await enrolPatient({ tenantId: TENANT, patient_uid: PATIENT_U, modality: 'hd' });
+    await setTenantTx(TENANT, (tx) => tx.$executeRawUnsafe(`UPDATE dialysis_patients SET hbsag_status = 'unknown', hcv_status = 'unknown', hiv_status = 'unknown' WHERE tenant_id = $1::uuid AND id = $2`, TENANT, rosterU.id));
+    await upsertDomainSettings({ tenantId: TENANT, domain: 'dialysis', isolation_enforcement: 'block' }, ctx);
+    const sU = await scheduleSession({ tenantId: TENANT, dialysis_patient_id: rosterU.id, session_date: today(), machine_no: 'HD-11', actorUid: ACTOR });
+    expect(sU.isolation.codes).toEqual([]);                                         // unknown on an isolation machine: not "general patient" either - unknown is not clear
+    expect(sU.isolation.codes).not.toContain('DIALYSIS_SEROLOGY_UNKNOWN');
     await upsertDomainSettings({ tenantId: TENANT, domain: 'dialysis', isolation_enforcement: 'warn' }, ctx);
   });
 
@@ -3381,7 +3483,7 @@ describeIfDb('reprocessable devices - dialysis', () => {
     expect(s.status).toBe('in_progress');                                          // the refusal failed the cancel atomically
     expect((await deviceRow(deviceA4)).status).toBe('in_case');
     // Record the use (A is restricted under discard, so the record is a discard).
-    const row = await recordReuseRegister({ tenantId: TENANT, session_id: sessionC2.id, processed_by: ACTOR, integrity_test_result: 'not_done', status: 'discarded', discard_reason: 'HBsAg reactive; single use' });
+    const row = await recordReuseRegister({ tenantId: TENANT, session_id: sessionC2.id, processed_by: ACTOR, integrity_test_result: 'not_done', status: 'discarded', discard_reason: 'HCV reactive; single use' });
     expect(row.device.status).toBe('discarded');
     await expect(cancelSession({ tenantId: TENANT, id: sessionC2.id, reason: 'patient unwell', actorUid: ACTOR })).rejects.toMatchObject({ code: 'RPD_USAGE_NOT_CANCELLABLE' });
     [s] = await sql(`SELECT status FROM dialysis_sessions WHERE id = $1`, sessionC2.id);
@@ -3395,18 +3497,15 @@ describeIfDb('reprocessable devices - dialysis', () => {
     expect(out.released_device).toBeNull();
   });
 
-  test('a late reactive marker flags the patient\'s in_case dialyser (the sweep never moves an in_case device)', async () => {
-    const s = await scheduleSession({ tenantId: TENANT, dialysis_patient_id: rosterA.id, session_date: today(), machine_no: 'HD-01', actorUid: ACTOR });
-    const cap = await captureDialyser({ tenantId: TENANT, sessionId: s.id, manufacturer_serial: 'DLZ-A-003' }, ctx);
-    expect(cap.reuse_restriction).toMatchObject({ status: 'restricted', legacy_source: true }); // the union read, frozen on the usage
-    // A is restricted under discard: reprocess is not on offer, so the usage stays open and the device in_case.
-    await expect(recordReuseRegister({ tenantId: TENANT, session_id: s.id, processed_by: ACTOR, integrity_test_result: 'pass', status: 'in_use' })).rejects.toMatchObject({ code: 'RPD_DISPOSITION_NOT_ALLOWED' });
-    const res = await quarantineDevicesExposedToPatient({ tenantId: TENANT, patientUid: PATIENT_A, marker: 'hiv', testedOn: today(), markerRowId: 1 });
-    const mine = res.affected.find((d) => d.id === cap.device.id);
-    expect(mine).toMatchObject({ status: 'in_case', exposure_flag: true, exposure_markers: expect.arrayContaining(['hiv']) });
+  test('the platform exposure handler flags an in_case dialyser and quarantines an available one; it writes nothing to dialysis_patients', async () => {
+    const [before] = await sql(`SELECT hbsag_status, hcv_status, hiv_status, updated_at FROM dialysis_patients WHERE id = $1`, rosterB.id);
+    const res = await quarantineDevicesExposedToPatient({ tenantId: TENANT, patientUid: PATIENT_B, marker: 'hiv', testedOn: today(), markerRowId: 1 });
+    expect(Array.isArray(res.affected)).toBe(true);
+    const [after] = await sql(`SELECT hbsag_status, hcv_status, hiv_status, updated_at FROM dialysis_patients WHERE id = $1`, rosterB.id);
+    expect(after).toEqual(before);                                                  // no sync in this lane (spec §3.3)
   });
 
-  test('RLS: another tenant reads no device, link or machine; the runtime role may SELECT/INSERT/UPDATE and never DELETE on all six 767 tables', async () => {
+  test('RLS: another tenant reads no device, link or machine; the runtime role may SELECT/INSERT/UPDATE and never DELETE on all six NNN tables', async () => {
     const rows = await setTenantTx(OTHER_TENANT, (tx) => tx.$queryRawUnsafe(`SELECT count(*)::int AS n FROM reprocessable_devices WHERE manufacturer_serial LIKE 'DLZ-%'`));
     expect(rows[0].n).toBe(0);
     const links = await setTenantTx(OTHER_TENANT, (tx) => tx.$queryRawUnsafe(`SELECT count(*)::int AS n FROM reprocessable_device_dialysis_links`));
@@ -3437,15 +3536,15 @@ describeIfDb('reprocessable devices - dialysis', () => {
 });
 ```
 
-Run twice on a fresh database: `npm test -- --testPathPatterns reprocessable-devices-dialysis.deep` — Expected: PASS, 18 tests, under 30 s. Read the summary's `Suites failed` line separately from `Tests passed` (a hook failure shows as a failed suite with passing tests). The fixture's `tenants` / `users` column lists must match what `cath-device-reuse.deep.test.js` inserts; copy its INSERTs if these differ.
+Run twice on a fresh database with Phase 1 on the checkout: `npm test -- --testPathPatterns reprocessable-devices-dialysis.deep` — Expected: PASS, 14 tests, under 30 s. Without Phase 1: `1 skipped` with the SKIPPED line printed — and the PR body says so. Read the summary's `Suites failed` line separately from `Tests passed` (a hook failure shows as a failed suite with passing tests). The fixture's `tenants` / `users` column lists must match what `cath-device-reuse.deep.test.js` inserts; copy its INSERTs if these differ. The two `UPDATE dialysis_patients SET … 'unknown'` statements are **fixture neutralisation in a test file**, not a lane write — the writers pin scans lane modules, not tests — and they exist so Q1's answer (what enrolment writes) cannot move these assertions.
 
 - [ ] **Step 8: Mutation checks and commit**
 
-Delete the `link.dedicated_patient_uid !== session.patient_uid` refusal in `captureTx`, run the deep suite, confirm the dedication test goes red, restore. Delete the `current?.[column] === 'positive'` clause in `mapMarkerStatusToLegacy`, run the unit suite, confirm the no-downgrade test goes red, restore. Delete the `onSessionCancelledTx(` call in `cancelSession`, run the deep suite and the call-site pin, confirm the "cancelling a scheduled session releases" test and the pin go red, restore. Replace `partialUse` with `false` in `onSessionCancelledTx`, run the deep suite, confirm the `RPD_RETURN_REQUIRED` test goes red, restore.
+Delete the `link.dedicated_patient_uid !== session.patient_uid` refusal in `captureTx`, run the deep suite, confirm the dedication test goes red, restore. In `recordDialyserReprocessing`, replace the live `isolationDecisionTx(...)` with `usage.reuse_screen`, run the deep suite, confirm the "snapshot vs decision" test goes red on `RPD_DISPOSITION_NOT_ALLOWED` (and the call-site pin's fourth test goes red), restore. Delete the `onSessionCancelledTx(` call in `cancelSession`, run the deep suite and the call-site pin, confirm the "cancelling a scheduled session releases" test and the pin go red, restore. Replace `partialUse` with `false` in `onSessionCancelledTx`, run the deep suite, confirm the `RPD_RETURN_REQUIRED` test goes red, restore. In `computeIsolationWarnings` push `'DIALYSIS_SEROLOGY_UNKNOWN'` for `unknown`, run the rules suite and the deep suite, confirm the silence tests go red, restore.
 
 ```bash
-git add apps/backend/src/services/clinical/dialysisReuseService.js apps/backend/src/services/clinical/dialysisService.js apps/backend/src/services/clinical/bloodborneMarkerRules.js apps/backend/src/services/clinical/bloodborneMarkerService.js apps/backend/src/middleware/dialysisSerologyFieldGuard.js apps/backend/src/routes/clinical/dialysisRoutes.js apps/backend/src/config/routeRolePolicy.js apps/backend/src/tests/unit/dialysisSerologyWriters.test.js apps/backend/src/tests/unit/dialysisReuseHookCallSites.test.js apps/backend/src/tests/unit/bloodborneMarkerVoidHandlers.test.js apps/backend/src/tests/reprocessable-devices-dialysis.deep.test.js
-git commit -m "feat(dialysis): dialyser capture with dedication, un-capture on cancel, one-command reprocessing record, isolation warn rule, machines, derived serology
+git add apps/backend/src/services/clinical/dialysisIsolationAdapter.js apps/backend/src/services/clinical/dialysisReuseService.js apps/backend/src/services/clinical/dialysisIsolationCensus.js apps/backend/scripts/dialysis-isolation-census.mjs apps/backend/src/services/clinical/dialysisService.js apps/backend/src/routes/clinical/dialysisRoutes.js apps/backend/src/config/routeRolePolicy.js apps/backend/src/tests/unit/dialysisIsolationAdapter.test.js apps/backend/src/tests/unit/dialysisSerologyWriters.test.js apps/backend/src/tests/unit/dialysisReuseHookCallSites.test.js apps/backend/src/tests/reprocessable-devices-dialysis.deep.test.js apps/backend/src/tests/dialysis-isolation-census.deep.test.js
+git commit -m "feat(dialysis): dialyser capture with dedication, un-capture on cancel, one-command reprocessing record, isolation warn rule via the Phase 1 resolver, machines, Phase 2 census
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
@@ -3981,15 +4080,14 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ---
 
-## Task 6: Governance mount, route wiring census, canary, OpenAPI, backfill script
+## Task 6: Governance mount, route wiring census, canary, OpenAPI
 
 **Files:**
 - Create: `apps/backend/src/routes/clinical/reprocessingPolicyRoutes.js`, `apps/backend/src/routes/clinical/reprocessableDeviceHistoryHandler.js`
 - Modify: `apps/backend/src/config/routeRolePolicy.js` (after `CATH_REPROCESSING_POLICY_ROUTE_ROLES` ≈93), `apps/backend/src/app.js` (beside line ≈1220), `apps/admin/src/app/api/proxy/[...path]/route.ts` (`ALLOWED_PATH_PREFIXES`, after `"api/v1/cath-reprocessing"`)
 - Create: `apps/backend/src/tests/unit/reprocessableDeviceRouteWiring.test.js`
 - Modify: `apps/backend/src/tests/unit/serologyDisclosureCanary.test.js`, regenerate `apps/backend/src/tests/fixtures/serologyDisclosureCanary.reachable.json`
-- Create: `apps/backend/scripts/openapi/schemas/reprocessableDevices.mjs`; modify `bloodborneMarkers.mjs`, `apps/backend/scripts/generate-openapi.mjs` (`SCHEMA_MODULES`); regenerate `apps/backend/src/docs/openapi.json`, sync `packages/vhhealth_core/swagger/openapi.json`
-- Create: `apps/backend/scripts/backfill-dialysis-markers.mjs`
+- Create: `apps/backend/scripts/openapi/schemas/reprocessableDevices.mjs`; modify `apps/backend/scripts/generate-openapi.mjs` (`SCHEMA_MODULES`); regenerate `apps/backend/src/docs/openapi.json`, sync `packages/vhhealth_core/swagger/openapi.json`. (`bloodborneMarkers.mjs` is **not** changed by this lane — the `dialysis_surveillance` source is Phase 1's; the census script lives in Task 4 Step 4.)
 
 - [ ] **Step 1: Role alias and mount**
 
@@ -4136,9 +4234,11 @@ describe('every command claims a key with its scope; every read does not; guards
     }
     for (const key of ['GET /domains/:domain/settings', 'GET /domains/:domain/policies', 'GET /devices/:deviceId/history']) expect(POLICY.get(key).names).not.toContain(IDEMPOTENCY_NAME);
   });
-  it('the enrol route rejects legacy serology fields before the patient guard', () => {
+  it('the enrol route is untouched by this lane (its guard, if any, is Phase 1\'s)', () => {
     const entry = DIALYSIS.get('POST /patients');
-    expect(entry.names.indexOf('rejectDialysisSerologyFields')).toBeLessThan(entry.names.findIndex((n) => /patientAccessGuard|guard/i.test(n) && n !== 'rejectDialysisSerologyFields'));
+    expect(entry).toBeDefined();
+    expect(entry.names).not.toContain(IDEMPOTENCY_NAME);
+    expect(entry.names.some((n) => /reprocess|dialyser|rpd/i.test(n))).toBe(false);
   });
   it('every role these gates decide on is a real role', async () => {
     const { ALL_ROLES } = await import('../../utils/roles.js');
@@ -4153,7 +4253,7 @@ describe('every command claims a key with its scope; every read does not; guards
 
 In `serologyDisclosureCanary.test.js`:
 
-(a) Imports: `dialysisRoutes`, `cssdRoutes`, `reprocessingPolicyRoutes`, and `DIALYSIS_ROUTE_ROLES`, `CSSD_ROUTE_ROLES`, `REPROCESSING_POLICY_ROUTE_ROLES`. Extend the module mocks so the dialysis and CSSD routers can answer: mock `dialysisService.js` (every export → a stub returning the poisoned roster row / session / today rows), `dialysisReuseService.js` (`getSessionDialyser` → `{ usage: null, device: null, link: null, reuse_restriction: POISONED_RESTRICTION, allowed_dispositions: null, isolation: { codes: ['DIALYSIS_ISOLATION_MACHINE_MISMATCH'], required_class: 'hbsag', warn_only: true, enforcement_enabled: false, override: null } }`, `listMachines` → `[]`), `cssdService.js` (list functions → `[]`, `getCssdBoard` → `{}`), `reprocessableDeviceService.js` (`listDevices` → one device row with **no** patient keys, `getDomainSettings`/`listDomainPolicies` → defaults, `deviceHistory` → `{ device, uses: [{ patient_uid: PATIENT }], transitions: [] }`, `logDeviceHistoryAccess` → `{ logged: 1 }`), `dialysisMachineService.js` (`ingestMachineObservations` → `{}`). `POISONED_RESTRICTION` = `{ status: 'restricted', reasons: [\`HBsAg reactive ${SENTINEL}\`], markers: [{ marker: 'hbsag', result: 'reactive', tested_on: '2026-08-12' }], validity_days: 90, evaluated_at: new Date().toISOString() }`. The poisoned roster row: `{ id: 1, patient_uid: PATIENT, hbsag_status: SENTINEL, hcv_status: 'negative', hiv_status: 'negative', isolation_required: true }`; poisoned serology row `{ test_date: '2026-08-01', hbsag: SENTINEL, anti_hcv: 'negative', hiv: 'negative', is_seroconversion: true }` inside `getPatient`'s `serology`.
+(a) Imports: `dialysisRoutes`, `cssdRoutes`, `reprocessingPolicyRoutes`, and `DIALYSIS_ROUTE_ROLES`, `CSSD_ROUTE_ROLES`, `REPROCESSING_POLICY_ROUTE_ROLES`. Extend the module mocks so the dialysis and CSSD routers can answer: mock `dialysisService.js` (every export → a stub returning the poisoned roster row / session / today rows), `dialysisReuseService.js` (`getSessionDialyser` → `{ usage: null, device: null, link: null, reuse_restriction: POISONED_DECISION, allowed_dispositions: null, isolation: { codes: ['DIALYSIS_ISOLATION_MACHINE_MISMATCH'], required_class: 'hbsag', warn_only: true, enforcement_enabled: false, override: null }, policy_enabled: true }`, `captureDialyser` → the same object, `listMachines` → `[]`; the dialysis mock never touches `dialysisIsolationAdapter.js`, so the canary runs with or without Phase 1 on the checkout), `cssdService.js` (list functions → `[]`, `getCssdBoard` → `{}`), `reprocessableDeviceService.js` (`listDevices` → one device row with **no** patient keys, `getDomainSettings`/`listDomainPolicies` → defaults, `deviceHistory` → `{ device, uses: [{ patient_uid: PATIENT }], transitions: [] }`, `logDeviceHistoryAccess` → `{ logged: 1 }`), `dialysisMachineService.js` (`ingestMachineObservations` → `{}`). `POISONED_RESTRICTION` (the cath/OT shape, used by the theatre read) = `{ status: 'restricted', reasons: [\`HBsAg reactive ${SENTINEL}\`], markers: [{ marker: 'hbsag', result: 'reactive', tested_on: '2026-08-12' }], validity_days: 90, evaluated_at: new Date().toISOString() }`; `POISONED_DECISION` (the Phase 1 shape, used by the dialysis mocks) = `{ status: 'restricted', asOf: new Date().toISOString(), reasons: [\`HBsAg reactive ${SENTINEL}\`], evidence: 'marker', isolation_class: 'hbsag', markers: [{ marker: 'hbsag', result: 'reactive', tested_on: '2026-08-12' }] }` — the `markers` key is poisoned on purpose so a route that forwards an unprojected Decision fails the canary. The poisoned roster row: `{ id: 1, patient_uid: PATIENT, hbsag_status: SENTINEL, hcv_status: 'negative', hiv_status: 'negative', isolation_required: true }`; poisoned serology row `{ test_date: '2026-08-01', hbsag: SENTINEL, anti_hcv: 'negative', hiv: 'negative', is_seroconversion: true }` inside `getPatient`'s `serology`.
 
 (b) `MOUNTS` gains:
 
@@ -4226,9 +4326,13 @@ export const schemas = {
   ReprocessingDomainPoliciesUpdateRequest: { type: 'object', additionalProperties: false, required: ['policies'], properties: { policies: { type: 'array', minItems: 1, maxItems: 5, items: { type: 'object', additionalProperties: false, required: ['category', 'reprocessable'], properties: { category: { type: 'string' }, reprocessable: { type: 'boolean' }, max_cycles: ni, allowed_cycle_types: { type: 'array', items: { type: 'string', enum: CYCLE_TYPES } }, function_check_required: { type: 'boolean' }, tcv_min_pct: ni } } } } },
   DialysisMachine: { type: 'object', additionalProperties: true, required: ['id', 'machine_no', 'isolation_class', 'status'], properties: { id: { type: 'integer' }, facility_id: ni, machine_no: { type: 'string' }, display_name: ns, biomed_device_id: ni, isolation_class: { type: 'string', enum: ISOLATION_CLASSES }, status: { type: 'string', enum: ['active', 'out_of_service', 'retired'] }, notes: ns } },
   DialysisMachineRequest: { type: 'object', additionalProperties: false, properties: { machine_no: { type: 'string', maxLength: 40 }, display_name: { type: 'string', maxLength: 120 }, facility_id: ni, biomed_device_id: ni, isolation_class: { type: 'string', enum: ISOLATION_CLASSES }, status: { type: 'string', enum: ['active', 'out_of_service', 'retired'] }, notes: { type: 'string', maxLength: 2000 } } },
-  DialysisIsolation: { type: 'object', additionalProperties: false, required: ['codes', 'required_class', 'warn_only', 'enforcement_enabled', 'override'], properties: { codes: { type: 'array', items: { type: 'string', enum: ['DIALYSIS_MACHINE_UNREGISTERED', 'DIALYSIS_ISOLATION_MACHINE_MISMATCH', 'DIALYSIS_SEROLOGY_UNKNOWN', 'DIALYSIS_GENERAL_PATIENT_ON_ISOLATION_MACHINE'] } }, required_class: { ...ns, enum: [...ISOLATION_CLASSES, null] }, warn_only: { type: 'boolean' }, enforcement_enabled: { type: 'boolean' }, override: { type: 'object', nullable: true, additionalProperties: true } } },
+  // Three codes: `unknown` raises nothing per session (spec §3.3 / §3.4).
+  DialysisIsolation: { type: 'object', additionalProperties: false, required: ['codes', 'required_class', 'warn_only', 'enforcement_enabled', 'override'], properties: { codes: { type: 'array', items: { type: 'string', enum: ['DIALYSIS_MACHINE_UNREGISTERED', 'DIALYSIS_ISOLATION_MACHINE_MISMATCH', 'DIALYSIS_GENERAL_PATIENT_ON_ISOLATION_MACHINE'] } }, required_class: { ...ns, enum: [...ISOLATION_CLASSES, null] }, warn_only: { type: 'boolean' }, enforcement_enabled: { type: 'boolean' }, override: { type: 'object', nullable: true, additionalProperties: true } } },
+  // The Phase 1 resolver's Decision as this lane returns it (spec §3.3): projected by role
+  // (reasons emptied for non-audience roles); `markers` is never present on these surfaces.
+  DialysisIsolationDecision: { type: 'object', additionalProperties: false, required: ['status', 'asOf', 'reasons', 'evidence', 'isolation_class'], properties: { status: { type: 'string', enum: ['restricted', 'unknown', 'clear'] }, asOf: nd, reasons: { type: 'array', items: { type: 'string' } }, evidence: { type: 'string', enum: ['marker', 'legacy_declaration', 'none'] }, isolation_class: { ...ns, enum: [...ISOLATION_CLASSES.filter((c) => c !== 'general'), null] } } },
   DispositionOptions: { type: 'object', additionalProperties: false, required: ['dispositions', 'requires_acknowledgement', 'exposure', 'discard_reason', 'quarantine_reason', 'blocked_code', 'reason_codes', 'units_max'], properties: { dispositions: { type: 'array', items: { type: 'string', enum: ['reprocess', 'quarantine', 'discard'] } }, requires_acknowledgement: { type: 'boolean' }, exposure: { type: 'boolean' }, discard_reason: ns, quarantine_reason: ns, blocked_code: ns, reason_codes: { type: 'array', items: { type: 'string' } }, units_max: { type: 'integer' } } },
-  DialysisSessionDialyser: { type: 'object', additionalProperties: false, required: ['usage', 'device', 'link', 'reuse_restriction', 'allowed_dispositions', 'isolation', 'policy_enabled'], properties: { usage: { allOf: [{ $ref: '#/components/schemas/ReprocessableDeviceUsage' }], nullable: true }, device: { allOf: [{ $ref: '#/components/schemas/ReprocessableDevice' }], nullable: true }, link: { type: 'object', nullable: true, additionalProperties: true }, reuse_restriction: { $ref: '#/components/schemas/BloodborneReuseStatus' }, allowed_dispositions: { allOf: [{ $ref: '#/components/schemas/DispositionOptions' }], nullable: true }, isolation: { $ref: '#/components/schemas/DialysisIsolation' }, policy_enabled: { type: 'boolean' } } },
+  DialysisSessionDialyser: { type: 'object', additionalProperties: false, required: ['usage', 'device', 'link', 'reuse_restriction', 'allowed_dispositions', 'isolation', 'policy_enabled'], properties: { usage: { allOf: [{ $ref: '#/components/schemas/ReprocessableDeviceUsage' }], nullable: true }, device: { allOf: [{ $ref: '#/components/schemas/ReprocessableDevice' }], nullable: true }, link: { type: 'object', nullable: true, additionalProperties: true }, reuse_restriction: { $ref: '#/components/schemas/DialysisIsolationDecision' }, allowed_dispositions: { allOf: [{ $ref: '#/components/schemas/DispositionOptions' }], nullable: true }, isolation: { $ref: '#/components/schemas/DialysisIsolation' }, policy_enabled: { type: 'boolean' } } },
   DialyserCaptureRequest: { type: 'object', additionalProperties: false, properties: { manufacturer_serial: { type: 'string', maxLength: 120 }, device_tag: { type: 'string', pattern: '^[Rr][Dd][0-9]{8,19}$' }, model_name: { type: 'string', maxLength: 120 }, manufacturer: { type: 'string', maxLength: 120 }, hospital_asset_id: { type: 'string', maxLength: 120 }, baseline_tcv_ml: nn, initial_cycle_count: { type: 'integer', minimum: 0, maximum: 100 }, exposure_acknowledgement: { type: 'object', additionalProperties: false, required: ['reason'], properties: { reason: { type: 'string', maxLength: 2000 } } } } },
   DialyserReuseRegisterRequest: { type: 'object', additionalProperties: true, properties: { dialyzer_serial: { type: 'string', maxLength: 80 }, reuse_cycle_count: { type: 'integer', minimum: 0, maximum: 100, description: 'Derived from the device when one is captured; a disagreeing value is refused (DIALYZER_REUSE_CYCLE_DERIVED).' }, integrity_test_result: { type: 'string', enum: ['pending', 'pass', 'fail', 'not_done'] }, integrity_test_method: { type: 'string', maxLength: 120 }, disinfectant: { type: 'string', maxLength: 80 }, status: { type: 'string', enum: ['in_use', 'discarded', 'quarantined'] }, discard_reason: { type: 'string', maxLength: 255 }, notes: { type: 'string', maxLength: 2000 }, measured_tcv_ml: nn, reprocessing_agent: { type: 'string', enum: AGENTS }, disinfectant_contact_minutes: { type: 'integer', minimum: 0, maximum: 1440 }, disinfectant_concentration_pct: nn, acknowledgement: { type: 'object', additionalProperties: false, required: ['reason'], properties: { reason: { type: 'string', maxLength: 2000 } } } } },
   DialysisSessionMachineRequest: { type: 'object', additionalProperties: false, required: ['machine_no'], properties: { machine_no: { type: 'string', maxLength: 40 }, isolation_override_reason: { type: 'string', maxLength: 2000 } } },
@@ -4280,7 +4384,7 @@ export const operations = {
 };
 ```
 
-Register `reprocessableDevices` in `SCHEMA_MODULES` in `scripts/generate-openapi.mjs` (import beside `cathDeviceReuse`). In `bloodborneMarkers.mjs` add `'dialysis_surveillance'` to the source enum. Extend `cathDeviceReuse.mjs`'s `POST /api/v1/cssd/issues` entry if one exists (else the `cssd` paths are base-generated): add the `Idempotency-Key` parameter and an `acknowledgement` body property. Then:
+Register `reprocessableDevices` in `SCHEMA_MODULES` in `scripts/generate-openapi.mjs` (import beside `cathDeviceReuse`). Do **not** touch `bloodborneMarkers.mjs` (the `dialysis_surveillance` source is Phase 1's; if 767 has landed, its overlay change is already there). Extend `cathDeviceReuse.mjs`'s `POST /api/v1/cssd/issues` entry if one exists (else the `cssd` paths are base-generated): add the `Idempotency-Key` parameter and an `acknowledgement` body property. Then:
 
 ```bash
 cd apps/backend
@@ -4289,72 +4393,18 @@ npm run openapi:generate && npm run openapi:check && npm run openapi:sync-core &
 
 Expected: all exit 0; the lint budget reports `0 new` findings. If a documented path is not served (`openapi:check` names it), the route is missing, not the doc.
 
-- [ ] **Step 6: Backfill script**
-
-```js
-#!/usr/bin/env node
-// apps/backend/scripts/backfill-dialysis-markers.mjs
-//
-// One-shot operator step (spec §7.6): for every dialysis_patients row with a
-// legacy 'positive' column and NO non-voided reactive marker row for that
-// marker, record a clinical_declaration marker under a named actor. Until this
-// has run, resolveDialysisRestriction reads the UNION of both records.
-//   node scripts/backfill-dialysis-markers.mjs --tenant <uuid> --actor <uid> [--dry-run]
-import prisma, { setTenant } from '../src/lib/prisma.js';
-import { recordMarkers } from '../src/services/clinical/bloodborneMarkerService.js';
-
-const arg = (name) => { const i = process.argv.indexOf(`--${name}`); return i === -1 ? null : process.argv[i + 1]; };
-const tenantId = arg('tenant'); const actorUid = arg('actor'); const dryRun = process.argv.includes('--dry-run');
-if (!tenantId || !actorUid) { console.error('usage: --tenant <uuid> --actor <uid> [--dry-run]'); process.exit(2); }
-
-const rows = await setTenant(tenantId, (tx) => tx.$queryRawUnsafe(
-  `SELECT p.id, p.patient_uid, p.hbsag_status, p.hcv_status, p.hiv_status, p.updated_at,
-          (SELECT max(test_date) FROM dialysis_serology s WHERE s.dialysis_patient_id = p.id) AS last_test_date
-     FROM dialysis_patients p WHERE p.tenant_id = $1::uuid AND ('positive' IN (p.hbsag_status, p.hcv_status, p.hiv_status))`, tenantId));
-let recorded = 0; let skipped = 0; const affectedPatients = new Set();
-for (const row of rows) {
-  const entries = [];
-  for (const marker of ['hbsag', 'hcv', 'hiv']) {
-    if (row[`${marker}_status`] !== 'positive') continue;
-    const [existing] = await setTenant(tenantId, (tx) => tx.$queryRawUnsafe(`SELECT 1 FROM patient_bloodborne_markers WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND marker = $3 AND result = 'reactive' AND voided_at IS NULL LIMIT 1`, tenantId, row.patient_uid, marker));
-    if (existing) { skipped += 1; continue; }
-    const testedOn = (row.last_test_date || row.updated_at || new Date()).toISOString().slice(0, 10);
-    entries.push({ marker, result: 'reactive', tested_on: testedOn, source: 'clinical_declaration', evidence: { origin: 'dialysis_patients_backfill', dialysis_patient_id: row.id } });
-  }
-  if (!entries.length) continue;
-  affectedPatients.add(row.patient_uid);
-  if (dryRun) { console.log(`would record ${entries.map((e) => e.marker).join(',')} for ${row.patient_uid}`); recorded += entries.length; continue; }
-  const out = await recordMarkers({ tenantId, patientUid: row.patient_uid, entries, actorUid });
-  recorded += out.recorded.length;
-}
-// Side effect the operator must plan for (spec §7.6): recordMarkers notifies the
-// exposure handlers post-commit, so every device the platform handler (§3.2)
-// and the cath handler would quarantine or flag for these patients moves in ONE
-// burst. The dry run prints that number so infection control hears it first.
-const patientUids = [...affectedPatients];
-const [devices] = patientUids.length ? await setTenant(tenantId, (tx) => tx.$queryRawUnsafe(
-  `SELECT count(DISTINCT d.id)::int AS n
-     FROM reprocessable_devices d
-     LEFT JOIN reprocessable_device_dialysis_links l ON l.tenant_id = d.tenant_id AND l.device_id = d.id
-     LEFT JOIN reprocessable_device_usages u ON u.tenant_id = d.tenant_id AND u.device_id = d.id
-    WHERE d.tenant_id = $1::uuid AND d.status <> 'discarded'
-      AND (l.dedicated_patient_uid = ANY($2::uuid[])
-           OR (u.patient_uid = ANY($2::uuid[]) AND (u.returned_at IS NULL OR u.captured_at >= NOW() - INTERVAL '90 days')))`,
-  tenantId, patientUids)) : [{ n: 0 }];
-console.log(JSON.stringify({ tenantId, patients: rows.length, recorded, skipped, dryRun, devices_that_would_be_quarantined_or_flagged: devices.n }));
-await prisma.$disconnect();
-```
-
-The device count uses the OT default window (90 days); a tenant with a different `serology_validity_days` reads it as an upper bound. Run order, stated in the PR body: after the migration and the policy rows, in a quiet hour, with the infection-control officer told the number first.
-
-- [ ] **Step 7: Commit**
+- [ ] **Step 6: Commit** (the operator script for this lane is the Phase 2 census, committed with Task 4; the legacy-marker backfill is Phase 1's — spec §3.3 hand-over notes)
 
 ```bash
-git add apps/backend/src/routes/clinical/reprocessingPolicyRoutes.js apps/backend/src/routes/clinical/reprocessableDeviceHistoryHandler.js apps/backend/src/config/routeRolePolicy.js apps/backend/src/app.js apps/admin/src/app/api/proxy apps/backend/src/tests/unit/reprocessableDeviceRouteWiring.test.js apps/backend/src/tests/unit/serologyDisclosureCanary.test.js apps/backend/src/tests/fixtures/serologyDisclosureCanary.reachable.json apps/backend/scripts/openapi/schemas/reprocessableDevices.mjs apps/backend/scripts/openapi/schemas/bloodborneMarkers.mjs apps/backend/scripts/openapi/schemas/cathDeviceReuse.mjs apps/backend/scripts/generate-openapi.mjs apps/backend/src/docs/openapi.json packages/vhhealth_core/swagger/openapi.json apps/backend/scripts/backfill-dialysis-markers.mjs
-git commit -m "feat(reprocessing): governance mount, route wiring census, canary mounts, OpenAPI overlay, dialysis marker backfill
+git add apps/backend/src/routes/clinical/reprocessingPolicyRoutes.js apps/backend/src/routes/clinical/reprocessableDeviceHistoryHandler.js apps/backend/src/config/routeRolePolicy.js apps/backend/src/app.js apps/admin/src/app/api/proxy apps/backend/src/tests/unit/reprocessableDeviceRouteWiring.test.js apps/backend/src/tests/unit/serologyDisclosureCanary.test.js apps/backend/src/tests/fixtures/serologyDisclosureCanary.reachable.json apps/backend/scripts/openapi/schemas/reprocessableDevices.mjs apps/backend/scripts/openapi/schemas/cathDeviceReuse.mjs apps/backend/scripts/generate-openapi.mjs apps/backend/src/docs/openapi.json packages/vhhealth_core/swagger/openapi.json
+git commit -m "feat(reprocessing): governance mount, route wiring census, canary mounts, OpenAPI overlay
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
+
+---
+
+**Removed from this task (carve-out, 2026-09-05):** the former Step 6, `scripts/backfill-dialysis-markers.mjs`, is the Phase 1 lane's with the rest of the derivation. The one-paragraph pointer and the hand-over notes dev-ea needs (a legacy `'positive'` becomes a `clinical_declaration` marker under a named actor; `tested_on` is NULL for a legacy row, never `updated_at::date`; `recordMarkers` fires the exposure handlers post-commit so a one-shot backfill quarantines every legacy-positive patient's dedicated dialyser in one burst and the dry run must print the device count; `bool_or` over every roster row; the `dialysis_serology` `'reactive'`/`'positive'` disjointness at `dialysisService.js:1115-1117` / `:1135`) live in spec §3.3. This lane's operator script is the Phase 2 census (Task 4 Step 4).
 
 ---
 
@@ -4420,19 +4470,26 @@ Move `cath_reuse_restriction_strip.dart`'s widget to `lib/core/widgets/reuse_res
 
 ```dart
 // apps/staff/lib/features/dialysis/models/dialysis_reuse_models.dart
+/// Two wire shapes, one model: the cath/OT `reuse_restriction`
+/// (`status`, `reasons`, `validity_days`, `evaluated_at`) and the dialysis
+/// Phase 1 Decision (`status`, `reasons`, `asOf`, `evidence`, `isolation_class`;
+/// spec §3.3). Both are projected by role: `reasons` may be empty.
 class ReuseRestriction {
-  const ReuseRestriction({required this.status, required this.reasons, required this.validityDays, this.legacySource = false});
+  const ReuseRestriction({required this.status, required this.reasons, this.validityDays, this.evidence, this.isolationClass});
   final String status; // restricted | unknown | clear
   final List<String> reasons;
-  final int validityDays;
-  final bool legacySource;
+  final int? validityDays; // cath/OT shape only
+  final String? evidence; // Decision shape only: marker | legacy_declaration | none
+  final String? isolationClass; // Decision shape only: hbsag | hcv | hiv | isolation_mixed
   bool get isRestricted => status == 'restricted';
   bool get isClear => status == 'clear';
+  bool get isDecision => evidence != null;
   factory ReuseRestriction.fromJson(Map<String, dynamic> json) => ReuseRestriction(
         status: (json['status'] ?? 'unknown').toString(),
         reasons: json['reasons'] is List ? (json['reasons'] as List).map((e) => e.toString()).where((e) => e.isNotEmpty).toList() : const [],
-        validityDays: int.tryParse('${json['validity_days']}') ?? 90,
-        legacySource: json['legacy_source'] == true,
+        validityDays: int.tryParse('${json['validity_days']}'),
+        evidence: json['evidence']?.toString(),
+        isolationClass: json['isolation_class']?.toString(),
       );
 }
 
@@ -4618,9 +4675,9 @@ class _DialyserCaptureSheetState extends State<DialyserCaptureSheet> {
 
 `theatre_api_service.dart` gains `static Future<Map<String, dynamic>> reprocessableSets(int scheduleId) => _get('/theatre/$scheduleId/reprocessable-sets');` and `static Future<Map<String, dynamic>> issueSet({required int scheduleId, required String setCode, String? acknowledgementReason, required String idempotencyKey}) async { final resp = await ApiClient.post('/cssd/issues', body: {'ot_schedule_id': scheduleId, 'set_code': setCode, if (acknowledgementReason != null) 'acknowledgement': {'reason': acknowledgementReason}}, idempotencyKey: idempotencyKey); return _handle(resp); }` (`_handle` is the file's existing response unwrapper; `issueSet` on the backend resolves `set_code` to `instrument_set_id` — add that lookup in `cssdService.issueSet` if it accepts only ids: `set_code` → `loadSetByCode`). `TheatreSetsPanel(scheduleId)` sits inside the schedule card's expansion in `theatre_screen.dart` below the WHO safety row: loads `reprocessableSets`, renders `ReuseRestrictionStrip`, one row per set (set code, `last load: <load_code> · BI <result>`, cycle, exposure badge, issue status), and an **Issue set** action (text field or scanner → `issueSet` through `IdempotencyAttemptRegistry` scope `theatre-issue-set:<schedule>`; on `CSSD_SET_ACKNOWLEDGEMENT_REQUIRED` asks for a reason and retries; on `CSSD_SET_QUARANTINED` / `CSSD_SET_EXPOSURE_BLOCKED` shows the mapped string).
 
-- [ ] **Step 7: Strings (66 keys × 5 locales = 330 lines; 264 non-English)**
+- [ ] **Step 7: Strings (65 keys × 5 locales = 325 lines; 260 non-English)**
 
-Add to every locale map; in `hi`, `ta`, `te`, `ml` precede each block with `// REVIEW: engineering placeholder pending OPEN-21 linguistic review`. This list is authoritative; the spec's §6.8 breakdown (strip 3, today 8, policy banner 1, capture 14, device card 3, isolation 8, reprocessing 18, theatre sets 9, feature/nav 2) must sum to it. Keys (English shown; the four other renderings are the implementer's best rendering, never a copy of the English):
+Add to every locale map; in `hi`, `ta`, `te`, `ml` precede each block with `// REVIEW: engineering placeholder pending OPEN-21 linguistic review`. This list is authoritative; the spec's §6.8 breakdown (strip 3, today 8, policy banner 1, capture 14, device card 3, isolation 7, reprocessing 18, theatre sets 9, feature/nav 2) must sum to it. There is no `dialysis_serology_unknown` isolation string: `unknown` raises no per-session code (spec §3.4). Keys (English shown; the four other renderings are the implementer's best rendering, never a copy of the English):
 
 ```
 role.feature.dialysis: "Dialysis Unit"            role.nav.dialysis: "Dialysis"
@@ -4646,7 +4703,6 @@ s4.lib.dialysis.capture.ack_reason: "Reason"        s4.dynamic.dialysis.device.c
 s4.lib.dialysis.device.cycle_unbounded: "No cycle limit"   s4.lib.dialysis.device.exposure: "Exposure flagged"
 s4.lib.dialysis.isolation.dialysis_machine_unregistered: "Machine is not registered; this patient needs an isolation machine"
 s4.lib.dialysis.isolation.dialysis_isolation_machine_mismatch: "This machine's isolation class does not match the patient"
-s4.lib.dialysis.isolation.dialysis_serology_unknown: "Serology not on record for this patient"
 s4.lib.dialysis.isolation.dialysis_general_patient_on_isolation_machine: "A non-isolation patient is on an isolation machine"
 s4.dynamic.dialysis.isolation.required_class: "Required machine class: {class}"
 s4.lib.dialysis.isolation.override_reason: "Override reason"   s4.lib.dialysis.isolation.override_required: "A reason is required to start with isolation warnings"
@@ -4671,7 +4727,7 @@ s4.lib.theatre.sets.ack_title: "Acknowledge exposed set"
 
 - [ ] **Step 8: Tests, analyzer, parity, commit**
 
-Tests: models parse every wire shape above (incl. `legacy_source`, `required_class: null`); the capture sheet refuses when both or neither identity field is filled, sends `exposure_acknowledgement` on retry after `RPD_ACKNOWLEDGEMENT_REQUIRED`, renders the dedicated-other-patient string verbatim for that code, and reuses one idempotency key across a retry; the reprocessing sheet renders only the dispositions the server allows and requires a discard reason for `discard`; the theatre panel renders the restriction strip and the load line. Then:
+Tests: models parse every wire shape above (incl. both restriction shapes — the OT one with `validity_days` and the dialysis Decision with `evidence` / `isolation_class` and no `markers` — and `required_class: null`); the capture sheet refuses when both or neither identity field is filled, sends `exposure_acknowledgement` on retry after `RPD_ACKNOWLEDGEMENT_REQUIRED`, renders the dedicated-other-patient string verbatim for that code, and reuses one idempotency key across a retry; the reprocessing sheet renders only the dispositions the server allows and requires a discard reason for `discard`; the theatre panel renders the restriction strip and the load line. Then:
 
 ```bash
 cd apps/staff
@@ -4776,14 +4832,14 @@ If `core.ts` does not export `requestJSON`, export it (it is the private functio
 
 - [ ] **Step 3: Reprocessing policies page**
 
-`dashboard/quality/reprocessing/page.tsx`: header "Reprocessing policies", a domain switch (`Dialysis | OT`, `aria-label="Reprocessing domain"`), and `DomainPolicyPanel domain={domain}`. The panel: a settings form (`reactive_patient_rule` radio — three values with one line of muted text each: "Discard — the device is retired after a reactive patient", "Quarantine — held for infection control to release or discard", "Override allowed — reprocessed with a recorded acknowledgement"; `unknown_serology_rule`; `serology_validity_days` 1–365 enforced client-side; `isolation_enforcement` shown for dialysis only) and the per-category policy rows (`reprocessable`, `max_cycles` optional with placeholder "no limit", `allowed_cycle_types` chips — dialysis shows `chemical` / `other` only, `tcv_min_pct` 50–100 for the dialysis `dialyser` row). Both saves: `useIdempotencyKey("reprocessing-domain-policy")`, and **`setQueryData` before `invalidateQueries`** (the Plan 3 save-revert lesson). Copy the layout and class names of `ReprocessingPolicyTab.tsx`. `navConfig.ts`: add `{ name: "Reprocessing Policies", href: "/dashboard/quality/reprocessing", minRole: "STAFF" }` after the "Cath Lab Quality" entry (the `quality` routePolicy segment already covers the path).
+`dashboard/quality/reprocessing/page.tsx`: header "Reprocessing policies", a domain switch (`Dialysis | OT`, `aria-label="Reprocessing domain"`), and `DomainPolicyPanel domain={domain}`. The panel: a settings form (`reactive_patient_rule` radio — three values with one line of muted text each: "Discard — the device is retired after a reactive patient", "Quarantine — held for infection control to release or discard", "Override allowed — reprocessed with a recorded acknowledgement"; `unknown_serology_rule`; `serology_validity_days` 1–365 enforced client-side, with muted helper text on the dialysis panel "Not applied to dialysis: the isolation resolver uses no validity window" (spec §4.1); `isolation_enforcement` shown for dialysis only) and the per-category policy rows (`reprocessable`, `max_cycles` optional with placeholder "no limit", `allowed_cycle_types` chips — dialysis shows `chemical` / `other` only, `tcv_min_pct` 50–100 for the dialysis `dialyser` row). Both saves: `useIdempotencyKey("reprocessing-domain-policy")`, and **`setQueryData` before `invalidateQueries`** (the Plan 3 save-revert lesson). Copy the layout and class names of `ReprocessingPolicyTab.tsx`. `navConfig.ts`: add `{ name: "Reprocessing Policies", href: "/dashboard/quality/reprocessing", minRole: "STAFF" }` after the "Cath Lab Quality" entry (the `quality` routePolicy segment already covers the path).
 
 - [ ] **Step 4: Dialysis console**
 
 - `types.ts`: `SessionRow` gains `isolation_warning_codes: string[]`, `isolation_override_reason: string | null`; `DialysisPatient`'s three status fields become `string | null`.
 - `SessionTab.tsx`: `ReuseRegisterModal` moves to `recordDialyserReprocessing` (core.ts, `useIdempotencyKey("dialysis-reuse-register")`); when `getSessionDialyser(session.id)` returns a device, the serial and cycle-count fields render read-only from the device and the form adds Outcome (only the server's `allowed_dispositions`), measured TCV (with `% of baseline` when the link carries one), agent, contact minutes, concentration, and an acknowledgement box when `requires_acknowledgement`; `DIALYZER_REUSE_CYCLE_DERIVED` / `DIALYZER_REUSE_REGISTER_SETTLED` / `RPD_DISPOSITION_NOT_ALLOWED` render as inline errors. A new `DialyserPanel` above it: capture by serial (with model and baseline TCV), the dedication refusal verbatim, the restriction strip (`reasons` may be empty for a non-audience role — render the headline only), the isolation warning badge with codes.
 - `MachinesTab.tsx` (new tab "Machines" in `page.tsx`): table of machines with an inline edit of `isolation_class` / `status`, and an add form; `useIdempotencyKey("dialysis-machine")`.
-- `RosterTab.tsx`: remove the three serology `SelectF`s from the enrol form (the server refuses them with `DIALYSIS_SEROLOGY_FIELDS_NOT_ALLOWED`); the roster's `SerologyChip` renders "—" for `null` (projected) values; the serology-recording form is unchanged (it writes markers via `recordSerology` now).
+- `RosterTab.tsx`: the enrol form is **not** changed by this lane (its serology selects, the `'unknown'` default and any server-side guard are Phase 1's — spec §3.3); the roster's `SerologyChip` renders "—" for `null` (projected) values; the serology-recording form is unchanged.
 - `TodayBoardTab.tsx`: an amber "Isolation warning" badge when the session row's `isolation_warning_codes` is non-empty (the today board query must select the session's codes — extend `todayBoard` in the backend to `LEFT JOIN dialysis_sessions` for `isolation_warning_codes` if the view does not carry them; the spec defers changing the view itself).
 
 - [ ] **Step 5: `POST /cssd/issues` now needs a key**
@@ -4816,7 +4872,7 @@ git fetch github main && git merge --no-edit github/main
 for ref in $(git for-each-ref --format='%(refname)' refs/remotes/github/); do git ls-tree --name-only "$ref" apps/backend/src/migrations/ 2>/dev/null; done | sed -E 's#.*/([0-9]+)_.*#\1#' | sort -n | uniq | tail -3
 ```
 
-Expected: the tail ends `766`, `767` and no other branch carries a 767. If one does, renumber the file and every reference to 767 in this branch (`grep -rn "767" apps/backend/src/migrations/767_* apps/backend/src/lib/prisma.js apps/backend/src/tests/unit/prismaCoverage.test.js docs/superpowers/specs/2026-09-05-*.md`) in one commit.
+Expected: **767 is on `main`** (Phase 1 has landed — a hard gate for this step: Task 4's dialysis arm reads its resolver, and the dialysis deep suite must have RUN, not been skipped, before hand-back) and the tail ends `767`, `NNN` with no other branch carrying `NNN`. If another branch claimed `NNN` meanwhile, renumber the file and every reference (`grep -rn "<NNN>" apps/backend/src/migrations/<NNN>_* apps/backend/src/lib/prisma.js apps/backend/src/tests/unit/prismaCoverage.test.js apps/backend/scripts/seed-comprehensive-test-data.mjs`) in one commit. If 767 is **not** on `main` yet: push the branch and open the draft PR anyway (Steps 5–6), state in the body that the dialysis deep suite was skipped by its Phase 1 guard, and do not ask for merge.
 
 - [ ] **Step 2: Backend gates on a fresh scratch database**
 
@@ -4831,12 +4887,13 @@ node ../../scripts/ci/check-inline-check-census.mjs && node ../../scripts/ci/che
 npm run seed:test-data && npm run seed:test-data && npm run db:contracts:seeded
 npm run openapi:check && npm run openapi:check-core && npm run openapi:lint-budget
 npm test -- --testPathPatterns unit/
-npm test -- --testPathPatterns "reprocessable-devices-dialysis.deep|reprocessable-devices-ot.deep|cath-device-reuse.deep|cath-lab-readiness.deep|bloodborne-markers.deep|cssd"
-npm test -- --testPathPatterns "reprocessable-devices-dialysis.deep|reprocessable-devices-ot.deep"
+npm test -- --testPathPatterns "reprocessable-devices-dialysis.deep|reprocessable-devices-ot.deep|dialysis-isolation-census.deep|cath-device-reuse.deep|cath-lab-readiness.deep|bloodborne-markers.deep|cssd"
+npm test -- --testPathPatterns "reprocessable-devices-dialysis.deep|reprocessable-devices-ot.deep|dialysis-isolation-census.deep"
+node scripts/dialysis-isolation-census.mjs --all-tenants
 cd ../.. && node scripts/ci/security.mjs
 ```
 
-Expected: every command exits 0; the second seeder run reports 0 new rows; `db:contracts:seeded` green; the census `--verify-db` passes with an unchanged manifest; the lint budget reports 0 new findings; the deep suites pass twice (the second run proves the fixture tears down). Read the jest summary's `Suites failed` line separately from `Tests passed`. The **full unit corpus** runs, not the new suites alone — Plan 3's gate sweep found a route-suite load failure only that way.
+Expected: every command exits 0; the second seeder run reports 0 new rows; `db:contracts:seeded` green; the census `--verify-db` passes with an unchanged manifest; the lint budget reports 0 new findings; the deep suites pass twice (the second run proves the fixture tears down) — and the dialysis suite's summary line must read **tests passed, not skipped** (its Phase 1 guard skips it by name when `dialysisIsolationResolver.js` is absent; a skipped dialysis suite is not a green dialysis arm). The census script on the scratch database prints the fixture tenants as NOT CLEAR (the census test seeds an orphan and a legacy positive on purpose) and exits 1 — that is the script working, not failing; on a clean database it exits 0. Read the jest summary's `Suites failed` line separately from `Tests passed`. The **full unit corpus** runs, not the new suites alone — Plan 3's gate sweep found a route-suite load failure only that way.
 
 - [ ] **Step 3: Staff and Admin gates**
 
@@ -4850,7 +4907,7 @@ Expected: analyzer clean, every suite PASS (including the five-locale parity gua
 
 - [ ] **Step 4: Mutation checks, all restored before commit**
 
-Run each, confirm the named test goes red, restore: (1) dedication refusal in `captureTx` → dialysis deep "refused for another patient"; (2) flag/ceiling order in `computeDispositionOptions` → rules "checked BEFORE the ceiling" and the parity test; (3) the no-downgrade clause in `mapMarkerStatusToLegacy` → rules "NEVER downgraded"; (4) the `onSessionCancelledTx(` call in `cancelSession` → dialysis deep "a scheduled session releases its captured dialyser" and `dialysisReuseHookCallSites`; (5) `partialUse` forced to `false` in `onSessionCancelledTx` and in `onIssueCancelledTx` → the `RPD_RETURN_REQUIRED` tests in both deep suites; (6) the `onSetReturnedTx` call in `transitionIssue` → the call-site pin; (7) the `onIssueCancelledTx(` call → the cancelled-branch pin and OT deep "an issued set is released"; (8) the `retainOnServerError: true` on the reuse-register claim → the wiring test; (9) `rejectDialysisSerologyFields` removed from the enrol route → the wiring test. (There is no isolation projection to mutate — spec §3.5 — so no check names one.)
+Run each, confirm the named test goes red, restore: (1) dedication refusal in `captureTx` → dialysis deep "refused for another patient"; (2) flag/ceiling order in `computeDispositionOptions` → rules "checked BEFORE the ceiling" and the parity test; (3) the live `isolationDecisionTx` in `recordDialyserReprocessing` replaced by `usage.reuse_screen` → dialysis deep "snapshot vs decision" and the fourth `dialysisReuseHookCallSites` test; (4) `codes.push('DIALYSIS_SEROLOGY_UNKNOWN')` for `unknown` in `computeIsolationWarnings` → rules "UNKNOWN never isolates" and dialysis deep "an unknown patient is never blocked"; (5) the `onSessionCancelledTx(` call in `cancelSession` → dialysis deep "a scheduled session releases its captured dialyser" and `dialysisReuseHookCallSites`; (6) `partialUse` forced to `false` in `onSessionCancelledTx` and in `onIssueCancelledTx` → the `RPD_RETURN_REQUIRED` tests in both deep suites; (7) the `onSetReturnedTx` call in `transitionIssue` → the call-site pin; (8) the `onIssueCancelledTx(` call → the cancelled-branch pin and OT deep "an issued set is released"; (9) the `retainOnServerError: true` on the reuse-register claim → the wiring test; (10) `bool_or` → `DISTINCT ON … ORDER BY id DESC` in the census → census deep "older-row positive"; (11) a `UPDATE dialysis_patients SET hbsag_status` added to `dialysisReuseService.js` → `dialysisSerologyWriters`. (There is no isolation projection to mutate — spec §3.5 — so no check names one; there is no legacy-column mapper or enrol guard in this lane to mutate either.)
 
 - [ ] **Step 5: Push and open the DRAFT PR**
 
@@ -4859,18 +4916,19 @@ git commit --allow-empty -m "chore(ci): [full-ci] reprocessable devices platform
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 git push -u github feat/reprocessable-devices-platform
-gh pr create --repo Bahuleyandr/VH-Health-Platform --draft --base main --head feat/reprocessable-devices-platform --title "feat: reprocessable devices platform — dialysis and OT on one register (Plan 4, mig 767)" --body-file <body>
+gh pr create --repo Bahuleyandr/VH-Health-Platform --draft --base main --head feat/reprocessable-devices-platform --title "feat: reprocessable devices platform — dialysis and OT on one register (Plan 4, mig NNN)" --body-file <body>
 ```
 
 The PR body states, in this order:
 
 1. Spec path and that the owner decisions D1–D9 are honoured (list them in one line each).
-2. Migration 767: the five new tables, `dialysis_machines`, the six backing uniques, the `dialysis_sessions` / `dialyzer_reuse_register` / `surgical_implants` columns, the `dialysis_patients` defaults, the widened marker CHECK pair; that `cath_reprocessable_devices` and the 753 plpgsql functions are untouched; that 767 is free on `github/main` and no remote branch carries it (re-checked at hand-back); the census manifest unchanged; the deploy note on the six index builds.
-3. The decisions taken within the owner's: two policy tables; the `quarantine` rule and per-domain defaults; optional `max_cycles`; nullable `facility_id`; the derived `dialysis_patients` columns with the no-downgrade rule and the union read; the one-command reprocessing record; the dialysis same-patient exposure exception; OT set discard retiring the set; `POST /cssd/issues` and `POST .../reuse-register` now claiming keys (behaviour changes) and `DIALYZER_REUSE_CYCLE_DERIVED` / `DIALYZER_REUSE_REGISTER_SETTLED`.
-4. Verification: every gate above by name with its result; the deep suite counts twice on a fresh database; the seeder twice + `db:contracts:seeded`; the OpenAPI chain; the security stage; the canary's regenerated snapshot with the GROWTH-only diff described; Staff and Admin suite counts; the mutation checks listed.
-5. Follow-ups: the spec's §9 owner decisions (DIALYSIS_TECHNICIAN assignability and the D10 audience widening; the implant lane; cath convergence; the statutory form; `facility_id` upstream) and its §10 deferred list including the review-round-1 follow-ups; whether the `fix(dialysis): scope machine ingest by tenant` commit was needed (Task 4 Step 0); OPEN-21 on the 264 new non-English lines (66 keys × 4 locales); the operator backfill script, its dry-run device count and when to run it.
-6. `Merge Gate` / `Full Merge Gate` by name with the head SHA once the canonical run lands.
-7. End with: "Draft; merge authority stays with the coordinating session (dev-ea)." and `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
+2. Migration `NNN`: the five new tables, `dialysis_machines`, the six backing uniques, the `dialysis_sessions` / `dialyzer_reuse_register` / `surgical_implants` columns; that `dialysis_patients` and `patient_bloodborne_markers` are **not** touched (Phase 1's, migration 767); that `cath_reprocessable_devices` and the 753 plpgsql functions are untouched; that `NNN` is free on `github/main` and no remote branch carries it (re-checked at hand-back); the census manifest unchanged; the deploy note on the six index builds.
+3. **The Phase 1 dependency (spec §3.3):** this lane consumes `resolveDialysisIsolation` for every dialysis decision through one adapter, live, with the frozen `reuse_screen` an evidence snapshot only; whether 767 was on `main` at hand-back and whether the dialysis deep suite RAN or was skipped by its guard; the one contract ask still open with dev-ea (`isolation_class` on the `Decision`); the Phase 2 census output per tenant.
+4. The decisions taken within the owner's: two policy tables; the `quarantine` rule and per-domain defaults; optional `max_cycles`; nullable `facility_id`; the one-command reprocessing record; the dialysis same-patient exposure exception; `exposure_markers` on a dialysis device derived from the Decision's class; OT set discard retiring the set; `POST /cssd/issues` and `POST .../reuse-register` now claiming keys (behaviour changes) and `DIALYZER_REUSE_CYCLE_DERIVED` / `DIALYZER_REUSE_REGISTER_SETTLED`; `unknown` raising no per-session isolation code.
+5. Verification: every gate above by name with its result; the deep suite counts twice on a fresh database (dialysis: 14 passed, never "skipped"); the seeder twice + `db:contracts:seeded`; the OpenAPI chain; the security stage; the canary's regenerated snapshot with the GROWTH-only diff described; Staff and Admin suite counts; the mutation checks listed.
+6. Follow-ups: the spec's §9 owner decisions (DIALYSIS_TECHNICIAN assignability and the D10 audience widening; the implant lane; cath convergence; the statutory form; `facility_id` upstream; the lane pick; Q1–Q3) and its §10 deferred list including the review-round-1 and carve-out follow-ups; whether the `fix(dialysis): scope machine ingest by tenant` commit was needed (Task 4 Step 0); OPEN-21 on the 260 new non-English lines (65 keys × 4 locales); the census script and that the DROP is a future migration.
+7. `Merge Gate` / `Full Merge Gate` by name with the head SHA once the canonical run lands.
+8. End with: "Draft; merge authority stays with the coordinating session (dev-ea). Not mergeable before the Phase 1 lane (mig 767) is on `main`." and `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
 
 Do not mark the PR ready. Do not merge. Report the head SHA, the PR number and the gate results to the coordinating session.
 
@@ -4881,11 +4939,12 @@ Do not mark the PR ready. Do not merge. Report the head SHA, the PR number and t
 ## Self-review against the spec
 
 - §2 decisions: D1 typed owner pair + `num_nonnulls` CHECK (Task 1 §5); D1b cath untouched (Task 1 header, no plpgsql re-declared); D2 patient-blind register, dedication on the link row (Task 1 §4/§7, Task 4 `captureTx`); D2b fixed enum, `cath` admitted by no CHECK (Task 1, Task 2 `DOMAINS`); D3 `dialysis_machines` + warn-only with recorded override (Task 1 §8/§9, Task 4 `evaluateIsolationForSessionTx`); D5 sets + implant load FK (Task 1 §12, Task 5); D6 418 keeps its grain and gains `device_id` / `device_usage_id`, cycle derived (Task 1 §11, Task 4 `recordDialyserReprocessing`); D7 load-driven for OT only (Task 5 `onLoadTransitionedTx`, `load_domain_check`); D8 no billing file touched; D9 serial + asset id beside the `RD` tag (Task 1 §4, Task 3 `mintDeviceTx`). Two policy tables, the `quarantine` rule, optional `max_cycles`, nullable `facility_id`: Task 1 + Task 2.
-- §3.1 one resolver: `screenPatientTx` → `resolveReuseStatus` (Task 3). §3.2 one handler, two arms, per-device transactions, alert for the settled subset: Task 3 `quarantineDevicesExposedToPatient`. §3.3 derived columns, marker-only writer, no downgrade, union read, `dialysis_surveillance`, enrol guard, backfill script: Task 4 Steps 1–5, Task 6 Step 6. §3.4 the four codes, silence for clear-on-unregistered, `block`: Task 2 `computeIsolationWarnings` + Task 4. §3.5 projection on every new read: Task 3 projection module, Task 4 Step 6, Task 5 theatre read. §3.6 three canary mounts + predicate + snapshot: Task 6 Step 4.
-- §4 data model: Task 1 SQL column for column, constraint for constraint (15 CHECKs on the register; eight `contype = 'f'` rows on usages — seven named composites plus the table's own `tenant_id` FK; the partial uniques including the cycle unique partial on `cancelled_before_use`; the three-column domain-pinning FKs; the two deferrable patient FKs; composite `SET NULL` column lists). §4.11 order and the 753/758 assessment: Task 1 header.
+- §3.1 one resolver per record shape: OT → `screenPatientTx` → `resolveReuseStatus` (Task 3); dialysis → the Phase 1 `Decision` through `dialysisIsolationAdapter.js` only (Task 4 Step 1). §3.2 one handler, two arms, per-device transactions, alert for the settled subset, **no roster write**: Task 3 `quarantineDevicesExposedToPatient`. §3.3 the carve-out: no sync / latch / union read / enrol guard / `recordSerology` change / backfill anywhere in this plan (writers pin, Task 4 Step 5); the adapter's contract (batch-first, `includeMarkers` default off and forwarded by no caller, `snapshotOf`, fail-closed 503, the `isolation_class` ask flagged at Step 0b); snapshot vs decision (capture freezes, `getSessionDialyser` / `assessIsolationTx` / `recordDialyserReprocessing` re-resolve — pinned by the fourth `dialysisReuseHookCallSites` test and the deep "snapshot vs decision" test); `exposure_markers` from `isolation_class` (Task 2 `exposureMarkersForIsolationClass`, Task 3 `returnDeviceTx.exposureMarkers`); the Phase 2 census (Task 4 Step 4) with its `bool_or` and orphan reads; DEPENDS ON Phase 1 marked on Task 4, Step 0b and the deep suite's `describeIfPhase1`. §3.4 the **three** codes, silence for clear-on-unregistered AND for `unknown`, `block`: Task 2 `computeIsolationWarnings` + Task 4. §3.5 projection on every new read, both restriction shapes through one helper with cath's predicate: Task 3 projection module, Task 4 Step 6, Task 5 theatre read. §3.6 three canary mounts + predicate + snapshot, the Decision poisoned with a `markers` key: Task 6 Step 4.
+- §4 data model: Task 1 SQL column for column, constraint for constraint (15 CHECKs on the register; eight `contype = 'f'` rows on usages — seven named composites plus the table's own `tenant_id` FK; the partial uniques including the cycle unique partial on `cancelled_before_use`; the three-column domain-pinning FKs; the two deferrable patient FKs; composite `SET NULL` column lists); `dialysis_patients` and `patient_bloodborne_markers` untouched (§4.7, §4.10). §4.11 order (13 steps) and the 753/758 assessment: Task 1 header.
 - §4.3 / §4.4 the un-capture (review round 1, G1): `uncapture: in_case → available` keyed on the ACTION in `applyDeviceTransitionTx` (Task 3), `cancelled_before_use` in the disposition CHECK and the partial cycle unique (Task 1), `uncaptureDeviceTx` with its three refusals in order — closed usage / 418 row (`RPD_USAGE_NOT_CANCELLABLE`), then `partialUse` (`RPD_RETURN_REQUIRED`) (Task 3); `onSessionCancelledTx` inside `cancelSession`'s new `setTenantTx` before the status UPDATE (Task 4 Step 3(e)); `onIssueCancelledTx` before the shared `set_issue_log` UPDATE (Task 5 Step 2); the six pinned write paths (Task 4 Step 5 + Task 5 Step 3); cancel tests in both deep suites; no best-effort branch anywhere.
-- §5.1 capture steps 1–6, the same-patient exposure exception, the one-command record with TCV/integrity verdicts, the optional (derived) cycle count validated inside `legacyWrite` only, settled-row rule, legacy path when dark, the Cancel flow: Task 4. §5.2 four hooks (issue, return, cancel, load), quarantine-on-return, forbidden-cycle-type quarantine, ceiling discard on release, a hold (exposure or `sterilization_failed`) survives a passed load, discard retires the set, `affected_devices[]`: Task 5. §5.3 shared disposition rule + parity test: Task 2. §5.4 safety reviews with `review_type = 'reprocessable_device_reuse'`: Task 3 `recordReuseSafetyReview`.
+- §5.1 capture steps 1–6 (step 5 freezing the live `Decision` as the evidence snapshot), the same-patient exposure exception, the one-command record with TCV/integrity verdicts over a re-resolved `Decision`, the optional (derived) cycle count validated inside `legacyWrite` only, settled-row rule, legacy path when dark (no resolver touched), the Cancel flow (no resolver needed): Task 4. §5.2 four hooks (issue, return, cancel, load), quarantine-on-return, forbidden-cycle-type quarantine, ceiling discard on release, a hold (exposure or `sterilization_failed`) survives a passed load, discard retires the set, `affected_devices[]`: Task 5. §5.3 shared disposition rule + parity test: Task 2. §5.4 safety reviews with `review_type = 'reprocessable_device_reuse'`: Task 3 `recordReuseSafetyReview`.
 - §6.1–§6.5 routes, scopes, guard-before-claim, retain flags, the label shape: Tasks 4–6; §6.6 overlay and chain: Task 6 Step 5; §6.7 Admin: Task 8; §6.8 Staff incl. the role-graph feature and contract regeneration: Task 7.
-- §7.1 every code named is thrown by name in Tasks 2–5 (`RPD_*`, `DIALYSER_*`, `DIALYZER_*`, `DIALYSIS_*`, `CSSD_SET_*`); §7.2 audit events emitted by `recordAudit` / `auditTx` under those names; §7.3 rollout defaults are the `settingsDefaultsFor` table and the dark-by-default branches; §7.4 subset assertions: Task 6 Step 3; §7.5 CI trees: each task commits within its owning tree, the contract regeneration with the Staff task; §7.6 script: Task 6 Step 6.
-- §8 tests: unit (Tasks 2, 3, 4 Step 5, 5 Step 3, 6 Steps 3–4), deep (Task 4 Step 7, Task 5 Step 6), mutation checks (Task 9 Step 4), seeder overrides (Task 1 Step 5), `prismaCoverage` pins (Task 1 Step 4), gates (Task 9 Step 2–3).
-- Type consistency: `computeDispositionOptions({ domain, usage, policy, settings, restriction, device })` is called identically in the unit test, `getSessionDialyser`, `recordDialyserReprocessing` and `onSetReturnedTx`; `applyDeviceTransitionTx(tx, device, action, patch, context)` is the one signature every transition uses; `captureDeviceTx` / `returnDeviceTx` take the same `{ device, usage, … , context }` shapes in both domains; the Staff `DialyserCaptureDraft.toJson()` emits exactly the keys `DialyserCaptureRequest` declares and `DialyserReprocessingDraft.toJson()` the keys `DialyserReuseRegisterRequest` declares; the Admin `RPD_STATUSES` / `RPD_DISCARD_REASONS` are `satisfies`-pinned to the generated types.
+- §7.1 every code named is thrown by name in Tasks 2–5 (`RPD_*` incl. `RPD_ISOLATION_RESOLVER_UNAVAILABLE` / `RPD_ISOLATION_DECISION_INVALID` in the adapter, `DIALYSER_*`, `DIALYZER_*`, `DIALYSIS_*`, `CSSD_SET_*`; no `DIALYSIS_SEROLOGY_FIELDS_NOT_ALLOWED`); §7.2 audit events emitted by `recordAudit` / `auditTx` under those names, `isolation_evaluated` carrying the Decision's status / evidence / asOf / class and never its reasons, no `dialysis.patient.*` event; §7.3 rollout defaults are the `settingsDefaultsFor` table and the dark-by-default branches, the Phase 1 dependency fail-closed; §7.4 subset assertions: Task 6 Step 3; §7.5 CI trees: each task commits within its owning tree, the contract regeneration with the Staff task; §7.6 the census script: Task 4 Step 4.
+- §8 tests: unit (Tasks 2, 3, 4 Steps 1 and 5, 5 Step 3, 6 Steps 3–4), deep (Task 4 Step 7 behind `describeIfPhase1`, Task 4 Step 4 census, Task 5 Step 6), mutation checks (Task 9 Step 4), seeder overrides (Task 1 Step 5), `prismaCoverage` pins (Task 1 Step 4), gates (Task 9 Step 2–3).
+- Type consistency: `computeDispositionOptions({ domain, usage, policy, settings, restriction, device })` is called identically in the unit test, `getSessionDialyser`, `recordDialyserReprocessing` and `onSetReturnedTx` — it reads only `restriction.status`, so the cath/OT object and the dialysis `Decision` both drive it; `computeIsolationWarnings({ decision, machine, enforcement })` reads `decision.status` and `decision.isolation_class` only; `applyDeviceTransitionTx(tx, device, action, patch, context)` is the one signature every transition uses; `captureDeviceTx` / `returnDeviceTx` take the same `{ device, usage, … , context }` shapes in both domains (`returnDeviceTx`'s `exposureMarkers` / `deviceMetadata` are optional and dialysis-only); `projectReuseRestrictionForRole` tells the two shapes apart by `evidence` and is the one projection both domains and the canary predicate rely on; the Staff `ReuseRestriction.fromJson` parses both shapes; the Staff `DialyserCaptureDraft.toJson()` emits exactly the keys `DialyserCaptureRequest` declares and `DialyserReprocessingDraft.toJson()` the keys `DialyserReuseRegisterRequest` declares; the Admin `RPD_STATUSES` / `RPD_DISCARD_REASONS` are `satisfies`-pinned to the generated types.
+- Carve-out consistency with the spec: every `767` in this plan refers to the Phase 1 lane's migration; every `NNN` is this lane's; `dialysis_patients` appears only as something read (census, projection, the fixture neutralisation in a test) and never written; the only import of the Phase 1 module is the adapter (pinned).
