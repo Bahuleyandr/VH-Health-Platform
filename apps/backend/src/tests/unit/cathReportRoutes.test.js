@@ -71,6 +71,12 @@ jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   // chain (cathSchedulingRegistryService + schedulingOptimizationService)
   // imports requireTenantId at module load.
   requireTenantId: (tenantId) => tenantId || '00000000-0000-4000-8000-000000000001',
+  // NL13-P1g: the readiness service/projection chain reaches tenant-posture
+  // resolvers (care-team enforcement) that import getTenantById at module load.
+  // Return a row whose settings carry no enforcement key so the resolver keeps
+  // the documented shadow default; a null row would fail closed with
+  // CARE_TEAM_MODE_UNAVAILABLE.
+  getTenantById: async () => ({ id: '00000000-0000-4000-8000-000000000001', settings: {} }),
 }));
 
 jest.unstable_mockModule('../../middleware/phiAccessMiddleware.js', () => ({

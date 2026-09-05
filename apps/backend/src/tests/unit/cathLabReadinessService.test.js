@@ -17,6 +17,12 @@ const CTX = { actorUid: '00000000-0000-4000-8000-0000000c1aaa', actorRole: 'DOCT
 
 const AS_OF = new Date('2026-09-04T10:00:00.000Z');
 const daysAgo = (n) => new Date(AS_OF.getTime() - n * 86_400_000).toISOString();
+// Postgres always returns the `<col>_epoch_ms` twin beside a twinned column and
+// the resolver prefers it over the driver-materialised Date
+// (src/utils/dbInstant.js), so the fixtures below carry both. Derived from the
+// same offset as daysAgo(), so the twin and the ISO string beside it describe
+// one instant and no assertion changes outcome.
+const epochAgo = (n) => BigInt(AS_OF.getTime() - n * 86_400_000);
 const settings = { ...SETTINGS_DEFAULTS };
 
 describe('resolveItemState', () => {
@@ -30,40 +36,40 @@ describe('resolveItemState', () => {
 
   test('final signed result within window -> result_final with copied values', () => {
     const out = resolveItemState({ ...base, results: [
-      { id: 7, test_code: 'K', value_text: '6.1', value_numeric: 6.1, unit: 'mmol/L', abnormal_flag: 'HH', is_critical: true, status: 'final', signed_off_at: daysAgo(1), performed_at: daysAgo(1), received_at: daysAgo(1), result_origin: 'analyzer' },
+      { id: 7, test_code: 'K', value_text: '6.1', value_numeric: 6.1, unit: 'mmol/L', abnormal_flag: 'HH', is_critical: true, status: 'final', signed_off_at: daysAgo(1), signed_off_at_epoch_ms: epochAgo(1), performed_at: daysAgo(1), performed_at_epoch_ms: epochAgo(1), received_at: daysAgo(1), received_at_epoch_ms: epochAgo(1), result_origin: 'analyzer' },
     ] });
     expect(out).toMatchObject({ state: 'result_final', lab_result_id: 7, value_numeric: 6.1, abnormal_flag: 'HH', is_critical: true, source: 'lab_result' });
   });
 
   test('preliminary result -> result_preliminary; external origin -> external_recorded', () => {
-    expect(resolveItemState({ ...base, results: [{ id: 8, test_code: 'K', value_text: '4.0', status: 'preliminary', signed_off_at: null, performed_at: daysAgo(2), received_at: daysAgo(2), result_origin: 'manual_in_house' }] }).state).toBe('result_preliminary');
-    expect(resolveItemState({ ...base, results: [{ id: 9, test_code: 'K', value_text: '4.0', status: 'preliminary', signed_off_at: null, performed_at: daysAgo(2), received_at: daysAgo(2), result_origin: 'external_lab' }] }).state).toBe('external_recorded');
+    expect(resolveItemState({ ...base, results: [{ id: 8, test_code: 'K', value_text: '4.0', status: 'preliminary', signed_off_at: null, signed_off_at_epoch_ms: null, performed_at: daysAgo(2), performed_at_epoch_ms: epochAgo(2), received_at: daysAgo(2), received_at_epoch_ms: epochAgo(2), result_origin: 'manual_in_house' }] }).state).toBe('result_preliminary');
+    expect(resolveItemState({ ...base, results: [{ id: 9, test_code: 'K', value_text: '4.0', status: 'preliminary', signed_off_at: null, signed_off_at_epoch_ms: null, performed_at: daysAgo(2), performed_at_epoch_ms: epochAgo(2), received_at: daysAgo(2), received_at_epoch_ms: epochAgo(2), result_origin: 'external_lab' }] }).state).toBe('external_recorded');
   });
 
   test('latest result wins; cancelled rows are ignored', () => {
     const out = resolveItemState({ ...base, results: [
-      { id: 1, test_code: 'K', value_text: '3.0', status: 'final', signed_off_at: daysAgo(5), performed_at: daysAgo(5), received_at: daysAgo(5) },
-      { id: 2, test_code: 'K', value_text: '9.9', status: 'cancelled', signed_off_at: null, performed_at: daysAgo(1), received_at: daysAgo(1) },
-      { id: 3, test_code: 'K', value_text: '4.2', status: 'final', signed_off_at: daysAgo(2), performed_at: daysAgo(2), received_at: daysAgo(2) },
+      { id: 1, test_code: 'K', value_text: '3.0', status: 'final', signed_off_at: daysAgo(5), signed_off_at_epoch_ms: epochAgo(5), performed_at: daysAgo(5), performed_at_epoch_ms: epochAgo(5), received_at: daysAgo(5), received_at_epoch_ms: epochAgo(5) },
+      { id: 2, test_code: 'K', value_text: '9.9', status: 'cancelled', signed_off_at: null, signed_off_at_epoch_ms: null, performed_at: daysAgo(1), performed_at_epoch_ms: epochAgo(1), received_at: daysAgo(1), received_at_epoch_ms: epochAgo(1) },
+      { id: 3, test_code: 'K', value_text: '4.2', status: 'final', signed_off_at: daysAgo(2), signed_off_at_epoch_ms: epochAgo(2), performed_at: daysAgo(2), performed_at_epoch_ms: epochAgo(2), received_at: daysAgo(2), received_at_epoch_ms: epochAgo(2) },
     ] });
     expect(out.lab_result_id).toBe(3);
   });
 
   test('result older than the window with no open order -> stale, keeping the old value', () => {
-    const out = resolveItemState({ ...base, results: [{ id: 4, test_code: 'K', value_text: '4.1', status: 'final', signed_off_at: daysAgo(40), performed_at: daysAgo(40), received_at: daysAgo(40) }] });
+    const out = resolveItemState({ ...base, results: [{ id: 4, test_code: 'K', value_text: '4.1', status: 'final', signed_off_at: daysAgo(40), signed_off_at_epoch_ms: epochAgo(40), performed_at: daysAgo(40), performed_at_epoch_ms: epochAgo(40), received_at: daysAgo(40), received_at_epoch_ms: epochAgo(40) }] });
     expect(out).toMatchObject({ state: 'stale', lab_result_id: 4, value_text: '4.1' });
   });
 
   test('open order without collection -> ordered_awaiting_sample; with collection -> sample_sent_awaiting_result', () => {
-    expect(resolveItemState({ ...base, orders: [{ id: 11, test_code: 'ELECTROLYTES', status: 'REQUESTED', requested_at: daysAgo(1), collected_at: null }] }))
+    expect(resolveItemState({ ...base, orders: [{ id: 11, test_code: 'ELECTROLYTES', status: 'REQUESTED', requested_at: daysAgo(1), requested_at_epoch_ms: epochAgo(1), collected_at: null, collected_at_epoch_ms: null }] }))
       .toMatchObject({ state: 'ordered_awaiting_sample', investigation_id: 11 });
-    expect(resolveItemState({ ...base, orders: [{ id: 12, test_code: 'ELECTROLYTES', status: 'IN_PROGRESS', requested_at: daysAgo(1), collected_at: daysAgo(0.5) }] }))
+    expect(resolveItemState({ ...base, orders: [{ id: 12, test_code: 'ELECTROLYTES', status: 'IN_PROGRESS', requested_at: daysAgo(1), requested_at_epoch_ms: epochAgo(1), collected_at: daysAgo(0.5), collected_at_epoch_ms: epochAgo(0.5) }] }))
       .toMatchObject({ state: 'sample_sent_awaiting_result', investigation_id: 12 });
   });
 
   test('specimen state decides when present: in_transit -> sample_sent_awaiting_result even with collected_at null', () => {
     const out = resolveItemState({ ...base,
-      orders: [{ id: 13, test_code: 'ELECTROLYTES', status: 'REQUESTED', requested_at: daysAgo(1), collected_at: null, booking_id: 99 }],
+      orders: [{ id: 13, test_code: 'ELECTROLYTES', status: 'REQUESTED', requested_at: daysAgo(1), requested_at_epoch_ms: epochAgo(1), collected_at: null, collected_at_epoch_ms: null, booking_id: 99 }],
       specimens: [{ id: 5, booking_id: 99, status: 'in_transit' }],
     });
     expect(out).toMatchObject({ state: 'sample_sent_awaiting_result', specimen_id: 5 });
@@ -71,15 +77,15 @@ describe('resolveItemState', () => {
 
   test('an open order beats a stale result', () => {
     const out = resolveItemState({ ...base,
-      results: [{ id: 4, test_code: 'K', value_text: '4.1', status: 'final', signed_off_at: daysAgo(40), performed_at: daysAgo(40), received_at: daysAgo(40) }],
-      orders: [{ id: 14, test_code: 'ELECTROLYTES', status: 'REQUESTED', requested_at: daysAgo(1), collected_at: null }],
+      results: [{ id: 4, test_code: 'K', value_text: '4.1', status: 'final', signed_off_at: daysAgo(40), signed_off_at_epoch_ms: epochAgo(40), performed_at: daysAgo(40), performed_at_epoch_ms: epochAgo(40), received_at: daysAgo(40), received_at_epoch_ms: epochAgo(40) }],
+      orders: [{ id: 14, test_code: 'ELECTROLYTES', status: 'REQUESTED', requested_at: daysAgo(1), requested_at_epoch_ms: epochAgo(1), collected_at: null, collected_at_epoch_ms: null }],
     });
     expect(out.state).toBe('ordered_awaiting_sample');
   });
 
   test('hb resolves from HGB rows and CBC orders; hbsag from HBSAG rows and orders', () => {
-    expect(resolveItemState({ ...base, item: 'hb', orders: [{ id: 15, test_code: 'CBC', status: 'REQUESTED', requested_at: daysAgo(1), collected_at: null }] }).state).toBe('ordered_awaiting_sample');
-    expect(resolveItemState({ ...base, item: 'hbsag', windowDays: 90, results: [{ id: 16, test_code: 'HBSAG', value_text: 'Non-reactive', status: 'final', signed_off_at: daysAgo(3), performed_at: daysAgo(3), received_at: daysAgo(3) }] }).state).toBe('result_final');
+    expect(resolveItemState({ ...base, item: 'hb', orders: [{ id: 15, test_code: 'CBC', status: 'REQUESTED', requested_at: daysAgo(1), requested_at_epoch_ms: epochAgo(1), collected_at: null, collected_at_epoch_ms: null }] }).state).toBe('ordered_awaiting_sample');
+    expect(resolveItemState({ ...base, item: 'hbsag', windowDays: 90, results: [{ id: 16, test_code: 'HBSAG', value_text: 'Non-reactive', status: 'final', signed_off_at: daysAgo(3), signed_off_at_epoch_ms: epochAgo(3), performed_at: daysAgo(3), performed_at_epoch_ms: epochAgo(3), received_at: daysAgo(3), received_at_epoch_ms: epochAgo(3) }] }).state).toBe('result_final');
   });
 
   test('a waiver overrides everything', () => {
@@ -89,7 +95,7 @@ describe('resolveItemState', () => {
 
   test('unreadable performed_at/received_at (both null) is not within the window: falls to stale when it is the latest and no order exists', () => {
     const out = resolveItemState({ ...base, results: [
-      { id: 20, test_code: 'K', value_text: '4.5', status: 'final', signed_off_at: daysAgo(1), performed_at: null, received_at: null },
+      { id: 20, test_code: 'K', value_text: '4.5', status: 'final', signed_off_at: daysAgo(1), signed_off_at_epoch_ms: epochAgo(1), performed_at: null, performed_at_epoch_ms: null, received_at: null, received_at_epoch_ms: null },
     ] });
     // Neither performed_at nor received_at parse to a usable timestamp, so
     // withinWindow(observedAt(row), ...) is false regardless of windowDays -
@@ -103,11 +109,11 @@ describe('resolveItemState', () => {
   test('a future-dated row never outranks a real one, and on its own resolves as stale', () => {
     const future = {
       id: 30, test_code: 'K', value_text: '9.9', abnormal_flag: 'HH', is_critical: true,
-      status: 'final', signed_off_at: daysAgo(-2), performed_at: daysAgo(-2), received_at: daysAgo(-2),
+      status: 'final', signed_off_at: daysAgo(-2), signed_off_at_epoch_ms: epochAgo(-2), performed_at: daysAgo(-2), performed_at_epoch_ms: epochAgo(-2), received_at: daysAgo(-2), received_at_epoch_ms: epochAgo(-2),
     };
     const real = {
       id: 29, test_code: 'K', value_text: '4.2', status: 'final',
-      signed_off_at: daysAgo(1), performed_at: daysAgo(1), received_at: daysAgo(1),
+      signed_off_at: daysAgo(1), signed_off_at_epoch_ms: epochAgo(1), performed_at: daysAgo(1), performed_at_epoch_ms: epochAgo(1), received_at: daysAgo(1), received_at_epoch_ms: epochAgo(1),
     };
     // The critical value is the newer one by clock, and the lower id: neither
     // recency nor the id tiebreak may let it win.
@@ -124,7 +130,9 @@ describe('resolveItemState', () => {
       const iso = new Date(ms).toISOString();
       return {
         id: 31, test_code: 'K', value_text: '4.0', status: 'final',
-        signed_off_at: iso, performed_at: iso, received_at: iso,
+        signed_off_at: iso, signed_off_at_epoch_ms: BigInt(ms),
+        performed_at: iso, performed_at_epoch_ms: BigInt(ms),
+        received_at: iso, received_at_epoch_ms: BigInt(ms),
       };
     };
     const edge = AS_OF.getTime() - 30 * 86_400_000;
@@ -136,8 +144,8 @@ describe('resolveItemState', () => {
   test('an external result is dated from external_reported_on, not from when it was keyed in', () => {
     const reportedOn = new Date(AS_OF.getTime() - 200 * 86_400_000).toISOString().slice(0, 10);
     const out = resolveItemState({ ...base, results: [{
-      id: 32, test_code: 'K', value_text: '4.0', status: 'preliminary', signed_off_at: null,
-      performed_at: daysAgo(0), received_at: daysAgo(0),
+      id: 32, test_code: 'K', value_text: '4.0', status: 'preliminary', signed_off_at: null, signed_off_at_epoch_ms: null,
+      performed_at: daysAgo(0), performed_at_epoch_ms: epochAgo(0), received_at: daysAgo(0), received_at_epoch_ms: epochAgo(0),
       result_origin: 'external_lab', external_reported_on: reportedOn,
     }] });
     // Entered today, reported 200 days ago, 30-day window: stale, not
@@ -153,6 +161,7 @@ describe('resolveItemState', () => {
       // The Dates say two days ago (fresh); the twins say 200 days ago. The
       // twin is the absolute instant, so the item is stale.
       signed_off_at: daysAgo(2), performed_at: daysAgo(2), received_at: daysAgo(2),
+      signed_off_at_epoch_ms: BigInt(ms),
       performed_at_epoch_ms: BigInt(ms), received_at_epoch_ms: BigInt(ms),
     }] });
     expect(out.state).toBe('stale');
@@ -161,9 +170,12 @@ describe('resolveItemState', () => {
 
   test('a same-instant tie is broken on id, highest first', () => {
     const at = daysAgo(1);
+    const atMs = epochAgo(1);
     const row = (id, value) => ({
       id, test_code: 'K', value_text: value, status: 'final',
-      signed_off_at: at, performed_at: at, received_at: at,
+      signed_off_at: at, signed_off_at_epoch_ms: atMs,
+      performed_at: at, performed_at_epoch_ms: atMs,
+      received_at: at, received_at_epoch_ms: atMs,
     });
     expect(resolveItemState({ ...base, results: [row(40, 'a'), row(41, 'b'), row(39, 'c')] }))
       .toMatchObject({ lab_result_id: 41, value_text: 'b' });
@@ -171,7 +183,7 @@ describe('resolveItemState', () => {
 
   test('completed and cancelled orders are ignored whatever case they arrive in', () => {
     const order = (id, status) => ({
-      id, test_code: 'ELECTROLYTES', status, requested_at: daysAgo(1), collected_at: null,
+      id, test_code: 'ELECTROLYTES', status, requested_at: daysAgo(1), requested_at_epoch_ms: epochAgo(1), collected_at: null, collected_at_epoch_ms: null,
     });
     for (const status of ['COMPLETED', 'completed', 'CANCELLED', 'cancelled']) {
       expect(resolveItemState({ ...base, orders: [order(50, status)] }).state).toBe('not_ordered');
@@ -185,11 +197,11 @@ describe('resolveItemState', () => {
     const out = resolveItemState({ ...base,
       results: [{
         id: 60, test_code: 'K', value_text: '5.9', status: 'final',
-        signed_off_at: daysAgo(2), performed_at: daysAgo(2), received_at: daysAgo(2),
+        signed_off_at: daysAgo(2), signed_off_at_epoch_ms: epochAgo(2), performed_at: daysAgo(2), performed_at_epoch_ms: epochAgo(2), received_at: daysAgo(2), received_at_epoch_ms: epochAgo(2),
       }],
       orders: [{
         id: 61, test_code: 'ELECTROLYTES', status: 'REQUESTED',
-        requested_at: daysAgo(0.5), collected_at: null, booking_id: 70,
+        requested_at: daysAgo(0.5), requested_at_epoch_ms: epochAgo(0.5), collected_at: null, collected_at_epoch_ms: null, booking_id: 70,
       }],
       specimens: [{ id: 71, booking_id: 70, status: 'collected' }],
     });
@@ -203,7 +215,7 @@ describe('resolveItemState', () => {
     const out = resolveItemState({ ...base,
       orders: [{
         id: 62, test_code: 'ELECTROLYTES', status: 'REQUESTED',
-        requested_at: daysAgo(1), collected_at: null, booking_id: 80,
+        requested_at: daysAgo(1), requested_at_epoch_ms: epochAgo(1), collected_at: null, collected_at_epoch_ms: null, booking_id: 80,
       }],
       specimens: [
         { id: 90, booking_id: 80, status: 'rejected' },
@@ -220,7 +232,7 @@ describe('resolveItemState', () => {
       results: [{
         id: 63, test_code: 'K', value_text: '6.9', value_numeric: 6.9, unit: 'mmol/L',
         abnormal_flag: 'HH', is_critical: true, status: 'final',
-        signed_off_at: daysAgo(1), performed_at: daysAgo(1), received_at: daysAgo(1),
+        signed_off_at: daysAgo(1), signed_off_at_epoch_ms: epochAgo(1), performed_at: daysAgo(1), performed_at_epoch_ms: epochAgo(1), received_at: daysAgo(1), received_at_epoch_ms: epochAgo(1),
       }],
       waiver: { waived_by: 'u', waived_at: daysAgo(0), waive_reason: 'dialysis patient' },
     });
@@ -499,8 +511,8 @@ describe('itemWriteValues', () => {
       specimens: [],
       results: [{
         id: 21, test_code: 'HGB', value_text: '11.4', value_numeric: 11.4, unit: 'g/dL',
-        status: 'final', signed_off_at: daysAgo(1), performed_at: daysAgo(1),
-        received_at: daysAgo(1), result_origin: 'analyzer',
+        status: 'final', signed_off_at: daysAgo(1), signed_off_at_epoch_ms: epochAgo(1), performed_at: daysAgo(1), performed_at_epoch_ms: epochAgo(1),
+        received_at: daysAgo(1), received_at_epoch_ms: epochAgo(1), result_origin: 'analyzer',
       }],
     });
     for (const item of [waived(), withResult]) {

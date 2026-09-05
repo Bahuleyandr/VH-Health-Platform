@@ -91,6 +91,11 @@ const { orderMissingLabs, recordExternalLabResult, refreshCaseLabReadiness } = a
 );
 
 const daysAgo = (n) => new Date(Date.now() - n * 86_400_000).toISOString();
+// Postgres always returns the `<col>_epoch_ms` twin beside a twinned column and
+// the resolver prefers it over the driver-materialised Date
+// (src/utils/dbInstant.js). Derive the twin from the same ISO string the row
+// carries so both describe one instant.
+const epochOf = (iso) => (iso == null ? null : BigInt(Date.parse(iso)));
 
 const CASE_ROW = {
   id: BigInt(CASE_ID),
@@ -168,14 +173,19 @@ describe('open_order_codes honours the per-item window', () => {
   // treat it as an open order, so neither may open_order_codes. Counting it
   // there left hb `not_ordered` AND refused to re-order it — a case the
   // checklist could never make ready.
-  const staleOrder = () => ([{
-    id: 61,
-    test_code: 'CBC',
-    status: 'REQUESTED',
-    requested_at: daysAgo(60),
-    collected_at: null,
-    booking_id: null,
-  }]);
+  const staleOrder = () => {
+    const requestedAt = daysAgo(60);
+    return [{
+      id: 61,
+      test_code: 'CBC',
+      status: 'REQUESTED',
+      requested_at: requestedAt,
+      requested_at_epoch_ms: epochOf(requestedAt),
+      collected_at: null,
+      collected_at_epoch_ms: null,
+      booking_id: null,
+    }];
+  };
 
   test('an order older than the window is neither evidence nor a block', async () => {
     stubRows.orders = staleOrder();
@@ -188,7 +198,15 @@ describe('open_order_codes honours the per-item window', () => {
   });
 
   test('an order inside the window still counts, and still blocks', async () => {
-    stubRows.orders = [{ ...staleOrder()[0], requested_at: daysAgo(2) }];
+    // The twin, not the Date, is what the resolver reads, so the override has
+    // to move both: leaving the 60-day twin in place would keep this order
+    // outside the window and quietly invert the assertion below.
+    const requestedAt = daysAgo(2);
+    stubRows.orders = [{
+      ...staleOrder()[0],
+      requested_at: requestedAt,
+      requested_at_epoch_ms: epochOf(requestedAt),
+    }];
 
     const out = await refreshCaseLabReadiness({ tenantId: TENANT, caseId: CASE_ID, context: ctx });
 

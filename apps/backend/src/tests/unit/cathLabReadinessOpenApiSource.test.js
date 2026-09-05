@@ -128,15 +128,25 @@ function stubDb({ settingsRow = null, caseRow = CASE_ROW } = {}) {
 /** Every key resolveItemState can put on an item, across all four branches. */
 function resolverKeys() {
   const asOf = new Date('2026-09-04T06:00:00.000Z');
+  // Postgres always returns the `<col>_epoch_ms` twin beside a twinned column
+  // and the resolver prefers it over the driver-materialised Date
+  // (src/utils/dbInstant.js), so these rows carry both. Each twin is derived
+  // from the ISO string beside it, so the two describe one instant.
+  const epochOf = (iso) => (iso == null ? null : BigInt(Date.parse(iso)));
   const fresh = {
     id: 9, test_code: 'HGB', value_text: '11.2', value_numeric: 11.2, unit: 'g/dL',
     abnormal_flag: 'L', is_critical: false, status: 'final',
     signed_off_at: '2026-09-03T06:00:00.000Z', performed_at: '2026-09-03T05:00:00.000Z',
     received_at: '2026-09-03T05:30:00.000Z', result_origin: 'analyzer',
+    signed_off_at_epoch_ms: epochOf('2026-09-03T06:00:00.000Z'),
+    performed_at_epoch_ms: epochOf('2026-09-03T05:00:00.000Z'),
+    received_at_epoch_ms: epochOf('2026-09-03T05:30:00.000Z'),
   };
   const order = {
     id: 5, test_code: 'CBC', status: 'REQUESTED',
     requested_at: '2026-09-03T04:00:00.000Z', collected_at: null, booking_id: null,
+    requested_at_epoch_ms: epochOf('2026-09-03T04:00:00.000Z'),
+    collected_at_epoch_ms: null,
   };
   const waiver = {
     waived_by: PATIENT, waived_at: '2026-09-04T05:00:00.000Z', waive_reason: 'on file elsewhere',
