@@ -28,7 +28,7 @@ Commits per task:
 - **Task 4** (routes, projection, OpenAPI): `3a1abfbda`, `6d4067686`, `2a6893315`, `8fa02df9e`
 - **Task 5** (Staff app): `1133f8dec`, `692b94a35`, `18bde1fbb` (staff follow-ups)
 - **Task 6** (Admin settings editor): `f5d9bd115`, `a7bad8ef5`, `86ec7be38`
-- **Task 7** (gates and hand-back): `main` merges `13e885d98`, `a98b46fbe` (#1006) and `518259326` (#1007); gate sweep `78a8e8dd7`; `[full-ci]` trigger `1bcbebd3a`; serology disclosure canary `306b0e0d8`, derived actors + snapshot `f87fcc078`; `[full-ci]` head `ce4465b65`; PR **#1008** (head `ce4465b65`)
+- **Task 7** (gates and hand-back): `main` merges `13e885d98`, `a98b46fbe` (#1006) and `518259326` (#1007); gate sweep `78a8e8dd7`; `[full-ci]` trigger `1bcbebd3a`; serology disclosure canary `306b0e0d8`, derived actors + snapshot `f87fcc078`; `[full-ci]` head `ce4465b65`, then `53ca37dfc` (comment-only: the pinned serology audience's rationale, carrying `[full-ci]`); PR **#1008** (head `ce4465b65`)
 
 Deviations from this plan, accepted during execution:
 
