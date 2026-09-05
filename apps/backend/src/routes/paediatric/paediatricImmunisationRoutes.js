@@ -11,7 +11,22 @@ import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import { ACCESS_POLICY_CODES } from '../../services/security/accessPolicyRegistry.js';
 
+import { routePatientGuard } from '../../middleware/routePatientAccessGuards.js';
+
 const router = Router();
+
+// Per-route patient guard. The mount-level patientAccessGuard could never
+// decide this route: mount middleware runs before Express binds the path
+// param, so it saw req.params = {} and returned no_patient_context without
+// evaluating a policy. routePatientAccessGuards.js carries the full
+// rationale, the selector contract and the shadow-mode posture.
+//
+// Serves both the list and the due-list read; same :patientUid, same child.
+const guardPaediatricImmunisationPatient = routePatientGuard('PAEDIATRIC_IMMUNISATION', {
+  tag: 'paediatric:patient-uid-param',
+  patientSelector: (req) => ({ uid: req.params?.patientUid }),
+});
+
 
 // Recording a dose mutates a named child's immunisation record under a
 // DOSE id, which the mount guard cannot see. requireStaffOrAdmin is a role
@@ -75,12 +90,12 @@ router.post('/immunisations/seed', requireStaffOrAdmin, wrap(async (req) =>
 ));
 
 // All immunisation rows for a patient (chronological).
-router.get('/immunisations/patient/:patientUid', requireStaffOrAdmin, wrap(async (req) =>
+router.get('/immunisations/patient/:patientUid', requireStaffOrAdmin, guardPaediatricImmunisationPatient, wrap(async (req) =>
   svc.listForPatient(req.params.patientUid, { tenantId: tenantOf(req) }),
 ));
 
 // Due-or-overdue scheduled rows only. Powers the paeds-OPD "due now" panel.
-router.get('/immunisations/patient/:patientUid/due', requireStaffOrAdmin, wrap(async (req) =>
+router.get('/immunisations/patient/:patientUid/due', requireStaffOrAdmin, guardPaediatricImmunisationPatient, wrap(async (req) =>
   svc.listDueForPatient(req.params.patientUid, { asOf: req.query.asOf || null, tenantId: tenantOf(req) }),
 ));
 

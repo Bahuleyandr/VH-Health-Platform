@@ -8,6 +8,17 @@
 // evaluating a policy — in shadow AND in enforce. Those guards never decided
 // anything.
 //
+// Nothing else on those chains covers for it: requireRole/requireStaffOrAdmin
+// are role-scoped, specialtyDepartmentGuard is department-scoped, and
+// phiAccessLogger is a passive writer. A patient-access decision is its own
+// axis, and on a mount-undecidable route it simply never ran.
+//
+// POSTURE — routePatientGuard sets careTeamModeGoverned, so a guard built
+// here resolves to the per-tenant care_team_enforcement_mode, default SHADOW.
+// It blocks nobody today; it records what a future enforce decision would
+// need. Do NOT swap one for a bare patientAccessGuard without that option —
+// that is a legacy always-ENFORCE site and would change behaviour on merge.
+//
 // The fix (same shape as routes/clinical/bcmaRoutes.js#guardWristbandView and
 // routes/abdm/abdmHiuRoutes.js selector factories): move the guard INTO the
 // router, per route, with an async patientSelector that resolves THE ROW THE

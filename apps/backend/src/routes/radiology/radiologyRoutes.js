@@ -39,7 +39,20 @@ const requireRadiologySigner = (req, res, next) => {
 import { patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import { ACCESS_POLICY_CODES } from '../../services/security/accessPolicyRegistry.js';
 
+import { routePatientGuard } from '../../middleware/routePatientAccessGuards.js';
+
 const router = Router();
+
+// Per-route patient guard. The mount-level patientAccessGuard could never
+// decide this route: mount middleware runs before Express binds the path
+// param, so it saw req.params = {} and returned no_patient_context without
+// evaluating a policy. routePatientAccessGuards.js carries the full
+// rationale, the selector contract and the shadow-mode posture.
+const guardRadiologyPatientView = routePatientGuard('RADIOLOGY', {
+  tag: 'radiology:patient-uid-param',
+  patientSelector: (req) => ({ uid: req.params?.uid }),
+});
+
 
 // GET /:id returns a named patient's radiology order detail under an ORDER
 // id. The mount guard cannot see :id, so no patient-access policy has ever
@@ -400,7 +413,7 @@ router.post('/:id/peer-reviews', requireRadiologySigner, paramId(), validate, as
  * GET /radiology/patient/:uid
  * Get radiology history for a patient
  */
-router.get('/patient/:uid', async (req, res, next) => {
+router.get('/patient/:uid', guardRadiologyPatientView, async (req, res, next) => {
   try {
     const { uid } = req.params;
     const filters = {
