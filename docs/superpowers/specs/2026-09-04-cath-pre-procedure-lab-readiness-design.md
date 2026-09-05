@@ -385,6 +385,11 @@ instead of truncating is the tidier rule and is left as a follow-up.
 
 `POST /api/v1/cath-lab/cases/:id/readiness` (cathLabRoutes.js:426-437) is unchanged. A human `pass` over a `critical_warning` writes a `medication_safety_reviews` row with `review_type = 'cath_lab_readiness'`, `finding_code = 'CRITICAL_LAB_ACKNOWLEDGED'`, so it appears on the clinical timeline; the warning stays visible.
 
+**As built.** The override reason is now **server-enforced**, not only a Staff
+dialog affordance: the service rejects an empty `notes` on this exact path with
+`CATH_LAB_READINESS_REASON_REQUIRED` (§11) before the check row is written, so
+the safety review's `override.reason` can no longer fall back to boilerplate.
+
 ## 9. Case payload
 
 `getCase` and the consumables listing add:
@@ -464,7 +469,20 @@ advisory the front desk is admitted for.
   the typed text becomes the override reason on the `CRITICAL_LAB_ACKNOWLEDGED`
   safety review (§8.4) — an empty box would file boilerplate saying a critical
   value was acknowledged and saying nothing about why. Where automation owns the
-  check, the dialog also warns that it may set the status back.
+  check, the dialog also warns that it may set the status back. Naming the
+  items depends on having them: the backend blanks `critical_items` for roles
+  outside the serology audience (§9) and a degraded read can leave
+  `lab_readiness` null altogether, so when the list is empty the dialog falls
+  back to an unnamed "critical value present" line rather than rendering the
+  naming copy with an empty slot in it — the gate itself does not soften,
+  `reasonRequired` still follows the critical flag either way.
+- **A status change aborts silently if the card was rebound to another case
+  while the confirm dialog stood open.** The list is rebound whenever the date
+  changes, the worklist refreshes, or a poll replaces it; the case id is
+  captured before the dialog awaits, and the write is dropped with no snackbar
+  if that id no longer matches by the time the dialog resolves — the operator
+  is already looking at a different case, and a message about the old one
+  would only confuse.
 - **The outside-result sheet has no defaults**: the serology value starts null
   (a pre-selected "Non-reactive" turns an unread form into a filed marker) and
   so does the report date (defaulting it to today would date a months-old report
@@ -509,6 +527,7 @@ envelope whichever layer refused.
 | `CATH_LAB_READINESS_ITEMS_EMPTY` | 400 | settings PUT with an explicitly empty `required_items` (migration 766 requires ≥1) |
 | `CATH_LAB_READINESS_ORDER_FAILED` | **500** | order service refused; carries `details.code`, `details.cause` and `details.created` so a retry does not double the orders already placed |
 | `CATH_LAB_READINESS_CASE_STARTED` | 409 | order or external entry attempted after `actual_start_at` |
+| `CATH_LAB_READINESS_REASON_REQUIRED` | 400 | a human `pass` on the `labs` check while the stored check metadata carries `critical_warning: true`, with `notes` empty — decided from the locked prior row, not the request's own metadata, and thrown before anything is written; the safety review's override reason (§8.4) is then always the clinician's text |
 | `CATH_LAB_READINESS_REVIEW_FAILED` | 500 | a human pass over a critical warning did not persist its safety review (§8.4) |
 | `CATH_LAB_BAD_UUID` / `CATH_LAB_BAD_ID` | 400 | a UUID or positive-integer parameter that would not survive its SQL cast |
 | `LAB_RESULT_ORIGIN_NOT_ALLOWED` | 400 | the public `POST /api/v1/lab/results` was sent any of the four origin fields |

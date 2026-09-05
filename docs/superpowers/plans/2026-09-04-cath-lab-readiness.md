@@ -22,11 +22,11 @@ Commits per task:
 
 - **Task 1** (migration 766): `9a5ded249`, `f18f18a3b`
 - **Task 2** (pure resolution rules): `2eed70f8a`, `4cf9357a2`
-- **Task 3** (refresh, automation, lab hooks, actions): `9b4a3fbd4`, `34d0870ff`, `44cd6006b`, `84ded1b04`
+- **Task 3** (refresh, automation, lab hooks, actions): `9b4a3fbd4`, `34d0870ff`, `44cd6006b`, `84ded1b04`, `1c30ba933` (backend reason guard: `CATH_LAB_READINESS_REASON_REQUIRED`)
 - **Task 4** (routes, projection, OpenAPI): `3a1abfbda`, `6d4067686`, `2a6893315`, `8fa02df9e`
-- **Task 5** (Staff app): `1133f8dec`, `692b94a35`
+- **Task 5** (Staff app): `1133f8dec`, `692b94a35`, `18bde1fbb` (staff follow-ups)
 - **Task 6** (Admin settings editor): `f5d9bd115`, `a7bad8ef5`, `86ec7be38`
-- **Task 7** (gates and hand-back): `main` merged at `13e885d98`; gate sweep and PR **#TBD**
+- **Task 7** (gates and hand-back): `main` merges `13e885d98` and `a98b46fbe` (#1006); gate sweep and PR **#TBD**
 
 Deviations from this plan, accepted during execution:
 
