@@ -60,8 +60,27 @@ export const CATH_REPROCESSING_POLICIES_PATH =
 export const CATH_LAB_READINESS_SETTINGS_PATH =
   "/api/v1/cath-reprocessing/lab-readiness-settings" as const;
 
-/** One row of GET /api/v1/cssd/devices — the spec's CathReprocessableDevice. */
+/**
+ * One row of GET /api/v1/cssd/devices — the spec's CssdDeviceQueueItem: the
+ * register row PLUS the two columns only the queue joins in (`facility_name`,
+ * `status_changed_at`).
+ */
 export type CathDevice = ApiData<typeof CSSD_DEVICES_PATH, "get">[number];
+
+/**
+ * What a TRANSITION answers — the spec's CathReprocessableDevice, the bare
+ * register row. It is NOT the queue item: the five transition handlers return
+ * `lockDeviceTx`'s row, which never went through the queue's facility and
+ * audit-trail joins, so `facility_name` and `status_changed_at` are simply not
+ * on it. Typing them as `CathDevice` made the console's own types promise two
+ * fields no transition ever returns, which is exactly the sort of lie that
+ * only shows up when someone reads one off a mutation result and gets
+ * `undefined` where the type said `string`.
+ */
+export type CathReprocessableDevice = ApiData<
+  "/api/v1/cssd/devices/{id}/receive",
+  "post"
+>;
 export type CathDeviceStatus = CathDevice["status"];
 export type CathDeviceCycleType = NonNullable<CathDevice["last_cycle_type"]>;
 export type CathDeviceFunctionCheck = NonNullable<
@@ -320,7 +339,7 @@ export function cssdDeviceLabelUrl(id: number) {
 
 export function receiveCssdDevice(id: number, idempotencyKey: string) {
   // No request body in the spec; the route reads `req.params.id` alone.
-  return postJSON<CathDevice>(
+  return postJSON<CathReprocessableDevice>(
     `/api/v1/cssd/devices/${id}/receive`,
     {},
     true,
@@ -333,7 +352,7 @@ export function markCssdDeviceReprocessed(
   body: CathDeviceReprocessedInput,
   idempotencyKey: string,
 ) {
-  return postJSON<CathDevice>(
+  return postJSON<CathReprocessableDevice>(
     `/api/v1/cssd/devices/${id}/reprocessed`,
     body,
     true,
@@ -346,7 +365,7 @@ export function quarantineCssdDevice(
   body: CathDeviceQuarantineInput,
   idempotencyKey: string,
 ) {
-  return postJSON<CathDevice>(
+  return postJSON<CathReprocessableDevice>(
     `/api/v1/cssd/devices/${id}/quarantine`,
     body,
     true,
@@ -359,7 +378,7 @@ export function releaseCssdDevice(
   body: CathDeviceReleaseInput,
   idempotencyKey: string,
 ) {
-  return postJSON<CathDevice>(
+  return postJSON<CathReprocessableDevice>(
     `/api/v1/cssd/devices/${id}/release`,
     body,
     true,
@@ -372,7 +391,7 @@ export function discardCssdDevice(
   body: CathDeviceDiscardInput,
   idempotencyKey: string,
 ) {
-  return postJSON<CathDevice>(
+  return postJSON<CathReprocessableDevice>(
     `/api/v1/cssd/devices/${id}/discard`,
     body,
     true,

@@ -84,6 +84,66 @@ const POLICY_TAB_HREF = "/dashboard/quality/cath";
  */
 type SortKey = "facility" | "queued";
 
+/**
+ * How often the queue re-reads itself, in milliseconds.
+ *
+ * A CSSD console is left open on a bench for a whole shift. Nothing on this
+ * screen re-renders on its own, so without a timer the "time in queue" column
+ * — the one number the tab exists to show — freezes at whatever it read when
+ * the page loaded, and a device that has waited four hours goes on claiming
+ * "3h 25m" until somebody clicks Refresh.
+ *
+ * One minute is the resolution `fmtAge` publishes below the hour, so a shorter
+ * interval could not change what is on screen and a longer one would let the
+ * displayed minute go stale.
+ */
+const QUEUE_REFETCH_MS = 60_000;
+
+/**
+ * One sortable column header. Module scope, NOT declared inside DevicesTab:
+ * a component defined in the render body is a new component TYPE on every
+ * render, so React unmounts and remounts its subtree rather than updating it.
+ * The visible symptom is that a keyboard user who activates the sort button
+ * loses focus to the document body on the click that sorted the table.
+ *
+ * `aria-sort` lives on the `<th>` because that is the cell the sort applies
+ * to; the ↑/↓ glyph inside the button is decorative and carries none of that
+ * to a screen reader.
+ */
+function SortHeader({
+  label,
+  sortKey,
+  sort,
+  onToggle,
+}: {
+  label: string;
+  sortKey: SortKey;
+  sort: { key: SortKey; dir: "asc" | "desc" } | null;
+  onToggle: (key: SortKey) => void;
+}) {
+  const active = sort?.key === sortKey;
+  return (
+    <th
+      className="p-3 text-left"
+      aria-sort={
+        active ? (sort?.dir === "asc" ? "ascending" : "descending") : "none"
+      }
+    >
+      <button
+        type="button"
+        aria-label={`Sort by ${label.toLowerCase()}`}
+        onClick={() => onToggle(sortKey)}
+        className="inline-flex items-center gap-1 font-medium hover:text-foreground"
+      >
+        {label}
+        <span aria-hidden="true">
+          {active ? (sort?.dir === "asc" ? "↑" : "↓") : "↕"}
+        </span>
+      </button>
+    </th>
+  );
+}
+
 export function DevicesTab() {
   const [status, setStatus] = useState<CathDeviceStatus | "">(
     "awaiting_reprocessing",
@@ -97,14 +157,16 @@ export function DevicesTab() {
     dir: "asc" | "desc";
   } | null>(null);
 
-  const { data, isLoading, error, refetch, isFetching } = useQuery({
-    queryKey: ["cssd", "devices", { status }],
-    queryFn: () =>
-      listCssdDevices({
-        status: status || undefined,
-        limit: CSSD_DEVICE_LIST_LIMIT,
-      }),
-  });
+  const { data, dataUpdatedAt, isLoading, error, refetch, isFetching } =
+    useQuery({
+      queryKey: ["cssd", "devices", { status }],
+      queryFn: () =>
+        listCssdDevices({
+          status: status || undefined,
+          limit: CSSD_DEVICE_LIST_LIMIT,
+        }),
+      refetchInterval: QUEUE_REFETCH_MS,
+    });
   // `data ?? []` would mint a new array identity on every render and make the
   // sort below re-run each time; memoised so the empty case is one stable
   // value.
@@ -126,30 +188,23 @@ export function DevicesTab() {
 
   // One `now` for the whole table: computed per row it would drift down a long
   // list, and two devices queued in the same minute could read differently.
-  const now = Date.now();
+  //
+  // It is the moment THIS DATA was read, not the moment of this render. The
+  // two are the same thing only if they move together, and they do: the query
+  // refetches on QUEUE_REFETCH_MS and every refetch advances dataUpdatedAt,
+  // which re-renders the table with a fresh clock. A free-running `Date.now()`
+  // would be the opposite failure — an unrelated re-render (opening the action
+  // dialog, say) would age every row against rows the server read minutes ago,
+  // so the same device would read a different age depending on what else the
+  // operator happened to click. `|| Date.now()` covers the first paint, where
+  // dataUpdatedAt is still 0.
+  const now = dataUpdatedAt || Date.now();
 
   function toggleSort(key: SortKey) {
     setSort((current) =>
       current?.key === key
         ? { key, dir: current.dir === "asc" ? "desc" : "asc" }
         : { key, dir: "asc" },
-    );
-  }
-
-  function SortHeader({ label, sortKey }: { label: string; sortKey: SortKey }) {
-    const active = sort?.key === sortKey;
-    return (
-      <button
-        type="button"
-        aria-label={`Sort by ${label.toLowerCase()}`}
-        onClick={() => toggleSort(sortKey)}
-        className="inline-flex items-center gap-1 font-medium hover:text-foreground"
-      >
-        {label}
-        <span aria-hidden="true">
-          {active ? (sort?.dir === "asc" ? "↑" : "↓") : "↕"}
-        </span>
-      </button>
     );
   }
 
@@ -245,12 +300,18 @@ export function DevicesTab() {
                 <th className="p-3 text-left">Device</th>
                 <th className="p-3 text-left">Cycle</th>
                 <th className="p-3 text-left">Status</th>
-                <th className="p-3 text-left">
-                  <SortHeader label="Facility" sortKey="facility" />
-                </th>
-                <th className="p-3 text-left">
-                  <SortHeader label="Time in queue" sortKey="queued" />
-                </th>
+                <SortHeader
+                  label="Facility"
+                  sortKey="facility"
+                  sort={sort}
+                  onToggle={toggleSort}
+                />
+                <SortHeader
+                  label="Time in queue"
+                  sortKey="queued"
+                  sort={sort}
+                  onToggle={toggleSort}
+                />
                 <th className="p-3 text-left">Exposure</th>
                 <th className="p-3 text-left">Updated</th>
                 <th className="p-3 text-right">Actions</th>

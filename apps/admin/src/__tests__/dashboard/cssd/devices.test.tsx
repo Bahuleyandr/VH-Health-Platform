@@ -20,6 +20,7 @@ import * as api from "@/lib/api/cathDevices";
 import { IDEMPOTENCY_KEY_PATTERN } from "@/lib/idempotencyKey";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -471,6 +472,38 @@ describe("CSSD Devices tab", () => {
     open.mockRestore();
   });
 
+  it("re-reads the queue on a timer, and the age moves with it", async () => {
+    // A CSSD console is left open on a bench all shift. With `now` taken in
+    // the render body and no refetch, nothing re-renders on its own: a device
+    // that has waited four hours goes on reading "3h 25m" until someone
+    // clicks Refresh — the one number the screen exists to show, frozen.
+    //
+    // The age and the data have to move TOGETHER, so `now` is the query's
+    // dataUpdatedAt rather than a free-running clock: a clock that ticked on
+    // its own would age rows the server has since moved.
+    jest.useFakeTimers({ now: new Date("2026-09-04T12:00:00.000Z") });
+    try {
+      jest
+        .mocked(api.listCssdDevices)
+        .mockResolvedValue([
+          { ...DEVICE, status_changed_at: "2026-09-04T08:35:00.000Z" },
+        ] as unknown as api.CathDevice[]);
+      renderTab();
+
+      expect(await screen.findByText("3h 25m")).toBeInTheDocument();
+      expect(api.listCssdDevices).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        jest.advanceTimersByTime(60_000);
+      });
+
+      await waitFor(() => expect(api.listCssdDevices).toHaveBeenCalledTimes(2));
+      expect(await screen.findByText("3h 26m")).toBeInTheDocument();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
   it("shows the facility and a humanised time in queue", async () => {
     // A queue is about waiting: "3h 25m" is the number CSSD works from, and
     // the facility is what tells one site's tray from another's.
@@ -529,6 +562,69 @@ describe("CSSD Devices tab", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Sort by facility" }));
     expect(tags()).toEqual(["RP00000002", "RP00000001"]);
+  });
+
+  it("announces the sort direction on the column header", async () => {
+    // A sortable column that never says which way it is sorted is a column a
+    // screen-reader user cannot read the queue order off. aria-sort is the
+    // only thing that carries the ↑/↓ glyph's meaning to them.
+    renderTab();
+    await screen.findByText("RP00000001");
+    const header = () =>
+      screen
+        .getByRole("button", { name: "Sort by time in queue" })
+        .closest("th");
+
+    expect(header()).toHaveAttribute("aria-sort", "none");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Sort by time in queue" }),
+    );
+    expect(header()).toHaveAttribute("aria-sort", "ascending");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Sort by time in queue" }),
+    );
+    expect(header()).toHaveAttribute("aria-sort", "descending");
+    // ...and the OTHER column is not claiming to be sorted at the same time.
+    expect(
+      screen.getByRole("button", { name: "Sort by facility" }).closest("th"),
+    ).toHaveAttribute("aria-sort", "none");
+  });
+
+  it("keeps keyboard focus on the sort button across a click", async () => {
+    // A component declared inside the render body is a NEW component type on
+    // every render, so React unmounts and remounts it rather than updating it
+    // — and the focused button goes with it. A keyboard user who sorts the
+    // queue is then dumped back at the top of the document.
+    renderTab();
+    await screen.findByText("RP00000001");
+    const button = screen.getByRole("button", {
+      name: "Sort by time in queue",
+    });
+    button.focus();
+    expect(document.activeElement).toBe(button);
+
+    fireEvent.click(button);
+
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Sort by time in queue" }),
+    );
+  });
+
+  it("types the transition responses as the register row, not the queue item", () => {
+    // Compile-time only. `facility_name` and `status_changed_at` are columns
+    // the QUEUE joins in; POST /devices/{id}/receive returns the register row
+    // and has neither. Typing the transition helpers as the queue item made
+    // the console's own types promise fields no transition ever answers — the
+    // kind of lie that only surfaces when someone reads one off a mutation
+    // result.
+    type Transition = Awaited<ReturnType<typeof api.receiveCssdDevice>>;
+    const pin: "facility_name" | "status_changed_at" extends keyof Transition
+      ? never
+      : true = true;
+    expect(pin).toBe(true);
+    // ...while the LIST row does carry them.
+    const queued: keyof api.CathDevice = "status_changed_at";
+    expect(queued).toBe("status_changed_at");
   });
 
   it("will not send a quarantine without a reason", async () => {
