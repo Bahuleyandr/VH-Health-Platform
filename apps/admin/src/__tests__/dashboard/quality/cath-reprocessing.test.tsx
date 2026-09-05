@@ -301,6 +301,72 @@ describe("Reprocessing policy tab", () => {
     ).toMatchObject({ serology_validity_days: 30 });
   });
 
+  it("keeps the saved policies on screen when the refetch has not landed", async () => {
+    // The PUT answers with the new policy set; the invalidate's refetch is
+    // still in flight. The cache must already hold the PUT's response, or
+    // clearing `policiesDirty` reseeds the grid from the PRE-SAVE read: the
+    // checkbox snaps back unchecked and the next Save writes the reverted set
+    // — a whole-set replacement — back over the one just committed.
+    const staleCatheter = {
+      category: "catheter",
+      reprocessable: false,
+      max_cycles: null,
+      allowed_cycle_types: [],
+      function_check_required: false,
+    };
+    const savedCatheter = {
+      category: "catheter",
+      reprocessable: true,
+      max_cycles: 3,
+      allowed_cycle_types: ["eto"],
+      function_check_required: false,
+    };
+    jest
+      .mocked(api.listCathReprocessingPolicies)
+      .mockResolvedValueOnce({
+        policies: [staleCatheter],
+        count: 1,
+      } as never)
+      .mockReturnValue(new Promise<never>(() => {}));
+    jest.mocked(api.updateCathReprocessingPolicies).mockResolvedValue({
+      policies: [savedCatheter],
+      count: 1,
+    } as never);
+
+    renderTab();
+    fireEvent.click(await screen.findByLabelText("Catheter reprocessable"));
+    fireEvent.change(screen.getByLabelText("Catheter max cycles"), {
+      target: { value: "3" },
+    });
+    fireEvent.click(screen.getByLabelText("Catheter allows eto"));
+    fireEvent.click(screen.getByText("Save category policies"));
+
+    await waitFor(() =>
+      expect(jest.mocked(toast.success)).toHaveBeenCalledWith(
+        "Category policies saved",
+      ),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Catheter reprocessable")).toBeChecked(),
+    );
+    expect(screen.getByLabelText("Catheter max cycles")).toHaveValue(3);
+
+    fireEvent.click(screen.getByText("Save category policies"));
+    await waitFor(() =>
+      expect(api.updateCathReprocessingPolicies).toHaveBeenCalledTimes(2),
+    );
+    const secondSend = jest.mocked(api.updateCathReprocessingPolicies).mock
+      .calls[1][0];
+    expect(
+      secondSend.find((policy) => policy.category === "catheter"),
+    ).toMatchObject({
+      reprocessable: true,
+      max_cycles: 3,
+      allowed_cycle_types: ["eto"],
+    });
+  });
+
   it("will not send a serology window outside 1–365 whole days", async () => {
     // `positiveInt(..., { max: 365 })` server-side; `min`/`max` here are
     // advisory attributes that nothing checks on submit.
