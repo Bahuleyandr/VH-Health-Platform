@@ -7,6 +7,8 @@
 // Winston-level redaction format (src/logging/phiRedactionFormat.js) is a
 // BACKSTOP, not the primary control.
 
+import { isSensitiveKey } from './sensitiveKeys.js';
+
 /** Masks a phone number: keeps a 3-char prefix + last 2 digits. */
 export function maskPhoneForLog(phone) {
   const value = String(phone ?? '').trim();
@@ -50,12 +52,17 @@ const AADHAAR_RE = /(?<![\d-])\d{4}[-\s]?\d{4}[-\s]?\d{4}(?![\d-])/g;
 
 // Sensitive object KEY names — if a key matches, its whole value is redacted
 // regardless of value shape (audit 2026-06-18 §4: value-only scrubbing missed
-// e.g. { mrn: 'AB12345' } — an MRN with no adjacent "MRN" label). Mirrors
-// src/utils/sentryScrubber.js#SENSITIVE_KEY_PATTERN so log + Sentry redaction
-// stay consistent.
-const SENSITIVE_KEY_RE =
-  /(password|passcode|pin|otp|token|secret|authorization|auth|cookie|api[-_ ]?key|phone|mobile|email|name|address|patient|diagnosis|symptom|note|clinical|medical|record|abha|aadhaar|mrn|uhid|hospital[-_ ]?id)/i;
+// e.g. { mrn: 'AB12345' } — an MRN with no adjacent "MRN" label).
+//
+// The vocabulary and the matcher now live in utils/sensitiveKeys.js, SHARED
+// with sentryScrubber.js. They were previously two hand-kept copies of one
+// regex with a comment asserting they mirrored each other; they had drifted
+// (`uhid` was here and not there, so a uhid key was redacted in logs and sent
+// verbatim to Sentry). sensitiveKeyContracts.test.js now fails if either
+// module stops using the shared matcher.
 const KEY_REDACTED = '[REDACTED]';
+
+const SENSITIVE_KEY_RE = { test: (key) => isSensitiveKey(key) };
 
 function maskPhoneMatch(match) {
   const digitsOnly = match.replace(/[^\d+]/g, '');
