@@ -22,6 +22,12 @@ import {
   refreshReadinessEvidence
 } from '../../services/clinical/cathQuickWinsService.js';
 import {
+  orderMissingLabs,
+  recordExternalLabResult,
+  refreshCaseLabReadiness,
+  waiveLabItem
+} from '../../services/clinical/cathLabReadinessService.js';
+import {
   addReportAddendum,
   createReport,
   getReport,
@@ -42,6 +48,7 @@ import {
   roleSeesSerologyDetail
 } from '../../services/clinical/cathDeviceReuseService.js';
 import cathDeviceHistoryHandler from './cathDeviceHistoryHandler.js';
+import logger from '../../logging/logger.js';
 import { renderCathReportPdf } from '../../services/documents/cathReportPdfService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
@@ -93,7 +100,17 @@ function contextOf(req) {
     requestId: req.id || null,
     ipAddress: req.ip || null,
     userAgent: req.get?.('user-agent') || null,
-    idempotencyKey: req.get?.('idempotency-key') || null
+    // The four idempotency fields are what recordExternalLabResult forwards to
+    // recordResultManual's ingest-command rail: the claimed key, the body hash
+    // the claim was made on, the claim row's id and the request id. They come
+    // from req.idempotencyClaim (idempotencyMiddleware.js sets exactly
+    // { id, requestKey, requestBodyHash, scope }) and never from the body — a
+    // caller-supplied fingerprint would let a corrected value replay as the
+    // original. requestKey IS the header value, so the header stays the
+    // fallback for the routes that carry no claim layer.
+    idempotencyKey: req.idempotencyClaim?.requestKey || req.get?.('idempotency-key') || null,
+    requestFingerprint: req.idempotencyClaim?.requestBodyHash || null,
+    httpIdempotencyClaimId: req.idempotencyClaim?.id || null
   };
 }
 
@@ -535,11 +552,133 @@ router.post('/cases/:id/readiness/evidence/refresh', requireCathWorkflow, guardC
       { tenantId: tenantOf(req) },
       contextOf(req)
     );
-    return success(res, result, 'Cath-lab readiness evidence refreshed');
+    // The labs refresh is ADDITIVE to this operation, never a precondition of
+    // it: the other seven readiness checks have already been re-evidenced by
+    // the call above, and losing that work because the lab rail is unhappy
+    // would be the wrong trade at the table. A failure therefore answers
+    // labs: null and is logged, exactly as refreshOpenCasesForPatient treats
+    // its own failures — the next refresh repairs the snapshot.
+    let labs = null;
+    try {
+      labs = await refreshCaseLabReadiness({
+        tenantId: tenantOf(req),
+        caseId: req.params.id,
+        context: contextOf(req)
+      });
+    } catch (labErr) {
+      logger.error('Cath lab readiness refresh failed during evidence refresh', {
+        case_id: req.params.id,
+        code: labErr?.code || null,
+        error: labErr?.message
+      });
+    }
+    return success(res, { ...result, labs }, 'Cath-lab readiness evidence refreshed');
   } catch (err) {
     return handleFailure(res, err, 'refresh readiness evidence');
   }
 });
+
+// --- Pre-procedure lab readiness -------------------------------------------
+//
+// GET is a READ-THROUGH: refreshCaseLabReadiness resolves the seven items from
+// the patient's lab rows, persists them and applies the labs-check automation,
+// so the answer is the state AFTER the refresh. It is report-read plus the case
+// guard because it carries per-item lab VALUES (a potassium, an HIV result) —
+// PHI, logged by the mount's phiAccessLogger('CATH_LAB') against the case's
+// patient, which the guard has already resolved.
+router.get('/cases/:id/readiness/labs', requireReportRead, guardCathCaseById, async (req, res) => {
+  try {
+    const labs = await refreshCaseLabReadiness({
+      tenantId: tenantOf(req),
+      caseId: req.params.id,
+      context: contextOf(req)
+    });
+    return success(res, labs, 'Cath-lab lab readiness');
+  } catch (err) {
+    return handleFailure(res, err, 'lab readiness');
+  }
+});
+
+// The service validates :item against ITEM_CODES and answers 400
+// CATH_LAB_READINESS_ITEM_UNKNOWN, but that is one layer too late: the
+// idempotency claim in front of it would already have written a register row
+// for a URL that can never succeed. This refuses the obviously-malformed
+// shapes (a path segment that is not lower-case letters and underscores)
+// before a key is burned; the service stays the authority on WHICH codes exist.
+function requireReadinessItemParam(req, res, next) {
+  if (/^[a-z_]+$/.test(String(req.params.item || ''))) return next();
+  return error(res, 'A lab readiness item code is required', HTTP_STATUS.BAD_REQUEST, {
+    code: 'CATH_LAB_READINESS_ITEM_UNKNOWN'
+  });
+}
+
+router.post(
+  '/cases/:id/readiness/labs/order-missing',
+  requireCathWorkflow,
+  guardCathCaseById,
+  requireIdempotencyKey({ required: true, scope: 'cath_lab_readiness_order' }),
+  async (req, res) => {
+    try {
+      const result = await orderMissingLabs(
+        req.params.id,
+        { tenantId: tenantOf(req) },
+        contextOf(req)
+      );
+      return success(res, result, 'Missing pre-cath labs ordered', HTTP_STATUS.CREATED);
+    } catch (err) {
+      return handleFailure(res, err, 'order missing labs');
+    }
+  }
+);
+
+// The ONLY route that may mint an external-origin lab result. The claim's key,
+// body hash and row id reach recordResultManual through contextOf so a retry
+// re-reads the same command instead of recording the outside value twice.
+router.post(
+  '/cases/:id/readiness/labs/:item/external-result',
+  requireCathWorkflow,
+  guardCathCaseById,
+  requireReadinessItemParam,
+  requireIdempotencyKey({ required: true, scope: 'cath_lab_readiness_external' }),
+  async (req, res) => {
+    try {
+      const result = await recordExternalLabResult(
+        req.params.id,
+        req.params.item,
+        { ...req.body, tenantId: tenantOf(req) },
+        contextOf(req)
+      );
+      return success(res, result, 'External lab result recorded', HTTP_STATUS.CREATED);
+    } catch (err) {
+      return handleFailure(res, err, 'record external lab result');
+    }
+  }
+);
+
+// A waiver is a clinical DECISION written to an append-only item row and an
+// audit row, so it claims a key like every other write on this router — the
+// plan left it off, which would have let a double-tap record the same override
+// twice under two timestamps.
+router.post(
+  '/cases/:id/readiness/labs/:item/waive',
+  requireCathWorkflow,
+  guardCathCaseById,
+  requireReadinessItemParam,
+  requireIdempotencyKey({ required: true, scope: 'cath_lab_readiness_waive' }),
+  async (req, res) => {
+    try {
+      const result = await waiveLabItem(
+        req.params.id,
+        req.params.item,
+        { ...req.body, tenantId: tenantOf(req) },
+        contextOf(req)
+      );
+      return success(res, result, 'Lab readiness item waived');
+    } catch (err) {
+      return handleFailure(res, err, 'waive lab item');
+    }
+  }
+);
 
 router.post('/cases/:id/order-sets/:slot/apply', requireCathWorkflow, guardCathCaseById, async (req, res) => {
   try {

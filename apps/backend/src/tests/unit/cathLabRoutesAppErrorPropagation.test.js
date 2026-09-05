@@ -55,6 +55,20 @@ jest.unstable_mockModule('../../services/documents/cathReportPdfService.js', () 
   renderCathReportPdf: jest.fn(),
 }));
 
+// The pre-cath lab readiness rail (Plan 3) is imported by cathLabRoutes and by
+// the governance router; stubbed here for the same reason as the services
+// above — this suite pins the error envelope, not the readiness resolver, and the real
+// module pulls the whole lab-results graph in behind it.
+jest.unstable_mockModule('../../services/clinical/cathLabReadinessService.js', () => ({
+  getReadinessSettings: jest.fn(),
+  orderMissingLabs: jest.fn(),
+  recordExternalLabResult: jest.fn(),
+  refreshCaseLabReadiness: jest.fn(),
+  refreshOpenCasesForPatient: jest.fn(),
+  upsertReadinessSettings: jest.fn(),
+  waiveLabItem: jest.fn(),
+}));
+
 // The device-reuse routes (post-use, device lookup, device history) and the
 // consumables listing's reuse decoration live here; stubbed for the same reason
 // as the services above — this suite pins the error envelope, not the register.
