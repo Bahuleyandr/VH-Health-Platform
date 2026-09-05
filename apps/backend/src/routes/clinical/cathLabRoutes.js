@@ -115,7 +115,7 @@ function contextOf(req) {
     // The claim's ROW ID and body hash are deliberately NOT forwarded. The one
     // service on this router that would read them —
     // cathLabReadinessService.recordExternalLabResult, into
-    // labResultsService.recordResultManual — hands them to
+    // labResultsService.recordExternalLabResultRow — hands them to
     // finaliseHttpIdempotencyInTx, which marks THIS route's HTTP claim
     // complete/200 with the LAB layer's payload from inside the lab
     // transaction. Two things then break: a replay answers 200 with the lab
@@ -677,8 +677,8 @@ router.post(
 );
 
 // The ONLY route that may mint an external-origin lab result. The claimed KEY
-// reaches recordResultManual through contextOf so a retry re-reads the same
-// command instead of recording the outside value twice; the claim's ROW ID and
+// reaches recordExternalLabResultRow through contextOf so a retry re-reads the
+// same command instead of recording the outside value twice; the claim's ROW ID and
 // body hash deliberately do NOT (see contextOf) — the middleware owns this
 // route's claim and the ingest rail derives its own fingerprint from the
 // content. retainOnServerError stays unset, and unlike the post-use route

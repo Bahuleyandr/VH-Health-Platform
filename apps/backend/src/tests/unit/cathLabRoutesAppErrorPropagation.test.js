@@ -186,7 +186,7 @@ describe('cath-lab handleFailure() relays AppError code + details', () => {
 describe('contextOf does not hand the HTTP idempotency claim to the lab rail', () => {
   // The external-result route is the one place on this router where the service
   // context reaches a SECOND idempotency layer: recordExternalLabResult passes
-  // it into labResultsService.recordResultManual, whose ingest rail calls
+  // it into labResultsService.recordExternalLabResultRow, whose ingest rail calls
   // finaliseHttpIdempotencyInTx(claimId) INSIDE the lab transaction. Forwarding
   // the claim's row id and body hash therefore (a) marked this route's HTTP
   // claim complete/200 with the LAB layer's payload, so a replay answered with
@@ -243,6 +243,10 @@ describe('contextOf does not hand the HTTP idempotency claim to the lab rail', (
     const context = waiveLabItem.mock.calls[0][3];
     expect('httpIdempotencyClaimId' in context).toBe(false);
     expect('requestFingerprint' in context).toBe(false);
+    // The header above is 'cath-waive-key-1', but the planted HTTP_CLAIM (module
+    // scope, shared by every test in this file) fixes requestKey to
+    // 'cath-ext-key-1', and contextOf prefers the claim's requestKey over the
+    // header — so that is what the service sees here too.
     expect(context.idempotencyKey).toBe('cath-ext-key-1');
   });
 });

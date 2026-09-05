@@ -430,10 +430,15 @@ describe('the seven operations describe the routes that exist', () => {
     }
   });
 
-  it('the documented §11 codes are the ones the service and the route actually raise', () => {
+  it('the documented §11 codes are the ones the readiness service and route raise', () => {
     // The overlay's ERROR_CODES enum against the throw sites themselves: a code
-    // added to the service and not documented, or documented and never raised,
-    // fails here rather than being discovered by a client.
+    // added to the readiness service/route and not documented, or documented
+    // and never raised, fails here rather than being discovered by a client.
+    // Scope is deliberately narrow — SERVICE_SOURCE is
+    // services/clinical/cathLabReadinessService.js only. cathLabService.js
+    // (case management/scheduling) raises its own CATH_LAB_READINESS_BLOCKED
+    // and CATH_LAB_READINESS_REVIEW_FAILED for operations this overlay does
+    // not type, so this test does not and should not see them.
     const ROUTE_SOURCE = readFileSync(
       new URL('../../routes/clinical/cathLabRoutes.js', import.meta.url),
       'utf8',
