@@ -297,6 +297,25 @@ describe('computeCheckDecision', () => {
     expect(computeCheckDecision({ items, settings, check: autoPassCheck, caseRow: caseStarted }).nextStatus).toBeNull();
   });
 
+  // The mirror of the retraction case above. Both automation branches stop at
+  // the knife: an in_progress/completed case reopened in the ward would
+  // otherwise flip a pending labs check to pass with completed_at = NOW() and
+  // an auto_pass audit row, stamping a readiness claim AFTER the procedure it
+  // existed to gate.
+  test('a started case is never auto-passed, however complete the items are', () => {
+    const out = computeCheckDecision({
+      items: allAvailable, settings, check: pendingCheck, caseRow: caseStarted,
+    });
+    expect(out.nextStatus).toBeNull();
+    expect(out.autoPendingReason).toBeNull();
+    expect(out.missing).toEqual([]);
+    // The same items on an OPEN case still pass, so this is the start gate and
+    // not a change to what counts as available.
+    expect(computeCheckDecision({
+      items: allAvailable, settings, check: pendingCheck, caseRow: caseOpen,
+    }).nextStatus).toBe('pass');
+  });
+
   test('a human pass is never altered by automation', () => {
     const items = allAvailable.map((i) => (i.item_code === 'hb' ? { ...i, state: 'not_ordered' } : i));
     expect(computeCheckDecision({ items, settings, check: humanPassCheck, caseRow: caseOpen }).nextStatus).toBeNull();

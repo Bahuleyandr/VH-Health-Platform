@@ -127,9 +127,17 @@ function contextOf(req) {
     // happened. The middleware owns the claim on this router, exactly as the
     // post-use route's `retainOnServerError` comment below reasons about its
     // own retry path; the lab rail keeps its OWN content-derived fingerprint
-    // (case_id + item + value + …), which is also what makes an hiv, an hbsag
-    // and an hcv entry sent under one Idempotency-Key three distinct commands
-    // instead of one.
+    // (case_id + item + value + …) as the command body hash.
+    //
+    // The key handed DOWN to that rail is this one with the item code appended
+    // (see cathLabReadinessService.recordExternalLabResult), which is what makes
+    // an hiv, an hbsag and an hcv entry sent under one Idempotency-Key three
+    // distinct lab commands instead of one — the rail keys on
+    // (tenant_id, actor_uid, command_scope, command_key), so the bare header
+    // would make the second item collide with the first and answer
+    // LAB_RESULT_COMMAND_BODY_MISMATCH. A retry of the SAME item under the same
+    // header still replays, because its suffixed key and its fingerprint are
+    // both unchanged.
     idempotencyKey: req.idempotencyClaim?.requestKey || req.get?.('idempotency-key') || null
   };
 }

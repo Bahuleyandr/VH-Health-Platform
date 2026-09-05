@@ -332,7 +332,13 @@ export function computeCheckDecision({ items, settings, check, caseRow }) {
   const started = Boolean(caseRow?.actual_start_at);
   let nextStatus = null;
   let autoPendingReason = null;
-  if (missing.length === 0) {
+  // `!started` on BOTH branches: automation asserts readiness only while the
+  // assertion can still change what happens. Opening an in_progress/completed
+  // case would otherwise re-run this and flip a pending labs check to pass with
+  // completed_at = NOW() — a readiness claim stamped after the procedure it was
+  // supposed to gate, plus an auto_pass audit row to match. Once the case is on
+  // the table the row is history: leave it exactly as the team left it.
+  if (missing.length === 0 && !started) {
     if (settings.auto_pass === true && (status === 'pending' || (status === 'pass' && autoManaged))) {
       nextStatus = status === 'pass' ? null : 'pass';
     }
@@ -1428,8 +1434,22 @@ export async function recordExternalLabResult(caseId, itemCode, input = {}, cont
       external_lab_name: labName,
       external_report_ref: reportRef,
     });
-  const idempotencyKey = cleanText(context.idempotencyKey, 200)
-    || `cath-readiness-ext:${cathCase.id}:${item}:${fingerprint.slice(0, 32)}`;
+  // One Idempotency-Key, one lab command PER ITEM. The header names the
+  // caller's REQUEST; the lab rail keys its command table on
+  // (tenant_id, actor_uid, command_scope, command_key), so handing it the bare
+  // header would make the SECOND item of an hiv/hbsag/hcv trio sent under one
+  // key collide with the first and fail LAB_RESULT_COMMAND_BODY_MISMATCH (422)
+  // — then serve that 422 back from the HTTP claim for the rest of the key's
+  // life. Suffixing the item code makes different items distinct commands while
+  // a genuine retry of the SAME item still replays (same key, same
+  // fingerprint). The suffix is budgeted inside the rail's 200-character
+  // command_key limit, so a caller key at the cap cannot push the joined key
+  // over it. With no header the content-derived fallback already carries the
+  // item.
+  const callerKey = cleanText(context.idempotencyKey, Math.max(1, 199 - item.length));
+  const idempotencyKey = callerKey
+    ? `${callerKey}:${item}`
+    : `cath-readiness-ext:${cathCase.id}:${item}:${fingerprint.slice(0, 32)}`;
 
   // recordExternalLabResultRow, NOT recordResultManual with a flag: the escape
   // is a separate entry point no route can reach, and this module is the only
