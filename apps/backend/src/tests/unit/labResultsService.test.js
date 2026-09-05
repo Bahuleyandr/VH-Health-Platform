@@ -21,6 +21,7 @@ const finaliseHttpIdempotencyInTxMock = jest.fn();
 const resolveCurrentHumanActorTxMock = jest.fn();
 const evaluateCriticalThresholdMock = jest.fn();
 const applyLabThresholdAssessmentTxMock = jest.fn();
+const scheduleReadinessRefreshMock = jest.fn();
 const criticalDetectionResults = new Map();
 
 const __prismaDefaultMock = {
@@ -125,6 +126,18 @@ jest.unstable_mockModule('../../services/clinical/bloodborneMarkerService.js', (
   recordMarkersFromSignedResults: jest.fn().mockResolvedValue({
     recorded: [], voided: 0, skipped: [], failed: [],
   }),
+}));
+
+// The cath readiness refresh is SCHEDULED off the writer's critical path, not
+// awaited on it. Mocking the scheduler keeps this suite hermetic for the same
+// reason the marker recorder above is mocked — the real job would import the
+// readiness service and issue its own raw queries against the shared prisma
+// mock, and it would do so AFTER the test that scheduled it returned. What the
+// writer owes the readiness projection is the scheduling call, and that is what
+// is asserted below.
+jest.unstable_mockModule('../../services/clinical/cathLabReadinessHooks.js', () => ({
+  scheduleReadinessRefresh: scheduleReadinessRefreshMock,
+  flushScheduledReadinessRefreshes: jest.fn().mockResolvedValue(0),
 }));
 
 const {
@@ -404,6 +417,12 @@ describe('labResultsService recordResultManual — investigation linkage', () =>
     expect(result.investigation_id).toBe(42);
     expect(result.patient_name).toBe('Canonical Patient');
     expect(result.criticality_status).toBe('threshold_unavailable');
+
+    // Post-commit readiness: scheduled with the tenant and the patient made
+    // explicit, never awaited on the writer's path.
+    expect(scheduleReadinessRefreshMock).toHaveBeenCalledWith({
+      tenantId, patientUid, source: 'recordManualLabResultRow',
+    });
 
     const bookingLock = queryRawUnsafeMock.mock.calls[0];
     expect(bookingLock[0]).toMatch(/FROM investigation_bookings AS booking/);

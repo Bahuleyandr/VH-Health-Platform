@@ -16,6 +16,7 @@ import {
   upsertReadinessSettings,
   waiveLabItem,
 } from '../services/clinical/cathLabReadinessService.js';
+import { flushScheduledReadinessRefreshes } from '../services/clinical/cathLabReadinessHooks.js';
 import { clinicalDate } from '../services/clinical/bloodborneMarkerRules.js';
 import {
   recordExternalLabResultRow,
@@ -234,7 +235,16 @@ d('cath lab readiness (deep)', () => {
     await seed();
   }, 120000);
 
+  // Lab writes now SCHEDULE their readiness refresh instead of awaiting it, so
+  // a test that records a result leaves a job behind. Drain it here: a refresh
+  // landing in the middle of the NEXT test's assertions would be a race this
+  // suite has no business running.
+  afterEach(async () => {
+    await flushScheduledReadinessRefreshes();
+  }, 120000);
+
   afterAll(async () => {
+    await flushScheduledReadinessRefreshes();
     await purge();
     if (previousRuntimeRole === undefined) delete process.env.AUTH_TENANT_RLS_RUNTIME_ROLE;
     else process.env.AUTH_TENANT_RLS_RUNTIME_ROLE = previousRuntimeRole;
@@ -941,6 +951,30 @@ d('cath lab readiness (deep)', () => {
     );
     const resultId = Number(rows[0].id);
 
+    // The refresh is SCHEDULED off the sign-off's critical path, not awaited on
+    // it — and the proof has to be a barrier, not a stopwatch. refreshCase-
+    // LabReadiness locks the case row (FOR NO KEY UPDATE), so a conflicting FOR
+    // UPDATE held across the sign-off pins the scheduled job at its first
+    // statement: while this lock is held the item CANNOT move. signOffResults
+    // returning anyway is the assertion. Put the refresh back on the critical
+    // path and signOffResults blocks on this same lock instead — the safety
+    // release below turns that into a failed assertion rather than a hung suite.
+    let releaseCaseLock;
+    const caseLockReleased = new Promise((resolve) => { releaseCaseLock = resolve; });
+    let caseLockTaken;
+    const caseLocked = new Promise((resolve) => { caseLockTaken = resolve; });
+    const caseLockHolder = prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe(
+        `SELECT id FROM cath_lab_cases
+          WHERE tenant_id = $1::uuid AND id = $2::bigint FOR UPDATE`,
+        TENANT, CASE_ID,
+      );
+      caseLockTaken();
+      await caseLockReleased;
+    }, { timeout: 30000 });
+    await caseLocked;
+    const safetyRelease = setTimeout(() => releaseCaseLock(), 3000);
+
     await signOffResults({
       tenantId: TENANT,
       signed_off_by: PATHOLOGIST,
@@ -950,8 +984,19 @@ d('cath lab readiness (deep)', () => {
       patient_uid: PATIENT,
     });
 
-    // Deliberately NO refresh call: the only thing that can have moved the item
-    // is refreshOpenCasesForPatient, fired post-commit from inside the sign-off.
+    // Returned while the refresh is still pinned behind the row lock: the
+    // sign-off did not wait for it.
+    const atReturn = await pollForItem('hb', () => true);
+    expect(atReturn?.state).not.toBe('result_final');
+
+    clearTimeout(safetyRelease);
+    releaseCaseLock();
+    await caseLockHolder;
+
+    // Deliberately NO refresh call: the only thing that can move the item is
+    // refreshOpenCasesForPatient, fired post-commit from inside the sign-off
+    // through the scheduler. flush() awaits exactly that job.
+    await flushScheduledReadinessRefreshes();
     const item = await pollForItem('hb', (row) => row?.state === 'result_final');
     expect(item).toMatchObject({ state: 'result_final', lab_result_id: resultId });
   }, 120000);
