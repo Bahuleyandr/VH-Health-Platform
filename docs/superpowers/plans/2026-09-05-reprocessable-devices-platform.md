@@ -4455,9 +4455,17 @@ function isolationClassLeaks(node, where) {
 ```js
 test('the D11 sentinel walk has a population: the poisoned isolation envelope and Decision were visited', () => {
   // Counted during the non-entitled sweep over the dialysis mounts. Zero means the
-  // value check in isolationClassLeaks ran over nothing and proved nothing.
-  expect(d11Population.warningNodes).toBeGreaterThan(0); // isolation_warnings[] entries (code + machine_id + severity)
-  expect(d11Population.decisionNodes).toBeGreaterThan(0); // Decision-shaped nodes (status + evidence + asOf): the projected reuse_restriction
+  // value check in isolationClassLeaks ran over nothing and proved nothing. The
+  // message names the class of failure so the next reader does not have to
+  // reconstruct it from a bare number.
+  const inert = [];
+  if (d11Population.warningNodes === 0) inert.push('no isolation_warnings entries (code + machine_id + severity) were visited');
+  if (d11Population.decisionNodes === 0) inert.push('no Decision-shaped nodes (status + evidence + asOf) were visited');
+  if (inert.length) {
+    throw new Error(`INERT FIXTURE: the D11 value walk had nothing to check - ${inert.join('; ')}. `
+      + `Either POISONED_ISOLATION / POISONED_DECISION stopped reaching a body, a dialysis mount is missing, `
+      + `or the walker skipped arrays. ${JSON.stringify(d11Population)}`);
+  }
 });
 ```
 
