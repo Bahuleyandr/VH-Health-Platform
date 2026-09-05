@@ -27,11 +27,52 @@
  *
  * SO THIS SUITE DOES NOT HOLD A LIST. It poisons the persistence layer with a
  * sentinel serology value, WALKS every router's stack to enumerate every GET
- * that exists today, requests each one as the two roles the projection is for,
- * and fails if the sentinel — or a serology item's criticality, or its name in
- * a `critical_items` list — comes back in ANY 2xx body. A new GET route added
- * anywhere on these mounts is enumerated the moment it is declared; the author
- * does not have to remember this file exists.
+ * that exists today, requests each one as EVERY role the platform's role policy
+ * knows about, and fails if the sentinel — or a serology item's criticality, or
+ * its name in a `critical_items` list — comes back in ANY 2xx body to a role
+ * that is not entitled to serology detail. A new GET route added anywhere on
+ * these mounts is enumerated the moment it is declared; the author does not
+ * have to remember this file exists.
+ *
+ * NEITHER POPULATION IS NAMED HERE, because naming them is what turns a class
+ * into two instances. RECEPTIONIST and TECHNICIAN were the roles someone
+ * happened to be looking at; the third leak will be a role nobody is thinking
+ * about, added to one of these unions months from now.
+ *
+ *   ENTITLED  — derived from roleSeesSerologyDetail(), the ONE predicate the
+ *               projection itself asks (cathDeviceReuseService.js), applied to
+ *               the canonical role list the route-policy validators assert
+ *               against (rolePolicyGraph.getRolePolicyRoleCodes). Derived, but
+ *               PINNED below to a written allow-list: widening the serology
+ *               audience must be a reviewed decision, not a side effect of
+ *               editing a capability group three files away.
+ *   REACHABLE — derived EMPIRICALLY, per route: the roles that actually answer
+ *               2xx. Not read off a role constant, because the mount gate, the
+ *               per-route roleGuard and the handler's own refusals all narrow
+ *               it, and only running them says by how much.
+ *
+ * The property is then asserted for every role in `reachable − ENTITLED`, per
+ * route. That remainder is the class.
+ *
+ * WHY THE REACHABLE SET IS SNAPSHOTTED. A 2xx-derived population can SHRINK
+ * silently — a rotted fixture, a new 500, a tightened validator — leaving fewer
+ * roles under test and a green run that proves less than it claims. The
+ * derivation is therefore compared in BOTH directions against
+ * src/tests/fixtures/serologyDisclosureCanary.reachable.json, and a difference
+ * either way is a failure that says which direction it went.
+ *
+ * REGENERATING THAT SNAPSHOT IS DELIBERATE — from apps/backend:
+ *
+ *   CANARY_WRITE_SNAPSHOT=1 node --experimental-vm-modules \
+ *     node_modules/jest/bin/jest.js --runInBand \
+ *     --testPathPatterns serologyDisclosureCanary
+ *
+ * That rewrites the fixture AND THEN FAILS, so the flag can never be left on in
+ * CI: a run that regenerates is never a run that passes. Read the diff before
+ * committing it. A set that GREW means a role gained access to that route — the
+ * canary already asserts the property for it, so accept the line knowingly. A
+ * set that SHRANK is either an intentional tightening or a fixture that rotted,
+ * and the two look identical from here.
  *
  * WHAT IS REAL AND WHAT IS STUBBED. The routers, their mount role gates, their
  * per-route role guards, cathLabService, cathLabReadinessService,
@@ -43,6 +84,8 @@
  * deliberately: they are pinned in cathLabRouteGuards, and leaving them live
  * would answer 403 everywhere and make this canary vacuous.
  */
+
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 
 import { jest } from '@jest/globals';
 import express from 'express';
@@ -66,9 +109,23 @@ const SENTINEL = 'SEROLOGY-SENTINEL-9f3a';
  * suite still fails if someone "fixes" a leak by shrinking the analyte map. */
 const SEROLOGY_CODES = new Set(['hiv', 'hbsag', 'hcv']);
 
-/** The two roles the projection exists for: admitted by cath report-read (and
- * by STEMI), outside CLINICAL_STAFF_ROUTE_ROLES. */
-const PROJECTED_ROLES = ['RECEPTIONIST', 'TECHNICIAN'];
+/**
+ * EXAMPLE actors, and nothing more.
+ *
+ * These two are the roles the projection was written for, and they are kept
+ * ONLY so the coverage floor below can name a concrete 2xx it expects. They are
+ * NOT the tested population — that is derived per route further down — because
+ * a canary whose actors are a literal can only ever catch the leak someone had
+ * already imagined.
+ */
+const EXAMPLE_ACTORS = ['RECEPTIONIST', 'TECHNICIAN'];
+
+/** Where the derived reachable set is snapshotted. See the header. */
+const REACHABLE_SNAPSHOT_PATH = new URL(
+  '../fixtures/serologyDisclosureCanary.reachable.json',
+  import.meta.url,
+);
+const WRITE_SNAPSHOT = process.env.CANARY_WRITE_SNAPSHOT === '1';
 
 // ---------------------------------------------------------------------------
 // A prisma stub that answers by the SQL's FROM target
@@ -624,9 +681,85 @@ const { requireRole } = await import('../../middleware/rbacMiddleware.js');
 const {
   CATH_LAB_ROUTE_ROLES,
   CATH_REPROCESSING_POLICY_ROUTE_ROLES,
-  CLINICAL_STAFF_ROUTE_ROLES,
   STEMI_ROUTE_ROLES,
 } = await import('../../config/routeRolePolicy.js');
+const { getRolePolicyRoleCodes } = await import('../../config/rolePolicyGraph.js');
+const { roleSeesSerologyDetail } = await import(
+  '../../services/clinical/cathDeviceReuseService.js'
+);
+
+// ---------------------------------------------------------------------------
+// The two role populations — both derived, neither typed out
+// ---------------------------------------------------------------------------
+
+/**
+ * The canonical role list. rolePolicyGraph's ROLE_CODES is what
+ * routeRolePolicy's own builders validate every route constant against
+ * (assertKnownPolicyRole), so a role that can appear in ANY of these three
+ * mount unions is in here by construction — including TECHNICIAN, which
+ * utils/roles.js ALL_ROLES does not carry and which is one of the two roles the
+ * projection was written for. Deriving from the smaller list would have
+ * silently dropped it.
+ */
+const ALL_ROLES = [...new Set(getRolePolicyRoleCodes())].sort();
+
+/**
+ * The serology audience, asked of the projection's OWN predicate rather than
+ * re-decided here. Plan 2 already reviewed that judgement in one place; this
+ * file must not mint a second opinion that drifts from it.
+ */
+const ENTITLED = ALL_ROLES.filter(roleSeesSerologyDetail);
+const ENTITLED_SET = new Set(ENTITLED);
+
+/**
+ * The pin. Deriving ENTITLED is what makes this suite close a class; writing it
+ * down is what stops the derivation from quietly answering "everyone".
+ *
+ * Adding a role to a capability group in rolePolicyGraph.js, or to
+ * CLINICAL_STAFF_ROUTE_ROLES' include list, widens who may read a patient's
+ * blood-borne serology across every surface in this repo. That is a reviewed
+ * decision. It must not be reachable as a side effect of an unrelated edit two
+ * files away, and it must not make this canary test LESS by moving a role out
+ * of the remainder. So the derived set is compared to this list and the failure
+ * names exactly which roles arrived or left.
+ */
+const ENTITLED_ALLOW_LIST = [
+  'ADMIN',
+  'ADMISSION_OFFICER',
+  'ANAESTHETIST',
+  'ANESTHETIST',
+  'CATH_LAB_INCHARGE',
+  'CATH_LAB_STAFF',
+  'CMO',
+  'CNO',
+  'CONSULTANT',
+  'DOCTOR',
+  'DUTY_DOCTOR',
+  'ER_STAFF',
+  'ICU_INCHARGE',
+  'ICU_NURSE',
+  'ICU_STAFF',
+  'IPD_COUNSELLOR',
+  'IP_INCHARGE',
+  'IP_STAFF_NURSE',
+  'JUNIOR_DOCTOR',
+  'MEDICAL_RECORDS',
+  'MEDICAL_SUPERINTENDENT',
+  'NURSING_INCHARGE',
+  'NURSING_STAFF',
+  'NURSING_SUPERINTENDENT',
+  'OP_INCHARGE',
+  'OP_STAFF_NURSE',
+  'OT_INCHARGE',
+  'OT_NURSE',
+  'OT_STAFF',
+  'PHARMACIST',
+  'PHARMACY_INCHARGE',
+  'PHARMACY_STAFF',
+  'RESIDENT',
+  'SENIOR_DOCTOR',
+  'SUPER_ADMIN',
+];
 
 // ---------------------------------------------------------------------------
 // The app under test — the same three mounts app.js builds, with the same
@@ -644,7 +777,11 @@ const MOUNTS = [
   },
 ];
 
+const APPS = new Map();
+
 function appFor(role) {
+  const cached = APPS.get(role);
+  if (cached) return cached;
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
@@ -656,6 +793,7 @@ function appFor(role) {
   for (const mount of MOUNTS) {
     app.use(mount.prefix, requireRole(...mount.roles), mount.router);
   }
+  APPS.set(role, app);
   return app;
 }
 
@@ -815,22 +953,58 @@ function disclosures(body) {
 }
 
 // ---------------------------------------------------------------------------
-// Drive every enumerated GET, once per role, before any assertion runs
+// Drive every enumerated GET as EVERY role, at module scope
 // ---------------------------------------------------------------------------
+//
+// At MODULE scope, not in beforeAll, and that is not a style choice: the tested
+// population is `reachable − ENTITLED`, and it.each() needs its cases while the
+// describe bodies are being evaluated — which is before any hook has run. A
+// beforeAll would force the population back to something typed out by hand,
+// which is the exact thing this refinement removes.
+//
+// Cost: ALL_ROLES x GET_ROUTES requests against a stubbed persistence layer.
+// The mount gate refuses most of them in a few microseconds, so the sweep is
+// dominated by the roles that actually reach a handler. Per-route fan-out keeps
+// it comfortably under a second; the app is stateless per request, and the
+// prisma stub answers by SQL text, not by call order.
 
 /** `${role} ${fullPath}` -> { status, body } */
 const RESPONSES = new Map();
 const key = (role, route) => `${role} ${route.fullPath}`;
 
-beforeAll(async () => {
-  for (const role of [...PROJECTED_ROLES, 'CATH_LAB_STAFF']) {
-    const app = appFor(role);
-    for (const route of GET_ROUTES) {
-      const res = await request(app).get(route.url);
-      RESPONSES.set(key(role, route), { status: res.status, body: res.body });
-    }
-  }
-});
+for (const role of ALL_ROLES) {
+  const app = appFor(role);
+  // Serial over roles, parallel over that role's routes: one role's sweep is
+  // ~23 requests against a stubbed database, and keeping the roles in order
+  // keeps a failure's console output readable.
+  const answers = await Promise.all(GET_ROUTES.map(async (route) => {
+    const res = await request(app).get(route.url);
+    return [key(role, route), { status: res.status, body: res.body }];
+  }));
+  for (const [entry, value] of answers) RESPONSES.set(entry, value);
+}
+
+const statusOf = (role, route) => RESPONSES.get(key(role, route))?.status ?? 500;
+
+/** Empirically reachable: the roles this route actually answered 2xx. */
+const REACHABLE = new Map(GET_ROUTES.map((route) => [
+  route.fullPath,
+  ALL_ROLES.filter((role) => statusOf(role, route) < 300),
+]));
+
+/** The class under test, per route: reachable, and NOT entitled to serology. */
+const REMAINDER = new Map(GET_ROUTES.map((route) => [
+  route.fullPath,
+  (REACHABLE.get(route.fullPath) ?? []).filter((role) => !ENTITLED_SET.has(role)),
+]));
+
+const snapshotLabel = (route) => `GET ${route.fullPath}`;
+const LIVE_SNAPSHOT = Object.fromEntries(
+  GET_ROUTES.map((route) => [snapshotLabel(route), [...(REACHABLE.get(route.fullPath) ?? [])].sort()]),
+);
+const STORED_SNAPSHOT = existsSync(REACHABLE_SNAPSHOT_PATH)
+  ? JSON.parse(readFileSync(REACHABLE_SNAPSHOT_PATH, 'utf8'))
+  : null;
 
 afterAll(() => {
   const cell = (role, route) => {
@@ -840,15 +1014,18 @@ afterAll(() => {
       : '';
     return `${role.slice(0, 4).toLowerCase()}:${res?.status}${why}`;
   };
-  const rows = GET_ROUTES.map((route) => (
-    `  ${route.fullPath.padEnd(52)} ${PROJECTED_ROLES.map((role) => cell(role, route)).join('  ')}`
-  ));
-  const reachable = GET_ROUTES.filter((route) => PROJECTED_ROLES.some(
-    (role) => (RESPONSES.get(key(role, route))?.status ?? 500) < 300,
-  ));
+  const rows = GET_ROUTES.map((route) => {
+    const reach = REACHABLE.get(route.fullPath) ?? [];
+    const rest = REMAINDER.get(route.fullPath) ?? [];
+    return `  ${route.fullPath.padEnd(52)} reach ${String(reach.length).padStart(2)}/${ALL_ROLES.length}`
+      + `  tested ${String(rest.length).padStart(2)}  ${EXAMPLE_ACTORS.map((role) => cell(role, route)).join('  ')}`;
+  });
+  const reached = GET_ROUTES.filter((route) => (REACHABLE.get(route.fullPath) ?? []).length > 0);
+  const tested = GET_ROUTES.filter((route) => (REMAINDER.get(route.fullPath) ?? []).length > 0);
   process.stdout.write(
-    `\nserology disclosure canary — ${GET_ROUTES.length} GET routes walked, `
-    + `${reachable.length} reachable by a projected role\n${rows.join('\n')}\n`
+    `\nserology disclosure canary — ${GET_ROUTES.length} GET routes walked as `
+    + `${ALL_ROLES.length} roles (${ENTITLED.length} entitled), ${reached.length} reachable, `
+    + `${tested.length} carrying a non-entitled reader\n${rows.join('\n')}\n`
     + (unstubbed.size ? `  (tables answered empty: ${[...unstubbed].sort().join(', ')})\n` : ''),
   );
 });
@@ -905,16 +1082,114 @@ describe('the poison really is in the persistence layer', () => {
   });
 });
 
-describe('no serology value, criticality or item name reaches a projected role', () => {
-  const cases = GET_ROUTES.flatMap((route) => PROJECTED_ROLES.map((role) => [
+describe('the entitled set is derived, and pinned so it cannot widen quietly', () => {
+  it('roleSeesSerologyDetail admits exactly the reviewed allow-list', () => {
+    const added = ENTITLED.filter((role) => !ENTITLED_ALLOW_LIST.includes(role));
+    const removed = ENTITLED_ALLOW_LIST.filter((role) => !ENTITLED_SET.has(role));
+    // Named rather than diffed so the failure reads as a decision to make:
+    // every role in `added` may now read a patient's blood-borne serology on
+    // every surface in this repo, and every role in `removed` has just left the
+    // audience — and left this canary's remainder, which it must not do by
+    // accident.
+    expect({
+      added_to_the_serology_audience: added,
+      removed_from_the_serology_audience: removed,
+    }).toEqual({
+      added_to_the_serology_audience: [],
+      removed_from_the_serology_audience: [],
+    });
+    expect(ENTITLED).toEqual(ENTITLED_ALLOW_LIST);
+  });
+
+  it('the derivation ran over the whole platform role list, not a subset', () => {
+    // A canonical list that stopped covering the mount unions would shrink the
+    // sweep without shrinking anything visible.
+    const mountRoles = [...new Set([
+      ...CATH_LAB_ROUTE_ROLES,
+      ...STEMI_ROUTE_ROLES,
+      ...CATH_REPROCESSING_POLICY_ROUTE_ROLES,
+    ])].sort();
+    expect(mountRoles.filter((role) => !ALL_ROLES.includes(role))).toEqual([]);
+    // The two example actors are in it, and are NOT entitled — so the remainder
+    // below is a superset of what this file used to test.
+    for (const role of EXAMPLE_ACTORS) {
+      expect(ALL_ROLES).toContain(role);
+      expect(ENTITLED_SET.has(role)).toBe(false);
+    }
+  });
+});
+
+describe('the reachable set is snapshotted so it cannot silently shrink', () => {
+  it('CANARY_WRITE_SNAPSHOT is never left on', () => {
+    if (!WRITE_SNAPSHOT) {
+      expect(WRITE_SNAPSHOT).toBe(false);
+      return;
+    }
+    writeFileSync(REACHABLE_SNAPSHOT_PATH, `${JSON.stringify(LIVE_SNAPSHOT, null, 2)}\n`);
+    // Rewriting and passing would let a green CI run silently redefine what the
+    // canary is allowed to see. Rewriting and FAILING cannot.
+    throw new Error(
+      'CANARY_WRITE_SNAPSHOT=1 rewrote serologyDisclosureCanary.reachable.json and failed '
+      + 'deliberately. Read the diff, then rerun without the flag.',
+    );
+  });
+
+  it('every enumerated GET has a snapshot entry, and every entry is still enumerated', () => {
+    expect(STORED_SNAPSHOT).not.toBeNull();
+    const live = Object.keys(LIVE_SNAPSHOT).sort();
+    const stored = Object.keys(STORED_SNAPSHOT ?? {}).sort();
+    expect({
+      new_routes_add_them: live.filter((label) => !stored.includes(label)),
+      snapshot_routes_no_longer_enumerated: stored.filter((label) => !live.includes(label)),
+    }).toEqual({
+      new_routes_add_them: [],
+      snapshot_routes_no_longer_enumerated: [],
+    });
+  });
+
+  it.each(GET_ROUTES.map((route) => [snapshotLabel(route), route]))(
+    '%s answers 2xx to exactly the roles the snapshot records',
+    (label, route) => {
+      const stored = STORED_SNAPSHOT?.[label];
+      if (!Array.isArray(stored)) {
+        throw new Error(`NEW ROUTE — add it: ${label} has no entry in the reachable snapshot. `
+          + 'Regenerate with CANARY_WRITE_SNAPSHOT=1 and read the diff.');
+      }
+      const live = LIVE_SNAPSHOT[label];
+      const grew = live.filter((role) => !stored.includes(role));
+      const shrank = stored.filter((role) => !live.includes(role));
+      const problems = [];
+      if (grew.length) {
+        problems.push(`${label} GREW: ${grew.join(', ')} — a role gained access; the canary `
+          + 'already asserts the property for it — update the snapshot deliberately');
+      }
+      if (shrank.length) {
+        problems.push(`${label} SHRANK: ${shrank.join(', ')} — either an intentional tightening `
+          + '(update the snapshot) or the fixtures rotted and the canary is testing less than '
+          + 'it claims');
+      }
+      expect(problems).toEqual([]);
+    },
+  );
+});
+
+describe('no serology value, criticality or item name reaches a non-entitled reader', () => {
+  // The tested population is DERIVED: every role that this route actually
+  // answered 2xx, minus the roles roleSeesSerologyDetail() admits. Nothing here
+  // names RECEPTIONIST or TECHNICIAN; they simply fall out of the remainder,
+  // and so will whoever is added to one of these unions next.
+  const cases = GET_ROUTES.flatMap((route) => (REMAINDER.get(route.fullPath) ?? []).map((role) => [
     `${role} ${route.fullPath}`, role, route,
   ]));
 
+  it('the remainder is not empty — a canary with no actors tests nothing', () => {
+    expect(cases.length).toBeGreaterThan(0);
+  });
+
   it.each(cases)('%s', (_label, role, route) => {
-    const { status, body } = RESPONSES.get(key(role, route));
-    // 401/403/404 are "this role cannot reach it" — recorded in the coverage
-    // table, not asserted: refusing is a fine answer, disclosing is not.
-    if (status >= 300) return;
+    const { body } = RESPONSES.get(key(role, route));
+    // Only 2xx answers are in `cases` at all: a refusal is a fine answer to a
+    // role outside the audience, a disclosure is not.
     expect({ route: route.fullPath, role, leaks: disclosures(body) })
       .toEqual({ route: route.fullPath, role, leaks: [] });
   });
@@ -923,13 +1198,13 @@ describe('no serology value, criticality or item name reaches a projected role',
 describe('coverage floor — the canary cannot pass by reaching nothing', () => {
   it('most of the enumerated GETs really were reached, not refused', () => {
     // A fixture that drifted until every route answered 403/404/500 would make
-    // every assertion above pass by returning early. The rest are refusals the
-    // role gates are SUPPOSED to make (the governance mount, the workflow-gated
-    // device lookback) or reads this fixture deliberately does not seed.
-    const reachable = GET_ROUTES.filter((route) => PROJECTED_ROLES.some(
-      (role) => (RESPONSES.get(key(role, route))?.status ?? 500) < 300,
-    ));
-    expect(reachable.length).toBeGreaterThanOrEqual(14);
+    // every assertion above pass by having no cases at all. The rest are
+    // refusals the role gates are SUPPOSED to make or reads this fixture
+    // deliberately does not seed.
+    const reached = GET_ROUTES.filter(
+      (route) => (REMAINDER.get(route.fullPath) ?? []).length > 0,
+    );
+    expect(reached.length).toBeGreaterThanOrEqual(14);
   });
 
   it.each([
@@ -941,6 +1216,23 @@ describe('coverage floor — the canary cannot pass by reaching nothing', () => 
     expect(route).toBeDefined();
     const { status } = RESPONSES.get(key('RECEPTIONIST', route));
     expect(status).toBeLessThan(300);
+  });
+
+  it.each([
+    '/api/v1/cath-lab/cases/:id',
+    '/api/v1/cath-lab/cases/:id/readiness/labs',
+    '/api/v1/stemi-pathway/activations/:id',
+  ])('%s still has a NON-ENTITLED reader to test the property on', (fullPath) => {
+    // These are the three surfaces that actually leaked. If a change ever
+    // emptied their remainder — every reachable role became entitled — the
+    // canary would go green on them while asserting nothing at all. That is
+    // indistinguishable from a fix, and is the failure mode this floor exists
+    // for. Tightening a gate is fine; tightening it INTO this state is a
+    // deliberate decision that has to be made here.
+    const rest = REMAINDER.get(fullPath);
+    expect(rest).toBeDefined();
+    expect({ route: fullPath, non_entitled_readers: rest?.length ?? 0 })
+      .not.toEqual({ route: fullPath, non_entitled_readers: 0 });
   });
 
   it('...and those three bodies are not empty shells', () => {
@@ -980,14 +1272,17 @@ describe('writes on the cath mount cannot become a second leak channel', () => {
   // it wrote would be the same disclosure through a different door — and the
   // GET walk above cannot see it, because a write is not walked. So the write
   // side is pinned structurally instead: every non-GET on the cath mount must
-  // refuse every role the MOUNT admits but CLINICAL_STAFF_ROUTE_ROLES does not.
+  // refuse every role the MOUNT admits that is not entitled to serology detail.
+  //
+  // Derived from the same predicate as ENTITLED, for the same reason: the probe
+  // population must grow on its own when the cath mount's union does.
   //
   // Proven by PROBING the chain rather than by reading a name: the gates are
   // anonymous closures built by the router's own roleGuard(), so only running
   // them says which one is mounted.
-  const OUTSIDE_CLINICAL_STAFF = [...new Set(
-    [...CATH_LAB_ROUTE_ROLES, ...PROJECTED_ROLES],
-  )].filter((role) => !CLINICAL_STAFF_ROUTE_ROLES.includes(role));
+  const OUTSIDE_CLINICAL_STAFF = [...new Set(CATH_LAB_ROUTE_ROLES)]
+    .filter((role) => !ENTITLED_SET.has(role))
+    .sort();
 
   /**
    * The ONE documented exception, and what it costs to add another.
