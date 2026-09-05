@@ -138,6 +138,31 @@ const RESULTABLE_BOOKING_STATUSES = new Set([
 const CORRECTIVE_SIGNOFF_DECISIONS = new Set(['corrected', 'amended']);
 const SUPPORTED_SIGNOFF_DECISIONS = new Set(['verified', ...CORRECTIVE_SIGNOFF_DECISIONS]);
 
+// Statuses an UNSIGNED result may hold and still be eligible for the initial
+// verified sign-off.
+//
+// 'final' is here because the ORU ingest stores OBX-11 = 'F' as status 'final'
+// with signed_off_at NULL — an analyzer asserting SOURCE finality, which is a
+// different thing from this hospital's LOCAL authorisation. Those rows were
+// unsignable: the guard below demanded 'preliminary', and the stamping UPDATE's
+// verified branch matched only 'preliminary', so a pathologist who selected one
+// got LAB_SIGNOFF_ILLEGAL_INITIAL_STATE on every attempt and the result could
+// never reach the patient, the report PDF or discharge terminality. Worse, one
+// such row failed the WHOLE batch through the stamped.length !== ids.length
+// check, so a single analyzer-final analyte blocked sign-off of every other
+// result selected with it.
+//
+// listPendingSignOff already surfaces exactly this shape
+// (signed_off_at IS NULL AND status IN ('preliminary','final')), so the
+// worklist and the sign-off contract disagreed. The worklist encodes the
+// intent; this set makes the contract agree with it.
+//
+// Signing an unsigned 'final' re-writes status to 'final' (idempotent) and
+// stamps signed_off_at/by, so the source assertion is preserved and the local
+// authorisation is recorded. This does NOT relax the corrective branch, which
+// still requires an already-signed predecessor.
+const INITIAL_SIGNOFF_ELIGIBLE_STATUSES = new Set(['preliminary', 'final']);
+
 // Sign-off decisions the blood-borne marker recorder accepts (spec 2026-09-04
 // §7.1). Kept as its own set so a sign-off vocabulary that later grows a
 // decision the recorder rejects skips the hook instead of throwing inside it.
@@ -2398,11 +2423,33 @@ export async function signOffResults({
           'LAB_SIGNOFF_CORRECTION_PREDECESSOR_REQUIRED',
         );
       }
+      // OVERLAP, not equality. The guard above has already proved every
+      // selected result is signed and in a correctable status, so this query's
+      // only job is to date the generation being corrected — it does not need
+      // to re-prove coverage.
+      //
+      // `result_ids = $2::int[]` demanded that a PRIOR SIGN-OFF COVERED EXACTLY
+      // THIS ID SET, which is a different and much stronger claim. Sign a panel
+      // as one batch and then correct a single analyte, or sign two analytes
+      // separately and then correct them together, and no stored row matched:
+      // the correction failed LAB_SIGNOFF_CORRECTION_PROVENANCE_REQUIRED and no
+      // retry could clear it, because the shape being demanded had never
+      // existed. Both sequences are ordinary pathologist behaviour.
+      //
+      // (Array ORDER is not a factor: normalizeSignoffResultIds sorts and dedupes,
+      // so stored and queried arrays are both ascending.)
+      //
+      // ORDER BY signed_at DESC LIMIT 1 over the overlapping set yields the
+      // most recent sign-off touching any selected result, which is the
+      // conservative baseline — the source must have changed after the LATEST
+      // relevant sign-off, not merely after some older one. FOR SHARE is kept
+      // rather than aggregated away; lab_pathologist_signoffs is append-only,
+      // but the lock is cheap and losing it here would be a silent change.
       const predecessorRows = await tx.$queryRawUnsafe(
         `SELECT id, signed_at, decision
            FROM lab_pathologist_signoffs
           WHERE tenant_id = $1::uuid
-            AND result_ids = $2::int[]
+            AND result_ids && $2::int[]
             AND decision IN ('verified', 'corrected', 'amended')
           ORDER BY signed_at DESC, id DESC
           LIMIT 1
@@ -2421,9 +2468,12 @@ export async function signOffResults({
           'LAB_SIGNOFF_CORRECTION_PROVENANCE_REQUIRED',
         );
       }
-    } else if (owned.some((row) => row.signed_off_at || String(row.status || '').toLowerCase() !== 'preliminary')) {
+    } else if (owned.some((row) => (
+      row.signed_off_at
+      || !INITIAL_SIGNOFF_ELIGIBLE_STATUSES.has(String(row.status || '').toLowerCase())
+    ))) {
       throw AppError.conflict(
-        'Initial verified sign-off requires unsigned preliminary results',
+        'Initial verified sign-off requires unsigned preliminary or analyzer-final results',
         'LAB_SIGNOFF_ILLEGAL_INITIAL_STATE',
       );
     }
@@ -2474,7 +2524,12 @@ export async function signOffResults({
         WHERE id = ANY($3::int[])
           AND tenant_id = $4::uuid
           AND (
-            ($2 = 'verified' AND signed_off_at IS NULL AND LOWER(status) = 'preliminary')
+            -- Must stay in step with INITIAL_SIGNOFF_ELIGIBLE_STATUSES above:
+            -- if the guard admits a status this branch does not, the guard
+            -- passes, the UPDATE matches no row, and the caller gets a
+            -- LAB_SIGNOFF_STATE_RACE that no retry can clear.
+            ($2 = 'verified' AND signed_off_at IS NULL
+              AND LOWER(status) IN ('preliminary', 'final'))
             OR ($2 IN ('corrected', 'amended') AND signed_off_at IS NOT NULL
                 AND LOWER(status) IN ('final', 'corrected', 'verified', 'amended'))
           )
@@ -2728,7 +2783,16 @@ export async function signOffResults({
   // partial sign-off of a multi-analyte panel leaves it in progress. Best-
   // effort: failure must not abort the sign-off.
   // Finding: verified lab orders stay IN_PROGRESS after result.
-  if (normalizedDecision === 'verified') {
+  //
+  // Runs for EVERY decision, not just 'verified'. Sign-off writes three
+  // statuses — verified -> 'final', corrected -> 'corrected', amended ->
+  // 'amended' — so an episode whose last outstanding analyte is signed
+  // correctively never reconciled at all, and its order stayed IN_PROGRESS
+  // forever. The UPDATE below is already guarded by
+  // `status NOT IN ('COMPLETED','CANCELLED')`, so running it after a
+  // corrective sign-off on an already-completed order is a no-op rather than a
+  // re-completion.
+  if (SUPPORTED_SIGNOFF_DECISIONS.has(normalizedDecision)) {
     try {
       const invRows = await prisma.$queryRawUnsafe(
         `SELECT DISTINCT investigation_id
@@ -2740,11 +2804,18 @@ export async function signOffResults({
       );
       for (const { investigation_id } of invRows) {
         const pending = await prisma.$queryRawUnsafe(
+          // "Still pending" = not in the signed-off family. This must list
+          // every status sign-off can WRITE, or an order is stranded: the
+          // stamping UPDATE writes verified -> 'final', corrected ->
+          // 'corrected' and amended -> 'amended', and 'verified' is in the
+          // release allow-list elsewhere, so all four belong here. Omitting
+          // 'amended' meant an amended analyte read as pending forever, and a
+          // panel containing one could never reach COMPLETED.
           `SELECT 1 FROM lab_results
             WHERE investigation_id = $1::int
               AND tenant_id = $2::uuid
-              AND status IS DISTINCT FROM 'final'
-              AND status IS DISTINCT FROM 'corrected'
+              AND LOWER(COALESCE(status, '')) NOT IN
+                  ('final', 'corrected', 'amended', 'verified')
             LIMIT 1`,
           investigation_id, tid,
         );

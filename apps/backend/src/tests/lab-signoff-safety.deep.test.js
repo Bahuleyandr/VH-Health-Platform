@@ -36,7 +36,7 @@ async function seedEpisode({ patientUid = PATIENT_UID, analytes = [{}] } = {}) {
       `INSERT INTO lab_results
          (tenant_id, patient_uid, investigation_id, test_code, test_name,
           value_text, value_numeric, unit, abnormal_flag, is_critical, status)
-       VALUES ($1::uuid, $2::uuid, $3::int, $4, $5, $6, $7, $8, $9, $10, 'preliminary')
+       VALUES ($1::uuid, $2::uuid, $3::int, $4, $5, $6, $7, $8, $9, $10, $11)
        RETURNING id`,
       TENANT,
       patientUid,
@@ -48,6 +48,9 @@ async function seedEpisode({ patientUid = PATIENT_UID, analytes = [{}] } = {}) {
       analyte.unit || 'mmol/L',
       analyte.abnormalFlag ?? 'N',
       analyte.isCritical ?? false,
+      // 'final' seeds the shape the ORU ingest produces for OBX-11 = 'F':
+      // source-final, locally unsigned.
+      analyte.status || 'preliminary',
     );
     const id = Number(rows[0].id);
     resultIds.push(id);
@@ -274,6 +277,174 @@ d('Lab pathologist sign-off safety contract', () => {
       .send(body);
     expect(second.statusCode).toBe(409);
     expect(second.body.details?.code || second.body.code).toBe('LAB_SIGNOFF_ILLEGAL_INITIAL_STATE');
+  });
+
+  // The ORU ingest stores OBX-11 = 'F' as status 'final' with signed_off_at
+  // NULL — the analyzer asserting SOURCE finality, which is not this hospital's
+  // LOCAL authorisation. listPendingSignOff surfaces exactly that shape, but the
+  // sign-off contract used to demand 'preliminary', so a pathologist could
+  // select an analyzer-final result from the worklist and never sign it: the
+  // result never reached the patient, the report PDF or discharge terminality.
+  it('signs an unsigned analyzer-final result, preserving the source assertion', async () => {
+    const episode = await seedEpisode({ analytes: [{ status: 'final' }] });
+    const response = await pathologist.post('/api/v1/lab/pathologist/signoff')
+      .set('Idempotency-Key', `${KEY_PREFIX}-analyzer-final`)
+      .send({ result_ids: episode.resultIds, decision: 'verified' });
+
+    expect(response.statusCode).toBe(200);
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT status, signed_off_at, signed_off_by FROM lab_results WHERE id = $1::int`,
+      episode.resultIds[0],
+    );
+    // Status stays 'final' — signing does not downgrade the source assertion —
+    // and the local authorisation is now recorded against a real signer.
+    expect(String(rows[0].status).toLowerCase()).toBe('final');
+    expect(rows[0].signed_off_at).toBeTruthy();
+    expect(rows[0].signed_off_by).toBe(PATHOLOGIST_UID);
+  });
+
+  // The batch failure was the sharper half: stamped.length !== ids.length throws
+  // for the whole selection, so ONE analyzer-final analyte blocked sign-off of
+  // every other result a pathologist selected with it.
+  it('signs a mixed batch of preliminary and analyzer-final results together', async () => {
+    const episode = await seedEpisode({
+      analytes: [{ testCode: 'S2A-MIX-P' }, { testCode: 'S2A-MIX-F', status: 'final' }],
+    });
+    const response = await pathologist.post('/api/v1/lab/pathologist/signoff')
+      .set('Idempotency-Key', `${KEY_PREFIX}-analyzer-final-mixed`)
+      .send({ result_ids: episode.resultIds, decision: 'verified' });
+
+    expect(response.statusCode).toBe(200);
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT id, status, signed_off_at FROM lab_results
+        WHERE id = ANY($1::int[]) ORDER BY id`,
+      episode.resultIds,
+    );
+    expect(rows).toHaveLength(2);
+    for (const row of rows) expect(row.signed_off_at).toBeTruthy();
+    expect(rows.map((r) => String(r.status).toLowerCase()).sort()).toEqual(['final', 'final']);
+  });
+
+  // The guard must still refuse an already-signed row. Widening the eligible
+  // statuses must not become "any status signs".
+  it('still refuses a second initial sign-off of an analyzer-final result', async () => {
+    const episode = await seedEpisode({ analytes: [{ status: 'final' }] });
+    const body = { result_ids: episode.resultIds, decision: 'verified' };
+    const first = await pathologist.post('/api/v1/lab/pathologist/signoff')
+      .set('Idempotency-Key', `${KEY_PREFIX}-analyzer-final-once`)
+      .send(body);
+    expect(first.statusCode).toBe(200);
+
+    const second = await pathologist.post('/api/v1/lab/pathologist/signoff')
+      .set('Idempotency-Key', `${KEY_PREFIX}-analyzer-final-twice`)
+      .send(body);
+    expect(second.statusCode).toBe(409);
+    expect(second.body.details?.code || second.body.code).toBe('LAB_SIGNOFF_ILLEGAL_INITIAL_STATE');
+  });
+
+  // The corrective branch is NOT relaxed: it still requires a signed
+  // predecessor, so an unsigned analyzer-final cannot be corrected directly.
+  it('does not let an unsigned analyzer-final result take the corrective branch', async () => {
+    const episode = await seedEpisode({ analytes: [{ status: 'final' }] });
+    await expect(signOffResults({
+      tenantId: TENANT,
+      signed_off_by: PATHOLOGIST_UID,
+      signed_off_by_role: 'PATHOLOGIST',
+      actorRoles: ['PATHOLOGIST'],
+      actorRawRole: 'PATHOLOGIST',
+      result_ids: episode.resultIds,
+      decision: 'corrected',
+    })).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  // The corrective predecessor lookup used to demand that a prior sign-off
+  // covered EXACTLY the id set being corrected. Two ordinary pathologist
+  // sequences produced a shape that had never existed, so the correction failed
+  // LAB_SIGNOFF_CORRECTION_PROVENANCE_REQUIRED and no retry could clear it.
+  async function markChanged(id) {
+    await prisma.$executeRawUnsafe(
+      `UPDATE lab_results
+          SET value_text = '9.9', value_numeric = 9.9,
+              updated_at = NOW() + interval '1 second'
+        WHERE id = $1::int AND tenant_id = $2::uuid`,
+      id, TENANT,
+    );
+  }
+
+  function correctiveSignOff(ids, decision = 'corrected') {
+    return signOffResults({
+      tenantId: TENANT,
+      signed_off_by: PATHOLOGIST_UID,
+      signed_off_by_role: 'PATHOLOGIST',
+      actorRoles: ['PATHOLOGIST'],
+      actorRawRole: 'PATHOLOGIST',
+      result_ids: ids,
+      decision,
+    });
+  }
+
+  it('corrects one analyte of a panel that was signed as a single batch', async () => {
+    const episode = await seedEpisode({
+      analytes: [{ testCode: 'S2A-SUB-A' }, { testCode: 'S2A-SUB-B' }],
+    });
+    const [a] = episode.resultIds;
+    await pathologist.post('/api/v1/lab/pathologist/signoff')
+      .set('Idempotency-Key', `${KEY_PREFIX}-subset-initial`)
+      .send({ result_ids: episode.resultIds, decision: 'verified' })
+      .expect(200);
+
+    await markChanged(a);
+    await expect(correctiveSignOff([a])).resolves.toBeDefined();
+
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT status FROM lab_results WHERE id = $1::int`, a,
+    );
+    expect(String(rows[0].status).toLowerCase()).toBe('corrected');
+  });
+
+  it('corrects two analytes together that were signed under separate batches', async () => {
+    const episode = await seedEpisode({
+      analytes: [{ testCode: 'S2A-SEP-A' }, { testCode: 'S2A-SEP-B' }],
+    });
+    const [a, b] = episode.resultIds;
+    await pathologist.post('/api/v1/lab/pathologist/signoff')
+      .set('Idempotency-Key', `${KEY_PREFIX}-sep-a`)
+      .send({ result_ids: [a], decision: 'verified' })
+      .expect(200);
+    await pathologist.post('/api/v1/lab/pathologist/signoff')
+      .set('Idempotency-Key', `${KEY_PREFIX}-sep-b`)
+      .send({ result_ids: [b], decision: 'verified' })
+      .expect(200);
+
+    await markChanged(a);
+    await markChanged(b);
+    // No single stored sign-off covers {a, b}; the baseline is the LATEST
+    // sign-off overlapping them, which is b's.
+    await expect(correctiveSignOff([a, b], 'amended')).resolves.toBeDefined();
+  });
+
+  // The provenance requirement itself must NOT be weakened: overlap changes
+  // which sign-off dates the generation, not whether a change is required.
+  it('still refuses a correction when nothing changed after the predecessor', async () => {
+    const episode = await seedEpisode({ analytes: [{ testCode: 'S2A-NOCHANGE' }] });
+    await pathologist.post('/api/v1/lab/pathologist/signoff')
+      .set('Idempotency-Key', `${KEY_PREFIX}-nochange`)
+      .send({ result_ids: episode.resultIds, decision: 'verified' })
+      .expect(200);
+
+    await expect(correctiveSignOff(episode.resultIds)).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'LAB_SIGNOFF_CORRECTION_PROVENANCE_REQUIRED',
+    });
+  });
+
+  it('still refuses a correction of a result that was never signed', async () => {
+    const episode = await seedEpisode({ analytes: [{ testCode: 'S2A-UNSIGNED' }] });
+    await markChanged(episode.resultIds[0]);
+    await expect(correctiveSignOff(episode.resultIds)).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'LAB_SIGNOFF_CORRECTION_PREDECESSOR_REQUIRED',
+    });
   });
 
   it('rejects a cross-episode batch before creating a sign-off', async () => {
