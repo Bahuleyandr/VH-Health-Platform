@@ -42,6 +42,19 @@
 -- because they carry patient_uid and a patient merge rewrites that column inside
 -- one transaction. No key on this table names a patient, so none of these needs
 -- to defer.
+--
+-- The case FK's ON DELETE CASCADE is a declaration of intent, not a path this
+-- deployment exercises: migration 753's identity guard makes cath_lab_cases
+-- append-only, so no case row is ever deleted and the cascade never fires. It
+-- is declared anyway so a future hard-delete path (a tenant erasure, a merge
+-- tool) cannot leave a readiness snapshot orphaned behind it.
+--
+-- Copy-target widths. value_text VARCHAR(255), unit VARCHAR(40), abnormal_flag
+-- VARCHAR(10) and value_numeric NUMERIC(15, 4) below deliberately MIRROR the
+-- lab_results columns they are copied from by the refresh. They are not
+-- independent choices: widening lab_results.value_text (say) without widening
+-- this table would make the refresh fail on the first long value with 22001,
+-- inside a cath-case read. Widen the two together.
 
 BEGIN;
 
@@ -77,9 +90,13 @@ CREATE TABLE cath_lab_readiness_settings (
   created_at TIMESTAMPTZ(6) NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT NOW(),
   -- Containment, not equality: a tenant may require fewer items, never an item
-  -- the readiness engine has no evaluator for.
+  -- the readiness engine has no evaluator for — and never NONE. An empty
+  -- required_items array would leave `labs` a check that passes on an empty
+  -- set, which is the bare human tick this table exists to replace; a tenant
+  -- that wants no lab gate marks the check not required on the case instead.
   CONSTRAINT cath_lab_readiness_settings_items_check
-    CHECK (required_items <@ ARRAY['hb', 'platelets', 'creatinine', 'potassium', 'hiv', 'hbsag', 'hcv']::text[]),
+    CHECK (required_items <@ ARRAY['hb', 'platelets', 'creatinine', 'potassium', 'hiv', 'hbsag', 'hcv']::text[]
+           AND cardinality(required_items) >= 1),
   CONSTRAINT cath_lab_readiness_settings_validity_check
     CHECK (lab_validity_days BETWEEN 1 AND 365)
 );
@@ -156,7 +173,10 @@ CREATE TABLE cath_case_lab_readiness_items (
   CONSTRAINT ux_cath_case_lab_readiness_items UNIQUE (tenant_id, case_id, item_code)
 );
 
-CREATE INDEX idx_cath_case_lab_readiness_items_case ON cath_case_lab_readiness_items (tenant_id, case_id);
+-- No separate (tenant_id, case_id) index: that is a strict leading prefix of
+-- ux_cath_case_lab_readiness_items (tenant_id, case_id, item_code), which the
+-- planner already uses for every per-case lookup. A second index would only
+-- add write cost and one more lock target.
 
 -- ---------------------------------------------------------------------------
 -- 4. lab_results provenance for outside-laboratory values
@@ -177,10 +197,11 @@ ALTER TABLE lab_results
   -- IS DISTINCT FROM, not <>: a NULL origin must not make the implication
   -- unknown (and therefore satisfied by nothing being checked at all). An
   -- outside value that cannot name the laboratory it came from or the day it
-  -- was reported is not provenance.
+  -- was reported is not provenance — and neither is a name of spaces, which is
+  -- why the test is NULLIF(btrim(...), '') rather than IS NOT NULL.
   ADD CONSTRAINT lab_results_external_origin_check
     CHECK (result_origin IS DISTINCT FROM 'external_lab'
-           OR (external_lab_name IS NOT NULL AND external_reported_on IS NOT NULL));
+           OR (NULLIF(btrim(external_lab_name), '') IS NOT NULL AND external_reported_on IS NOT NULL));
 
 CREATE INDEX idx_lab_results_external_origin ON lab_results (tenant_id, patient_uid, result_origin)
   WHERE result_origin = 'external_lab';

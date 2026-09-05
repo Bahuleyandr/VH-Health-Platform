@@ -26839,7 +26839,6 @@ model cath_case_lab_readiness_items {
   refreshed_at     DateTime  @default(now()) @db.Timestamptz(6)
 
   @@unique([tenant_id, case_id, item_code], map: "ux_cath_case_lab_readiness_items")
-  @@index([tenant_id, case_id], map: "idx_cath_case_lab_readiness_items_case")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
