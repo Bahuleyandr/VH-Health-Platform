@@ -49,6 +49,7 @@ import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 import {
   CATH_CATEGORIES,
   CATH_DEVICE_CYCLE_TYPES,
+  CATH_REPROCESSING_POLICIES_QUERY_KEY,
   IMPLANT_CATEGORIES,
   getCathReprocessingSettings,
   listCathReprocessingPolicies,
@@ -71,7 +72,9 @@ const panelClass =
   "rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:text-rose-300";
 
 const SETTINGS_QUERY_KEY = ["cath", "reprocessing", "settings"] as const;
-const POLICIES_QUERY_KEY = ["cath", "reprocessing", "policies"] as const;
+// Shared with the CSSD Devices tab, which builds its cycle-type picker from
+// the same cache entry (src/lib/api/cathDevices.ts).
+const POLICIES_QUERY_KEY = CATH_REPROCESSING_POLICIES_QUERY_KEY;
 
 // `upsertReprocessingSettings` runs the window through
 // `positiveInt(..., { max: 365 })`: decimal digits only, 1..365. Enforced here

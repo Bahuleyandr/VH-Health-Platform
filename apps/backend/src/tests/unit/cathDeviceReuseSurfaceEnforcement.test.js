@@ -16,10 +16,18 @@
  *      date). Cath report-read admits RECEPTIONIST and TECHNICIAN, who need the
  *      DECISION but have no business reading which marker came back reactive.
  *
+ *   3. THE PRINTED DEVICE LABEL CARRIES NO PATIENT DATA. The label is a
+ *      physical artefact that leaves the department on the device, and the
+ *      register column that is not device identity — exposure_markers — names
+ *      a blood-borne marker a previous patient tested reactive for. The key
+ *      set is asserted whole, for every role the /devices sub-tree admits.
+ *
  * Census-style siblings (cathLabRouteGuards, cathDeviceReuseRouteWiring) pin
  * the wiring; they cannot fail if the audit call or the projection is deleted,
  * because in both of them the handler body is never run.
  */
+
+import zlib from 'node:zlib';
 
 import { jest } from '@jest/globals';
 import express from 'express';
@@ -133,11 +141,17 @@ jest.unstable_mockModule('../../middleware/routePatientAccessGuards.js', () => (
 
 const { default: cathLabRoutes } = await import('../../routes/clinical/cathLabRoutes.js');
 const { default: governanceRoutes } = await import('../../routes/clinical/cathReprocessingPolicyRoutes.js');
+const { default: cssdRoutes } = await import('../../routes/cssd/cssdRoutes.js');
 const { requireRole } = await import('../../middleware/rbacMiddleware.js');
-const { DEVICE_HISTORY_PHI_BATCH_CAP } = await import('../../services/clinical/cathDeviceReuseService.js');
+const {
+  DEVICE_HISTORY_PHI_BATCH_CAP,
+  DEVICE_LABEL_FIELDS,
+} = await import('../../services/clinical/cathDeviceReuseService.js');
 const {
   CATH_LAB_ROUTE_ROLES,
   CATH_REPROCESSING_POLICY_ROUTE_ROLES,
+  CSSD_DEVICE_ROUTE_ROLES,
+  CSSD_ROUTE_ROLES,
 } = await import('../../config/routeRolePolicy.js');
 
 function appFor(role) {
@@ -155,7 +169,55 @@ function appFor(role) {
     requireRole(...CATH_REPROCESSING_POLICY_ROUTE_ROLES),
     governanceRoutes,
   );
+  // The CSSD mount, exactly as app.js builds it: the wide mount audience, and
+  // the router's own narrowing of the /devices sub-tree inside it.
+  app.use('/api/v1/cssd', requireRole(...CSSD_ROUTE_ROLES), cssdRoutes);
   return app;
+}
+
+/** Collect a binary response body — the label's default answer is a PDF. */
+function binaryParser(res, callback) {
+  const chunks = [];
+  res.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
+  res.on('end', () => callback(null, Buffer.concat(chunks)));
+}
+
+/**
+ * Every string the PDF actually DRAWS, in draw order.
+ *
+ * `%PDF-` and a `content-type` prove a PDF was produced; they prove nothing
+ * about what is printed on it, and a leak on a sticker is a leak of the PDF's
+ * TEXT. So this opens it: PDFKit writes the page's content stream Flate-
+ * compressed, so each `stream ... endstream` payload is inflated, and the text
+ * is read back out of the `[<hex> 0] TJ` show operators the standard-14 fonts
+ * emit. Hex digits decode as WinAnsi, which is Latin-1 over the range a label
+ * can carry (the `·` separator included).
+ *
+ * Deliberately NOT a `{ compress: false }` switch on the renderer: a test-only
+ * flag would assert against a document the printer never receives.
+ */
+const WIN_ANSI = new TextDecoder('windows-1252');
+function pdfTextLines(pdf) {
+  let content = '';
+  for (let index = 0; ;) {
+    const start = pdf.indexOf('stream', index);
+    if (start < 0) break;
+    const end = pdf.indexOf('endstream', start);
+    if (end < 0) break;
+    let from = start + 'stream'.length;
+    if (pdf[from] === 0x0d) from += 1;
+    if (pdf[from] === 0x0a) from += 1;
+    try {
+      content += zlib.inflateSync(pdf.subarray(from, end)).toString('latin1');
+    } catch {
+      // A stream that is not Flate (an embedded font, say) carries no text.
+    }
+    index = end + 1;
+  }
+  return [...content.matchAll(/\[([^\]]*)\]\s*TJ/g)].map(([, show]) =>
+    [...show.matchAll(/<([0-9A-Fa-f]*)>/g)]
+      .map(([, hex]) => WIN_ANSI.decode(Buffer.from(hex, 'hex')))
+      .join(''));
 }
 
 /** Route the stubbed prisma by the SQL each read issues. */
@@ -709,5 +771,225 @@ describe('pre-cath lab readiness: serology VALUES are projected by the same rule
     expect(res.body.data.case.lab_readiness).toBeNull();
     // ...and a case row that carried no readiness list does not grow one.
     expect('readiness' in res.body.data.case).toBe(false);
+  });
+});
+
+describe('the printed CSSD device label carries no patient or serology data', () => {
+  // The physical label travels with the device: out of CSSD, along a corridor,
+  // onto a tray in the cath lab. Everything on it is device identity — tag,
+  // catalogue item, category, cycle N of max, facility, print time — and the
+  // one device column that is NOT identity is exposure_markers, which names a
+  // blood-borne marker a PREVIOUS patient tested reactive for. That belongs on
+  // the console (where a role gate decides who reads it, see the lookup suite
+  // above) and never on a sticker. So the assertion is a key-set equality, for
+  // every role that can reach the route, not a spot check.
+  const LABEL_ROW = {
+    id: 77n,
+    device_tag: 'RP00000077',
+    cycle_count: 1,
+    max_cycles_snapshot: 3,
+    facility_id: 4,
+    status: 'available',
+    item_name: 'Diagnostic catheter',
+    category: 'catheter',
+    facility_name: 'Venkataeswara Hospitals, Nandanam',
+  };
+  // Anything a serology-bearing surface on this router could leak. `patient`
+  // catches patient_uid; the three marker codes catch exposure_markers.
+  const FORBIDDEN = /hbsag|\bhiv\b|\bhcv\b|patient|serolog|exposure|reactive/i;
+
+  beforeEach(() => {
+    dispatch([['FROM cath_reprocessable_devices d', [LABEL_ROW]]]);
+  });
+
+  it.each([...CSSD_DEVICE_ROUTE_ROLES])(
+    'a %s reads exactly the seven label fields and nothing patient-shaped',
+    async (role) => {
+      const res = await request(appFor(role))
+        .get('/api/v1/cssd/devices/77/label?format=json');
+
+      expect(res.status).toBe(200);
+      expect(Object.keys(res.body.data).sort()).toEqual([...DEVICE_LABEL_FIELDS].sort());
+      expect(res.body.data).toMatchObject({
+        device_tag: 'RP00000077',
+        category: 'catheter',
+        catalogue_item: 'Diagnostic catheter',
+        reuse_cycle: 1,
+        max_cycles: 3,
+        facility_name: 'Venkataeswara Hospitals, Nandanam',
+      });
+      // Not just the top-level keys: nothing ANYWHERE in the answer.
+      expect(JSON.stringify(res.body)).not.toMatch(FORBIDDEN);
+    },
+  );
+
+  it('the published seven are the seven the service returns', () => {
+    // DEVICE_LABEL_FIELDS is what the OpenAPI overlay is pinned against
+    // (cathDeviceReuseOpenApiSource.test.js); this asserts the runtime answer
+    // matches it, so neither copy can move alone.
+    expect([...DEVICE_LABEL_FIELDS]).toEqual([
+      'device_tag', 'category', 'catalogue_item', 'reuse_cycle',
+      'max_cycles', 'facility_name', 'printed_at',
+    ]);
+  });
+
+  it('defaults to a PDF, and the bytes really are one', async () => {
+    const res = await request(appFor('OT_NURSE'))
+      .get('/api/v1/cssd/devices/77/label')
+      .buffer(true)
+      .parse(binaryParser);
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('application/pdf');
+    expect(res.body.subarray(0, 5).toString()).toBe('%PDF-');
+    expect(Number(res.headers['content-length'])).toBe(res.body.length);
+  });
+
+  it('the PDF PRINTS exactly the seven fields and nothing else', async () => {
+    // The JSON assertions above cannot see this. The renderer takes the label
+    // object, but what reaches the sticker is whatever it chooses to DRAW —
+    // and a renderer that stamped the exposure marker onto the page would pass
+    // every other test in this file. So the page's own text is read back.
+    const res = await request(appFor('OT_NURSE'))
+      .get('/api/v1/cssd/devices/77/label')
+      .buffer(true)
+      .parse(binaryParser);
+
+    const lines = pdfTextLines(res.body);
+    // Exhaustive, in draw order. `printed_at` is the one field the sticker
+    // renders rather than echoes (ISO-8601 is not a bench-readable stamp), so
+    // it is matched on shape; the other six are matched verbatim.
+    expect(lines).toHaveLength(5);
+    expect(lines.slice(0, 4)).toEqual([
+      'RP00000077',
+      'Diagnostic catheter',
+      'catheter · cycle 1 of 3',
+      'Venkataeswara Hospitals, Nandanam',
+    ]);
+    expect(lines[4]).toMatch(/^Printed \d{4}-\d{2}-\d{2} \d{2}:\d{2} IST$/);
+    // ...and, belt and braces, the same forbidden vocabulary the JSON answer
+    // is held to. This is the assertion a mutation that printed
+    // "EXPOSURE: HBSAG REACTIVE" onto the label has to get past.
+    expect(lines.join('\n')).not.toMatch(FORBIDDEN);
+  });
+
+  it('is never cached — a reprint must re-read the register', async () => {
+    // A label carries the cycle counter, which moves. `labRoutes.js`'s
+    // specimen label sets the same header for the same reason: a browser or
+    // proxy replaying a stale sticker would print a cycle count the register
+    // no longer agrees with.
+    for (const path of ['/api/v1/cssd/devices/77/label', '/api/v1/cssd/devices/77/label?format=json']) {
+      const res = await request(appFor('OT_NURSE')).get(path).buffer(true).parse(binaryParser);
+      expect(res.status).toBe(200);
+      expect(res.headers['cache-control']).toBe('no-store');
+    }
+  });
+
+  it('refuses to print a label for a DISCARDED device', async () => {
+    // The console already hides the button, but the URL is guessable and the
+    // route is the authority: a discarded device is out of circulation, and a
+    // sticker for one is a tag on something nobody may put back in a case.
+    dispatch([['FROM cath_reprocessable_devices d', [{ ...LABEL_ROW, status: 'discarded' }]]]);
+    executeRawUnsafeMock.mockClear();
+
+    const res = await request(appFor('OT_NURSE'))
+      .get('/api/v1/cssd/devices/77/label?format=json');
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('CSSD_DEVICE_LABEL_NOT_PRINTABLE');
+    expect(res.body.details).toMatchObject({ status: 'discarded' });
+    // ...and it refuses BEFORE the audit row: a refused print is not a print.
+    expect(executeRawUnsafeMock.mock.calls.filter(([sql]) =>
+      String(sql).includes('INSERT INTO audit_logs'))).toHaveLength(0);
+  });
+
+  it.each(['awaiting_reprocessing', 'in_cssd', 'available', 'in_case', 'quarantined'])(
+    'still prints for a %s device — only discard is terminal',
+    async (status) => {
+      dispatch([['FROM cath_reprocessable_devices d', [{ ...LABEL_ROW, status }]]]);
+
+      const res = await request(appFor('OT_NURSE'))
+        .get('/api/v1/cssd/devices/77/label?format=json');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.device_tag).toBe('RP00000077');
+    },
+  );
+
+  it('writes one cssd.device.label_printed audit row naming the tag and the format', async () => {
+    executeRawUnsafeMock.mockClear();
+    await request(appFor('OT_NURSE')).get('/api/v1/cssd/devices/77/label?format=json');
+
+    const audits = executeRawUnsafeMock.mock.calls.filter(([sql]) =>
+      String(sql).includes('INSERT INTO audit_logs'));
+    expect(audits).toHaveLength(1);
+    const [, tenantArg, , , action, resource, resourceId, metadata] = audits[0];
+    expect(action).toBe('cssd.device.label_printed');
+    expect(resource).toBe('cath_reprocessable_devices');
+    expect(resourceId).toBe('77');
+    expect(tenantArg).toBe(TENANT);
+    expect(JSON.parse(metadata)).toEqual({ device_tag: 'RP00000077', format: 'json' });
+    // No PHI access row: the label has no patient subject to log one against.
+    expect(logPhiAccess).not.toHaveBeenCalled();
+    expect(logPhiAccessBatch).not.toHaveBeenCalled();
+  });
+
+  it('looks the device up TENANT-PINNED, inside a tenant-scoped transaction', async () => {
+    queryRawUnsafeMock.mockClear();
+    setTenantTx.mockClear();
+    await request(appFor('OT_NURSE')).get('/api/v1/cssd/devices/77/label?format=json');
+
+    const [sql, ...params] = queryRawUnsafeMock.mock.calls
+      .find(([text]) => String(text).includes('FROM cath_reprocessable_devices d'));
+    expect(sql).toContain('d.tenant_id = $1::uuid');
+    // The catalogue and facility joins are tenant-pinned too: a bare id join
+    // would name another tenant's facility on this tenant's label.
+    expect(sql).toContain('c.tenant_id = d.tenant_id');
+    expect(sql).toContain('f.tenant_id = d.tenant_id');
+    expect(params).toEqual([TENANT, 77]);
+    expect(setTenantTx).toHaveBeenCalledWith(TENANT, expect.any(Function));
+  });
+
+  it('an unknown device id is a 404, not an empty label', async () => {
+    dispatch([['FROM cath_reprocessable_devices d', []]]);
+
+    const res = await request(appFor('OT_NURSE'))
+      .get('/api/v1/cssd/devices/999/label?format=json');
+
+    expect(res.status).toBe(404);
+    // AppError codes with no details ride at the TOP level of the envelope,
+    // not under `details` (responseHelper.error's topLevel branch).
+    expect(res.body.code).toBe('CATH_DEVICE_NOT_FOUND');
+  });
+
+  it('a non-numeric id is a 400 before any lookup', async () => {
+    queryRawUnsafeMock.mockClear();
+
+    const res = await request(appFor('OT_NURSE'))
+      .get('/api/v1/cssd/devices/7e2/label?format=json');
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('CATH_LAB_BAD_ID');
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('an unknown format is a 400, not a silent PDF', async () => {
+    const res = await request(appFor('OT_NURSE'))
+      .get('/api/v1/cssd/devices/77/label?format=xlsx');
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe('CSSD_DEVICE_LABEL_FORMAT_INVALID');
+  });
+
+  it('the label is behind the /devices narrowing, not the wider CSSD mount', async () => {
+    // HR_STAFF holds the CSSD mount (the audit-facing board) and not the
+    // device sub-tree. A label print is a device read like any other.
+    const refused = await request(appFor('HR_STAFF'))
+      .get('/api/v1/cssd/devices/77/label?format=json');
+    expect(refused.status).toBe(403);
+
+    // ...and the same account still reads the board it IS admitted for.
+    const board = await request(appFor('HR_STAFF')).get('/api/v1/cssd/board');
+    expect(board.status).toBe(200);
   });
 });

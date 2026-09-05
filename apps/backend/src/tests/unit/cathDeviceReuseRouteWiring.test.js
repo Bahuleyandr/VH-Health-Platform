@@ -2,9 +2,10 @@
  * Wiring census for the two device-reuse surfaces that are NOT on the cath
  * router (those live in cathLabRouteGuards.test.js):
  *
- *   - the CSSD reprocessable-device queue (six routes on cssdRoutes), where the
- *     five state transitions are commands that must each claim an idempotency
- *     key, the queue read must not, and the whole /devices sub-tree is narrowed
+ *   - the CSSD reprocessable-device queue (seven routes on cssdRoutes), where
+ *     the five state transitions are commands that must each claim an
+ *     idempotency key, the two reads — the queue and the printed label — must
+ *     not, and the whole /devices sub-tree is narrowed
  *     to CSSD_DEVICE_ROUTE_ROLES — a strict subset of the mount audience,
  *     because the CSSD mount also admits the audit office and stores/purchase,
  *     and neither of those runs a sterilizer; and
@@ -80,7 +81,17 @@ jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   requireTenantId: (value) => value,
 }));
 
+const renderCathDeviceLabelPdf = jest.fn(async () => Buffer.from('%PDF-1.3 stub'));
+jest.unstable_mockModule('../../services/documents/cathDeviceLabelPdfService.js', () => ({
+  renderCathDeviceLabelPdf,
+}));
+
 const deviceService = {
+  deviceLabel: jest.fn(async () => ({
+    device_tag: 'RP00000077', category: 'catheter', catalogue_item: 'Diagnostic catheter',
+    reuse_cycle: 1, max_cycles: 3, facility_name: 'Main hospital',
+    printed_at: '2026-09-05T00:00:00.000Z',
+  })),
   discardDevice: jest.fn(async () => ({ id: 1, status: 'discarded' })),
   listDevices: jest.fn(async () => []),
   markDeviceReprocessed: jest.fn(async () => ({ id: 1, status: 'available' })),
@@ -94,7 +105,12 @@ const deviceService = {
   deviceHistory: jest.fn(async () => ({ device: { id: 1 }, uses: [], events: [] })),
   logDeviceHistoryAccess: jest.fn(async () => ({ logged: 0, skipped: 0 })),
 };
-jest.unstable_mockModule('../../services/clinical/cathDeviceReuseService.js', () => deviceService);
+// The label route reads the format vocabulary from the service module, so the
+// mock has to carry it — the census would otherwise fail to load the router.
+jest.unstable_mockModule('../../services/clinical/cathDeviceReuseService.js', () => ({
+  ...deviceService,
+  DEVICE_LABEL_FORMATS: Object.freeze(['pdf', 'json']),
+}));
 
 // Plan 3's pre-cath lab readiness policy joined this router - same officers,
 // same mount, same idempotency scope. Mocked for the same reason the device
@@ -189,9 +205,14 @@ const POLICY_ROUTES = [
 
 /** Drive one route's terminal handler with a fake req/res. */
 async function invoke(entry, req) {
-  const res = { statusCode: null, body: null, headersSent: false };
+  const res = { statusCode: null, body: null, sent: null, headers: {}, headersSent: false };
   res.status = (code) => { res.statusCode = code; return res; };
   res.json = (body) => { res.body = body; res.headersSent = true; return res; };
+  // The label route writes a binary body itself, so the stand-in res needs the
+  // two methods that path uses. `headersSent` flips on send() exactly as it
+  // does on json(), which is what tells `wrap` not to envelope the answer.
+  res.setHeader = (name, value) => { res.headers[name] = value; return res; };
+  res.send = (body) => { res.sent = body; res.headersSent = true; return res; };
   await entry.handles[entry.layerCount - 1](req, res, () => {});
   return res;
 }
@@ -219,10 +240,10 @@ beforeEach(() => {
 });
 
 describe('CSSD device queue wiring', () => {
-  it('exposes exactly the queue read and the five transitions', () => {
+  it('exposes exactly the queue read, the label read and the five transitions', () => {
     const deviceRoutes = [...CSSD.keys()].filter((key) => key.includes('/devices'));
     expect(deviceRoutes.sort()).toEqual(
-      ['GET /devices', ...CSSD_COMMANDS.map(([route]) => route)].sort(),
+      ['GET /devices', 'GET /devices/:id/label', ...CSSD_COMMANDS.map(([route]) => route)].sort(),
     );
   });
 
@@ -280,6 +301,48 @@ describe('CSSD device queue wiring', () => {
     for (const [otherRoute, otherFn] of CSSD_COMMANDS) {
       if (otherRoute !== route) expect(deviceService[otherFn]).not.toHaveBeenCalled();
     }
+  });
+
+  it('GET /devices/:id/label takes no idempotency key either — printing is a read', () => {
+    // A label print does not move the device, so burning a claim on it would
+    // make a second print of the same label replay the first response instead
+    // of printing. It is the queue read's sibling, not the transitions'.
+    const entry = CSSD.get('GET /devices/:id/label');
+    expect(entry.claimIndex).toBe(-1);
+    expect(entry.names.some((n) => /idempotency/i.test(n))).toBe(false);
+    expect(entry.layerCount).toBe(1);
+  });
+
+  it('GET /devices/:id/label defaults to the PDF and answers JSON on ?format=json', async () => {
+    const pdfRes = await invoke(CSSD.get('GET /devices/:id/label'), {
+      params: { id: '77' },
+      query: {},
+      user: { uid: ACTOR, role: 'OT_NURSE' },
+      get: () => undefined,
+    });
+    expect(deviceService.deviceLabel).toHaveBeenCalledWith('77', expect.objectContaining({
+      tenantId: TENANT, actorUid: ACTOR, format: 'pdf',
+    }));
+    expect(renderCathDeviceLabelPdf).toHaveBeenCalledTimes(1);
+    expect(pdfRes.headers['Content-Type']).toBe('application/pdf');
+    // The service answered the JSON label; the router must not have put it in
+    // an envelope as well as sending the PDF.
+    expect(pdfRes.body).toBeNull();
+
+    deviceService.deviceLabel.mockClear();
+    renderCathDeviceLabelPdf.mockClear();
+    const jsonRes = await invoke(CSSD.get('GET /devices/:id/label'), {
+      params: { id: '77' },
+      query: { format: 'json' },
+      user: { uid: ACTOR, role: 'OT_NURSE' },
+      get: () => undefined,
+    });
+    expect(deviceService.deviceLabel).toHaveBeenCalledWith('77', expect.objectContaining({
+      format: 'json',
+    }));
+    // No PDF is rendered for a JSON caller: the renderer is the expensive half.
+    expect(renderCathDeviceLabelPdf).not.toHaveBeenCalled();
+    expect(jsonRes.body.data).toMatchObject({ device_tag: 'RP00000077' });
   });
 
   it('GET /devices passes the tenant and the three filters through', async () => {
