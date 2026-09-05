@@ -208,7 +208,7 @@ class _CathReadinessChecklistState extends State<CathReadinessChecklist>
       // audience while keeping `critical_warning`, and a degraded read can
       // leave `lab_readiness` null altogether — so when there is nothing to
       // name the line drops the list rather than rendering the naming copy
-      // with an empty slot in it ("Critical value present: ."). The gate
+      // with an empty slot in it ("Critical values present: ."). The gate
       // itself does not soften: `reasonRequired` still follows `critical`.
       final criticalItems = cathReadinessItemList(
         s,

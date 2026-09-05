@@ -963,7 +963,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.textContaining('Device was already discarded by CSSD'),
+      find.textContaining('CSSD has already marked this device as discarded'),
       findsOneWidget,
     );
     expect(find.textContaining('Post-use recorded'), findsNothing);
