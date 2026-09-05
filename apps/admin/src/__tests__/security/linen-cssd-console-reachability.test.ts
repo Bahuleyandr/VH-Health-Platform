@@ -106,6 +106,10 @@ const CATH_REPROCESSING_CALLS: [string, string][] = [
   ["PUT", "cath-reprocessing/settings"],
   ["GET", "cath-reprocessing/policies"],
   ["PUT", "cath-reprocessing/policies"],
+  // The pre-cath lab readiness policy — a later tenant of the same mount and
+  // the same audience, edited from the Lab readiness tab beside it.
+  ["GET", "cath-reprocessing/lab-readiness-settings"],
+  ["PUT", "cath-reprocessing/lab-readiness-settings"],
   // The mount's one PHI read (it writes a hipaa_access_log row per patient in
   // the answer). No console control calls it yet; pinned so that narrowing the
   // allowlist to /settings and /policies is a failure here rather than a

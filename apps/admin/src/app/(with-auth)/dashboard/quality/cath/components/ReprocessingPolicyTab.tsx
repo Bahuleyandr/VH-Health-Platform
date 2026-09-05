@@ -16,8 +16,11 @@
 // that away — a request that timed out on the wire but committed on the server
 // would be written a second time under a key the server has never seen.
 //
-// Two rules this screen enforces client-side rather than discovering as a 400:
+// Three rules this screen enforces client-side rather than discovering as a
+// 400:
 //
+//   * `serology_validity_days` must be a whole number in 1..365 (see
+//     VALIDITY_RANGE_MESSAGE below).
 //   * Implant categories can never be reprocessable
 //     (CATH_REPROCESSING_IMPLANT_FORBIDDEN), so their toggle is disabled.
 //   * A reprocessable category needs max_cycles AND at least one allowed cycle
@@ -69,6 +72,25 @@ const panelClass =
 
 const SETTINGS_QUERY_KEY = ["cath", "reprocessing", "settings"] as const;
 const POLICIES_QUERY_KEY = ["cath", "reprocessing", "policies"] as const;
+
+// `upsertReprocessingSettings` runs the window through
+// `positiveInt(..., { max: 365 })`: decimal digits only, 1..365. Enforced here
+// so 0, 366, -5 and 1.5 are named at the field rather than coming back as a
+// generic 400 — `min`/`max` are advisory attributes that the browser does not
+// apply to a value set by script and that nothing checks on submit.
+const VALIDITY_MIN_DAYS = 1;
+const VALIDITY_MAX_DAYS = 365;
+const VALIDITY_RANGE_MESSAGE =
+  "Serology validity must be a whole number of days between 1 and 365.";
+
+function validityOutOfRange(days: number | null | undefined) {
+  if (days == null) return false;
+  return (
+    !Number.isInteger(days) ||
+    days < VALIDITY_MIN_DAYS ||
+    days > VALIDITY_MAX_DAYS
+  );
+}
 
 /**
  * The settings form allows a null `serology_validity_days` — the state a
@@ -161,6 +183,9 @@ export default function ReprocessingPolicyTab() {
       if (validityDays == null) {
         throw new Error("Serology validity (days) is required");
       }
+      if (validityOutOfRange(validityDays)) {
+        throw new Error(VALIDITY_RANGE_MESSAGE);
+      }
       const body = {
         reactive_patient_rule: settings.reactive_patient_rule,
         unknown_serology_rule: settings.unknown_serology_rule,
@@ -171,11 +196,17 @@ export default function ReprocessingPolicyTab() {
         settingsKey.keyFor(payloadIdentity({ kind: "settings", body })),
       );
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       settingsKey.reset();
       setSettingsError(null);
       setSettingsDirty(false);
       toast.success("Reprocessing settings saved");
+      // Seed the cache with what the PUT returned BEFORE invalidating. Clearing
+      // `settingsDirty` re-arms the reseed effect, and the only thing in the
+      // cache until the invalidate's refetch lands is the pre-save read — so
+      // without this the form snaps back to the OLD settings the moment the
+      // save succeeds, and a second Save writes those back over the new ones.
+      qc.setQueryData(SETTINGS_QUERY_KEY, data);
       void qc.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY });
     },
     onError: (err: unknown) => {
@@ -190,11 +221,17 @@ export default function ReprocessingPolicyTab() {
         body,
         policiesKey.keyFor(payloadIdentity({ kind: "policies", body })),
       ),
-    onSuccess: () => {
+    onSuccess: (data) => {
       policiesKey.reset();
       setPolicyError(null);
       setPoliciesDirty(false);
       toast.success("Category policies saved");
+      // Seed the cache with what the PUT returned BEFORE invalidating. Clearing
+      // `policiesDirty` re-arms the reseed effect, and the only thing in the
+      // cache until the invalidate's refetch lands is the pre-save read — so
+      // without this the grid snaps back to the OLD policies the moment the
+      // save succeeds, and a second Save writes those back over the new ones.
+      qc.setQueryData(POLICIES_QUERY_KEY, data);
       void qc.invalidateQueries({ queryKey: POLICIES_QUERY_KEY });
     },
     onError: (err: unknown) => {
@@ -253,6 +290,7 @@ export default function ReprocessingPolicyTab() {
 
   const settingsReady = settingsQuery.isSuccess && settings !== null;
   const validityMissing = settings?.serology_validity_days == null;
+  const validityBadRange = validityOutOfRange(settings?.serology_validity_days);
 
   return (
     <div className="space-y-6">
@@ -338,10 +376,17 @@ export default function ReprocessingPolicyTab() {
                 Enter a serology validity window (1–365 days) before saving.
               </p>
             ) : null}
+            {validityBadRange ? (
+              <p className="text-xs text-rose-700 dark:text-rose-300">
+                {VALIDITY_RANGE_MESSAGE}
+              </p>
+            ) : null}
             <button
               type="button"
               onClick={() => saveSettings.mutate()}
-              disabled={saveSettings.isPending || validityMissing}
+              disabled={
+                saveSettings.isPending || validityMissing || validityBadRange
+              }
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
               {saveSettings.isPending ? "Saving…" : "Save settings"}

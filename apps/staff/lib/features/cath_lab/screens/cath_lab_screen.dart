@@ -22,6 +22,9 @@ import '../widgets/cath_case_reports_panel.dart';
 import '../widgets/cath_schedule_strip.dart';
 import '../widgets/cath_case_consumables_panel.dart';
 import '../widgets/cath_quick_wins_panel.dart';
+import '../models/cath_readiness_models.dart';
+import '../widgets/cath_readiness_checklist.dart';
+import '../widgets/cath_readiness_formatting.dart';
 import '../widgets/cath_reuse_restriction_strip.dart';
 
 typedef CathLabCaseLoader = Future<List<CathLabCaseSummary>> Function(
@@ -79,6 +82,7 @@ class CathLabScreen extends StatefulWidget {
     this.reportDependencies = const CathReportDependencies(),
     this.consumableDependencies = const CathConsumableDependencies(),
     this.quickWinsDependencies = const CathQuickWinsDependencies(),
+    this.readinessDependencies = const CathReadinessDependencies(),
   });
 
   final CathLabCaseLoader? loadCases;
@@ -92,6 +96,7 @@ class CathLabScreen extends StatefulWidget {
   final CathReportDependencies reportDependencies;
   final CathConsumableDependencies consumableDependencies;
   final CathQuickWinsDependencies quickWinsDependencies;
+  final CathReadinessDependencies readinessDependencies;
 
   @override
   State<CathLabScreen> createState() => _CathLabScreenState();
@@ -437,9 +442,15 @@ class _CathLabScreenState extends State<CathLabScreen>
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: cases.length,
+      // Keyed by case id. Without it the builder's keyless children are
+      // matched by POSITION, so replacing `_cases` (a date change, a
+      // pull-to-refresh, a realtime poll) hands a retained readiness State a
+      // different case while it still shows the previous one's items.
       itemBuilder: (context, index) => _ReadinessCard(
+        key: ValueKey(cases[index].id),
         cathCase: cases[index],
         quickWinsDependencies: widget.quickWinsDependencies,
+        readinessDependencies: widget.readinessDependencies,
       ),
     );
   }
@@ -954,18 +965,42 @@ class _CathLabCaseCard extends StatelessWidget {
   }
 }
 
-class _ReadinessCard extends StatelessWidget {
+class _ReadinessCard extends StatefulWidget {
   const _ReadinessCard({
+    super.key,
     required this.cathCase,
     this.quickWinsDependencies = const CathQuickWinsDependencies(),
+    this.readinessDependencies = const CathReadinessDependencies(),
   });
 
   final CathLabCaseSummary cathCase;
   final CathQuickWinsDependencies quickWinsDependencies;
+  final CathReadinessDependencies readinessDependencies;
+
+  @override
+  State<_ReadinessCard> createState() => _ReadinessCardState();
+}
+
+class _ReadinessCardState extends State<_ReadinessCard> {
+  /// What the checklist below has loaded, so the header can carry the two
+  /// signals a collapsed card has to show. Null while unknown.
+  ///
+  /// It has to come from the checklist: `GET /cath-lab/cases` carries only
+  /// `readiness_total` / `readiness_cleared` — two COUNTS over the eight check
+  /// rows — and no lab-item detail at all, so nothing in the list payload can
+  /// say which items are missing or whether a value is critical.
+  final ValueNotifier<CathCaseReadiness?> _signals = ValueNotifier(null);
+
+  @override
+  void dispose() {
+    _signals.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final s = AppStrings.of(context);
+    final cathCase = widget.cathCase;
     final color = cathCase.readinessComplete
         ? AppTheme.successGreen
         : AppTheme.warningAmber;
@@ -977,6 +1012,11 @@ class _ReadinessCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _CaseHeader(cathCase: cathCase),
+            ValueListenableBuilder<CathCaseReadiness?>(
+              valueListenable: _signals,
+              builder: (context, readiness, _) =>
+                  _headerSignals(s, readiness?.labs),
+            ),
             const SizedBox(height: 14),
             ClipRRect(
               borderRadius: BorderRadius.circular(8),
@@ -1018,12 +1058,97 @@ class _ReadinessCard extends StatelessWidget {
                 ),
               ],
             ),
+            CathReadinessChecklist(
+              caseId: cathCase.id,
+              dependencies: widget.readinessDependencies,
+              signals: _signals,
+            ),
             CathQuickWinsPanel(
               caseId: cathCase.id,
-              dependencies: quickWinsDependencies,
+              dependencies: widget.quickWinsDependencies,
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  /// The two signals spec 10 asks the case header to carry: what is missing,
+  /// and whether a resolved value is critical. Both are read from the loaded
+  /// lab block, never from the list payload's cleared/total counts — a case
+  /// can be 8/8 on the check rows and still be sitting on a potassium of 6.9.
+  Widget _headerSignals(AppStrings s, CathLabReadiness? labs) {
+    if (labs == null) return const SizedBox.shrink();
+    final missing = labs.missing;
+    if (missing.isEmpty && !labs.criticalWarning) {
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.only(top: 10),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          if (missing.isNotEmpty)
+            Container(
+              key: const ValueKey('cath-readiness-header-missing'),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppTheme.warningAmber.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: AppTheme.warningAmber.withValues(alpha: 0.4),
+                ),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    Icons.warning_amber_rounded,
+                    size: 16,
+                    color: AppTheme.warningAmber,
+                  ),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      s.format('s4.lib.cath_lab.readiness.header.missing', {
+                        'items': cathReadinessItemList(
+                          s,
+                          missing.map((entry) => entry.item),
+                        ),
+                      }),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.warningAmber,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (labs.criticalWarning)
+            Container(
+              key: const ValueKey('cath-readiness-header-critical'),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: AppTheme.errorRed.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: AppTheme.errorRed.withValues(alpha: 0.4),
+                ),
+              ),
+              child: Text(
+                s.lookup('s4.lib.cath_lab.readiness.critical_value'),
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.errorRed,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

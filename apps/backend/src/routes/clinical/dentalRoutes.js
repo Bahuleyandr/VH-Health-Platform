@@ -19,7 +19,23 @@ import { success, relayAppError } from '../../utils/responseHelper.js';
 import { patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import { ACCESS_POLICY_CODES } from '../../services/security/accessPolicyRegistry.js';
 
+import { routePatientGuard } from '../../middleware/routePatientAccessGuards.js';
+
 const router = express.Router();
+
+// Per-route patient guard. The mount-level patientAccessGuard could never
+// decide this route: mount middleware runs before Express binds the path
+// param, so it saw req.params = {} and returned no_patient_context without
+// evaluating a policy. routePatientAccessGuards.js carries the full
+// rationale, the selector contract and the shadow-mode posture.
+//
+// One guard serves both reads below: they take the same :uid and are about
+// the same subject, so splitting them would only duplicate the selector.
+const guardDentalPatientView = routePatientGuard('CLINICAL_WORKFLOW', {
+  tag: 'dental:patient-uid-param',
+  patientSelector: (req) => ({ uid: req.params?.uid }),
+});
+
 
 // These three transitions mutate a named patient's dental record under a
 // FINDING or PROCEDURE id. The mount guard cannot see :id, so no
@@ -79,7 +95,7 @@ router.post('/findings/:id/resolve', guardDentalFindingWrite, async (req, res) =
   }
 });
 
-router.get('/patients/:uid/chart', async (req, res) => {
+router.get('/patients/:uid/chart', guardDentalPatientView, async (req, res) => {
   try {
     const chart = await getChart(req.params.uid, { tenantId: tenantOf(req) });
     return success(res, { chart }, 'Dental chart');
@@ -133,7 +149,7 @@ router.post('/procedures/:id/cancel', guardDentalProcedureWrite, async (req, res
   }
 });
 
-router.get('/patients/:uid/procedures', async (req, res) => {
+router.get('/patients/:uid/procedures', guardDentalPatientView, async (req, res) => {
   try {
     const procedures = await listProcedures(req.params.uid, {
       tenantId: tenantOf(req),

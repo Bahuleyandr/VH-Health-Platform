@@ -18,7 +18,20 @@ import { success, relayAppError } from '../../utils/responseHelper.js';
 import { patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import { ACCESS_POLICY_CODES } from '../../services/security/accessPolicyRegistry.js';
 
+import { routePatientGuard } from '../../middleware/routePatientAccessGuards.js';
+
 const router = express.Router();
+
+// Per-route patient guard. The mount-level patientAccessGuard could never
+// decide this route: mount middleware runs before Express binds the path
+// param, so it saw req.params = {} and returned no_patient_context without
+// evaluating a policy. routePatientAccessGuards.js carries the full
+// rationale, the selector contract and the shadow-mode posture.
+const guardOphthalmicHistory = routePatientGuard('CLINICAL_WORKFLOW', {
+  tag: 'ophthalmology:patient-uid-param',
+  patientSelector: (req) => ({ uid: req.params?.uid }),
+});
+
 
 // The spectacles-prescription PDF streams a named patient's refraction
 // under an EXAM id. The mount's patientAccessGuard('CLINICAL_WORKFLOW')
@@ -151,7 +164,7 @@ router.get('/exams/:id/spectacles-rx.pdf', guardOphthalmicExamRead, async (req, 
   }
 });
 
-router.get('/patients/:uid/history', async (req, res) => {
+router.get('/patients/:uid/history', guardOphthalmicHistory, async (req, res) => {
   try {
     const history = await getPatientHistory(req.params.uid, {
       tenantId: tenantOf(req),

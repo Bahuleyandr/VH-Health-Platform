@@ -8,8 +8,9 @@
 //     the wards, infection control, quality, platform admin) because a discard
 //     is irreversible and the wider /cssd mount carries audit and supply-chain
 //     roles that never touch a device.
-//   * `/api/v1/cath-reprocessing/*` — the governance settings and the per-
-//     category policy. These four operations used to sit on the admin
+//   * `/api/v1/cath-reprocessing/*` — the governance settings, the per-
+//     category policy, and (a later tenant, same audience) the pre-cath lab
+//     readiness policy. The first four operations used to sit on the admin
 //     cath-consumables barrel behind ADMIN_ROUTE_ROLES, which could never admit
 //     the QUALITY_OFFICER / INFECTION_CONTROL_OFFICER the route-level gate
 //     named; they now have their own mount and their own audience
@@ -19,7 +20,8 @@
 // because every write here is mounted with
 // `requireIdempotencyKey({ required: true })` and `fetchAdminAPI` carries no
 // way to attach the header. Scopes: `cssd_device_transition` for the five
-// device transitions, `cath_reprocessing_policy` for both policy PUTs.
+// device transitions, `cath_reprocessing_policy` for all three governance PUTs
+// (reprocessing settings, category policies, lab readiness settings).
 //
 // The key is a REQUIRED parameter on every mutation, exactly as in
 // `cathConsumables.upsertCathConsumable`. It is minted and reset by the React
@@ -48,6 +50,15 @@ export const CATH_REPROCESSING_SETTINGS_PATH =
   "/api/v1/cath-reprocessing/settings" as const;
 export const CATH_REPROCESSING_POLICIES_PATH =
   "/api/v1/cath-reprocessing/policies" as const;
+/**
+ * The pre-cath lab checklist policy. It is NOT device reuse, but it is the
+ * same governance audience deciding the same kind of question, so the backend
+ * hung it off this mount rather than the platform-admin cath-consumables
+ * barrel — whose ADMIN_ROUTE_ROLES can never admit the quality / infection
+ * control officers who own it.
+ */
+export const CATH_LAB_READINESS_SETTINGS_PATH =
+  "/api/v1/cath-reprocessing/lab-readiness-settings" as const;
 
 /** One row of GET /api/v1/cssd/devices — the spec's CathReprocessableDevice. */
 export type CathDevice = ApiData<typeof CSSD_DEVICES_PATH, "get">[number];
@@ -95,6 +106,17 @@ export type CathReprocessingPolicyInput = ApiBody<
   "put"
 >["policies"][number];
 
+export type CathLabReadinessSettings = ApiData<
+  typeof CATH_LAB_READINESS_SETTINGS_PATH,
+  "get"
+>["settings"];
+export type CathLabReadinessSettingsInput = ApiBody<
+  typeof CATH_LAB_READINESS_SETTINGS_PATH,
+  "put"
+>;
+export type CathLabReadinessItem =
+  CathLabReadinessSettings["required_items"][number];
+
 /**
  * Runtime mirrors of the spec enums. `satisfies` pins each list to the
  * generated type, so a backend enum change fails type-check here instead of
@@ -141,6 +163,50 @@ export const CATH_CATEGORIES = [
   "lead",
   "other",
 ] as const satisfies readonly CathCategory[];
+
+/**
+ * Mirror of `LAB_ANALYTE_ITEM_CODES` in
+ * `apps/backend/src/services/lab/labAnalyteCodes.js`, in the order the
+ * checklist reads. The backend refuses a code outside this set
+ * (`CATH_LAB_READINESS_ITEM_UNKNOWN`) and refuses an empty set outright
+ * (`CATH_LAB_READINESS_ITEMS_EMPTY`).
+ */
+export const CATH_LAB_READINESS_ITEMS = [
+  "hb",
+  "platelets",
+  "creatinine",
+  "potassium",
+  "hiv",
+  "hbsag",
+  "hcv",
+] as const satisfies readonly CathLabReadinessItem[];
+
+/**
+ * Display names. The wire values are analyte codes, not words: `humanize`
+ * would render "hb" and "hbsag" verbatim, which is neither how a lab report
+ * reads nor how a screen reader should announce the checkbox.
+ */
+export const CATH_LAB_READINESS_ITEM_LABELS: Readonly<
+  Record<CathLabReadinessItem, string>
+> = {
+  hb: "Haemoglobin",
+  platelets: "Platelets",
+  creatinine: "Creatinine",
+  potassium: "Potassium",
+  hiv: "HIV",
+  hbsag: "HBsAg",
+  hcv: "HCV",
+};
+
+/**
+ * Mirror of `BLOODBORNE_MARKER_ITEM_CODES` (the items whose analyte carries a
+ * `marker`). Their freshness is judged against the REUSE programme's
+ * `serology_validity_days`, not `lab_validity_days` — one tenant number for
+ * "how long is an HIV/HBsAg/HCV result good for", set on the Reprocessing
+ * policy tab and read here so the editor does not imply a second window.
+ */
+export const CATH_LAB_READINESS_SEROLOGY_ITEMS: ReadonlySet<CathLabReadinessItem> =
+  new Set<CathLabReadinessItem>(["hiv", "hbsag", "hcv"]);
 
 /**
  * Mirror of IMPLANT_CATEGORIES in
@@ -292,6 +358,32 @@ export function updateCathReprocessingPolicies(
   return putJSON<CathReprocessingPoliciesResult>(
     CATH_REPROCESSING_POLICIES_PATH,
     { policies },
+    true,
+    transitionHeaders(idempotencyKey),
+  );
+}
+
+export function getCathLabReadinessSettings() {
+  return getJSON<{ settings: CathLabReadinessSettings }>(
+    CATH_LAB_READINESS_SETTINGS_PATH,
+  );
+}
+
+/**
+ * A WHOLE-policy replacement, not a patch: `upsertReadinessSettings` writes an
+ * omitted field back at its compiled-in default (all seven items, 30 days,
+ * auto-pass on, outside results count). So the editor always sends all four,
+ * or a tenant that only meant to shorten the window would silently re-require
+ * the items it had switched off. The key carries the same
+ * `cath_reprocessing_policy` scope as the two sibling PUTs on this mount.
+ */
+export function updateCathLabReadinessSettings(
+  body: CathLabReadinessSettingsInput,
+  idempotencyKey: string,
+) {
+  return putJSON<{ settings: CathLabReadinessSettings }>(
+    CATH_LAB_READINESS_SETTINGS_PATH,
+    body,
     true,
     transitionHeaders(idempotencyKey),
   );

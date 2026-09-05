@@ -5,11 +5,87 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
 import 'package:vhhealth_staff/core/config/staff_role_contract.g.dart';
 import 'package:vhhealth_staff/core/services/stemi_pathway_api_service.dart';
+import 'package:vhhealth_staff/features/cath_lab/models/cath_readiness_models.dart';
 import 'package:vhhealth_staff/features/cath_lab/screens/cath_lab_screen.dart';
+import 'package:vhhealth_staff/features/cath_lab/widgets/cath_readiness_checklist.dart';
 import 'package:vhhealth_staff/features/cath_lab/models/cath_consumable_models.dart';
 import 'package:vhhealth_staff/features/cath_lab/models/cath_report_models.dart';
 import 'package:vhhealth_staff/features/cath_lab/services/cath_lab_api_service.dart';
 import 'package:vhhealth_staff/features/cath_lab/widgets/cath_case_reports_panel.dart';
+
+/// The readiness checklist loads on mount; these tests are about the
+/// worklist and its tabs, so they hand it an empty case payload rather
+/// than letting it reach for the network.
+final _noReadiness = CathReadinessDependencies(
+  loadReadiness: (_) async =>
+      CathCaseReadiness.fromJson(const <String, dynamic>{}),
+);
+
+CathLabCaseSummary _case(int id, {String patientName = 'Asha Rao'}) {
+  return CathLabCaseSummary(
+    id: id,
+    patientUid: '11111111-1111-4111-8111-111111111111',
+    patientName: patientName,
+    requestedProcedure: 'Primary PCI',
+    status: 'ready',
+    urgency: 'emergency',
+    labRoom: 'CL-1',
+    plannedStartAt: null,
+    readinessTotal: 8,
+    readinessCleared: 8,
+    procedureCount: 1,
+    doseRecordCount: 1,
+    activePostOrderCount: 2,
+    deviceLinkCount: 1,
+  );
+}
+
+/// A `GET /cath-lab/cases/:id/readiness` body carrying only the `labs` check
+/// and its lab block — the two facts the card header reads.
+CathCaseReadiness _readinessPayload({
+  int caseId = 42,
+  List<Map<String, dynamic>> missing = const [],
+  bool critical = false,
+}) {
+  return CathCaseReadiness.fromJson({
+    'readiness': [
+      {
+        'check_type': 'labs',
+        'status': 'pending',
+        'required': true,
+        'metadata': {'critical_warning': critical, 'auto_managed': true},
+      },
+    ],
+    'readiness_gate': {'ready': false},
+    'lab_readiness': {
+      'case_id': caseId,
+      'check_status': 'pending',
+      'auto_managed': true,
+      'critical_warning': critical,
+      'critical_items': critical ? ['potassium'] : <String>[],
+      'items': <Map<String, dynamic>>[],
+      'missing': missing,
+      'orderable_now': <String>[],
+      'open_order_codes': <String>[],
+      'case_started': false,
+    },
+  });
+}
+
+Widget _screen({
+  required List<CathLabCaseSummary> cases,
+  CathReadinessDependencies? readiness,
+}) {
+  return MaterialApp(
+    home: CathLabScreen(
+      readinessDependencies: readiness ?? _noReadiness,
+      currentStaffUid: 'staff-1',
+      loadStemiActivations: () async => const [],
+      realtimeEvents: (_) => const Stream<RealtimeEvent>.empty(),
+      loadCases: (_) async => cases,
+    ),
+  );
+}
 
 void main() {
   test('consumable capture role gate matches the backend workflow gate', () {
@@ -162,6 +238,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: CathLabScreen(
+          readinessDependencies: _noReadiness,
           currentStaffUid: 'staff-1',
           loadStemiActivations: () async => const [],
           realtimeEvents: (_) => const Stream<RealtimeEvent>.empty(),
@@ -214,6 +291,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: CathLabScreen(
+          readinessDependencies: _noReadiness,
           currentStaffUid: 'staff-1',
           loadStemiActivations: () async => const [],
           realtimeEvents: (_) => const Stream<RealtimeEvent>.empty(),
@@ -265,6 +343,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: CathLabScreen(
+          readinessDependencies: _noReadiness,
           currentStaffUid: 'staff-1',
           loadStemiActivations: () async => const [],
           realtimeEvents: (_) => const Stream<RealtimeEvent>.empty(),
@@ -306,6 +385,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: CathLabScreen(
+          readinessDependencies: _noReadiness,
           currentStaffUid: 'staff-1',
           loadCases: (_) async => const [],
           loadStemiActivations: () async => const [],
@@ -328,6 +408,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: CathLabScreen(
+          readinessDependencies: _noReadiness,
           currentStaffUid: 'staff-1',
           now: () => DateTime.utc(2026, 7, 11, 10, 10, 30),
           loadCases: (_) async => const [],
@@ -379,6 +460,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: CathLabScreen(
+          readinessDependencies: _noReadiness,
           currentStaffUid: 'staff-1',
           now: () => DateTime.utc(2026, 7, 11, 10, 10, 30),
           loadCases: (_) async => const [],
@@ -409,6 +491,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: CathLabScreen(
+            readinessDependencies: _noReadiness,
             currentStaffUid: 'staff-1',
             loadCases: (_) async => const [],
             loadStemiActivations: () async {
@@ -454,6 +537,107 @@ void main() {
     },
   );
 
+  // --- F3: the readiness tab's card identity and header signals ------------
+
+  testWidgets('every readiness card is keyed by its case id (F3)', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _screen(
+        cases: [
+          _case(42),
+          _case(77, patientName: 'Ravi Menon'),
+        ],
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('Readiness'));
+    await tester.pumpAndSettle();
+
+    // The key is what stops a retained readiness State from being handed a
+    // different case when `_cases` is replaced (a date change, a
+    // pull-to-refresh, a realtime poll). Position matching would look right
+    // on screen while every write the row offers aimed at the wrong patient.
+    //
+    // Asserted through the card's own content, not on the bare key: a stray
+    // `ValueKey(42)` anywhere else in the tree would satisfy the key alone,
+    // and it is the CASE-to-card binding that has to hold.
+    for (final entry in const {42: 'Asha Rao', 77: 'Ravi Menon'}.entries) {
+      final card = find.byKey(ValueKey(entry.key));
+      expect(card, findsOneWidget);
+      expect(
+        find.descendant(of: card, matching: find.text(entry.value)),
+        findsOneWidget,
+      );
+    }
+  });
+
+  testWidgets(
+    'the card header carries the missing and critical signals the loaded '
+    'readiness reports (F3)',
+    (tester) async {
+      await tester.pumpWidget(
+        _screen(
+          cases: [_case(42)],
+          readiness: CathReadinessDependencies(
+            loadReadiness: (_) async => _readinessPayload(
+              missing: const [
+                {'item': 'hcv', 'state': 'not_ordered'},
+              ],
+              critical: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.text('Readiness'));
+      await tester.pumpAndSettle();
+
+      // Both come from the LOADED lab block, never from the list payload's
+      // cleared/total counts: this case is 8/8 on the check rows and still
+      // sitting on a critical value with an item nobody has ordered.
+      expect(
+        find.byKey(const ValueKey('cath-readiness-header-missing')),
+        findsOneWidget,
+      );
+      expect(find.text('Labs incomplete: HCV'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('cath-readiness-header-critical')),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets(
+    'a readiness with nothing missing and no critical value shows no header '
+    'signals (F3)',
+    (tester) async {
+      await tester.pumpWidget(
+        _screen(
+          cases: [_case(42)],
+          readiness: CathReadinessDependencies(
+            loadReadiness: (_) async => _readinessPayload(),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.text('Readiness'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('cath-readiness-header-missing')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('cath-readiness-header-critical')),
+        findsNothing,
+      );
+    },
+  );
+
   testWidgets('reports tab expands a case-level report list', (tester) async {
     const cathCase = CathLabCaseSummary(
       id: 42,
@@ -474,6 +658,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: CathLabScreen(
+          readinessDependencies: _noReadiness,
           loadCases: (_) async => const [cathCase],
           loadRole: () async => 'DOCTOR',
           // The merged workbench also boots the STEMI strip; inject inert

@@ -256,3 +256,79 @@ describe('stemiPathwayService team acknowledgement', () => {
     expect(recordCanonicalClinicalEventMock).not.toHaveBeenCalled();
   });
 });
+
+// GET /activations/:id is mounted under STEMI_ROUTE_ROLES, which admits
+// RECEPTIONIST, TECHNICIAN, LAB_STAFF and RADIOLOGIST — an audience far wider
+// than the serology one. The `labs` readiness row's metadata carries the lab
+// rail's own snapshot (`live_evidence`, one entry per item with its value_text
+// and criticality, and `critical_items`); the PCI evidence bundle must not
+// carry it out of the cath readiness surface that gates it by role.
+describe('primary PCI evidence never carries lab values', () => {
+  const LABS_METADATA = {
+    auto_managed: true,
+    critical_warning: true,
+    auto_pending_reason: 'hb stale',
+    live_evidence_refreshed_at: '2026-09-04T10:00:00.000Z',
+    critical_items: ['potassium'],
+    live_evidence: [
+      { item_code: 'hiv', state: 'result_final', value_text: 'Reactive', is_critical: true },
+      { item_code: 'potassium', state: 'result_final', value_text: '6.9', is_critical: true },
+    ],
+  };
+
+  function queueDetailReads(readinessRows) {
+    queryUnsafeMock
+      .mockResolvedValueOnce([activationRow({ cath_case_id: 88 })]) // loadActivation
+      .mockResolvedValueOnce([]) // pathway events
+      .mockResolvedValueOnce([]) // sla instances
+      .mockResolvedValueOnce([]) // team acknowledgements
+      .mockResolvedValueOnce([enabledSettings()]) // settings
+      .mockResolvedValueOnce([{ id: 88, tenant_id: TENANT_ID, status: 'scheduled' }]) // cath case
+      .mockResolvedValueOnce(readinessRows) // readiness checks
+      .mockResolvedValueOnce([]); // procedure logs
+  }
+
+  it('strips live_evidence and critical_items from the labs readiness row, keeping the rest', async () => {
+    queueDetailReads([
+      { id: 1, check_type: 'labs', status: 'pass', metadata: { ...LABS_METADATA } },
+      { id: 2, check_type: 'consent', status: 'pass', metadata: { auto_managed: false } },
+    ]);
+
+    const detail = await stemi.getActivation({ tenantId: TENANT_ID, id: 41 });
+
+    const [labs, consent] = detail.primary_pci_evidence.readiness_checks;
+    expect(labs.metadata).toEqual({
+      auto_managed: true,
+      critical_warning: true,
+      auto_pending_reason: 'hb stale',
+      live_evidence_refreshed_at: '2026-09-04T10:00:00.000Z',
+    });
+    expect(labs.metadata).not.toHaveProperty('live_evidence');
+    expect(labs.metadata).not.toHaveProperty('critical_items');
+    // The row itself is otherwise untouched: this is a metadata strip, not a
+    // narrower projection.
+    expect(labs).toMatchObject({ id: 1, check_type: 'labs', status: 'pass' });
+    expect(consent.metadata).toEqual({ auto_managed: false });
+
+    // Belt and braces against a future key that re-smuggles a value: no
+    // serology token anywhere in the serialised bundle.
+    const serialised = JSON.stringify(detail.primary_pci_evidence);
+    expect(serialised).not.toMatch(/Reactive/i);
+    expect(serialised).not.toMatch(/live_evidence"/);
+    expect(serialised).not.toMatch(/critical_items/);
+  });
+
+  it('leaves a row with no metadata, and one with nothing to strip, alone', async () => {
+    queueDetailReads([
+      { id: 3, check_type: 'imaging', status: 'pending', metadata: null },
+      { id: 4, check_type: 'blood_bank', status: 'pass', metadata: { auto_managed: true } },
+    ]);
+
+    const detail = await stemi.getActivation({ tenantId: TENANT_ID, id: 41 });
+
+    expect(detail.primary_pci_evidence.readiness_checks).toEqual([
+      { id: 3, check_type: 'imaging', status: 'pending', metadata: null },
+      { id: 4, check_type: 'blood_bank', status: 'pass', metadata: { auto_managed: true } },
+    ]);
+  });
+});

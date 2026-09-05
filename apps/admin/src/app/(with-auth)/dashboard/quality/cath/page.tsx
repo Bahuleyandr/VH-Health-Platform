@@ -9,17 +9,25 @@
 // quality, infection control and platform admin. It sits here because those
 // are the hands that set it, and because routePolicy's `quality` segment
 // already admits them.
+//
+// The lab-readiness tab is the same story and the same mount: a tenant policy
+// for the pre-cath labs check, owned by the same officers, read and written at
+// /api/v1/cath-reprocessing/lab-readiness-settings. It sits beside the
+// reprocessing tab because the two share a number — the serology validity
+// window — and an operator who changes one should see the other.
 
 import { useState } from "react";
-import { Activity, ClipboardList, Recycle } from "lucide-react";
+import { Activity, ClipboardList, FlaskConical, Recycle } from "lucide-react";
 import DoseRollupTab from "./components/DoseRollupTab";
 import ComplicationRegistryTab from "./components/ComplicationRegistryTab";
 import ReprocessingPolicyTab from "./components/ReprocessingPolicyTab";
+import LabReadinessSettingsTab from "./components/LabReadinessSettingsTab";
 
 const TABS = [
   { key: "dose", label: "Dose rollup", icon: Activity },
   { key: "registry", label: "Complication registry", icon: ClipboardList },
   { key: "reprocessing", label: "Reprocessing policy", icon: Recycle },
+  { key: "lab-readiness", label: "Lab readiness", icon: FlaskConical },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
@@ -61,8 +69,10 @@ export default function CathQualityPage() {
         <DoseRollupTab />
       ) : activeTab === "registry" ? (
         <ComplicationRegistryTab />
-      ) : (
+      ) : activeTab === "reprocessing" ? (
         <ReprocessingPolicyTab />
+      ) : (
+        <LabReadinessSettingsTab />
       )}
     </div>
   );

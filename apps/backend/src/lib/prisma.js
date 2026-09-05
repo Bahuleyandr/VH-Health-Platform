@@ -1308,7 +1308,9 @@ DECLARE
     'patient_bloodborne_markers',
     'cath_reprocessing_settings',
     'cath_reprocessing_category_policies',
-    'cath_reprocessable_devices'
+    'cath_reprocessable_devices',
+    'cath_lab_readiness_settings',
+    'cath_case_lab_readiness_items'
   ];
   runtime_nextval_sequences CONSTANT TEXT[] := ARRAY[
     'care_pathway_reconciliation_checks_id_seq',
@@ -1321,7 +1323,8 @@ DECLARE
     'hl7_inbound_clinical_receipts_id_seq',
     'scheduled_job_runs_id_seq',
     'patient_bloodborne_markers_id_seq',
-    'cath_reprocessable_devices_id_seq'
+    'cath_reprocessable_devices_id_seq',
+    'cath_case_lab_readiness_items_id_seq'
   ];
   runtime_guard_functions CONSTANT TEXT[] := ARRAY[
     'care_pathway_reconciliation_block_mutation()',

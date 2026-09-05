@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../../../core/services/api_client.dart';
 import '../models/cath_consumable_models.dart';
+import '../models/cath_readiness_models.dart';
 import '../models/cath_report_models.dart';
 
 class CathLabCaseSummary {
@@ -896,6 +897,107 @@ class CathLabApiService {
     throw Exception(
       parsed.failureMessage('Cath Lab report PDF download failed'),
     );
+  }
+
+  /// GET `/cath-lab/cases/:id` — the eight readiness checks, the start gate
+  /// and the lab-readiness block, in one read.
+  ///
+  /// The route answers `{ case: {...} }`, so the case object is unwrapped
+  /// here; the fallback to `data` keeps a future flattening of that envelope
+  /// from blanking the checklist.
+  static Future<CathCaseReadiness> fetchCaseReadiness(int caseId) async {
+    final response = await ApiClient.get('/cath-lab/cases/$caseId');
+    final data = _successfulData(response, 'Failed to load Cath Lab case');
+    final raw = data['case'] is Map
+        ? Map<String, dynamic>.from(data['case'] as Map)
+        : data;
+    return CathCaseReadiness.fromJson(raw);
+  }
+
+  /// POST `/cath-lab/cases/:id/readiness` — the human status control over one
+  /// check. The labs check is auto-managed, so a human status set here may be
+  /// flipped back by the next refresh; that is the intended precedence.
+  static Future<void> updateReadinessCheck(
+    int caseId, {
+    required String checkType,
+    required String status,
+    String? notes,
+  }) async {
+    final response = await ApiClient.post(
+      '/cath-lab/cases/$caseId/readiness',
+      body: {
+        'check_type': checkType,
+        'status': status,
+        if ((notes ?? '').isNotEmpty) 'notes': notes,
+      },
+    );
+    if (!response.isSuccess) {
+      throw Exception(response.failureMessage('Failed to update readiness'));
+    }
+  }
+
+  /// POST `.../readiness/labs/order-missing` — 201 with
+  /// `{ created, skipped, readiness }`. The key is REQUIRED by the route
+  /// (scope `cath_lab_readiness_order`): a double-tap without a stable key
+  /// would raise two sets of orders.
+  static Future<CathLabReadiness> orderMissingLabs(
+    int caseId, {
+    required String idempotencyKey,
+  }) async {
+    final response = await ApiClient.post(
+      '/cath-lab/cases/$caseId/readiness/labs/order-missing',
+      body: const {},
+      idempotencyKey: idempotencyKey,
+    );
+    final data = _successfulData(response, 'Failed to order missing labs');
+    return _readinessFrom(data['readiness']);
+  }
+
+  /// POST `.../readiness/labs/:item/external-result` — 201 with
+  /// `{ lab_result_id, item, readiness }`. The only route that mints an
+  /// external-origin lab result, and the key (scope
+  /// `cath_lab_readiness_external`) is what stops a retry recording the
+  /// outside value twice.
+  static Future<CathLabReadiness> recordExternalLabResult(
+    int caseId,
+    CathExternalResultDraft draft, {
+    required String idempotencyKey,
+  }) async {
+    final response = await ApiClient.post(
+      '/cath-lab/cases/$caseId/readiness/labs/${draft.item}/external-result',
+      body: draft.toJson(),
+      idempotencyKey: idempotencyKey,
+    );
+    final data = _successfulData(response, 'Failed to record outside result');
+    return _readinessFrom(data['readiness']);
+  }
+
+  /// POST `.../readiness/labs/:item/waive` — answers the refreshed readiness
+  /// block itself, not a wrapper.
+  ///
+  /// A key is REQUIRED here too (scope `cath_lab_readiness_waive`): a waiver
+  /// is an append-only clinical decision, and a double-tap without one records
+  /// the same override twice under two timestamps.
+  static Future<CathLabReadiness> waiveLabItem(
+    int caseId,
+    String item, {
+    required String reason,
+    required String idempotencyKey,
+  }) async {
+    final response = await ApiClient.post(
+      '/cath-lab/cases/$caseId/readiness/labs/$item/waive',
+      body: {'reason': reason},
+      idempotencyKey: idempotencyKey,
+    );
+    final data = _successfulData(response, 'Failed to waive lab item');
+    return CathLabReadiness.fromJson(data);
+  }
+
+  static CathLabReadiness _readinessFrom(Object? raw) {
+    if (raw is! Map) {
+      throw Exception('Cath Lab readiness response was malformed');
+    }
+    return CathLabReadiness.fromJson(Map<String, dynamic>.from(raw));
   }
 
   static Map<String, dynamic> _successfulData(
