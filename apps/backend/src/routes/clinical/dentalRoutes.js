@@ -16,7 +16,32 @@ import {
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { success, relayAppError } from '../../utils/responseHelper.js';
 
+import { patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
+import { ACCESS_POLICY_CODES } from '../../services/security/accessPolicyRegistry.js';
+
 const router = express.Router();
+
+// These three transitions mutate a named patient's dental record under a
+// FINDING or PROCEDURE id. The mount guard cannot see :id, so no
+// patient-access policy has ever run on them; the rest of the chain is a
+// different axis (requireRole is role-scoped, specialtyDepartmentGuard is
+// department-scoped, phiAccessLogger is a passive writer).
+//
+// dental_procedures.id and dental_tooth_findings.id are SEPARATE identity
+// sequences — procedure #7 and finding #7 can be different patients — so
+// these are two distinct guards and must not be merged.
+const guardDentalFindingWrite = patientAccessGuardForResource('CLINICAL_WORKFLOW', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+  resourceType: 'dental_finding',
+  idParam: 'id',
+  careTeamModeGoverned: true,
+});
+const guardDentalProcedureWrite = patientAccessGuardForResource('CLINICAL_WORKFLOW', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_WRITE,
+  resourceType: 'dental_procedure',
+  idParam: 'id',
+  careTeamModeGoverned: true,
+});
 
 function handleFailure(res, err, context) {
   return relayAppError(res, err, `Failed to ${context}`);
@@ -42,7 +67,7 @@ router.post('/findings', async (req, res) => {
   }
 });
 
-router.post('/findings/:id/resolve', async (req, res) => {
+router.post('/findings/:id/resolve', guardDentalFindingWrite, async (req, res) => {
   try {
     const finding = await resolveFinding(req.params.id, {
       tenantId: tenantOf(req),
@@ -82,7 +107,7 @@ router.post('/procedures', async (req, res) => {
   }
 });
 
-router.post('/procedures/:id/complete', async (req, res) => {
+router.post('/procedures/:id/complete', guardDentalProcedureWrite, async (req, res) => {
   try {
     const procedure = await completeProcedure(req.params.id, {
       tenantId: tenantOf(req),
@@ -96,7 +121,7 @@ router.post('/procedures/:id/complete', async (req, res) => {
   }
 });
 
-router.post('/procedures/:id/cancel', async (req, res) => {
+router.post('/procedures/:id/cancel', guardDentalProcedureWrite, async (req, res) => {
   try {
     const procedure = await cancelProcedure(req.params.id, {
       tenantId: tenantOf(req),

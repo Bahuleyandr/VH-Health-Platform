@@ -15,7 +15,26 @@ import {
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import { success, relayAppError } from '../../utils/responseHelper.js';
 
+import { patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
+import { ACCESS_POLICY_CODES } from '../../services/security/accessPolicyRegistry.js';
+
 const router = express.Router();
+
+// The spectacles-prescription PDF streams a named patient's refraction
+// under an EXAM id. The mount's patientAccessGuard('CLINICAL_WORKFLOW')
+// runs before Express binds :id, so it resolves no patient and evaluates
+// NO policy — this PHI stream has never had a patient-access decision.
+// Resolve the exam to its patient so the decision actually runs.
+//
+// allowNoPatientResource is deliberately LEFT FALSE: ophthalmic_exams
+// .patient_uid is NOT NULL, so an unresolved id means the exam does not
+// exist in this tenant, which must not fall through to the handler.
+const guardOphthalmicExamRead = patientAccessGuardForResource('CLINICAL_WORKFLOW', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_CLINICAL_WORKFLOW_ACCESS,
+  resourceType: 'ophthalmology_exam',
+  idParam: 'id',
+  careTeamModeGoverned: true,
+});
 
 function handleFailure(res, err, context) {
   return relayAppError(res, err, `Failed to ${context}`);
@@ -121,7 +140,7 @@ router.post('/exams/:id/imaging-attachments', async (req, res) => {
   }
 });
 
-router.get('/exams/:id/spectacles-rx.pdf', async (req, res) => {
+router.get('/exams/:id/spectacles-rx.pdf', guardOphthalmicExamRead, async (req, res) => {
   try {
     const pdf = await generateSpectaclesPrescriptionPdf(req.params.id, { tenantId: tenantOf(req) });
     res.setHeader('Content-Type', pdf.content_type);

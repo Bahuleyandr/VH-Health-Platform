@@ -8,7 +8,27 @@ import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { isAdmin, isStaff } from '../../utils/roleHelpers.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 
+import { patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
+import { ACCESS_POLICY_CODES } from '../../services/security/accessPolicyRegistry.js';
+
 const router = Router();
+
+// Recording a dose mutates a named child's immunisation record under a
+// DOSE id, which the mount guard cannot see. requireStaffOrAdmin is a role
+// check, not a patient-scoped one.
+//
+// The VIEW policy is used because it is the ONLY policy this record type
+// has: policyCodeForRecordType maps PAEDIATRIC_IMMUNISATION to
+// PATIENT_MATERNITY_PAEDIATRIC_VIEW, and the mount's own guard already
+// resolves to it. Introducing a write policy is a wider design decision
+// than closing this gap, so this matches the mount rather than inventing
+// a second answer.
+const guardImmunisationDose = patientAccessGuardForResource('PAEDIATRIC_IMMUNISATION', {
+  policyCode: ACCESS_POLICY_CODES.PATIENT_MATERNITY_PAEDIATRIC_VIEW,
+  resourceType: 'immunisation',
+  idParam: 'id',
+  careTeamModeGoverned: true,
+});
 
 function tenantOf(req) {
   return resolveTenantOrThrow(req);
@@ -67,7 +87,7 @@ router.get('/immunisations/patient/:patientUid/due', requireStaffOrAdmin, wrap(a
 // Record a dose given (or mark missed / refused / contraindicated).
 // Body: { status, given_at?, given_by_name?, batch_number?,
 //         manufacturer?, site_of_injection?, adverse_event?, notes? }
-router.post('/immunisations/:id/given', requireStaffOrAdmin, wrap(async (req) =>
+router.post('/immunisations/:id/given', requireStaffOrAdmin, guardImmunisationDose, wrap(async (req) =>
   svc.recordDose({
     tenantId: tenantOf(req),
     immunisationId: req.params.id,
