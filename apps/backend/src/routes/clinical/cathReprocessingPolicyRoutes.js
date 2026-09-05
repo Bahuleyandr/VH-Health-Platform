@@ -23,6 +23,10 @@ import { Router } from 'express';
 
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import {
+  getReadinessSettings,
+  upsertReadinessSettings
+} from '../../services/clinical/cathLabReadinessService.js';
+import {
   getReprocessingSettings,
   listCategoryPolicies,
   upsertCategoryPolicies,
@@ -107,6 +111,36 @@ router.put('/policies', policyIdempotency, async (req, res) => {
     return success(res, { policies, count: policies.length }, 'Cath reprocessing policies saved');
   } catch (err) {
     return handleFailure(res, err, 'save reprocessing policies');
+  }
+});
+
+// Pre-cath LAB readiness policy: which of the seven items a tenant requires,
+// how long a value stays fresh, whether automation may pass the labs check and
+// whether an outside laboratory's value counts. It is tenant-wide clinical
+// governance with no patient identity — the same audience and the same mount as
+// the reprocessing policy above, NOT the platform-admin console: the officers
+// who own the device-reuse policy own this one too, and the admin barrel is the
+// mount that could never admit them (see the header).
+router.get('/lab-readiness-settings', async (req, res) => {
+  try {
+    const settings = await getReadinessSettings({ tenantId: tenantOf(req) });
+    return success(res, { settings }, 'Cath lab readiness settings retrieved');
+  } catch (err) {
+    return handleFailure(res, err, 'get lab readiness settings');
+  }
+});
+
+// Shares policyIdempotency's scope with the two writes above for the reason
+// stated there: one screen, one command rail, and a key is per-request anyway.
+router.put('/lab-readiness-settings', policyIdempotency, async (req, res) => {
+  try {
+    const settings = await upsertReadinessSettings(
+      { ...(req.body || {}), tenantId: tenantOf(req) },
+      contextOf(req)
+    );
+    return success(res, { settings }, 'Cath lab readiness settings saved');
+  } catch (err) {
+    return handleFailure(res, err, 'save lab readiness settings');
   }
 });
 

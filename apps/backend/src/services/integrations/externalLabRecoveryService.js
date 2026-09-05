@@ -634,12 +634,13 @@ async function persistI01({ tx, tenantId, recoveryInboxId, occurredAt, command }
           patient_uid, patient_name, hl7_message_id, hl7_segment_index,
           oru_ingest_message_id, loinc_code, test_code, test_name, value_text,
           value_numeric, unit, reference_range, abnormal_flag, status,
-          performed_by_lab, performed_at, received_at, raw_obx, analyzer_id)
+          performed_by_lab, performed_at, received_at, raw_obx, analyzer_id,
+          result_origin)
        VALUES ($1::uuid, $2::integer, $3::integer, $4::integer, $5::uuid,
           $6::text, $7::text, $8::integer, $9::bigint, $10::text, $11::text,
           $12::text, $13::text, $14::numeric, $15::text, $16::text, $17::text,
           $18::text, $19::text, $20::timestamptz, $21::timestamptz,
-          $22::text, $23::integer)
+          $22::text, $23::integer, 'analyzer')
        RETURNING *`,
       tenantId,
       source.bookingId,
@@ -790,12 +791,12 @@ async function persistI02({ tx, tenantId, recoveryInboxId, occurredAt, command }
           reference_range, reference_range_low, reference_range_high,
           abnormal_flag, status, performed_by_lab, performed_at, specimen_id,
           analyzer_id, raw_obx, received_at, interface_message_id,
-          interface_result_index)
+          interface_result_index, result_origin)
        VALUES ($1::uuid, $2::integer, $3::integer, $4::integer, $5::uuid,
           $6::text, $7::text, $7::text, $8::text, $9::numeric, $10::text,
           $11::text, $12::numeric, $13::numeric, $14::text, 'preliminary',
           $15::text, $16::timestamptz, $17::integer, $18::integer, $19::text,
-          $20::timestamptz, $21::integer, $22::integer)
+          $20::timestamptz, $21::integer, $22::integer, 'analyzer')
        RETURNING *`,
       tenantId,
       source.bookingId,

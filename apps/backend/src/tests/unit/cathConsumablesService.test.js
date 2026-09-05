@@ -81,6 +81,7 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
   cancelWorkflowSla: jest.fn(),
   completeWorkflowSla: jest.fn(),
   recordCanonicalClinicalEvent: jest.fn(),
+  recordMedicationSafetyReviews: jest.fn(async () => ([{ id: 1 }])),
   startWorkflowSla: startWorkflowSlaMock,
 }));
 
@@ -107,6 +108,13 @@ jest.unstable_mockModule('../../services/clinical/bloodborneMarkerService.js', (
   resolveReuseStatus: jest.fn(async () => ({
     status: 'unknown', reasons: ['HIV not on record'], markers: [], validity_days: 90,
   })),
+}));
+// Lab readiness widened the graph once more: cathLabService reads it on
+// getCase, and the readiness service statically imports the investigation
+// order and lab result services, whose subtrees need canonical exports this
+// mock does not carry. Covered end to end by cath-lab-readiness.deep.test.js.
+jest.unstable_mockModule('../../services/clinical/cathLabReadinessService.js', () => ({
+  refreshCaseLabReadiness: jest.fn(async () => null),
 }));
 
 jest.unstable_mockModule('../../services/staff/credentialingService.js', () => ({

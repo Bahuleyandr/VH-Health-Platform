@@ -1058,6 +1058,40 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     max_cycles: null,
     allowed_cycle_types: []
   },
+  // mig 766: the defaults ARE the honest state — no tenant has narrowed the
+  // required item list, the validity window or the auto-pass rule yet, so the
+  // seven-item / 30-day / auto-pass / external-counts row stands as written.
+  cath_lab_readiness_settings: {
+    tenant_id: ctx => ctx.tenantId
+  },
+  // mig 766: the readiness snapshot is per case, so the row must name a case in
+  // the SAME tenant — fk_cath_case_lab_readiness_items_case is the composite
+  // (tenant_id, case_id). cath_lab_cases sorts after this table, so pass 0
+  // finds nothing and the row lands on a later pass, which is what the
+  // multi-pass walker is for. 'not_ordered' is the truthful state for a case
+  // nothing has been ordered against: it needs no result, specimen, order or
+  // waiver, so every optional column stays NULL and the waiver CHECK is inert.
+  cath_case_lab_readiness_items: {
+    tenant_id: ctx => ctx.tenantId,
+    case_id: async () => firstTenantValue('cath_lab_cases', 'id'),
+    item_code: 'hb',
+    required: true,
+    state: 'not_ordered',
+    value_text: null,
+    value_numeric: null,
+    unit: null,
+    abnormal_flag: null,
+    is_critical: false,
+    observed_at: null,
+    source: null,
+    lab_result_id: null,
+    investigation_id: null,
+    specimen_id: null,
+    ordered_at: null,
+    waived_by: null,
+    waived_at: null,
+    waive_reason: null
+  },
   surgical_implants: {
     tenant_id: ctx => ctx.tenantId,
     cath_case_id: null,

@@ -2,7 +2,7 @@
 
 import { createHash } from 'node:crypto';
 
-import prisma, { setTenantTx } from '../../lib/prisma.js';
+import prisma, { isTenantTransactionClient, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
@@ -21,6 +21,7 @@ import {
   cancelWorkflowSla,
   completeWorkflowSla,
   recordCanonicalClinicalEvent,
+  recordMedicationSafetyReviews,
   startWorkflowSla
 } from './canonicalClinicalPlatformService.js';
 import {
@@ -36,6 +37,9 @@ import {
   markDeviceWastedTx
 } from './cathDeviceReuseService.js';
 import { resolveReuseStatus } from './bloodborneMarkerService.js';
+// One direction only: the readiness module never imports this one (it inlines
+// the gate recompute), so this static import is not a cycle.
+import { refreshCaseLabReadiness } from './cathLabReadinessService.js';
 
 const tenantOr = value => requireTenantId(value);
 
@@ -975,7 +979,47 @@ export async function listCases({ tenantId, date = null, status = null, limit = 
   return normalizeRows(rows);
 }
 
+// The context a READ-THROUGH readiness refresh runs under. `requestId` is not
+// available here — getCase takes no request context — so the constant carries
+// only the actor, which is the half that matters: it is what keeps a reader off
+// the case row and out of the automation's audit trail.
+const SYSTEM_READ_THROUGH_CONTEXT = Object.freeze({ actorUid: null, actorRole: 'SYSTEM' });
+
 export async function getCase(caseId, { tenantId, db = prisma } = {}) {
+  // Lab readiness (spec 2026-09-04) runs FIRST, before the case row and the
+  // checks are read. The refresh can flip the `labs` check and the case status,
+  // so reading them first meant a single response could carry three answers to
+  // the same question: readiness[labs].status from before the flip,
+  // lab_readiness.check_status from after it, and a readiness_gate computed
+  // from the stale rows.
+  //
+  // Inside a tenant transaction (createCase's read of the case it has just
+  // inserted) the refresh MUST run on that same client or it cannot see the
+  // uncommitted case — that is why createCase used to return a null
+  // lab_readiness. Outside one it opens its own transaction, because it takes
+  // locks and writes, and `db` here is the read client.
+  const inTransaction = isTenantTransactionClient(db);
+  const labReadiness = await refreshCaseLabReadiness({
+    tenantId: tenantOr(tenantId),
+    caseId,
+    // A READ is not an act. Whoever opened the case is not the person who
+    // cleared its labs, so the refresh runs as the system: actorUid null leaves
+    // cath_lab_cases.updated_by (COALESCE'd in recomputeCaseStatusTx) pointing
+    // at whoever last actually changed the case, and stamps the
+    // cath_lab.readiness.labs.auto_* audit row as SYSTEM rather than putting a
+    // decision the reader never made into their trail.
+    context: SYSTEM_READ_THROUGH_CONTEXT,
+    ...(inTransaction ? { db } : {})
+  }).catch(err => {
+    // A failure degrades to a null block: the case view is what a team reads
+    // before a procedure and must not go dark because a lab lookup did. Inside
+    // a transaction there is nothing to degrade TO — the failed statement has
+    // already aborted it, so every later read here would raise 25P02 — so the
+    // error is left to propagate and name itself.
+    if (inTransaction) throw err;
+    logger.warn(`Lab readiness refresh failed on getCase: ${err?.message}`);
+    return null;
+  });
   const cathCase = await caseById(db, tenantId, caseId);
   const readiness = await readinessForCase(db, tenantId, caseId);
   const procedures = await db.$queryRawUnsafe(
@@ -1038,6 +1082,7 @@ export async function getCase(caseId, { tenantId, db = prisma } = {}) {
   return normalizeDbValue({
     ...cathCase,
     readiness: normalizedReadiness,
+    lab_readiness: labReadiness,
     readiness_gate: evaluateReadinessGate(normalizedReadiness),
     procedures,
     hemodynamics,
@@ -1047,6 +1092,25 @@ export async function getCase(caseId, { tenantId, db = prisma } = {}) {
     consumable_usage: consumableUsage,
     reuse_restriction: reuseRestriction
   });
+}
+
+// Metadata keys on the `labs` check that only the readiness automation may
+// write. A request body carrying them is not merged with automation's copies —
+// three of them ARE re-merged from the stored row immediately below — it
+// OVERWRITES them, so a client could declare its own critical_warning: false
+// over a potassium of 6.9 and the human-pass safety review would never fire,
+// or plant an auto_managed: true that hands the next refresh permission to move
+// a pass a person made. live_evidence_refreshed_at is stripped with the rest:
+// it is the same automation stamp under its stored name.
+const AUTOMATION_METADATA_KEYS = Object.freeze([
+  'auto_managed', 'auto_passed_at', 'auto_pending_reason', 'critical_warning',
+  'critical_items', 'live_evidence', 'live_evidence_refreshed_at', 'refreshed_at'
+]);
+
+function withoutAutomationMetadata(metadata) {
+  const cleaned = { ...metadata };
+  for (const key of AUTOMATION_METADATA_KEYS) delete cleaned[key];
+  return cleaned;
 }
 
 export async function updateReadinessCheck(caseId, input = {}, context = {}) {
@@ -1062,7 +1126,52 @@ export async function updateReadinessCheck(caseId, input = {}, context = {}) {
     'status'
   );
   return setTenantTx(tenantId, async tx => {
-    await caseById(tx, tenantId, caseId, { lock: true });
+    const cathCase = await caseById(tx, tenantId, caseId, { lock: true });
+    // The upsert below REPLACES metadata with whatever the request carried, so
+    // the automation's evidence has to be read first and merged back — and the
+    // critical-value decision has to be made from the row as it stands, not
+    // from the metadata the person ticking the box happened to send.
+    const priorRows = await tx.$queryRawUnsafe(
+      `SELECT metadata
+         FROM cath_lab_readiness_checks
+        WHERE tenant_id = $1::uuid
+          AND case_id = $2::bigint
+          AND check_type = $3
+        FOR UPDATE`,
+      tenantId,
+      normalizeId(caseId, 'case_id'),
+      checkType
+    );
+    const priorMetadata = priorRows[0]?.metadata && typeof priorRows[0].metadata === 'object'
+      ? priorRows[0].metadata
+      : {};
+    // Passing `labs` over a critical value is an override, and the override
+    // lands on the record as a medication safety review below. An override
+    // with no reason is not auditable — and it was previously papered over
+    // with a boilerplate string, so the record could not tell a considered
+    // clinical decision from a reflex tick. Required at the door, decided
+    // from the LOCKED prior row rather than the metadata the request carried,
+    // and thrown before anything is written.
+    if (
+      checkType === 'labs'
+      && status === 'pass'
+      && priorMetadata.critical_warning === true
+      && !cleanText(input.notes)
+    ) {
+      throw AppError.badRequest(
+        'A reason is required to pass the labs check while a critical value is present',
+        'CATH_LAB_READINESS_REASON_REQUIRED'
+      );
+    }
+    const requestMetadata = normalizeJson(input.metadata, 'metadata', {});
+    const mergedMetadata = checkType === 'labs'
+      ? {
+        ...withoutAutomationMetadata(requestMetadata),
+        critical_warning: priorMetadata.critical_warning ?? false,
+        critical_items: priorMetadata.critical_items ?? [],
+        live_evidence: priorMetadata.live_evidence ?? []
+      }
+      : requestMetadata;
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO cath_lab_readiness_checks
          (tenant_id, case_id, check_type, status, required, completed_by, completed_at,
@@ -1095,8 +1204,47 @@ export async function updateReadinessCheck(caseId, input = {}, context = {}) {
       cleanText(input.source_version || input.sourceVersion, 80),
       cleanText(input.attachment_ref || input.attachmentRef),
       cleanText(input.notes),
-      JSON.stringify(normalizeJson(input.metadata, 'metadata', {}))
+      JSON.stringify(mergedMetadata)
     );
+    const savedCheck = unwrap(rows);
+    // A person passing `labs` over a critical value is making a clinical
+    // decision, not clearing a checkbox: it lands on the record through the
+    // platform safety-review vehicle, with the acknowledgement as the override
+    // reason. `issue.type` becomes review_type and `issue.code` finding_code
+    // (canonicalClinicalPlatformService.recordMedicationSafetyReviews:1372).
+    if (checkType === 'labs' && status === 'pass' && priorMetadata.critical_warning === true) {
+      const reviews = await recordMedicationSafetyReviews({
+        tenantId,
+        patientUid: cathCase.patient_uid,
+        encounterId: cathCase.encounter_id,
+        safety: {
+          safe: false,
+          blockers: [{
+            type: 'cath_lab_readiness',
+            code: 'CRITICAL_LAB_ACKNOWLEDGED',
+            severity: 'high',
+            message: `Labs check passed by hand with critical value(s): ${(priorMetadata.critical_items || []).join(', ')}`,
+            case_id: normalizeDbValue(cathCase.id)
+          }],
+          warnings: []
+        },
+        override: {
+          // The guard above makes the fallback unreachable on this path: a
+          // `labs` pass over a critical value cannot get here without notes.
+          // Kept only so a future regression writes SOMETHING rather than a
+          // null override reason into the safety review.
+          reason: cleanText(input.notes) || 'Critical lab value acknowledged at readiness',
+          approvedBy: maybeUuid(context.actorUid, 'actorUid')
+        },
+        actorUid: maybeUuid(context.actorUid, 'actorUid')
+      }, { db: tx });
+      if (!reviews.length) {
+        throw AppError.internal(
+          'Readiness critical-value acknowledgement did not persist',
+          'CATH_LAB_READINESS_REVIEW_FAILED'
+        );
+      }
+    }
     const checks = await readinessForCase(tx, tenantId, caseId);
     const gate = evaluateReadinessGate(checks);
     const nextStatus = gate.ready ? 'ready' : 'readiness_pending';
@@ -1115,7 +1263,7 @@ export async function updateReadinessCheck(caseId, input = {}, context = {}) {
       nextStatus,
       maybeUuid(context.actorUid, 'actorUid')
     );
-    return normalizeDbValue({ check: unwrap(rows), readiness_gate: gate });
+    return normalizeDbValue({ check: savedCheck, readiness_gate: gate });
   });
 }
 

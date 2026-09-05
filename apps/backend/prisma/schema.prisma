@@ -3687,6 +3687,7 @@ model cath_lab_cases {
 
   @@unique([tenant_id, id, patient_uid], map: "ux_cath_lab_cases_usage_tenant_patient")
   @@unique([tenant_id, id, patient_uid, facility_id], map: "ux_cath_lab_cases_usage_facility_753")
+  @@unique([tenant_id, id], map: "ux_cath_lab_cases_tenant_id")
   @@index([tenant_id, encounter_id], map: "idx_cath_lab_cases_encounter", where: raw("(encounter_id IS NOT NULL)"))
   @@index([tenant_id, patient_uid, planned_start_at(sort: Desc)], map: "idx_cath_lab_cases_patient")
   @@index([tenant_id, planned_start_at, status], map: "idx_cath_lab_cases_schedule")
@@ -14360,10 +14361,15 @@ model lab_results {
   threshold_policy_rule_id   String?   @db.Uuid
   threshold_catalog_entry_id String?   @db.Uuid
   threshold_evaluated_at     DateTime? @db.Timestamptz(6)
+  result_origin              String?   @db.VarChar(20)
+  external_lab_name          String?   @db.VarChar(160)
+  external_report_ref        String?   @db.VarChar(120)
+  external_reported_on       DateTime? @db.Date
 
   @@unique([tenant_id, performed_by_lab, hl7_message_id, hl7_segment_index], map: "uq_lab_results_hl7_message_segment", where: raw("((performed_by_lab IS NOT NULL) AND (hl7_message_id IS NOT NULL) AND (hl7_segment_index IS NOT NULL))"))
   @@unique([tenant_id, interface_message_id, interface_result_index], map: "uq_lab_results_interface_message_position", where: raw("((interface_message_id IS NOT NULL) AND (interface_result_index IS NOT NULL))"))
   @@unique([tenant_id, id, patient_uid], map: "ux_lab_results_tenant_id_patient")
+  @@unique([tenant_id, id], map: "ux_lab_results_tenant_id")
   @@index([tenant_id, admission_id, id], map: "idx_lab_results_admission", where: raw("(admission_id IS NOT NULL)"))
   @@index([tenant_id, analyzer_id, received_at(sort: Desc)], map: "idx_lab_results_analyzer", where: raw("(analyzer_id IS NOT NULL)"))
   @@index([booking_id], map: "idx_lab_results_booking", where: raw("(booking_id IS NOT NULL)"))
@@ -14380,6 +14386,7 @@ model lab_results {
   @@index([patient_uid, released_to_patient_at], map: "idx_lab_results_release", where: raw("(release_hold = false)"))
   @@index([tenant_id, specimen_id], map: "idx_lab_results_specimen", where: raw("(specimen_id IS NOT NULL)"))
   @@index([tenant_id, facility_id, criticality_status, received_at(sort: Desc), id(sort: Desc)], map: "idx_lab_results_threshold_policy")
+  @@index([tenant_id, patient_uid, result_origin], map: "idx_lab_results_external_origin", where: raw("((result_origin)::text = 'external_lab'::text)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -14435,6 +14442,7 @@ model lab_specimens {
   @@unique([tenant_id, accession_number])
   @@unique([tenant_id, specimen_uid])
   @@unique([tenant_id, barcode], map: "uq_lab_specimens_barcode", where: raw("(barcode IS NOT NULL)"))
+  @@unique([tenant_id, id], map: "ux_lab_specimens_tenant_id")
   @@index([tenant_id, booking_id, status], map: "idx_lab_specimens_booking", where: raw("(booking_id IS NOT NULL)"))
   @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_lab_specimens_patient_time")
   @@index([tenant_id, status, priority, created_at(sort: Desc)], map: "idx_lab_specimens_status_priority")
@@ -26803,6 +26811,47 @@ model cath_reprocessing_settings {
   updated_by             String?   @db.Uuid
   created_at             DateTime  @default(now()) @db.Timestamptz(6)
   updated_at             DateTime  @default(now()) @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model cath_case_lab_readiness_items {
+  id               BigInt    @id @default(autoincrement())
+  tenant_id        String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  case_id          BigInt
+  item_code        String    @db.VarChar(20)
+  required         Boolean   @default(true)
+  state            String    @db.VarChar(32)
+  value_text       String?   @db.VarChar(255)
+  value_numeric    Decimal?  @db.Decimal(15, 4)
+  unit             String?   @db.VarChar(40)
+  abnormal_flag    String?   @db.VarChar(10)
+  is_critical      Boolean   @default(false)
+  observed_at      DateTime? @db.Timestamptz(6)
+  source           String?   @db.VarChar(24)
+  lab_result_id    Int?
+  investigation_id Int?
+  specimen_id      Int?
+  ordered_at       DateTime? @db.Timestamptz(6)
+  waived_by        String?   @db.Uuid
+  waived_at        DateTime? @db.Timestamptz(6)
+  waive_reason     String?
+  refreshed_at     DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@unique([tenant_id, case_id, item_code], map: "ux_cath_case_lab_readiness_items")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model cath_lab_readiness_settings {
+  tenant_id              String   @id @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  required_items         String[] @default(["hb", "platelets", "creatinine", "potassium", "hiv", "hbsag", "hcv"])
+  lab_validity_days      Int      @default(30)
+  auto_pass              Boolean  @default(true)
+  external_results_count Boolean  @default(true)
+  updated_by             String?  @db.Uuid
+  created_at             DateTime @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime @default(now()) @db.Timestamptz(6)
 }
 
 enum transplant_organ_type {

@@ -48,6 +48,7 @@ const { default: cathDeviceHistoryHandler } = await import('../../routes/clinica
 const { default: cathSchedulingRouter } = await import('../../routes/clinical/cathSchedulingRoutes.js');
 const { selectCathCasePatient, selectCathReportPatient } = await import('../../routes/clinical/cathLabAccessGuards.js');
 const { canUseCathWorkflow, canViewCathReport } = await import('../../utils/roleHelpers.js');
+const { ITEM_CODES } = await import('../../services/clinical/cathLabReadinessService.js');
 const { ALL_ROLES } = await import('../../utils/roles.js');
 
 const TENANT = '11111111-2222-4333-8444-555555555555';
@@ -127,6 +128,14 @@ describe('route census — guarded vs deliberately-not', () => {
       'GET /devices/:deviceId/history': null,
       'GET /cases/:id/quick-wins': byId,
       'POST /cases/:id/readiness/evidence/refresh': byId,
+      // Pre-cath lab readiness (Plan 3). The GET carries per-item lab VALUES,
+      // so it is PHI on the same terms as every other per-case read here: the
+      // mount's phiAccessLogger('CATH_LAB') writes the access row against the
+      // patient this guard has already resolved.
+      'GET /cases/:id/readiness/labs': byId,
+      'POST /cases/:id/readiness/labs/order-missing': byId,
+      'POST /cases/:id/readiness/labs/:item/external-result': byId,
+      'POST /cases/:id/readiness/labs/:item/waive': byId,
       'POST /cases/:id/order-sets/:slot/apply': byId,
       'POST /cases/:id/status': byId,
       'POST /cases/:id/readiness': byId,
@@ -152,6 +161,9 @@ describe('route census — guarded vs deliberately-not', () => {
   it.each([
     '/cases/:id/consumables',
     '/cases/:id/consumables/:usageId/post-use',
+    '/cases/:id/readiness/labs/order-missing',
+    '/cases/:id/readiness/labs/:item/external-result',
+    '/cases/:id/readiness/labs/:item/waive',
   ])('POST %s runs the guard BEFORE the idempotency-key claim', (path) => {
     const layer = cathLabRouter.stack.find(
       (l) => l.route && l.route.path === path && l.route.methods.post,
@@ -254,6 +266,98 @@ describe('device-reuse route chains', () => {
     // registers, so the per-patient access trail cannot exist on one mount and
     // not the other.
     expect(stack[1].handle).toBe(cathDeviceHistoryHandler);
+  });
+});
+
+/**
+ * Pre-cath lab readiness (Plan 3). Same probe technique as above: the role
+ * gates are anonymous closures, so WHICH gate is mounted is read back from the
+ * refusal code rather than assumed from a layer count.
+ */
+describe('lab readiness route chains', () => {
+  it('GET /cases/:id/readiness/labs: report-read gate then the case guard', () => {
+    const stack = layerOf('get', '/cases/:id/readiness/labs');
+    expect(stack).toHaveLength(3);
+    const refusal = refusalCodeOf(stack[0].handle);
+    expect(refusal.status).toBe(403);
+    // Report-read, not workflow: reading the checklist is what a scrub nurse,
+    // a technician and the front desk all do before the case is called.
+    expect(refusal.code).toContain('CATH_REPORT_READ_FORBIDDEN');
+    expect(stack[1].handle.patientGuardTag).toBe('cath-lab:case-param:id');
+    expect(stack[1].handle.patientGuardRecordType).toBe('CLINICAL_WORKFLOW');
+    // A read must never burn an idempotency key.
+    expect(stack.some((layer) => /idempotency/i.test(layer.handle.name))).toBe(false);
+  });
+
+  it.each([
+    ['/cases/:id/readiness/labs/order-missing', 4],
+    ['/cases/:id/readiness/labs/:item/external-result', 5],
+    ['/cases/:id/readiness/labs/:item/waive', 5],
+  ])('POST %s: workflow gate, case guard, claim, handler', (path, layers) => {
+    const stack = layerOf('post', path);
+    expect(stack).toHaveLength(layers);
+    const refusal = refusalCodeOf(stack[0].handle);
+    expect(refusal.status).toBe(403);
+    // All three are WRITES — they place orders, mint an external lab result, or
+    // record a clinical override — so report-read (which admits RECEPTIONIST
+    // and TECHNICIAN) is not enough. The waive route in particular: the plan
+    // that specified these routes left its claim off entirely.
+    expect(refusal.code).toContain('CATH_LAB_WORKFLOW_FORBIDDEN');
+    expect(stack[1].handle.patientGuardTag).toBe('cath-lab:case-param:id');
+    expect(stack[1].handle.patientGuardRecordType).toBe('CLINICAL_WORKFLOW');
+    expect(/idempotency/i.test(stack[layers - 2].handle.name)).toBe(true);
+  });
+
+  it.each([
+    '/cases/:id/readiness/labs/:item/external-result',
+    '/cases/:id/readiness/labs/:item/waive',
+  ])('POST %s refuses an unknown :item BEFORE a key is burned', (path) => {
+    const stack = layerOf('post', path);
+    // The service answers 400 CATH_LAB_READINESS_ITEM_UNKNOWN for a code
+    // outside ITEM_CODES, but it runs AFTER the claim layer, so a URL that can
+    // never succeed would already have written a register row. This layer sits
+    // in front of the claim and runs the SAME membership test against the
+    // service's exported ITEM_CODES — not a shape heuristic, which passed
+    // `banana` straight through to burn a key.
+    const itemGuard = stack[2].handle;
+    expect(itemGuard.name).toBe('requireReadinessItemParam');
+    expect(/idempotency/i.test(stack[3].handle.name)).toBe(true);
+
+    const probe = () => {
+      const res = {
+        statusCode: null,
+        payload: null,
+        req: {},
+        status(code) { this.statusCode = code; return this; },
+        json(body) { this.payload = body; return this; },
+      };
+      return res;
+    };
+
+    // A well-shaped segment that is not an item code: the old /^[a-z_]+$/ test
+    // accepted it, and the claim in front of the service burned a key on it.
+    for (const item of ['banana', '../../etc', 'HBSAG', '', 'hbsag ']) {
+      const res = probe();
+      let passed = false;
+      itemGuard({ params: { item }, get: () => undefined }, res, () => { passed = true; });
+      expect({ item, passed }).toEqual({ item, passed: false });
+      expect({ item, status: res.statusCode }).toEqual({ item, status: 400 });
+      // Top level, not nested under details — the shape relayAppError produces
+      // for the service's own AppError, so a client reads one envelope
+      // whichever layer refused.
+      expect({ item, code: res.payload.code })
+        .toEqual({ item, code: 'CATH_LAB_READINESS_ITEM_UNKNOWN' });
+      expect(res.payload.details ?? null).toBeNull();
+    }
+
+    // ...and every real item code passes through to the claim.
+    for (const item of ITEM_CODES) {
+      const res = probe();
+      let allowed = false;
+      itemGuard({ params: { item }, get: () => undefined }, res, () => { allowed = true; });
+      expect({ item, allowed }).toEqual({ item, allowed: true });
+    }
+    expect(ITEM_CODES).toContain('hbsag');
   });
 });
 

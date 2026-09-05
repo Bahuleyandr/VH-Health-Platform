@@ -1331,6 +1331,32 @@ async function insertPathwayEventTx(tx, {
   return { event: rows[0], activation: updatedActivation, sla };
 }
 
+// The STEMI activation detail is served to STEMI_ROUTE_ROLES — a far wider
+// audience than the serology one: RECEPTIONIST, TECHNICIAN, LAB_STAFF and
+// RADIOLOGIST all reach GET /activations/:id. The `labs` readiness row's
+// metadata carries the lab rail's own snapshot — `live_evidence` (one entry
+// per required item, each with a `value_text` that for hiv/hbsag/hcv reads
+// `Reactive`/`Non-reactive`, plus its criticality) and `critical_items`. Those
+// belong to the cath readiness surface, which gates them by role; the PCI
+// evidence bundle only needs to show THAT the check stands and why, so strip
+// exactly those two keys and keep the rest of metadata (`critical_warning`,
+// `auto_managed`, `auto_pending_reason`, `live_evidence_refreshed_at`). No
+// client reads either key from here — the staff app takes `critical_items`
+// from the cath readiness endpoint — so this is contract-safe, and the route's
+// 200 is the generic Success schema.
+const READINESS_LAB_EVIDENCE_KEYS = ['live_evidence', 'critical_items'];
+
+function readinessWithoutLabEvidence(rows = []) {
+  return rows.map((row) => {
+    const metadata = row?.metadata;
+    if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return row;
+    if (!READINESS_LAB_EVIDENCE_KEYS.some((key) => key in metadata)) return row;
+    const next = { ...metadata };
+    for (const key of READINESS_LAB_EVIDENCE_KEYS) delete next[key];
+    return { ...row, metadata: next };
+  });
+}
+
 async function getActivationTx(tx, tenantId, activationId) {
   const activation = await loadActivation(tx, tenantId, activationId);
   const [events, slas, acknowledgements, settings] = await Promise.all([
@@ -1392,7 +1418,7 @@ async function getActivationTx(tx, tenantId, activationId) {
     ]);
     primaryPciEvidence = {
       cath_case: caseRows[0] || null,
-      readiness_checks: readiness,
+      readiness_checks: readinessWithoutLabEvidence(readiness),
       cath_procedure_logs: procedureLogs,
       sla_instances: slas,
     };

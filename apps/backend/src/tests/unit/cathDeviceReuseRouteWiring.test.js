@@ -96,6 +96,21 @@ const deviceService = {
 };
 jest.unstable_mockModule('../../services/clinical/cathDeviceReuseService.js', () => deviceService);
 
+// Plan 3's pre-cath lab readiness policy joined this router - same officers,
+// same mount, same idempotency scope. Mocked for the same reason the device
+// service is: the census and the gate are what is under test, and the real
+// module drags the whole lab-results graph in behind it.
+const readinessService = {
+  getReadinessSettings: jest.fn(async () => ({ tenant_id: TENANT, configured: false })),
+  orderMissingLabs: jest.fn(),
+  recordExternalLabResult: jest.fn(),
+  refreshCaseLabReadiness: jest.fn(),
+  refreshOpenCasesForPatient: jest.fn(),
+  upsertReadinessSettings: jest.fn(async () => ({ tenant_id: TENANT, configured: true })),
+  waiveLabItem: jest.fn(),
+};
+jest.unstable_mockModule('../../services/clinical/cathLabReadinessService.js', () => readinessService);
+
 jest.unstable_mockModule('../../services/cssd/cssdService.js', () => ({
   getCssdBoard: jest.fn(async () => ({ board: [] })), listInstrumentSets: jest.fn(), createInstrumentSet: jest.fn(),
   getInstrumentSetLabel: jest.fn(), listSterilizationLoads: jest.fn(), createSterilizationLoad: jest.fn(),
@@ -165,6 +180,11 @@ const POLICY_ROUTES = [
   'PUT /settings',
   'GET /policies',
   'PUT /policies',
+  // Plan 3: the pre-cath LAB readiness policy. It belongs to the same officers
+  // and the same mount, and deliberately NOT to the admin cath-consumables
+  // barrel - which is the exact mistake the four routes above were moved off.
+  'GET /lab-readiness-settings',
+  'PUT /lab-readiness-settings',
 ];
 
 /** Drive one route's terminal handler with a fake req/res. */
@@ -195,6 +215,7 @@ function appFor(mountPath, roles, router, role) {
 
 beforeEach(() => {
   for (const fn of Object.values(deviceService)) fn.mockClear();
+  for (const fn of Object.values(readinessService)) fn.mockClear();
 });
 
 describe('CSSD device queue wiring', () => {
@@ -328,7 +349,7 @@ describe('the CSSD /devices sub-tree is narrower than the CSSD mount', () => {
 });
 
 describe('reprocessing policy governance router', () => {
-  it('serves exactly the four policy routes plus the infection-control history read', () => {
+  it('serves exactly the six policy routes plus the infection-control history read', () => {
     expect([...POLICY.keys()].sort()).toEqual(
       [...POLICY_ROUTES, 'GET /devices/:deviceId/history'].sort(),
     );
@@ -357,14 +378,31 @@ describe('reprocessing policy governance router', () => {
     });
   });
 
-  it.each(['PUT /settings', 'PUT /policies'])('%s claims an idempotency key ahead of its handler', (route) => {
-    const entry = POLICY.get(route);
-    expect({ route, claimed: entry.claimIndex > -1 }).toEqual({ route, claimed: true });
-    expect(entry.claimIndex).toBeLessThan(entry.layerCount - 1);
-  });
+  it.each(['PUT /settings', 'PUT /policies', 'PUT /lab-readiness-settings'])(
+    '%s claims an idempotency key ahead of its handler',
+    (route) => {
+      const entry = POLICY.get(route);
+      expect({ route, claimed: entry.claimIndex > -1 }).toEqual({ route, claimed: true });
+      expect(entry.claimIndex).toBeLessThan(entry.layerCount - 1);
+    },
+  );
 
-  it.each(['GET /settings', 'GET /policies'])('%s takes no idempotency key', (route) => {
-    expect(POLICY.get(route).claimIndex).toBe(-1);
+  it.each(['GET /settings', 'GET /policies', 'GET /lab-readiness-settings'])(
+    '%s takes no idempotency key',
+    (route) => {
+      expect(POLICY.get(route).claimIndex).toBe(-1);
+    },
+  );
+
+  it('the lab-readiness write shares the ONE policy claim layer, not a second scope', () => {
+    // The three PUTs are the same command rail edited from the same screen, so
+    // they share the same claim INSTANCE - claimIndex is matched by identity,
+    // so a second requireIdempotencyKey() call would leave it at -1 here.
+    expect(POLICY.get('PUT /lab-readiness-settings').claimIndex).toBeGreaterThan(-1);
+    const policyScopes = requireIdempotencyKey.mock.calls
+      .map(([options]) => options?.scope)
+      .filter((scope) => scope === 'cath_reprocessing_policy');
+    expect(policyScopes).toHaveLength(1);
   });
 
   it('the history read is the SAME handler the cath router registers', () => {
@@ -394,6 +432,34 @@ describe('reprocessing policy governance router', () => {
       // The actor written to reviewed_by/updated_by and to the append-only
       // audit row is the JWT subject, never anything from the body.
       expect(deviceService[fnName].mock.calls[0][1]).toMatchObject({ actorUid: ACTOR });
+    }
+  });
+
+  it.each([
+    ['GET /lab-readiness-settings', 'getReadinessSettings'],
+    ['PUT /lab-readiness-settings', 'upsertReadinessSettings'],
+  ])('%s dispatches to %s pinned to the authenticated tenant and actor', async (route, fnName) => {
+    const OTHER_TENANT = '00000000-0000-4000-8000-000000000099';
+    const res = await invoke(POLICY.get(route), {
+      params: {},
+      query: {},
+      // upsertReadinessSettings writes updated_by from the context actor, so
+      // neither a body-supplied tenant nor a body-supplied actor may reach it.
+      body: { tenantId: OTHER_TENANT, lab_validity_days: 14, actorUid: 'someone-else' },
+      user: { uid: ACTOR, role: 'QUALITY_OFFICER' },
+      get: () => undefined,
+    });
+    expect(readinessService[fnName]).toHaveBeenCalledTimes(1);
+    expect(readinessService[fnName].mock.calls[0][0]).toMatchObject({ tenantId: TENANT });
+    // The published envelope is CathLabReadinessSettingsResponse, whose data is
+    // { settings }: a handler answering the object bare would still be a 200
+    // and would break every generated client.
+    expect(res.body.data).toEqual({ settings: expect.objectContaining({ tenant_id: TENANT }) });
+    if (route.startsWith('PUT')) {
+      expect(readinessService[fnName].mock.calls[0][0]).toMatchObject({ lab_validity_days: 14 });
+      expect(readinessService[fnName].mock.calls[0][1]).toMatchObject({ actorUid: ACTOR });
+      // ...and never the body's actor.
+      expect(readinessService[fnName].mock.calls[0][1].actorUid).not.toBe('someone-else');
     }
   });
 });
@@ -447,6 +513,43 @@ describe('the reprocessing policy audience', () => {
 
     expect(res.status).toBe(403);
     expect(deviceService.getReprocessingSettings).not.toHaveBeenCalled();
+  });
+
+  // The same three probes against the LAB readiness policy. A route is only
+  // governed by the audience it is actually mounted behind, and this one was
+  // added to the router after the four above - so it gets its own decision.
+  it.each(['QUALITY_OFFICER', 'INFECTION_CONTROL_OFFICER'])(
+    'the gate DECIDES: a %s reads the lab readiness settings',
+    async (role) => {
+      const res = await request(
+        appFor('/api/v1/cath-reprocessing', CATH_REPROCESSING_POLICY_ROUTE_ROLES, governanceRouter, role),
+      ).get('/api/v1/cath-reprocessing/lab-readiness-settings');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.settings).toMatchObject({ tenant_id: TENANT });
+      expect(readinessService.getReadinessSettings).toHaveBeenCalledTimes(1);
+      expect(readinessService.getReadinessSettings).toHaveBeenCalledWith({ tenantId: TENANT });
+    },
+  );
+
+  it('the gate DECIDES: a PHARMACIST is refused the lab readiness settings', async () => {
+    const res = await request(
+      appFor('/api/v1/cath-reprocessing', CATH_REPROCESSING_POLICY_ROUTE_ROLES, governanceRouter, 'PHARMACIST'),
+    ).get('/api/v1/cath-reprocessing/lab-readiness-settings');
+
+    expect(res.status).toBe(403);
+    expect(readinessService.getReadinessSettings).not.toHaveBeenCalled();
+  });
+
+  it('the gate DECIDES: a CATH_LAB_STAFF cannot rewrite the policy their own checklist obeys', async () => {
+    // The floor uses the checklist; the officers decide what it requires. A
+    // cath role holds every gate on /api/v1/cath-lab and none on this mount.
+    const res = await request(
+      appFor('/api/v1/cath-reprocessing', CATH_REPROCESSING_POLICY_ROUTE_ROLES, governanceRouter, 'CATH_LAB_STAFF'),
+    ).put('/api/v1/cath-reprocessing/lab-readiness-settings').send({ auto_pass: false });
+
+    expect(res.status).toBe(403);
+    expect(readinessService.upsertReadinessSettings).not.toHaveBeenCalled();
   });
 });
 

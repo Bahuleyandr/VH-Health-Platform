@@ -366,4 +366,38 @@ describe("Reprocessing policy tab", () => {
       allowed_cycle_types: ["eto"],
     });
   });
+
+  it("will not send a serology window outside 1–365 whole days", async () => {
+    // `positiveInt(..., { max: 365 })` server-side; `min`/`max` here are
+    // advisory attributes that nothing checks on submit.
+    renderTab();
+    const box = await screen.findByLabelText("Serology validity days");
+
+    for (const rejected of ["366", "0", "-5", "1.5"]) {
+      fireEvent.change(box, { target: { value: rejected } });
+      expect(screen.getByText("Save settings")).toBeDisabled();
+      expect(
+        screen.getByText(
+          "Serology validity must be a whole number of days between 1 and 365.",
+        ),
+      ).toBeInTheDocument();
+      fireEvent.click(screen.getByText("Save settings"));
+    }
+    expect(api.updateCathReprocessingSettings).not.toHaveBeenCalled();
+
+    fireEvent.change(box, { target: { value: "14" } });
+    expect(screen.getByText("Save settings")).toBeEnabled();
+    expect(
+      screen.queryByText(
+        "Serology validity must be a whole number of days between 1 and 365.",
+      ),
+    ).toBeNull();
+    fireEvent.click(screen.getByText("Save settings"));
+    await waitFor(() =>
+      expect(api.updateCathReprocessingSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ serology_validity_days: 14 }),
+        expect.any(String),
+      ),
+    );
+  });
 });

@@ -8,10 +8,13 @@
 // silently dropped header fails here instead of in a hospital.
 
 import {
+  CATH_LAB_READINESS_ITEMS,
+  CATH_LAB_READINESS_SETTINGS_PATH,
   CATH_REPROCESSING_POLICIES_PATH,
   CATH_REPROCESSING_SETTINGS_PATH,
   CSSD_DEVICES_PATH,
   discardCssdDevice,
+  getCathLabReadinessSettings,
   getCathReprocessingSettings,
   listCathReprocessingPolicies,
   listCssdDevices,
@@ -19,6 +22,7 @@ import {
   quarantineCssdDevice,
   receiveCssdDevice,
   releaseCssdDevice,
+  updateCathLabReadinessSettings,
   updateCathReprocessingPolicies,
   updateCathReprocessingSettings,
 } from "@/lib/api/cathDevices";
@@ -150,7 +154,47 @@ describe("cath device-reuse admin API client", () => {
     );
   });
 
-  it("refuses a malformed policy key on both governance writes", () => {
+  it("reads and writes lab readiness settings on the same governance mount", async () => {
+    await getCathLabReadinessSettings();
+    expect(mockedGetJSON).toHaveBeenCalledWith(
+      CATH_LAB_READINESS_SETTINGS_PATH,
+    );
+
+    // The PUT replaces the policy wholesale — an omitted field is written back
+    // at its default — so the body is passed through untouched and callers are
+    // expected to send all four.
+    const body = {
+      required_items: ["hb" as const, "creatinine" as const],
+      lab_validity_days: 14,
+      auto_pass: false,
+      external_results_count: true,
+    };
+    await updateCathLabReadinessSettings(body, POLICY_KEY);
+    expect(mockedPutJSON).toHaveBeenCalledWith(
+      CATH_LAB_READINESS_SETTINGS_PATH,
+      body,
+      true,
+      { "Idempotency-Key": POLICY_KEY },
+    );
+  });
+
+  it("mirrors the backend's seven lab readiness item codes", () => {
+    // LAB_ANALYTE_ITEM_CODES in
+    // apps/backend/src/services/lab/labAnalyteCodes.js. A code outside the set
+    // is a 400 CATH_LAB_READINESS_ITEM_UNKNOWN, so a drifted list is a
+    // checkbox that can never be saved.
+    expect([...CATH_LAB_READINESS_ITEMS]).toEqual([
+      "hb",
+      "platelets",
+      "creatinine",
+      "potassium",
+      "hiv",
+      "hbsag",
+      "hcv",
+    ]);
+  });
+
+  it("refuses a malformed policy key on all three governance writes", () => {
     expect(() =>
       updateCathReprocessingSettings({ serology_validity_days: 30 }, "bad key"),
     ).toThrow(TypeError);
@@ -159,6 +203,9 @@ describe("cath device-reuse admin API client", () => {
         [{ category: "balloon", reprocessable: false }],
         "bad key",
       ),
+    ).toThrow(TypeError);
+    expect(() =>
+      updateCathLabReadinessSettings({ lab_validity_days: 30 }, "bad key"),
     ).toThrow(TypeError);
     expect(mockedPutJSON).not.toHaveBeenCalled();
   });
