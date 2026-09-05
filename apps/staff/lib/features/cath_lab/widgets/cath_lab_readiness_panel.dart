@@ -291,17 +291,29 @@ class _CathLabReadinessPanelState extends State<CathLabReadinessPanel> {
     // already on record) and no waiver (it looks available) and therefore no
     // way to make the case ready.
     final canEnterExternal = !labs.caseStarted && !item.available;
+    // NOT gated on `caseStarted`, unlike the two above.
+    //
+    // OWNER DECISION, 2026-09-06: "in emergencies with no reports immediately
+    // available we will proceed with no reports and we might add while the
+    // procedure is ongoing and the reports become available; we do not want the
+    // pre-cath checklist to be restrictive as principle."
+    //
+    // A team already at the table is exactly the team that has to record
+    // "proceeding without HCV". Hiding the button would not stop them
+    // proceeding — it would only stop the decision being written down, and the
+    // backend accepts the write. What the row says instead is WHEN it was
+    // recorded: see the `recorded_after_start` chip below.
     final canWaive =
-        !labs.caseStarted &&
         item.required &&
         item.state != 'waived' &&
         labs.missingItemCodes.contains(item.itemCode);
     // The exit FROM a waiver, offered on exactly the rows that carry one. It is
     // deliberately NOT gated on the server's `missing[]`: a waived item is
     // never missing — that is what the waiver did — so reusing the waive rule
-    // here would hide the only way back out of it. Like every other write on
-    // this panel it disappears once the case has started.
-    final canUnwaive = !labs.caseStarted && item.state == 'waived';
+    // here would hide the only way back out of it. Nor on `caseStarted`: the
+    // outside report that arrives mid-procedure is precisely why a waiver comes
+    // off, and the backend audits the lift as `lifted_after_start`.
+    final canUnwaive = item.state == 'waived';
     return Padding(
       key: ValueKey('cath-lab-item-${item.itemCode}'),
       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -346,6 +358,20 @@ class _CathLabReadinessPanelState extends State<CathLabReadinessPanel> {
               child: Text(
                 line,
                 style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+              ),
+            ),
+          // The waiver was recorded while the patient was already on the
+          // table. The backend accepts that write (owner decision,
+          // 2026-09-06) — so the panel does not hide the action, it dates the
+          // record. Amber, not red: this is a documented decision, not a
+          // failure.
+          if (item.state == 'waived' && item.recordedAfterStart)
+            Padding(
+              key: ValueKey('cath-lab-waived-after-start-${item.itemCode}'),
+              padding: const EdgeInsets.only(top: 4),
+              child: _tag(
+                s.lookup('s4.lib.cath_lab.readiness.waived_after_start'),
+                AppTheme.warningAmber,
               ),
             ),
           if (item.state == 'waived' && item.waiveReason.isNotEmpty)

@@ -163,6 +163,31 @@ export function orderCoversItem(item, order) {
   return LAB_ANALYTE_ITEMS[item].orderCodes.includes(code);
 }
 
+// Was this waiver written after the patient was already on the table?
+//
+// OWNER DECISION, 2026-09-06: the pre-cath checklist is not restrictive, so a
+// waiver MAY be recorded once the procedure has started (see
+// cathLabReadinessActions.isAfterCaseStart). What the record then owes its
+// reader is the timing: "proceeding without HCV" decided in the anteroom and
+// the same decision written down twenty minutes into a primary PCI are not the
+// same document.
+//
+// DERIVED, never stored. Both instants are already columns —
+// cath_case_lab_readiness_items.waived_at and cath_lab_cases.actual_start_at —
+// so a third column would be a copy that can go stale against them, and no
+// migration is needed for a value the read can compute.
+//
+// False when the case has not started, when the waiver predates the start, and
+// when either instant is unusable: this key is an ASSERTION that a waiver was
+// documented late, and an unknown is not one.
+function waivedAfterStart(waivedAt, caseStartedAt) {
+  if (!caseStartedAt) return false;
+  const waivedMs = toMs(waivedAt);
+  const startedMs = toMs(caseStartedAt);
+  if (!Number.isFinite(waivedMs) || !Number.isFinite(startedMs)) return false;
+  return waivedMs > startedMs;
+}
+
 // One item's state from the patient's rows. Pure; the caller fetches rows.
 export function resolveItemState({
   item,
@@ -172,6 +197,10 @@ export function resolveItemState({
   waiver = null,
   windowDays,
   asOf = new Date(),
+  // The owning case's actual_start_at, for the waiver-lateness marker below.
+  // Optional: every other branch reads it as "not started", which is also the
+  // right answer for a case that has not.
+  caseStartedAt = null,
 }) {
   const base = {
     item_code: item, state: 'not_ordered', value_text: null, value_numeric: null, unit: null,
@@ -182,6 +211,11 @@ export function resolveItemState({
     // has to arrive as three explicit NULLs or the old waiver survives the
     // rewrite and the row still names a person who cleared nothing.
     waived_by: null, waived_at: null, waive_reason: null,
+    // Present, and false, on EVERY item for the same reason the three waiver
+    // keys are present and null: CathLabReadinessItem is
+    // additionalProperties:false with every key required, so the key set may
+    // not vary by branch. Only a waived item can carry true.
+    recorded_after_start: false,
   };
   const asOfMs = toMs(asOf);
   // A row whose instant is unusable OR in the future ranks last, so it never
@@ -285,6 +319,7 @@ export function resolveItemState({
     waived_by: waiver.waived_by,
     waived_at: waiver.waived_at,
     waive_reason: waiver.waive_reason,
+    recorded_after_start: waivedAfterStart(waiver.waived_at, caseStartedAt),
   };
 }
 

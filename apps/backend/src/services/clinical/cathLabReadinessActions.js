@@ -41,6 +41,7 @@ import {
   ITEM_CODES,
   externalNumericValue,
   isCalendarDate,
+  toMs,
 } from './cathLabReadinessRules.js';
 import {
   cleanText,
@@ -65,17 +66,37 @@ function requireItem(value) {
   return item;
 }
 
-// Once the patient is on the table the pre-procedure record is HISTORY: what
-// the team knew before the case is not editable after it. The same rule the
-// order and outside-result paths already state, and the same code
-// (CATH_LAB_READINESS_CASE_STARTED) — spelled once so the two waiver paths
-// cannot drift from it. The caller passes the row it has ALREADY LOCKED, so
-// the decision is made against a case row no concurrent writer can start
-// underneath it.
-function requireCaseNotStarted(cathCase, message) {
-  if (cathCase?.actual_start_at) {
-    throw AppError.conflict(message, 'CATH_LAB_READINESS_CASE_STARTED');
-  }
+// OWNER DECISION, 2026-09-06: "in emergencies with no reports immediately
+// available we will proceed with no reports and we might add while the
+// procedure is ongoing and the reports become available; we do not want the
+// pre-cath checklist to be restrictive as principle."
+//
+// So NEITHER waiver path refuses a started case — in either direction. An
+// emergency team that is already at the table is exactly the team that has to
+// record "proceeding without HCV", and a checklist that refuses the record does
+// not stop the decision, it only stops the decision being written down. Lifting
+// one is the same story from the other side: the outside report that arrives
+// mid-procedure is the reason the waiver should come off.
+//
+// Lateness is MARKED, never refused. The write happens and the audit row says
+// when the decision was documented relative to the patient being on the table,
+// so a reader can still tell a pre-procedure record from a retrospective one.
+//
+// The caller passes the row it has ALREADY LOCKED, so the mark is made against
+// a case row no concurrent writer can start underneath it. The write's own
+// instant is NOW(), so "after start" is just whether the locked row already
+// carried a start that has passed. A row that carries an UNPARSEABLE start
+// still counts as started: a non-null actual_start_at is what "the procedure
+// has started" means everywhere else in this feature.
+//
+// (order-missing and external-result still refuse a started case — those two
+// reach outside the readiness tables into the order and lab rails, and their
+// own follow-up lane owns that decision.)
+function isAfterCaseStart(cathCase, at = Date.now()) {
+  const startedAt = cathCase?.actual_start_at;
+  if (!startedAt) return false;
+  const startedMs = toMs(startedAt);
+  return Number.isFinite(startedMs) ? startedMs <= at : true;
 }
 
 export async function waiveLabItem(caseId, itemCode, input = {}, context = {}) {
@@ -91,10 +112,7 @@ export async function waiveLabItem(caseId, itemCode, input = {}, context = {}) {
   const actor = requireUuid(context.actorUid, 'actorUid');
   return setTenantTx(tid, async (tx) => {
     const cathCase = await caseRowTx(tx, tid, caseId, { lock: true });
-    requireCaseNotStarted(
-      cathCase,
-      'The procedure has started; the pre-procedure record is closed to new waivers',
-    );
+    const recordedAfterStart = isAfterCaseStart(cathCase);
     await tx.$executeRawUnsafe(
       `INSERT INTO cath_case_lab_readiness_items
          (tenant_id, case_id, item_code, required, state, source,
@@ -115,7 +133,15 @@ export async function waiveLabItem(caseId, itemCode, input = {}, context = {}) {
       resource: 'cath_case_lab_readiness_items',
       resourceId: `${cathCase.id}:${item}`,
       context,
-      metadata: { case_id: cathCase.id, item, reason },
+      // recorded_after_start is the whole of what the removed refusal used to
+      // say, kept as a FACT on the trail instead of as a gate: a waiver written
+      // while the patient was on the table is a real clinical decision and a
+      // documented-late one, and the log has to be able to tell them apart. The
+      // same boolean reaches the ward on the item itself, derived rather than
+      // stored.
+      metadata: {
+        case_id: cathCase.id, item, reason, recorded_after_start: recordedAfterStart,
+      },
     });
     return refreshCaseLabReadiness({ tenantId: tid, caseId: cathCase.id, db: tx, context });
   });
@@ -145,10 +171,7 @@ export async function unwaiveLabItem(caseId, itemCode, input = {}, context = {})
   requireUuid(context.actorUid, 'actorUid');
   return setTenantTx(tid, async (tx) => {
     const cathCase = await caseRowTx(tx, tid, caseId, { lock: true });
-    requireCaseNotStarted(
-      cathCase,
-      'The procedure has started; the pre-procedure record is closed to waiver changes',
-    );
+    const liftedAfterStart = isAfterCaseStart(cathCase);
     const rows = await tx.$queryRawUnsafe(
       `SELECT state, waive_reason
          FROM cath_case_lab_readiness_items
@@ -192,8 +215,19 @@ export async function unwaiveLabItem(caseId, itemCode, input = {}, context = {})
       // The reason the waiver GAVE is the thing being withdrawn, so it is
       // carried onto the row that withdraws it: the log otherwise says an
       // override was lifted without saying which override.
+      //
+      // lifted_after_start is the un-waive twin of the waiver's
+      // recorded_after_start: the report that arrives mid-procedure is exactly
+      // why a waiver comes off late, and the trail says so. There is no derived
+      // marker for it on the item — lifting a waiver leaves the item resolved
+      // from evidence with no waiver columns at all, so the audit row is the
+      // only place this fact can live.
       metadata: {
-        case_id: cathCase.id, item, reason, previous_reason: previousReason,
+        case_id: cathCase.id,
+        item,
+        reason,
+        previous_reason: previousReason,
+        lifted_after_start: liftedAfterStart,
       },
     });
     return refreshCaseLabReadiness({ tenantId: tid, caseId: cathCase.id, db: tx, context });

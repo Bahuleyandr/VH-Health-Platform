@@ -120,7 +120,7 @@ const item = {
   required: [
     'item_code', 'required', 'state', 'value_text', 'value_numeric', 'unit', 'abnormal_flag',
     'is_critical', 'observed_at', 'source', 'lab_result_id', 'investigation_id', 'specimen_id',
-    'ordered_at', 'waived_by', 'waived_at', 'waive_reason'
+    'ordered_at', 'waived_by', 'waived_at', 'waive_reason', 'recorded_after_start'
   ],
   properties: {
     item_code: { type: 'string', enum: ITEMS },
@@ -159,7 +159,18 @@ const item = {
     ordered_at: nullableDateTime,
     waived_by: nullableUuid,
     waived_at: nullableDateTime,
-    waive_reason: nullableString
+    waive_reason: nullableString,
+    recorded_after_start: {
+      type: 'boolean',
+      description:
+        'True when this item\'s waiver was recorded AFTER the case\'s actual_start_at — the '
+        + 'decision to proceed without the item was documented while the patient was already on '
+        + 'the table. A waiver is never refused for being late (owner decision, 2026-09-06): a '
+        + 'team that has to proceed without a report still has to be able to record that it did. '
+        + 'DERIVED on every read from waived_at against actual_start_at, not a stored column, so '
+        + 'it cannot go stale against either. False on every non-waived item, on a waiver that '
+        + 'predates the start, and on a case that has not started.'
+    }
   }
 };
 
@@ -246,8 +257,10 @@ const readiness = {
     case_started: {
       type: 'boolean',
       description:
-        'True once the procedure has an actual start; every write action on this surface is '
-        + 'refused after it.'
+        'True once the procedure has an actual start. Ordering the missing labs and recording '
+        + 'an outside result are refused after it; waiving an item and lifting a waiver are '
+        + 'NOT — those stay open and are marked as recorded late instead (owner decision, '
+        + '2026-09-06; see the item\'s `recorded_after_start`).'
     }
   }
 };
@@ -529,9 +542,11 @@ export const operations = {
     description:
       'Records a clinical decision to proceed without one item, with who/when/why. The waiver '
       + 'decides the state only — any value already on the item stays, so a waived critical result '
-      + 'still raises the warning. Refused once the procedure has started: the pre-procedure '
-      + 'record says what the team knew BEFORE the case and is not editable after it. Requires '
-      + 'Idempotency-Key (scope cath_lab_readiness_waive).',
+      + 'still raises the warning. NOT refused once the procedure has started: proceeding without '
+      + 'an item is a decision the team may still have to record, and a waiver recorded after '
+      + '`actual_start_at` carries `recorded_after_start: true` so the record shows it was '
+      + 'documented late (owner decision, 2026-09-06). Requires Idempotency-Key (scope '
+      + 'cath_lab_readiness_waive).',
     pathParameters: { id: BIGINT_WIRE, item: { type: 'string', enum: ITEMS } },
     parameters: [idempotencyHeaderParameter],
     request: 'CathLabReadinessWaiveRequest',
@@ -541,10 +556,6 @@ export const operations = {
         'The item code is not one of the seven (refused at the route, before the '
         + 'Idempotency-Key is claimed), or no reason was given.',
         ['CATH_LAB_READINESS_ITEM_UNKNOWN', 'CATH_LAB_READINESS_VALUE_INVALID']
-      ),
-      409: errorResponse(
-        'The procedure has already started; the pre-procedure record is closed.',
-        ['CATH_LAB_READINESS_CASE_STARTED']
       )
     }
   },
@@ -554,9 +565,12 @@ export const operations = {
       'Withdraws a waiver, so the item is resolved from the patient\'s lab evidence again — '
       + 'which may leave it missing and take the labs check back off pass. It is a SECOND '
       + 'decision recorded over the first, not an undo: the waiver and its audit row stand, and '
-      + 'this writes its own row carrying the withdrawn waiver\'s reason. Refused once the '
-      + 'procedure has started, and refused when the item is not waived. Requires '
-      + 'Idempotency-Key (scope cath_lab_readiness_unwaive).',
+      + 'this writes its own row carrying the withdrawn waiver\'s reason. NOT refused once the '
+      + 'procedure has started — the outside report that arrives mid-procedure is exactly why a '
+      + 'waiver comes off — and a lift recorded after `actual_start_at` is audited '
+      + '`lifted_after_start` so the record shows it was documented late (owner decision, '
+      + '2026-09-06). Refused only when the item is not waived. Requires Idempotency-Key (scope '
+      + 'cath_lab_readiness_unwaive).',
     pathParameters: { id: BIGINT_WIRE, item: { type: 'string', enum: ITEMS } },
     parameters: [idempotencyHeaderParameter],
     request: 'CathLabReadinessUnwaiveRequest',
@@ -568,10 +582,10 @@ export const operations = {
         ['CATH_LAB_READINESS_ITEM_UNKNOWN']
       ),
       409: errorResponse(
-        'The procedure has already started, or the item carries no waiver to remove — decided '
-        + 'from the stored row under the case lock, so a second tap is told so rather than '
-        + 'writing an audit row about a waiver that was already gone.',
-        ['CATH_LAB_READINESS_CASE_STARTED', 'CATH_LAB_READINESS_NOT_WAIVED']
+        'The item carries no waiver to remove — decided from the stored row under the case '
+        + 'lock, so a second tap is told so rather than writing an audit row about a waiver '
+        + 'that was already gone.',
+        ['CATH_LAB_READINESS_NOT_WAIVED']
       )
     }
   },

@@ -1110,8 +1110,8 @@ void main() {
     },
   );
 
-  testWidgets('a started case shows the waive reason but offers no write '
-      'actions', (tester) async {
+  testWidgets('a started case still offers the waiver, and keeps the order and '
+      'outside-result actions closed', (tester) async {
     await tester.pumpWidget(
       _wrap(
         CathReadinessDependencies(
@@ -1147,9 +1147,17 @@ void main() {
     expect(find.text('Waived: Emergency PCI'), findsOneWidget);
     // M1: a waiver is dated by its waiver, not labelled "As of".
     expect(find.text('Waived 2026-09-04'), findsOneWidget);
+    // Still closed: both of these reach outside the checklist — into the order
+    // rail and the lab rail — and the backend still answers
+    // CATH_LAB_READINESS_CASE_STARTED for them.
     expect(find.byKey(const ValueKey('cath-lab-order-missing')), findsNothing);
     expect(find.byKey(const ValueKey('cath-lab-external-hb')), findsNothing);
-    expect(find.byKey(const ValueKey('cath-lab-waive-hb')), findsNothing);
+    // OPEN, and this is the inversion of what this test used to assert. Owner
+    // decision, 2026-09-06: the pre-cath checklist is not restrictive. A team
+    // already at the table that has to proceed without hb must be able to
+    // RECORD that, and the backend accepts the write; hiding the button would
+    // only lose the record, not the decision.
+    expect(find.byKey(const ValueKey('cath-lab-waive-hb')), findsOneWidget);
   });
 
   testWidgets('a waived row offers the exit, and a plain row does not', (
@@ -1346,7 +1354,7 @@ void main() {
     expect(keys[0], isNot(keys[1]));
   });
 
-  testWidgets('a started case offers no way to remove a waiver either', (
+  testWidgets('a started case still offers the way OUT of a waiver', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -1371,11 +1379,64 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // The backend answers 409 CATH_LAB_READINESS_CASE_STARTED here, and the
-    // panel must not offer the tap that earns it: the pre-procedure record is
-    // what the team knew BEFORE the case, in both directions.
+    // The backend accepts the lift on a started case and audits it
+    // `lifted_after_start` (owner decision, 2026-09-06). The outside report
+    // that arrives mid-procedure is exactly why a waiver comes off, so this is
+    // the tap the panel must keep offering.
     expect(find.text('Waived: Emergency PCI'), findsOneWidget);
-    expect(find.byKey(const ValueKey('cath-lab-unwaive-hcv')), findsNothing);
+    expect(find.byKey(const ValueKey('cath-lab-unwaive-hcv')), findsOneWidget);
+  });
+
+  testWidgets('a waiver recorded after the case started is chipped as late', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        CathReadinessDependencies(
+          loadReadiness: (_) async => _readiness(
+            labsStatus: 'pass',
+            caseStarted: true,
+            items: [
+              {
+                'item_code': 'hcv',
+                'required': true,
+                'state': 'waived',
+                'is_critical': false,
+                'source': 'waiver',
+                'waived_at': '2026-09-04T05:00:00.000Z',
+                'waive_reason': 'Primary PCI under way',
+                'recorded_after_start': true,
+              },
+              {
+                // Waived before the patient was on the table: an ordinary
+                // pre-procedure waiver, and it must NOT carry the chip.
+                'item_code': 'hiv',
+                'required': true,
+                'state': 'waived',
+                'is_critical': false,
+                'source': 'waiver',
+                'waived_at': '2026-09-03T05:00:00.000Z',
+                'waive_reason': 'On file elsewhere',
+                'recorded_after_start': false,
+              },
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The panel does not hide the action, so the row has to date the record:
+    // this chip is the whole of what the removed refusal used to say.
+    expect(
+      find.byKey(const ValueKey('cath-lab-waived-after-start-hcv')),
+      findsOneWidget,
+    );
+    expect(find.text('Recorded after start'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('cath-lab-waived-after-start-hiv')),
+      findsNothing,
+    );
   });
 
   testWidgets('nothing renders when the case carries no readiness block', (

@@ -7912,6 +7912,7 @@ class AppStrings {
       's4.lib.cath_lab.readiness.waive_title': "Waive {item}?",
       's4.lib.cath_lab.readiness.waive_reason': "Reason for waiving",
       's4.lib.cath_lab.readiness.waive_reason_line': "Waived: {reason}",
+      's4.lib.cath_lab.readiness.waived_after_start': "Recorded after start",
       's4.lib.cath_lab.readiness.external_unverified_hint':
           "Stored as an external lab result, unverified by a pathologist",
       's4.lib.cath_lab.readiness.external_title': "Outside result — {item}",
@@ -15470,6 +15471,9 @@ class AppStrings {
       's4.lib.cath_lab.readiness.waive_title': "{item} को छूट दें?",
       's4.lib.cath_lab.readiness.waive_reason': "छूट का कारण",
       's4.lib.cath_lab.readiness.waive_reason_line': "छूट: {reason}",
+      // REVIEW: AI first-pass S4 cath readiness i18n - confirm clinical wording before production.
+      's4.lib.cath_lab.readiness.waived_after_start':
+          "प्रक्रिया शुरू होने के बाद दर्ज",
       's4.lib.cath_lab.readiness.external_unverified_hint': "बाहरी प्रयोगशाला परिणाम के रूप में सहेजा गया, पैथोलॉजिस्ट द्वारा असत्यापित",
       's4.lib.cath_lab.readiness.external_title': "बाहरी परिणाम — {item}",
       's4.lib.cath_lab.readiness.external_value': "परिणाम मान",
@@ -24350,6 +24354,9 @@ class AppStrings {
       's4.lib.cath_lab.readiness.waive_title': "{item} விலக்க வேண்டுமா?",
       's4.lib.cath_lab.readiness.waive_reason': "விலக்கலுக்கான காரணம்",
       's4.lib.cath_lab.readiness.waive_reason_line': "விலக்கு: {reason}",
+      // REVIEW: AI first-pass S4 cath readiness i18n - confirm clinical wording before production.
+      's4.lib.cath_lab.readiness.waived_after_start':
+          "செயல்முறை தொடங்கிய பின் பதிவு",
       's4.lib.cath_lab.readiness.external_unverified_hint': "வெளி ஆய்வக முடிவாக சேமிக்கப்பட்டது; நோயியல் நிபுணரால் சரிபார்க்கப்படவில்லை",
       's4.lib.cath_lab.readiness.external_title': "வெளி முடிவு — {item}",
       's4.lib.cath_lab.readiness.external_value': "முடிவு மதிப்பு",
@@ -33331,6 +33338,9 @@ class AppStrings {
       's4.lib.cath_lab.readiness.waive_title': "{item} మినహాయించాలా?",
       's4.lib.cath_lab.readiness.waive_reason': "మినహాయింపు కారణం",
       's4.lib.cath_lab.readiness.waive_reason_line': "మినహాయింపు: {reason}",
+      // REVIEW: AI first-pass S4 cath readiness i18n - confirm clinical wording before production.
+      's4.lib.cath_lab.readiness.waived_after_start':
+          "ప్రక్రియ ప్రారంభమైన తర్వాత నమోదు",
       's4.lib.cath_lab.readiness.external_unverified_hint':
           "బాహ్య ల్యాబ్ ఫలితంగా నిల్వ; పాథాలజిస్ట్ ధృవీకరించలేదు",
       's4.lib.cath_lab.readiness.external_title': "బయటి ఫలితం — {item}",
@@ -39152,6 +39162,9 @@ class AppStrings {
       's4.lib.cath_lab.readiness.waive_title': "{item} ഒഴിവാക്കണോ?",
       's4.lib.cath_lab.readiness.waive_reason': "ഒഴിവാക്കാനുള്ള കാരണം",
       's4.lib.cath_lab.readiness.waive_reason_line': "ഒഴിവാക്കൽ: {reason}",
+      // REVIEW: AI first-pass S4 cath readiness i18n - confirm clinical wording before production.
+      's4.lib.cath_lab.readiness.waived_after_start':
+          "നടപടിക്രമം തുടങ്ങിയ ശേഷം രേഖപ്പെടുത്തി",
       's4.lib.cath_lab.readiness.external_unverified_hint':
           "ബാഹ്യ ലാബ് ഫലമായി സൂക്ഷിച്ചു; പാത്തോളജിസ്റ്റ് പരിശോധിച്ചിട്ടില്ല",
       's4.lib.cath_lab.readiness.external_title':

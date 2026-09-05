@@ -13,7 +13,8 @@
  *     the resolver does or a long-stale order both fails to be evidence and
  *     blocks the re-order that would produce some,
  *   - the two waiver actions, whose whole content is the order of their
- *     guards against a locked case row and the statements they then write.
+ *     guards against a locked case row, the statements they then write, and
+ *     the recorded_after_start / lifted_after_start marks they take off it.
  *
  * The stub answers each statement by its FROM target rather than by call order,
  * so reordering the reads inside the service does not silently feed one query
@@ -357,8 +358,14 @@ describe('outside-result entries key the lab rail per item', () => {
   });
 });
 
-describe('the waiver pair guards a started case and the stored state', () => {
-  const startedCase = () => [{ ...CASE_ROW, actual_start_at: new Date().toISOString() }];
+describe('the waiver pair marks a late decision and guards the stored state', () => {
+  // A start that is already in the PAST when the waiver statement runs, so
+  // `waived_at > actual_start_at` is a fact about the fixture rather than a
+  // race against the millisecond the two share.
+  const startedCase = () => [{
+    ...CASE_ROW,
+    actual_start_at: new Date(Date.now() - 60_000).toISOString(),
+  }];
   const auditActions = () => executed
     .filter((entry) => /INSERT INTO audit_logs/.test(entry.sql))
     .map((entry) => entry.params[3]);
@@ -366,38 +373,73 @@ describe('the waiver pair guards a started case and the stored state', () => {
     (entry) => /(INSERT INTO|UPDATE) cath_case_lab_readiness_items/.test(entry.sql),
   );
 
-  test('waive refuses once the case has started, before it writes anything', async () => {
+  // OWNER DECISION, 2026-09-06: the pre-cath checklist is not restrictive. An
+  // emergency team already at the table is exactly the team that has to record
+  // "proceeding without HCV", so the waiver is ACCEPTED and marked, not
+  // refused. These two tests are the inverse of the ones they replace.
+  test('waive after the case has started is accepted and marked recorded_after_start', async () => {
     stubRows.cathCase = startedCase();
 
-    await expect(waiveLabItem(
-      CASE_ID, 'hcv', { tenantId: TENANT, reason: 'on file elsewhere' }, ctx,
-    )).rejects.toMatchObject({
-      statusCode: 409,
-      code: 'CATH_LAB_READINESS_CASE_STARTED',
+    const after = await waiveLabItem(
+      CASE_ID, 'hcv', { tenantId: TENANT, reason: 'emergency PCI, no report yet' }, ctx,
+    );
+
+    expect(auditActions()).toContain('cath_lab.readiness.labs.item_waived');
+    const audit = executed.find((entry) => /INSERT INTO audit_logs/.test(entry.sql));
+    expect(JSON.parse(audit.params[6])).toMatchObject({
+      item: 'hcv',
+      reason: 'emergency PCI, no report yet',
+      recorded_after_start: true,
     });
-    // BEFORE anything: not the item row, not the audit row. A refusal that
-    // writes half a waiver is the failure this guard exists to prevent.
-    expect(executed).toEqual([]);
+    // The waiver really landed — a mark on an unwritten row would be the worst
+    // of both.
+    expect(stubRows.items.find((row) => row.item_code === 'hcv').state).toBe('waived');
+    // ...and the same fact reaches the ward on the item, derived from waived_at
+    // against the case's actual_start_at rather than stored beside them.
+    expect(after.items.find((row) => row.item_code === 'hcv')).toMatchObject({
+      state: 'waived',
+      recorded_after_start: true,
+    });
   });
 
-  test('waive still writes the item and its audit row while the case has not started', async () => {
-    await waiveLabItem(CASE_ID, 'hcv', { tenantId: TENANT, reason: 'on file elsewhere' }, ctx);
+  test('waive before the case starts writes the item, the audit row and no late mark', async () => {
+    const after = await waiveLabItem(
+      CASE_ID, 'hcv', { tenantId: TENANT, reason: 'on file elsewhere' }, ctx,
+    );
 
     expect(auditActions()).toContain('cath_lab.readiness.labs.item_waived');
     expect(stubRows.items.find((row) => row.item_code === 'hcv').state).toBe('waived');
+    const audit = executed.find((entry) => /INSERT INTO audit_logs/.test(entry.sql));
+    expect(JSON.parse(audit.params[6])).toMatchObject({ recorded_after_start: false });
+    // The marker is an ASSERTION that a waiver was documented late; an ordinary
+    // pre-procedure waiver must not carry it.
+    expect(after.items.find((row) => row.item_code === 'hcv').recorded_after_start).toBe(false);
   });
 
-  test('unwaive refuses once the case has started, before it writes anything', async () => {
+  test('unwaive after the case has started is accepted and audited lifted_after_start', async () => {
     await waiveLabItem(CASE_ID, 'hcv', { tenantId: TENANT, reason: 'on file elsewhere' }, ctx);
     executed = [];
     stubRows.cathCase = startedCase();
 
-    await expect(unwaiveLabItem(CASE_ID, 'hcv', { tenantId: TENANT }, ctx))
-      .rejects.toMatchObject({ statusCode: 409, code: 'CATH_LAB_READINESS_CASE_STARTED' });
-    expect(executed).toEqual([]);
-    // ...and the waiver is untouched, which is the point: the pre-procedure
-    // record is not editable after the procedure, in either direction.
-    expect(stubRows.items.find((row) => row.item_code === 'hcv').state).toBe('waived');
+    const after = await unwaiveLabItem(
+      CASE_ID, 'hcv', { tenantId: TENANT, reason: 'the report arrived mid-case' }, ctx,
+    );
+
+    const audit = executed.find((entry) => /INSERT INTO audit_logs/.test(entry.sql));
+    expect(audit.params[3]).toBe('cath_lab.readiness.labs.unwaived');
+    expect(JSON.parse(audit.params[6])).toMatchObject({
+      item: 'hcv',
+      reason: 'the report arrived mid-case',
+      previous_reason: 'on file elsewhere',
+      lifted_after_start: true,
+    });
+    // The lift really happened: the report that turns up mid-procedure is the
+    // reason a waiver comes off, and refusing it would leave the record saying
+    // the team proceeded blind when it did not.
+    expect(stubRows.items.find((row) => row.item_code === 'hcv')).toMatchObject({
+      waived_by: null, waived_at: null, waive_reason: null,
+    });
+    expect(after.items.find((row) => row.item_code === 'hcv').state).toBe('not_ordered');
   });
 
   test('unwaive refuses an item that carries no waiver, and writes nothing', async () => {

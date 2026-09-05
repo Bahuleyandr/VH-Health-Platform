@@ -605,7 +605,17 @@ export async function refreshCaseLabReadiness({
       const waiver = stored && stored.state === 'waived' ? stored : null;
       return {
         ...resolveItemState({
-          item: code, results, orders, specimens, waiver, windowDays: windowDaysFor(code), asOf,
+          item: code,
+          results,
+          orders,
+          specimens,
+          waiver,
+          windowDays: windowDaysFor(code),
+          asOf,
+          // Drives the waiver-lateness marker (`recorded_after_start`) and
+          // nothing else. It is the LOCKED case row's own column, so the marker
+          // and `case_started` below can never disagree about the same case.
+          caseStartedAt: cathCase.actual_start_at,
         }),
         required: settings.required_items.includes(code),
       };

@@ -1044,6 +1044,10 @@ void main() {
     expect(keys, contains('s4.lib.cath_lab.readiness.unwaive'));
     expect(keys, contains('s4.lib.cath_lab.readiness.unwaive_confirm'));
     expect(keys, contains('s4.lib.cath_lab.readiness.unwaived_done'));
+    // A waiver recorded once the case was already running is accepted (owner
+    // decision, 2026-09-06) and the row has to SAY so — an untranslated chip
+    // would be the one word on the row that a non-English ward cannot read.
+    expect(keys, contains('s4.lib.cath_lab.readiness.waived_after_start'));
     expect(
       _missingLocaleEntries(keys, requiredLocales: 5),
       isEmpty,

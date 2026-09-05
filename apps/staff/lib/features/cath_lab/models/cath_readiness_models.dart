@@ -165,6 +165,7 @@ class CathLabReadinessItem {
     this.source = '',
     this.waivedAt,
     this.waiveReason = '',
+    this.recordedAfterStart = false,
   });
 
   final String itemCode;
@@ -182,6 +183,17 @@ class CathLabReadinessItem {
   final String source;
   final DateTime? waivedAt;
   final String waiveReason;
+
+  /// True when this item's waiver was recorded AFTER the case's actual start —
+  /// the team decided to proceed without the item while the patient was
+  /// already on the table.
+  ///
+  /// The backend does not refuse a late waiver (owner decision, 2026-09-06: an
+  /// emergency proceeds with whatever reports exist), so the panel's job is to
+  /// SHOW the timing rather than to prevent it. Derived server-side from
+  /// `waived_at` against `actual_start_at`, so it is false on every non-waived
+  /// row and on a waiver that predates the start.
+  final bool recordedAfterStart;
 
   /// Whether the item no longer needs an action from the team.
   ///
@@ -218,6 +230,7 @@ class CathLabReadinessItem {
       source: _text(json['source']),
       waivedAt: _date(json['waived_at']),
       waiveReason: _text(json['waive_reason']),
+      recordedAfterStart: json['recorded_after_start'] == true,
     );
   }
 }
