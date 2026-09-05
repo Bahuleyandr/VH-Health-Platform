@@ -4478,6 +4478,18 @@ test('the D11 sentinel walk has a population: the poisoned isolation envelope an
 });
 ```
 
+**What each assertion proves live - keep them attributed, because they are NOT one guarantee:**
+
+| Assertion | Proves | Does NOT prove |
+|---|---|---|
+| `warningNodes > 0` | the walker reached `isolation_warnings[]` entries of the right SHAPE | that the entry came from `POISONED_ISOLATION` (a benign entry satisfies it) |
+| `decisionNodes > 0` | the walker reached Decision-shaped nodes | that the Decision was the poisoned one |
+| entitled body carries the `reasons` sentinel | the `POISONED_DECISION` stub still flows through a real body (Decision fixture live) | anything about the isolation envelope - untouched by any change to `POISONED_ISOLATION` |
+| entitled body carries `isolation_warnings[0].machine_id === 7` | the `POISONED_ISOLATION` envelope still flows through a real body (isolation fixture live, in-suite) | that a class VALUE on that entry would be caught |
+| mutation (12) (`required_class: 'hbsag'` added -> red) | the value sentinel fires on the exact entry the walker scans | (manual; not an in-suite guarantee) |
+
+Deleting any row because another "already covers it" is how the canary goes quiet: (12) is the only proof the value sentinel bites on that entry; the `machine_id` control is the only IN-SUITE proof the isolation fixture reached a body; the `reasons` pin covers the Decision fixture and nothing else.
+
 Reset both counters in the sweep's `beforeAll` so the numbers describe this run. The positive control is IN the code above, not beside it: an **entitled** role's body over `GET /sessions/:id/dialyser` must carry the poisoned `reuse_restriction.reasons` sentinel (the existing entitled-sees pattern) and the fixture's envelope (`machine_id: 7`, a value nothing benign would produce). Shape counting proves the WALKER ran; only sentinel-bearing bodies prove the FIXTURE is still armed - a benign warning entry satisfies the shape test and would leave both shape counters and the value sentinel green with the fixture inert, which is the state (c2) exists to make impossible (mutation (15)).
 
 (d) Regenerate the snapshot deliberately and read the diff:
