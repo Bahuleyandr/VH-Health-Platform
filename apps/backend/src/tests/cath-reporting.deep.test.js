@@ -94,6 +94,25 @@ async function maintenanceCleanup() {
       RECEPTIONIST_A,
       PATIENT_B,
     );
+    // Facilities must be deleted EXPLICITLY, before the tenants row.
+    //
+    // This teardown runs under `session_replication_role = 'replica'` (see the
+    // note at the top), which disables FK triggers — so deleting the TENANT_B
+    // tenants row does NOT cascade to its facility, and the row survives. The
+    // next run of this suite then hits
+    // facilities_tenant_id_facility_code_key on 'CATH-RLS-B' and the RLS test
+    // fails with 23505. The suite could not be run twice against the same
+    // database; on CI each run gets a fresh one, which is why this stayed
+    // invisible.
+    //
+    // TENANT_A is scoped to the code this suite creates, so a rig whose
+    // TENANT_A already had a facility is left exactly as it was found.
+    await tx.$executeRawUnsafe(
+      `DELETE FROM facilities
+        WHERE tenant_id = $1::uuid AND facility_code = 'CATH-REPORT-A'`,
+      TENANT_A,
+    );
+    await tx.$executeRawUnsafe(`DELETE FROM facilities WHERE tenant_id = $1::uuid`, TENANT_B);
     await tx.$executeRawUnsafe(`DELETE FROM tenants WHERE id = $1::uuid`, TENANT_B);
   });
 }
@@ -146,6 +165,29 @@ describeIfDb('NL-13 P1b cath reporting deep integration', () => {
       DOCTOR_A,
       RECEPTIONIST_A,
     );
+
+    // Migration 753 added chk_cath_lab_case_facility_required_753
+    // (facility_id IS NOT NULL). The case insert below picks a facility with a
+    // subquery, so on a database where TENANT_A has no ACTIVE facility that
+    // subquery yields NULL and the whole suite fails the CHECK — which is why
+    // this is red on a fresh CI-shaped database and green on a long-lived rig
+    // that happens to have one. The TENANT_B path already creates its own
+    // facility (below); TENANT_A was the asymmetric half that assumed one.
+    //
+    // Conditional rather than unconditional, and is_default FALSE: it inserts
+    // ONLY when the tenant has no active facility at all, so on a seeded
+    // database it is a no-op and can never displace the real default that
+    // `ORDER BY is_default DESC` is there to prefer.
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO facilities (tenant_id, facility_code, display_name, status, is_default)
+       SELECT $1::uuid, 'CATH-REPORT-A', 'Cath Report A', 'active', FALSE
+        WHERE NOT EXISTS (
+          SELECT 1 FROM facilities
+           WHERE tenant_id = $1::uuid AND status = 'active'
+        )`,
+      TENANT_A,
+    );
+
     const templateRows = await prisma.$queryRawUnsafe(
       `SELECT id
          FROM cath_report_templates
