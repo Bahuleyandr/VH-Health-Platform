@@ -111,6 +111,28 @@ class CathReadinessCheck {
   bool get cleared =>
       const {'pass', 'waived', 'not_applicable'}.contains(status);
 
+  /// This check with the labs automation's own view of it folded in.
+  ///
+  /// The lab-readiness block answers every lab write with `check_status`,
+  /// `critical_warning` and `auto_managed` for the SAME row this list renders,
+  /// so adopting them keeps the tile from showing the pre-write status until
+  /// the case re-read lands — or, when that re-read fails, indefinitely.
+  CathReadinessCheck copyWith({
+    String? status,
+    bool? criticalWarning,
+    bool? autoManaged,
+  }) {
+    return CathReadinessCheck(
+      checkType: checkType,
+      status: status ?? this.status,
+      required: required,
+      completedBy: completedBy,
+      notes: notes,
+      criticalWarning: criticalWarning ?? this.criticalWarning,
+      autoManaged: autoManaged ?? this.autoManaged,
+    );
+  }
+
   factory CathReadinessCheck.fromJson(Map<String, dynamic> json) {
     final meta = json['metadata'] is Map
         ? Map<String, dynamic>.from(json['metadata'] as Map)
@@ -200,6 +222,32 @@ class CathLabReadinessItem {
   }
 }
 
+/// One entry of the server's `missing[]`: a REQUIRED item the backend does not
+/// count as available, with the state it is stuck in.
+///
+/// The server is the only authority on this list and the client cannot
+/// recompute it. `cathLabReadinessService.isAvailable` counts an
+/// `external_recorded` item only where the tenant has `external_results_count`
+/// on, and that setting is not projected into this payload — so a client-side
+/// "what is missing" would call an externally-recorded item done on a tenant
+/// where the gate still counts it missing, and offer no way out of it.
+class CathLabReadinessMissing {
+  const CathLabReadinessMissing({required this.item, required this.state});
+
+  /// The item code, matching one of [cathReadinessItemCodes].
+  final String item;
+
+  /// The item's state, matching one of [cathReadinessItemStates].
+  final String state;
+
+  factory CathLabReadinessMissing.fromJson(Map<String, dynamic> json) {
+    return CathLabReadinessMissing(
+      item: _text(json['item']),
+      state: _text(json['state'], fallback: 'not_ordered'),
+    );
+  }
+}
+
 /// The `lab_readiness` block: the seven items plus the check-level decision
 /// the automation reached over them.
 class CathLabReadiness {
@@ -210,8 +258,8 @@ class CathLabReadiness {
     required this.criticalWarning,
     required this.criticalItems,
     required this.items,
+    required this.missing,
     required this.orderableNow,
-    required this.openOrderCodes,
     required this.caseStarted,
   });
 
@@ -224,19 +272,26 @@ class CathLabReadiness {
   final List<String> criticalItems;
   final List<CathLabReadinessItem> items;
 
+  /// The required items the SERVER still counts as missing, in payload order.
+  /// This is what the start gate is computed from, so it is also what the
+  /// waive exit is offered against.
+  final List<CathLabReadinessMissing> missing;
+
   /// Catalogue order codes that would cover the still-missing required items.
   /// Empty means there is nothing left to order — the button hides.
+  ///
+  /// `open_order_codes` is deliberately NOT modelled: the client never needs
+  /// it, because `order-missing` filters the already-open codes out on the
+  /// server before it places anything.
   final List<String> orderableNow;
-
-  /// Catalogue codes with an order already open, which `order-missing` skips.
-  final List<String> openOrderCodes;
 
   /// True once the procedure has actually started. Every write action hides:
   /// the record of what was known BEFORE the case must not be edited after it.
   final bool caseStarted;
 
-  List<CathLabReadinessItem> get missing =>
-      items.where((item) => item.required && !item.available).toList();
+  /// The missing item codes, for a membership test on one row.
+  Set<String> get missingItemCodes =>
+      missing.map((entry) => entry.item).toSet();
 
   factory CathLabReadiness.fromJson(Map<String, dynamic> json) {
     return CathLabReadiness(
@@ -248,8 +303,10 @@ class CathLabReadiness {
       items: _maps(json['items'])
           .map(CathLabReadinessItem.fromJson)
           .toList(growable: false),
+      missing: _maps(json['missing'])
+          .map(CathLabReadinessMissing.fromJson)
+          .toList(growable: false),
       orderableNow: _strings(json['orderable_now']),
-      openOrderCodes: _strings(json['open_order_codes']),
       caseStarted: json['case_started'] == true,
     );
   }

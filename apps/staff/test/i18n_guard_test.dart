@@ -958,6 +958,128 @@ void main() {
     );
   });
 
+  test('Cath readiness copy has all five staff locale entries', () {
+    final files = [
+      File('lib/features/cath_lab/widgets/cath_readiness_checklist.dart'),
+      File('lib/features/cath_lab/widgets/cath_lab_readiness_panel.dart'),
+      File('lib/features/cath_lab/widgets/cath_external_result_sheet.dart'),
+      File('lib/features/cath_lab/widgets/cath_readiness_formatting.dart'),
+      File('lib/features/cath_lab/screens/cath_lab_screen.dart'),
+    ];
+    final keys = <String>{};
+    for (final file in files) {
+      // The CALL-anchored collector, not the bare-literal one: these files
+      // carry apostrophes in prose comments, and a scanner that pairs quotes
+      // positionally silently drops whichever real keys fall on the wrong side
+      // of one — which is a locale pin that passes by not looking.
+      keys.addAll(
+        _appStringCallKeysFrom(file.readAsStringSync(), const [
+          's4.lib.cath_lab.readiness.',
+        ]),
+      );
+    }
+    // The four interpolated families ('...item.$code' and friends) are built
+    // from a code and so never appear as literals; they are enumerated here so
+    // the pin covers the whole surface rather than only the fixed copy.
+    keys.addAll([
+      for (final code in const [
+        'hb',
+        'platelets',
+        'creatinine',
+        'potassium',
+        'hiv',
+        'hbsag',
+        'hcv',
+      ])
+        's4.lib.cath_lab.readiness.item.$code',
+      for (final state in const [
+        'result_final',
+        'result_preliminary',
+        'external_recorded',
+        'sample_sent_awaiting_result',
+        'ordered_awaiting_sample',
+        'not_ordered',
+        'stale',
+        'waived',
+      ])
+        's4.lib.cath_lab.readiness.state.$state',
+      for (final check in const [
+        'consent',
+        'labs',
+        'allergy_renal_risk',
+        'anticoagulation',
+        'blood_bank',
+        'equipment',
+        'implants_device_rep',
+        'timeout',
+      ])
+        's4.lib.cath_lab.readiness.check.$check',
+      for (final status in const [
+        'pass',
+        'fail',
+        'waived',
+        'not_applicable',
+        'pending',
+      ])
+        's4.lib.cath_lab.readiness.check_status.$status',
+    ]);
+
+    expect(keys, isNotEmpty);
+    // The copy this review added: a confirmation that names a critical value,
+    // the two "no default" hints, and the case-header strip.
+    expect(keys, contains('s4.lib.cath_lab.readiness.confirm_critical'));
+    expect(keys, contains('s4.lib.cath_lab.readiness.reason_required'));
+    expect(keys, contains('s4.lib.cath_lab.readiness.external.select_result'));
+    expect(keys, contains('s4.lib.cath_lab.readiness.external.select_date'));
+    expect(keys, contains('s4.lib.cath_lab.readiness.confirm_notes'));
+    expect(keys, contains('s4.lib.cath_lab.readiness.confirm_reason'));
+    expect(keys, contains('s4.lib.cath_lab.readiness.auto_managed_note'));
+    expect(keys, contains('s4.lib.cath_lab.readiness.result_required'));
+    expect(keys, contains('s4.lib.cath_lab.readiness.date_required'));
+    expect(keys, contains('s4.lib.cath_lab.readiness.waived_on'));
+    expect(keys, contains('s4.lib.cath_lab.readiness.header.missing'));
+    expect(
+      _missingLocaleEntries(keys, requiredLocales: 5),
+      isEmpty,
+      reason: 'Cath readiness keys must have en/hi/ta/te/ml entries.',
+    );
+
+    // Placeholders must survive translation: a confirmation that drops
+    // {items} stops naming the value it is asking the operator to pass.
+    for (final locale in AppStrings.supportedLocales) {
+      final strings = AppStrings.forLocale(locale);
+      expect(
+        strings.format('s4.lib.cath_lab.readiness.confirm_critical', {
+          'items': '__ITEMS__',
+        }),
+        contains('__ITEMS__'),
+        reason: locale.languageCode,
+      );
+      expect(
+        strings.format('s4.lib.cath_lab.readiness.header.missing', {
+          'items': '__ITEMS__',
+        }),
+        contains('__ITEMS__'),
+        reason: locale.languageCode,
+      );
+      expect(
+        strings.format('s4.lib.cath_lab.readiness.waived_on', {
+          'date': '__DATE__',
+        }),
+        contains('__DATE__'),
+        reason: locale.languageCode,
+      );
+      expect(
+        strings.format('s4.lib.cath_lab.readiness.confirm_body', {
+          'check': '__CHECK__',
+          'status': '__STATUS__',
+        }),
+        allOf(contains('__CHECK__'), contains('__STATUS__')),
+        reason: locale.languageCode,
+      );
+    }
+  });
+
   test('Dietary kitchen copy has entries in all five staff locales', () {
     final source = File('lib/l10n/app_strings.dart').readAsStringSync();
     final localeKeys = {

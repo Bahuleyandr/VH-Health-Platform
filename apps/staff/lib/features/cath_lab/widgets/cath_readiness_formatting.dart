@@ -60,6 +60,13 @@ String cathReadinessStateLabel(AppStrings s, String state) {
   return s.lookup('s4.lib.cath_lab.readiness.state.$state');
 }
 
+/// A set of item codes rendered as a readable list of localised item labels,
+/// in the order given. Used where a message has to NAME the items it is about
+/// — "Labs incomplete: Haemoglobin, HCV" — rather than say "some items".
+String cathReadinessItemList(AppStrings s, Iterable<String> itemCodes) {
+  return itemCodes.map((code) => cathReadinessItemLabel(s, code)).join(', ');
+}
+
 String cathReadinessSerologyLabel(AppStrings s, String value) {
   switch (value) {
     case 'Reactive':
@@ -73,10 +80,26 @@ String cathReadinessSerologyLabel(AppStrings s, String value) {
   }
 }
 
-/// A clinical date, always `yyyy-MM-dd` — the same unambiguous form the
-/// consumables surfaces use, so a report date can never read as day/month in
-/// one place and month/day in another.
-String cathReadinessDate(DateTime value) =>
+/// The `observed_on` WIRE value.
+///
+/// Built by hand rather than through [DateFormat] and kept SEPARATE from the
+/// display formatter below on purpose: `DateFormat` resolves against the
+/// ambient `Intl` locale, so a pattern of `yyyy-MM-dd` can still emit
+/// non-ASCII digits (or another calendar's year) once the app runs under a
+/// locale that has them. The backend parses this field; it must be plain ASCII
+/// `YYYY-MM-DD` in every locale, forever. Localising the display line is a
+/// design choice someone may later make — localising this one is a bug.
+String cathReadinessWireDate(DateTime value) {
+  final year = value.year.toString().padLeft(4, '0');
+  final month = value.month.toString().padLeft(2, '0');
+  final day = value.day.toString().padLeft(2, '0');
+  return '$year-$month-$day';
+}
+
+/// A clinical date as SHOWN to the ward: today the same unambiguous
+/// `yyyy-MM-dd` the consumables surfaces use, so a report date can never read
+/// as day/month in one place and month/day in another.
+String cathReadinessDisplayDate(DateTime value) =>
     DateFormat('yyyy-MM-dd').format(value);
 
 /// The item's value with its unit, or an empty string when nothing is on

@@ -182,6 +182,9 @@ class _CathLabReadinessPanelState extends State<CathLabReadinessPanel> {
           'item': cathReadinessItemLabel(s, item.itemCode),
         }),
         reasonLabel: s.lookup('s4.lib.cath_lab.readiness.waive_reason'),
+        reasonRequiredLabel: s.lookup(
+          's4.lib.cath_lab.readiness.reason_required',
+        ),
         cancelLabel: s.actionCancel,
         confirmLabel: s.lookup('s4.lib.cath_lab.readiness.waive'),
       ),
@@ -222,7 +225,24 @@ class _CathLabReadinessPanelState extends State<CathLabReadinessPanel> {
     CathLabReadiness labs,
   ) {
     final value = cathReadinessValueLine(item);
-    final canWrite = !labs.caseStarted && !item.available;
+    // Two SEPARATE rules, because one gate produced a dead end.
+    //
+    // Outside entry is offered while nothing is on record for the item at all
+    // — and `available` counts `external_recorded`, so an item that already
+    // carries an outside value is never offered a second one.
+    //
+    // The waive exit is driven by the SERVER's `missing[]` instead. On a
+    // tenant with `external_results_count` off, an externally-recorded item is
+    // still missing as far as the gate is concerned; gating the waiver on the
+    // same `available` flag left that item with no outside entry (a value is
+    // already on record) and no waiver (it looks available) and therefore no
+    // way to make the case ready.
+    final canEnterExternal = !labs.caseStarted && !item.available;
+    final canWaive =
+        !labs.caseStarted &&
+        item.required &&
+        item.state != 'waived' &&
+        labs.missingItemCodes.contains(item.itemCode);
     return Padding(
       key: ValueKey('cath-lab-item-${item.itemCode}'),
       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -279,18 +299,19 @@ class _CathLabReadinessPanelState extends State<CathLabReadinessPanel> {
                 style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
               ),
             ),
-          if (canWrite)
+          if (canEnterExternal || canWaive)
             Wrap(
               spacing: 8,
               children: [
-                TextButton(
-                  key: ValueKey('cath-lab-external-${item.itemCode}'),
-                  onPressed: _busy ? null : () => _enterExternal(item),
-                  child: Text(
-                    s.lookup('s4.lib.cath_lab.readiness.enter_external'),
+                if (canEnterExternal)
+                  TextButton(
+                    key: ValueKey('cath-lab-external-${item.itemCode}'),
+                    onPressed: _busy ? null : () => _enterExternal(item),
+                    child: Text(
+                      s.lookup('s4.lib.cath_lab.readiness.enter_external'),
+                    ),
                   ),
-                ),
-                if (item.required)
+                if (canWaive)
                   TextButton(
                     key: ValueKey('cath-lab-waive-${item.itemCode}'),
                     onPressed: _busy ? null : () => _waive(item),
@@ -303,23 +324,28 @@ class _CathLabReadinessPanelState extends State<CathLabReadinessPanel> {
     );
   }
 
-  /// The date that explains the state: when an awaiting item was ordered, and
-  /// how old a stale or recorded value is. Null when the state carries no
-  /// instant worth showing.
+  /// The date that explains the state: when an awaiting item was ordered, when
+  /// a waived item was waived, and how old a stale or recorded value is. Null
+  /// when the state carries no instant worth showing.
+  ///
+  /// The waiver is tested FIRST and gets its own line. `resolveItemState`
+  /// leaves a value on a waived item, so the observed branch would otherwise
+  /// date a waiver "As of" the value it was waived over — which reads as the
+  /// item having a current result.
   String? _timingLine(AppStrings s, CathLabReadinessItem item) {
+    if (item.state == 'waived' && item.waivedAt != null) {
+      return s.format('s4.lib.cath_lab.readiness.waived_on', {
+        'date': cathReadinessDisplayDate(item.waivedAt!),
+      });
+    }
     if (item.awaiting && item.orderedAt != null) {
       return s.format('s4.lib.cath_lab.readiness.ordered_on', {
-        'date': cathReadinessDate(item.orderedAt!),
+        'date': cathReadinessDisplayDate(item.orderedAt!),
       });
     }
     if (item.observedAt != null) {
       return s.format('s4.lib.cath_lab.readiness.observed_line', {
-        'date': cathReadinessDate(item.observedAt!),
-      });
-    }
-    if (item.state == 'waived' && item.waivedAt != null) {
-      return s.format('s4.lib.cath_lab.readiness.observed_line', {
-        'date': cathReadinessDate(item.waivedAt!),
+        'date': cathReadinessDisplayDate(item.observedAt!),
       });
     }
     return null;
@@ -374,12 +400,14 @@ class _WaiveReasonDialog extends StatefulWidget {
   const _WaiveReasonDialog({
     required this.title,
     required this.reasonLabel,
+    required this.reasonRequiredLabel,
     required this.cancelLabel,
     required this.confirmLabel,
   });
 
   final String title;
   final String reasonLabel;
+  final String reasonRequiredLabel;
   final String cancelLabel;
   final String confirmLabel;
 
@@ -389,6 +417,7 @@ class _WaiveReasonDialog extends StatefulWidget {
 
 class _WaiveReasonDialogState extends State<_WaiveReasonDialog> {
   final _controller = TextEditingController();
+  String? _error;
 
   @override
   void dispose() {
@@ -405,7 +434,13 @@ class _WaiveReasonDialogState extends State<_WaiveReasonDialog> {
         controller: _controller,
         autofocus: true,
         maxLines: 2,
-        decoration: InputDecoration(labelText: widget.reasonLabel),
+        decoration: InputDecoration(
+          labelText: widget.reasonLabel,
+          errorText: _error,
+        ),
+        onChanged: (_) {
+          if (_error != null) setState(() => _error = null);
+        },
       ),
       actions: [
         TextButton(
@@ -416,9 +451,13 @@ class _WaiveReasonDialogState extends State<_WaiveReasonDialog> {
           key: const ValueKey('cath-lab-waive-confirm'),
           onPressed: () {
             final reason = _controller.text.trim();
-            // The backend answers 400 without a reason, so an empty dialog
-            // simply does not close.
-            if (reason.isEmpty) return;
+            // The backend answers 400 without a reason. A dialog that just
+            // refused to close said nothing about why, so the refusal is now
+            // stated on the field itself.
+            if (reason.isEmpty) {
+              setState(() => _error = widget.reasonRequiredLabel);
+              return;
+            }
             Navigator.of(context).pop(reason);
           },
           child: Text(widget.confirmLabel),

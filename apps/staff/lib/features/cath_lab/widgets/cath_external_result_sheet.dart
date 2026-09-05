@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../l10n/app_strings.dart';
 import '../models/cath_readiness_models.dart';
+import 'cath_consumable_formatting.dart';
 import 'cath_readiness_formatting.dart';
 
 /// Bottom sheet that captures ONE outside-lab value for one readiness item.
@@ -55,12 +56,22 @@ class _CathExternalResultSheetState extends State<CathExternalResultSheet> {
   final _labController = TextEditingController();
   final _reportRefController = TextEditingController();
   final _notesController = TextEditingController();
-  late DateTime _observedOn;
+
+  /// The report date. Starts NULL and stays null until the operator picks one:
+  /// this field feeds the freshness rule that decides whether the item counts
+  /// as available at all, so defaulting it to today would let a form filled in
+  /// with nothing but a lab name assert that an outside result was reported
+  /// today.
+  DateTime? _observedOn;
   late DateTime _latestAllowed;
 
   /// The serology dropdown's value is a WIRE token, not a label: the sheet
   /// localises what is shown and sends this unchanged.
-  String _serologyValue = 'Non-reactive';
+  ///
+  /// It starts NULL and has no default. A pre-selected "Non-reactive" turns an
+  /// operator who only typed the outside lab's name into the author of a
+  /// negative HIV / HBsAg / HCV result on this patient's record.
+  String? _serologyValue;
 
   bool get _isSerology => cathReadinessSerologyItems.contains(widget.itemCode);
 
@@ -69,7 +80,6 @@ class _CathExternalResultSheetState extends State<CathExternalResultSheet> {
     super.initState();
     final now = widget.today ?? DateTime.now();
     _latestAllowed = DateTime(now.year, now.month, now.day);
-    _observedOn = _latestAllowed;
     _unitController.text = cathReadinessDefaultUnits[widget.itemCode] ?? '';
   }
 
@@ -83,24 +93,29 @@ class _CathExternalResultSheetState extends State<CathExternalResultSheet> {
     super.dispose();
   }
 
-  Future<void> _pickDate() async {
+  Future<void> _pickDate(FormFieldState<DateTime> field) async {
     final picked = await showDatePicker(
       context: context,
-      initialDate: _observedOn,
+      initialDate: _observedOn ?? _latestAllowed,
       firstDate: DateTime(_latestAllowed.year - 5),
       // The backend refuses a future report date against the ward's clinical
       // day, so the picker cannot offer one.
       lastDate: _latestAllowed,
     );
     if (picked == null || !mounted) return;
-    setState(
-      () => _observedOn = DateTime(picked.year, picked.month, picked.day),
-    );
+    final chosen = DateTime(picked.year, picked.month, picked.day);
+    setState(() => _observedOn = chosen);
+    field.didChange(chosen);
   }
 
   void _save() {
     if (!(_formKey.currentState?.validate() ?? false)) return;
-    final unit = _unitController.text.trim();
+    // Both are guaranteed by the validators the line above just ran; the local
+    // copies make that guarantee explicit rather than asserting it twice.
+    final observedOn = _observedOn;
+    final serology = _serologyValue;
+    if (observedOn == null) return;
+    if (_isSerology && serology == null) return;
     final numeric = _isSerology
         ? null
         : double.tryParse(_valueController.text.trim());
@@ -109,18 +124,20 @@ class _CathExternalResultSheetState extends State<CathExternalResultSheet> {
         item: widget.itemCode,
         // A quantitative entry sends the number BOTH ways: `value_numeric` is
         // what the freshness and criticality rules read, `value_text` is what
-        // the ward sees on the row.
-        valueText: _isSerology ? _serologyValue : _valueController.text.trim(),
+        // the ward sees on the row — and it is rendered from the PARSED
+        // number, so `9.40` and `09.4` cannot land on the record as two
+        // different-looking haemoglobins.
+        valueText: _isSerology
+            ? serology!
+            : (numeric == null
+                  ? _valueController.text.trim()
+                  : cathFormatQuantity(numeric)),
         valueNumeric: numeric,
-        unit: _isSerology || unit.isEmpty ? null : unit,
-        observedOn: cathReadinessDate(_observedOn),
+        unit: _isSerology ? null : cathNullableText(_unitController.text),
+        observedOn: cathReadinessWireDate(observedOn),
         externalLabName: _labController.text.trim(),
-        externalReportRef: _reportRefController.text.trim().isEmpty
-            ? null
-            : _reportRefController.text.trim(),
-        notes: _notesController.text.trim().isEmpty
-            ? null
-            : _notesController.text.trim(),
+        externalReportRef: cathNullableText(_reportRefController.text),
+        notes: cathNullableText(_notesController.text),
       ),
     );
   }
@@ -222,6 +239,7 @@ class _CathExternalResultSheetState extends State<CathExternalResultSheet> {
       decoration: InputDecoration(
         labelText: s.lookup('s4.lib.cath_lab.readiness.external_value'),
       ),
+      hint: Text(s.lookup('s4.lib.cath_lab.readiness.external.select_result')),
       items: [
         for (final value in cathReadinessSerologyValues)
           DropdownMenuItem<String>(
@@ -229,8 +247,12 @@ class _CathExternalResultSheetState extends State<CathExternalResultSheet> {
             child: Text(cathReadinessSerologyLabel(s, value)),
           ),
       ],
-      onChanged: (value) =>
-          setState(() => _serologyValue = value ?? _serologyValue),
+      // There is no safe default for a blood-borne marker, so the form does
+      // not save until a human has chosen one.
+      validator: (value) => value == null
+          ? s.lookup('s4.lib.cath_lab.readiness.result_required')
+          : null,
+      onChanged: (value) => setState(() => _serologyValue = value),
     );
   }
 
@@ -264,16 +286,35 @@ class _CathExternalResultSheetState extends State<CathExternalResultSheet> {
   }
 
   Widget _dateField(AppStrings s) {
-    return InkWell(
-      key: const ValueKey('cath-external-date'),
-      onTap: _pickDate,
-      child: InputDecorator(
-        decoration: InputDecoration(
-          labelText: s.lookup('s4.lib.cath_lab.readiness.observed_on'),
-          suffixIcon: const Icon(Icons.calendar_today_outlined, size: 18),
-        ),
-        child: Text(cathReadinessDate(_observedOn)),
-      ),
+    return FormField<DateTime>(
+      initialValue: _observedOn,
+      // The report date drives the freshness rule behind auto-pass, so it is
+      // a required entry rather than a prefilled convenience.
+      validator: (value) => value == null
+          ? s.lookup('s4.lib.cath_lab.readiness.date_required')
+          : null,
+      builder: (field) {
+        final chosen = _observedOn;
+        return InkWell(
+          key: const ValueKey('cath-external-date'),
+          onTap: () => _pickDate(field),
+          child: InputDecorator(
+            decoration: InputDecoration(
+              labelText: s.lookup('s4.lib.cath_lab.readiness.observed_on'),
+              errorText: field.errorText,
+              suffixIcon: const Icon(Icons.calendar_today_outlined, size: 18),
+            ),
+            child: Text(
+              chosen == null
+                  ? s.lookup('s4.lib.cath_lab.readiness.external.select_date')
+                  : cathReadinessDisplayDate(chosen),
+              style: chosen == null
+                  ? TextStyle(color: AppTheme.textSecondary)
+                  : null,
+            ),
+          ),
+        );
+      },
     );
   }
 }

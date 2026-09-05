@@ -16,31 +16,6 @@ const _checkTypes = [
   'timeout',
 ];
 
-/// The vocabularies as of the last time a human read `ITEM_CODES` /
-/// `ITEM_STATES` in the backend and copied them here. Used only as a fallback
-/// when the backend source is not reachable from the test runner's checkout —
-/// the real pin below reads those sources directly.
-const _knownItemCodes = [
-  'hb',
-  'platelets',
-  'creatinine',
-  'potassium',
-  'hiv',
-  'hbsag',
-  'hcv',
-];
-
-const _knownItemStates = [
-  'result_final',
-  'result_preliminary',
-  'external_recorded',
-  'sample_sent_awaiting_result',
-  'ordered_awaiting_sample',
-  'not_ordered',
-  'stale',
-  'waived',
-];
-
 /// Walks up from [start] looking for a directory containing `apps/backend` —
 /// the repo root — so the pins below work whether the runner's CWD is the
 /// workspace root or `apps/staff` (which is where `melos exec` runs).
@@ -59,8 +34,10 @@ CathCaseReadiness _readiness({
   required String labsStatus,
   bool critical = false,
   List<Map<String, dynamic>> items = const [],
+  List<Map<String, dynamic>> missing = const [],
   List<String> orderableNow = const ['HCV'],
   bool caseStarted = false,
+  bool autoManaged = true,
 }) {
   return CathCaseReadiness.fromJson({
     'readiness': [
@@ -70,7 +47,7 @@ CathCaseReadiness _readiness({
           'status': type == 'labs' ? labsStatus : 'pending',
           'required': true,
           'metadata': type == 'labs'
-              ? {'critical_warning': critical, 'auto_managed': true}
+              ? {'critical_warning': critical, 'auto_managed': autoManaged}
               : <String, dynamic>{},
         },
     ],
@@ -78,11 +55,11 @@ CathCaseReadiness _readiness({
     'lab_readiness': {
       'case_id': 42,
       'check_status': labsStatus,
-      'auto_managed': true,
+      'auto_managed': autoManaged,
       'critical_warning': critical,
       'critical_items': critical ? ['potassium'] : <String>[],
       'items': items,
-      'missing': <String>[],
+      'missing': missing,
       'orderable_now': orderableNow,
       'open_order_codes': <String>[],
       'case_started': caseStarted,
@@ -90,18 +67,39 @@ CathCaseReadiness _readiness({
   });
 }
 
-Widget _wrap(CathReadinessDependencies deps) {
+Widget _wrap(CathReadinessDependencies deps, {int caseId = 42}) {
   return MaterialApp(
     home: Scaffold(
       body: SingleChildScrollView(
         child: CathReadinessChecklist(
-          caseId: 42,
+          caseId: caseId,
           dependencies: deps,
           today: DateTime(2026, 9, 4),
         ),
       ),
     ),
   );
+}
+
+/// Opens the outside-result sheet's date picker and accepts the preselected
+/// day. The field has NO default (see the "no report date" test), so every
+/// successful save has to go through here.
+Future<void> _pickReportDate(WidgetTester tester) async {
+  await tester.tap(find.byKey(const ValueKey('cath-external-date')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('OK'));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _chooseStatus(
+  WidgetTester tester,
+  String checkType,
+  String label,
+) async {
+  await tester.tap(find.byKey(ValueKey('cath-readiness-status-$checkType')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.widgetWithText(PopupMenuItem<String>, label));
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -131,6 +129,9 @@ void main() {
                   'state': 'not_ordered',
                   'is_critical': false,
                 },
+              ],
+              missing: [
+                {'item': 'hcv', 'state': 'not_ordered'},
               ],
             ),
           ),
@@ -172,6 +173,182 @@ void main() {
     },
   );
 
+  // --- G1: card rebinding ---------------------------------------------------
+
+  testWidgets(
+    'rebinding the checklist to another case reloads instead of showing the '
+    'previous case with the new id (G1)',
+    (tester) async {
+      final loads = <int>[];
+      CathCaseReadiness forCase(int caseId) => _readiness(
+        labsStatus: 'pending',
+        items: [
+          {
+            'item_code': caseId == 1 ? 'hb' : 'hcv',
+            'required': true,
+            'state': 'not_ordered',
+            'is_critical': false,
+          },
+        ],
+        missing: [
+          {'item': caseId == 1 ? 'hb' : 'hcv', 'state': 'not_ordered'},
+        ],
+      );
+      final deps = CathReadinessDependencies(
+        loadReadiness: (caseId) async {
+          loads.add(caseId);
+          return forCase(caseId);
+        },
+      );
+
+      await tester.pumpWidget(_wrap(deps, caseId: 1));
+      await tester.pumpAndSettle();
+      expect(loads, [1]);
+      expect(find.byKey(const ValueKey('cath-lab-item-hb')), findsOneWidget);
+
+      // Same widget type at the same position: the State survives and only
+      // `caseId` changes, exactly as a keyless ListView.builder row does when
+      // `_cases` is replaced.
+      await tester.pumpWidget(_wrap(deps, caseId: 2));
+      await tester.pumpAndSettle();
+
+      expect(loads, [1, 2]);
+      expect(find.byKey(const ValueKey('cath-lab-item-hb')), findsNothing);
+      expect(find.byKey(const ValueKey('cath-lab-item-hcv')), findsOneWidget);
+    },
+  );
+
+  // --- G3: confirming a gate-changing status --------------------------------
+
+  testWidgets(
+    'passing a non-critical check is confirmed first and sends no notes (G3)',
+    (tester) async {
+      final calls = <List<Object?>>[];
+      await tester.pumpWidget(
+        _wrap(
+          CathReadinessDependencies(
+            loadReadiness: (_) async => _readiness(labsStatus: 'pending'),
+            updateCheck:
+                (caseId, {required checkType, required status, notes}) async {
+                  calls.add([caseId, checkType, status, notes]);
+                },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await _chooseStatus(tester, 'consent', 'Pass');
+      expect(
+        find.byKey(const ValueKey('cath-readiness-confirm')),
+        findsOneWidget,
+      );
+      expect(calls, isEmpty);
+
+      await tester.tap(find.byKey(const ValueKey('cath-readiness-confirm-ok')));
+      await tester.pumpAndSettle();
+
+      expect(calls, [
+        [42, 'consent', 'pass', null],
+      ]);
+    },
+  );
+
+  testWidgets('cancelling the confirmation writes nothing (G3)', (
+    tester,
+  ) async {
+    var calls = 0;
+    await tester.pumpWidget(
+      _wrap(
+        CathReadinessDependencies(
+          loadReadiness: (_) async => _readiness(labsStatus: 'pending'),
+          updateCheck:
+              (caseId, {required checkType, required status, notes}) async {
+                calls++;
+              },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await _chooseStatus(tester, 'consent', 'Fail');
+    await tester.tap(
+      find.byKey(const ValueKey('cath-readiness-confirm-cancel')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(calls, 0);
+    expect(find.byKey(const ValueKey('cath-readiness-confirm')), findsNothing);
+  });
+
+  testWidgets(
+    'passing labs over a critical value names the items and refuses an empty '
+    'reason (G3)',
+    (tester) async {
+      final calls = <List<Object?>>[];
+      await tester.pumpWidget(
+        _wrap(
+          CathReadinessDependencies(
+            loadReadiness: (_) async => _readiness(
+              labsStatus: 'pending',
+              critical: true,
+              items: [
+                {
+                  'item_code': 'potassium',
+                  'required': true,
+                  'state': 'result_final',
+                  'is_critical': true,
+                  'value_text': '6.9',
+                  'unit': 'mmol/L',
+                },
+              ],
+            ),
+            updateCheck:
+                (caseId, {required checkType, required status, notes}) async {
+                  calls.add([caseId, checkType, status, notes]);
+                },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await _chooseStatus(tester, 'labs', 'Pass');
+      // The dialog must NAME the value being passed over, not just say
+      // "critical": the backend files this as a safety review whose override
+      // reason is whatever is typed below.
+      expect(
+        find.textContaining('Critical value present: Potassium'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.byKey(const ValueKey('cath-readiness-confirm-ok')));
+      await tester.pumpAndSettle();
+      expect(calls, isEmpty);
+      expect(
+        find.byKey(const ValueKey('cath-readiness-confirm')),
+        findsOneWidget,
+      );
+      expect(find.text('A reason is required'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const ValueKey('cath-readiness-confirm-notes')),
+        'Nephrology reviewed, dialysis booked post-procedure',
+      );
+      await tester.tap(find.byKey(const ValueKey('cath-readiness-confirm-ok')));
+      await tester.pumpAndSettle();
+
+      expect(calls, [
+        [
+          42,
+          'labs',
+          'pass',
+          'Nephrology reviewed, dialysis booked post-procedure',
+        ],
+      ]);
+    },
+  );
+
+  // --- G2: no clinical defaults in the outside-result sheet -----------------
+
   testWidgets('order missing labs calls the dependency with an idempotency '
       'key and reloads', (tester) async {
     var ordered = 0;
@@ -194,6 +371,9 @@ void main() {
                   'is_critical': false,
                   'ordered_at': '2026-09-04T06:15:00.000Z',
                 },
+              ],
+              missing: [
+                {'item': 'hcv', 'state': 'not_ordered'},
               ],
             );
           },
@@ -218,9 +398,8 @@ void main() {
     expect(find.text('Ordered, sample not collected'), findsOneWidget);
   });
 
-  testWidgets('outside serology result sheet posts a qualitative draft', (
-    tester,
-  ) async {
+  testWidgets('outside serology result sheet posts the chosen qualitative '
+      'token', (tester) async {
     CathExternalResultDraft? sent;
     String? sentKey;
     await tester.pumpWidget(
@@ -235,6 +414,9 @@ void main() {
                 'state': 'not_ordered',
                 'is_critical': false,
               },
+            ],
+            missing: [
+              {'item': 'hbsag', 'state': 'not_ordered'},
             ],
           ),
           recordExternal: (caseId, draft, {required idempotencyKey}) async {
@@ -253,12 +435,17 @@ void main() {
       find.byKey(const ValueKey('cath-external-lab')),
       'City Path Lab',
     );
+    await tester.tap(find.byKey(const ValueKey('cath-external-value-select')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Non-reactive').last);
+    await tester.pumpAndSettle();
+    await _pickReportDate(tester);
     await tester.tap(find.byKey(const ValueKey('cath-external-save')));
     await tester.pumpAndSettle();
 
     expect(sent, isNotNull);
     expect(sent!.item, 'hbsag');
-    // The dropdown default, as the WIRE token the route matches against.
+    // The WIRE token the route matches against, chosen by a human.
     expect(sent!.valueText.toLowerCase(), 'non-reactive');
     expect(sent!.valueNumeric, isNull);
     expect(sent!.unit, isNull);
@@ -266,6 +453,105 @@ void main() {
     expect(sent!.externalLabName, 'City Path Lab');
     expect(sentKey, isNotEmpty);
     expect(sent!.toJson().containsKey('value_numeric'), isFalse);
+  });
+
+  testWidgets(
+    'a serology sheet with no result chosen does not save a negative marker '
+    '(G2)',
+    (tester) async {
+      CathExternalResultDraft? sent;
+      await tester.pumpWidget(
+        _wrap(
+          CathReadinessDependencies(
+            loadReadiness: (_) async => _readiness(
+              labsStatus: 'pending',
+              items: [
+                {
+                  'item_code': 'hiv',
+                  'required': true,
+                  'state': 'not_ordered',
+                  'is_critical': false,
+                },
+              ],
+              missing: [
+                {'item': 'hiv', 'state': 'not_ordered'},
+              ],
+            ),
+            recordExternal: (caseId, draft, {required idempotencyKey}) async {
+              sent = draft;
+              return _readiness(labsStatus: 'pass').labs!;
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('cath-lab-external-hiv')));
+      await tester.pumpAndSettle();
+      // Everything else filled in: only the marker itself is unanswered, which
+      // is precisely the form a pre-selected "Non-reactive" used to file as a
+      // negative HIV result.
+      await tester.enterText(
+        find.byKey(const ValueKey('cath-external-lab')),
+        'City Path Lab',
+      );
+      await _pickReportDate(tester);
+      await tester.tap(find.byKey(const ValueKey('cath-external-save')));
+      await tester.pumpAndSettle();
+
+      expect(sent, isNull);
+      expect(find.text('Choose a result'), findsOneWidget);
+      expect(find.byKey(const ValueKey('cath-external-save')), findsOneWidget);
+    },
+  );
+
+  testWidgets('an outside result with no report date does not save (G2b)', (
+    tester,
+  ) async {
+    CathExternalResultDraft? sent;
+    await tester.pumpWidget(
+      _wrap(
+        CathReadinessDependencies(
+          loadReadiness: (_) async => _readiness(
+            labsStatus: 'pending',
+            items: [
+              {
+                'item_code': 'hb',
+                'required': true,
+                'state': 'not_ordered',
+                'is_critical': false,
+              },
+            ],
+            missing: [
+              {'item': 'hb', 'state': 'not_ordered'},
+            ],
+          ),
+          recordExternal: (caseId, draft, {required idempotencyKey}) async {
+            sent = draft;
+            return _readiness(labsStatus: 'pass').labs!;
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('cath-lab-external-hb')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('cath-external-value')),
+      '9.4',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('cath-external-lab')),
+      'City Path Lab',
+    );
+    await tester.tap(find.byKey(const ValueKey('cath-external-save')));
+    await tester.pumpAndSettle();
+
+    // The report date drives the freshness rule behind auto-pass, so a blank
+    // one must not be silently read as "today".
+    expect(sent, isNull);
+    expect(find.text('Choose the report date'), findsOneWidget);
   });
 
   testWidgets('a quantitative outside result sends the number twice with a '
@@ -283,6 +569,9 @@ void main() {
                 'state': 'not_ordered',
                 'is_critical': false,
               },
+            ],
+            missing: [
+              {'item': 'hb', 'state': 'not_ordered'},
             ],
           ),
           recordExternal: (caseId, draft, {required idempotencyKey}) async {
@@ -303,14 +592,17 @@ void main() {
       find.byKey(const ValueKey('cath-external-lab')),
       'City Path Lab',
     );
+    await _pickReportDate(tester);
     await tester.tap(find.byKey(const ValueKey('cath-external-save')));
     await tester.pumpAndSettle();
     expect(sent, isNull);
     expect(find.byKey(const ValueKey('cath-external-save')), findsOneWidget);
 
+    // `9.40` is the same haemoglobin as `9.4`: the display value is rendered
+    // from the parsed number, not from the keystrokes.
     await tester.enterText(
       find.byKey(const ValueKey('cath-external-value')),
-      '9.4',
+      '9.40',
     );
     await tester.tap(find.byKey(const ValueKey('cath-external-save')));
     await tester.pumpAndSettle();
@@ -322,7 +614,10 @@ void main() {
     // Prefilled from the item, so the operator does not have to type it.
     expect(sent!.unit, 'g/dL');
     expect(sent!.toJson()['value_numeric'], 9.4);
+    expect(sent!.observedOn, '2026-09-04');
   });
+
+  // --- waivers --------------------------------------------------------------
 
   testWidgets('waiving an item posts a reason with an idempotency key', (
     tester,
@@ -343,6 +638,9 @@ void main() {
                 'is_critical': false,
               },
             ],
+            missing: [
+              {'item': 'hcv', 'state': 'not_ordered'},
+            ],
           ),
           waiveItem:
               (caseId, item, {required reason, required idempotencyKey}) async {
@@ -359,10 +657,12 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('cath-lab-waive-hcv')));
     await tester.pumpAndSettle();
 
-    // A waiver without a reason is a 400 at the route, so the dialog holds.
+    // A waiver without a reason is a 400 at the route, so the dialog holds —
+    // and now SAYS why it held rather than silently ignoring the tap.
     await tester.tap(find.byKey(const ValueKey('cath-lab-waive-confirm')));
     await tester.pumpAndSettle();
     expect(waivedItem, isNull);
+    expect(find.text('A reason is required'), findsOneWidget);
 
     await tester.enterText(
       find.byKey(const ValueKey('cath-lab-waive-reason')),
@@ -375,6 +675,274 @@ void main() {
     expect(waivedReason, 'Emergency PCI, sample not obtainable');
     expect(waiveKey, isNotEmpty);
   });
+
+  testWidgets(
+    'regression: the waive dialog outlives its own exit animation without a '
+    'disposed-controller error',
+    (tester) async {
+      // The controller belongs to the DIALOG, not to the caller. Disposing one
+      // created in `_askWaiveReason` from a `finally` after the await tore it
+      // down while the route was still playing its exit animation and
+      // rebuilding the field — "A TextEditingController was used after being
+      // disposed". Pumping past the animation is what catches the regression;
+      // stopping at the pop would not.
+      await tester.pumpWidget(
+        _wrap(
+          CathReadinessDependencies(
+            loadReadiness: (_) async => _readiness(
+              labsStatus: 'pending',
+              items: [
+                {
+                  'item_code': 'hcv',
+                  'required': true,
+                  'state': 'not_ordered',
+                  'is_critical': false,
+                },
+              ],
+              missing: [
+                {'item': 'hcv', 'state': 'not_ordered'},
+              ],
+            ),
+            waiveItem: (
+              caseId,
+              item, {
+              required reason,
+              required idempotencyKey,
+            }) async => _readiness(labsStatus: 'pass').labs!,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('cath-lab-waive-hcv')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('cath-lab-waive-reason')),
+        'Emergency PCI',
+      );
+      await tester.tap(find.byKey(const ValueKey('cath-lab-waive-confirm')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  // --- S1: no dead end under external_results_count = false ----------------
+
+  testWidgets(
+    'an externally-recorded item the server still lists as missing keeps a '
+    'waive exit and offers no second outside entry (S1)',
+    (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          CathReadinessDependencies(
+            loadReadiness: (_) async => _readiness(
+              labsStatus: 'pending',
+              items: [
+                {
+                  'item_code': 'hcv',
+                  'required': true,
+                  'state': 'external_recorded',
+                  'is_critical': false,
+                  'source': 'external',
+                  'value_text': 'Non-reactive',
+                  'observed_at': '2026-09-01T00:00:00.000Z',
+                },
+              ],
+              // `external_results_count` off: the value is on record but the
+              // gate still counts the item missing.
+              missing: [
+                {'item': 'hcv', 'state': 'external_recorded'},
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('cath-lab-waive-hcv')), findsOneWidget);
+      expect(find.byKey(const ValueKey('cath-lab-external-hcv')), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'an item the server does NOT list as missing offers no waiver (S1)',
+    (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          CathReadinessDependencies(
+            loadReadiness: (_) async => _readiness(
+              labsStatus: 'pending',
+              items: [
+                {
+                  'item_code': 'hcv',
+                  'required': true,
+                  'state': 'external_recorded',
+                  'is_critical': false,
+                  'source': 'external',
+                  'value_text': 'Non-reactive',
+                },
+              ],
+              missing: const [],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('cath-lab-waive-hcv')), findsNothing);
+    },
+  );
+
+  // --- G4: idempotency keys -------------------------------------------------
+
+  testWidgets(
+    'a failed order-missing keeps its idempotency key for the retry (G4)',
+    (tester) async {
+      final keys = <String>[];
+      await tester.pumpWidget(
+        _wrap(
+          CathReadinessDependencies(
+            loadReadiness: (_) async => _readiness(
+              labsStatus: 'pending',
+              items: [
+                {
+                  'item_code': 'hcv',
+                  'required': true,
+                  'state': 'not_ordered',
+                  'is_critical': false,
+                },
+              ],
+              missing: [
+                {'item': 'hcv', 'state': 'not_ordered'},
+              ],
+            ),
+            orderMissing: (caseId, {required idempotencyKey}) async {
+              keys.add(idempotencyKey);
+              if (keys.length == 1) {
+                throw Exception('Network unreachable');
+              }
+              return _readiness(labsStatus: 'pending').labs!;
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('cath-lab-order-missing')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('cath-lab-order-missing')));
+      await tester.pumpAndSettle();
+
+      expect(keys, hasLength(2));
+      // The retry must REPLAY the first attempt, not raise a second set of
+      // orders: the key is only reset on success.
+      expect(keys[0], keys[1]);
+    },
+  );
+
+  testWidgets('two successful order-missing taps send different keys (G4)', (
+    tester,
+  ) async {
+    final keys = <String>[];
+    await tester.pumpWidget(
+      _wrap(
+        CathReadinessDependencies(
+          loadReadiness: (_) async => _readiness(
+            labsStatus: 'pending',
+            items: [
+              {
+                'item_code': 'hcv',
+                'required': true,
+                'state': 'not_ordered',
+                'is_critical': false,
+              },
+            ],
+            missing: [
+              {'item': 'hcv', 'state': 'not_ordered'},
+            ],
+          ),
+          orderMissing: (caseId, {required idempotencyKey}) async {
+            keys.add(idempotencyKey);
+            return _readiness(labsStatus: 'pending').labs!;
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('cath-lab-order-missing')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('cath-lab-order-missing')));
+    await tester.pumpAndSettle();
+
+    expect(keys, hasLength(2));
+    // A second DELIBERATE order is a separate write and must not be swallowed
+    // as a replay of the first.
+    expect(keys[0], isNot(keys[1]));
+  });
+
+  // --- S2: a refresh that fails after a write ------------------------------
+
+  testWidgets(
+    'a refresh that fails after a write says so inline with a retry (S2)',
+    (tester) async {
+      var loads = 0;
+      var failRefresh = true;
+      await tester.pumpWidget(
+        _wrap(
+          CathReadinessDependencies(
+            loadReadiness: (_) async {
+              loads++;
+              if (loads > 1 && failRefresh) {
+                throw Exception('Network unreachable');
+              }
+              return _readiness(
+                labsStatus: 'pending',
+                items: [
+                  {
+                    'item_code': 'hcv',
+                    'required': true,
+                    'state': 'not_ordered',
+                    'is_critical': false,
+                  },
+                ],
+                missing: [
+                  {'item': 'hcv', 'state': 'not_ordered'},
+                ],
+              );
+            },
+            orderMissing: (caseId, {required idempotencyKey}) async =>
+                _readiness(labsStatus: 'pending').labs!,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('cath-readiness-error')), findsNothing);
+
+      await tester.tap(find.byKey(const ValueKey('cath-lab-order-missing')));
+      await tester.pumpAndSettle();
+
+      // The rows are still on screen and still readable, so the only thing
+      // that can say they are stale is this line.
+      expect(
+        find.byKey(const ValueKey('cath-readiness-error')),
+        findsOneWidget,
+      );
+      expect(find.text('Could not load readiness'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('cath-readiness-status-labs')),
+        findsOneWidget,
+      );
+
+      failRefresh = false;
+      await tester.tap(find.byKey(const ValueKey('cath-readiness-retry')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('cath-readiness-error')), findsNothing);
+    },
+  );
 
   testWidgets('a started case shows the waive reason but offers no write '
       'actions', (tester) async {
@@ -401,6 +969,9 @@ void main() {
                 'is_critical': false,
               },
             ],
+            missing: [
+              {'item': 'hb', 'state': 'not_ordered'},
+            ],
           ),
         ),
       ),
@@ -408,6 +979,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Waived: Emergency PCI'), findsOneWidget);
+    // M1: a waiver is dated by its waiver, not labelled "As of".
+    expect(find.text('Waived 2026-09-04'), findsOneWidget);
     expect(find.byKey(const ValueKey('cath-lab-order-missing')), findsNothing);
     expect(find.byKey(const ValueKey('cath-lab-external-hb')), findsNothing);
     expect(find.byKey(const ValueKey('cath-lab-waive-hb')), findsNothing);
@@ -458,7 +1031,13 @@ void main() {
             'labAnalyteCodes.js',
           );
     if (backendFile == null || !backendFile.existsSync()) {
-      expect(cathReadinessItemCodes, _knownItemCodes);
+      // A pin that falls back to a local literal is not a pin: it passes by
+      // comparing this file to itself and reports GREEN for a vocabulary
+      // nobody checked. Say the check did not run instead.
+      markTestSkipped(
+        'apps/backend not reachable from ${Directory.current.path}; the item '
+        'code pin cannot be verified from this checkout.',
+      );
       return;
     }
 
@@ -502,7 +1081,10 @@ void main() {
               'cathLabReadinessService.js',
             );
       if (backendFile == null || !backendFile.existsSync()) {
-        expect(cathReadinessItemStates, _knownItemStates);
+        markTestSkipped(
+          'apps/backend not reachable from ${Directory.current.path}; the item '
+          'state pin cannot be verified from this checkout.',
+        );
         return;
       }
 
@@ -534,4 +1116,28 @@ void main() {
       );
     },
   );
+
+  test('the server missing[] is parsed, not recomputed from the items', () {
+    final labs = _readiness(
+      labsStatus: 'pending',
+      items: [
+        {
+          'item_code': 'hcv',
+          'required': true,
+          'state': 'external_recorded',
+          'is_critical': false,
+        },
+      ],
+      missing: [
+        {'item': 'hcv', 'state': 'external_recorded'},
+      ],
+    ).labs!;
+
+    // The item reads as available to the client (a value IS on record) while
+    // the server still counts it missing, which is exactly the tenant setting
+    // the client cannot see.
+    expect(labs.items.single.available, isTrue);
+    expect(labs.missingItemCodes, {'hcv'});
+    expect(labs.missing.single.state, 'external_recorded');
+  });
 }

@@ -7961,6 +7961,22 @@ class AppStrings {
       's4.lib.cath_lab.readiness.check_status.waived': "Waived",
       's4.lib.cath_lab.readiness.check_status.not_applicable': "Not applicable",
       's4.lib.cath_lab.readiness.check_status.pending': "Pending",
+      's4.lib.cath_lab.readiness.external.select_result': "Select a result",
+      's4.lib.cath_lab.readiness.result_required': "Choose a result",
+      's4.lib.cath_lab.readiness.external.select_date':
+          "Select the report date",
+      's4.lib.cath_lab.readiness.date_required': "Choose the report date",
+      's4.lib.cath_lab.readiness.confirm_title': "Confirm check status",
+      's4.lib.cath_lab.readiness.confirm_body': "Set {check} to {status}?",
+      's4.lib.cath_lab.readiness.confirm_critical': "Critical value present: {items}. Give a reason for passing this check.",
+      's4.lib.cath_lab.readiness.confirm_notes': "Notes (optional)",
+      's4.lib.cath_lab.readiness.confirm_reason': "Reason",
+      's4.lib.cath_lab.readiness.reason_required': "A reason is required",
+      's4.lib.cath_lab.readiness.confirm_action': "Confirm",
+      's4.lib.cath_lab.readiness.auto_managed_note':
+          "Automation manages this check; the next refresh may set it back.",
+      's4.lib.cath_lab.readiness.waived_on': "Waived {date}",
+      's4.lib.cath_lab.readiness.header.missing': "Labs incomplete: {items}",
       's4.lib.cath_lab.quick_wins.live_evidence': "Live evidence & order sets",
       's4.lib.cath_lab.quick_wins.load_failed': "Could not load live evidence",
       's4.lib.cath_lab.quick_wins.evidence_found':
@@ -15493,6 +15509,23 @@ class AppStrings {
       's4.lib.cath_lab.readiness.check_status.waived': "छूट दी गई",
       's4.lib.cath_lab.readiness.check_status.not_applicable': "लागू नहीं",
       's4.lib.cath_lab.readiness.check_status.pending': "लंबित",
+      's4.lib.cath_lab.readiness.external.select_result': "परिणाम चुनें",
+      's4.lib.cath_lab.readiness.result_required': "एक परिणाम चुनें",
+      's4.lib.cath_lab.readiness.external.select_date':
+          "रिपोर्ट की तारीख चुनें",
+      's4.lib.cath_lab.readiness.date_required': "रिपोर्ट की तारीख आवश्यक है",
+      's4.lib.cath_lab.readiness.confirm_title': "जांच स्थिति की पुष्टि करें",
+      's4.lib.cath_lab.readiness.confirm_body':
+          "{check} को {status} पर सेट करें?",
+      's4.lib.cath_lab.readiness.confirm_critical':
+          "गंभीर मान मौजूद: {items}। इस जांच को पास करने का कारण दें।",
+      's4.lib.cath_lab.readiness.confirm_notes': "टिप्पणियाँ (वैकल्पिक)",
+      's4.lib.cath_lab.readiness.confirm_reason': "कारण",
+      's4.lib.cath_lab.readiness.reason_required': "कारण आवश्यक है",
+      's4.lib.cath_lab.readiness.confirm_action': "पुष्टि करें",
+      's4.lib.cath_lab.readiness.auto_managed_note': "यह जाँच स्वचालित रूप से प्रबंधित है; अगला रिफ्रेश इसे वापस बदल सकता है।",
+      's4.lib.cath_lab.readiness.waived_on': "{date} को छूट दी गई",
+      's4.lib.cath_lab.readiness.header.missing': "जांचें अधूरी: {items}",
       's4.lib.cath_lab.quick_wins.live_evidence': "लाइव साक्ष्य और ऑर्डर सेट",
       's4.lib.cath_lab.quick_wins.load_failed': "लाइव साक्ष्य लोड नहीं हो सका",
       's4.lib.cath_lab.quick_wins.evidence_found':
@@ -24352,6 +24385,28 @@ class AppStrings {
       's4.lib.cath_lab.readiness.check_status.waived': "விலக்கப்பட்டது",
       's4.lib.cath_lab.readiness.check_status.not_applicable': "பொருந்தாது",
       's4.lib.cath_lab.readiness.check_status.pending': "நிலுவையில்",
+      's4.lib.cath_lab.readiness.external.select_result':
+          "முடிவைத் தேர்ந்தெடுக்கவும்",
+      's4.lib.cath_lab.readiness.result_required':
+          "ஒரு முடிவைத் தேர்ந்தெடுக்கவும்",
+      's4.lib.cath_lab.readiness.external.select_date':
+          "அறிக்கை தேதியைத் தேர்ந்தெடுக்கவும்",
+      's4.lib.cath_lab.readiness.date_required': "அறிக்கை தேதி தேவை",
+      's4.lib.cath_lab.readiness.confirm_title':
+          "சரிபார்ப்பு நிலையை உறுதிப்படுத்தவும்",
+      's4.lib.cath_lab.readiness.confirm_body':
+          "{check} ஐ {status} ஆக அமைக்கவா?",
+      's4.lib.cath_lab.readiness.confirm_critical': "ஆபத்தான மதிப்பு உள்ளது: {items}. இந்தச் சரிபார்ப்பை நிறைவேற்றுவதற்கான காரணத்தைக் குறிப்பிடவும்.",
+      's4.lib.cath_lab.readiness.confirm_notes':
+          "குறிப்புகள் (விருப்பத்தேர்வு)",
+      's4.lib.cath_lab.readiness.confirm_reason': "காரணம்",
+      's4.lib.cath_lab.readiness.reason_required': "காரணம் தேவை",
+      's4.lib.cath_lab.readiness.confirm_action': "உறுதிப்படுத்து",
+      's4.lib.cath_lab.readiness.auto_managed_note': "இந்தச் சரிபார்ப்பை தானியங்கி நிர்வகிக்கிறது; அடுத்த புதுப்பிப்பு இதை மாற்றக்கூடும்.",
+      's4.lib.cath_lab.readiness.waived_on':
+          "{date} அன்று விலக்கு அளிக்கப்பட்டது",
+      's4.lib.cath_lab.readiness.header.missing':
+          "ஆய்வுகள் முழுமையடையவில்லை: {items}",
       's4.lib.cath_lab.quick_wins.live_evidence':
           "நேரடி ஆதாரம் & ஆர்டர் செட்கள்",
       's4.lib.cath_lab.quick_wins.load_failed':
@@ -33299,6 +33354,23 @@ class AppStrings {
       's4.lib.cath_lab.readiness.check_status.waived': "మినహాయించారు",
       's4.lib.cath_lab.readiness.check_status.not_applicable': "వర్తించదు",
       's4.lib.cath_lab.readiness.check_status.pending': "పెండింగ్",
+      's4.lib.cath_lab.readiness.external.select_result': "ఫలితాన్ని ఎంచుకోండి",
+      's4.lib.cath_lab.readiness.result_required': "ఒక ఫలితాన్ని ఎంచుకోండి",
+      's4.lib.cath_lab.readiness.external.select_date':
+          "నివేదిక తేదీని ఎంచుకోండి",
+      's4.lib.cath_lab.readiness.date_required': "నివేదిక తేదీ అవసరం",
+      's4.lib.cath_lab.readiness.confirm_title': "తనిఖీ స్థితిని నిర్ధారించండి",
+      's4.lib.cath_lab.readiness.confirm_body':
+          "{check}ని {status}కి సెట్ చేయాలా?",
+      's4.lib.cath_lab.readiness.confirm_critical': "క్లిష్ట విలువ ఉంది: {items}. ఈ తనిఖీని ఆమోదించడానికి కారణం తెలియజేయండి.",
+      's4.lib.cath_lab.readiness.confirm_notes': "గమనికలు (ఐచ్ఛికం)",
+      's4.lib.cath_lab.readiness.confirm_reason': "కారణం",
+      's4.lib.cath_lab.readiness.reason_required': "కారణం అవసరం",
+      's4.lib.cath_lab.readiness.confirm_action': "నిర్ధారించు",
+      's4.lib.cath_lab.readiness.auto_managed_note': "ఈ తనిఖీని ఆటోమేషన్ నిర్వహిస్తుంది; తదుపరి రిఫ్రెష్ దీన్ని తిరిగి మార్చవచ్చు.",
+      's4.lib.cath_lab.readiness.waived_on': "{date}న మినహాయింపు ఇవ్వబడింది",
+      's4.lib.cath_lab.readiness.header.missing':
+          "ల్యాబ్‌లు అసంపూర్ణం: {items}",
       's4.lib.cath_lab.quick_wins.live_evidence':
           "లైవ్ ఆధారాలు & ఆర్డర్ సెట్లు",
       's4.lib.cath_lab.quick_wins.load_failed':
@@ -39094,6 +39166,22 @@ class AppStrings {
       's4.lib.cath_lab.readiness.check_status.waived': "ഒഴിവാക്കി",
       's4.lib.cath_lab.readiness.check_status.not_applicable': "ബാധകമല്ല",
       's4.lib.cath_lab.readiness.check_status.pending': "കാത്തിരിക്കുന്നു",
+      's4.lib.cath_lab.readiness.external.select_result': "ഫലം തിരഞ്ഞെടുക്കുക",
+      's4.lib.cath_lab.readiness.result_required': "ഒരു ഫലം തിരഞ്ഞെടുക്കുക",
+      's4.lib.cath_lab.readiness.external.select_date':
+          "റിപ്പോർട്ട് തീയതി തിരഞ്ഞെടുക്കുക",
+      's4.lib.cath_lab.readiness.date_required': "റിപ്പോർട്ട് തീയതി ആവശ്യമാണ്",
+      's4.lib.cath_lab.readiness.confirm_title': "പരിശോധനാ നില സ്ഥിരീകരിക്കുക",
+      's4.lib.cath_lab.readiness.confirm_body':
+          "{check} {status} ആയി സജ്ജമാക്കണോ?",
+      's4.lib.cath_lab.readiness.confirm_critical': "ഗുരുതര മൂല്യം ഉണ്ട്: {items}. ഈ പരിശോധന പാസാക്കുന്നതിന്റെ കാരണം നൽകുക.",
+      's4.lib.cath_lab.readiness.confirm_notes': "കുറിപ്പുകൾ (ഐച്ഛികം)",
+      's4.lib.cath_lab.readiness.confirm_reason': "കാരണം",
+      's4.lib.cath_lab.readiness.reason_required': "കാരണം ആവശ്യമാണ്",
+      's4.lib.cath_lab.readiness.confirm_action': "സ്ഥിരീകരിക്കുക",
+      's4.lib.cath_lab.readiness.auto_managed_note': "ഈ പരിശോധന ഓട്ടോമേഷൻ കൈകാര്യം ചെയ്യുന്നു; അടുത്ത പുതുക്കൽ ഇത് തിരികെ മാറ്റിയേക്കാം.",
+      's4.lib.cath_lab.readiness.waived_on': "{date}-ന് ഒഴിവാക്കി",
+      's4.lib.cath_lab.readiness.header.missing': "ലാബുകൾ അപൂർണ്ണം: {items}",
       's4.lib.cath_lab.quick_wins.live_evidence':
           'ലൈവ് തെളിവും ഓർഡർ സെറ്റുകളും',
       's4.lib.cath_lab.quick_wins.load_failed':
