@@ -17,7 +17,20 @@ const validate = (req, res, next) => {
   next();
 };
 
+import { routePatientGuard } from '../../middleware/routePatientAccessGuards.js';
+
 const router = Router();
+
+// Per-route patient guard. The mount-level patientAccessGuard could never
+// decide this route: mount middleware runs before Express binds the path
+// param, so it saw req.params = {} and returned no_patient_context without
+// evaluating a policy. routePatientAccessGuards.js carries the full
+// rationale, the selector contract and the shadow-mode posture.
+const guardDietaryPatientHistory = routePatientGuard('CLINICAL_WORKFLOW', {
+  tag: 'dietary:patient-uid-param',
+  patientSelector: (req) => ({ uid: req.params?.uid }),
+});
+
 
 function tenantOf(req) {
   return resolveTenantOrThrow(req);
@@ -253,7 +266,7 @@ router.put('/:id', paramId(), validate, async (req, res, next) => {
  * GET /dietary/patient/:uid
  * Get diet order history for a patient
  */
-router.get('/patient/:uid', async (req, res, next) => {
+router.get('/patient/:uid', guardDietaryPatientHistory, async (req, res, next) => {
   try {
     const { uid } = req.params;
     const filters = {

@@ -18,7 +18,20 @@ import {
   recordSession,
 } from '../../services/clinical/physioService.js';
 
+import { routePatientGuard } from '../../middleware/routePatientAccessGuards.js';
+
 const router = express.Router();
+
+// Per-route patient guard. The mount-level patientAccessGuard could never
+// decide this route: mount middleware runs before Express binds the path
+// param, so it saw req.params = {} and returned no_patient_context without
+// evaluating a policy. routePatientAccessGuards.js carries the full
+// rationale, the selector contract and the shadow-mode posture.
+const guardPhysioPatientSummary = routePatientGuard('CLINICAL_WORKFLOW', {
+  tag: 'physio:patient-uid-param',
+  patientSelector: (req) => ({ uid: req.params?.uid }),
+});
+
 
 function handleFailure(res, err, context) {
   return relayAppError(res, err, `Failed to ${context}`);
@@ -102,7 +115,7 @@ router.get('/care-plans/:id/outcomes', async (req, res) => {
   }
 });
 
-router.get('/patients/:uid/summary', async (req, res) => {
+router.get('/patients/:uid/summary', guardPhysioPatientSummary, async (req, res) => {
   try {
     const summary = await getPatientSummary({
       tenantId: tenantOf(req),

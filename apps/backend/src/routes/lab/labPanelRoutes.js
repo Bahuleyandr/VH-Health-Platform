@@ -23,7 +23,23 @@ import {
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 
+import { routePatientGuard } from '../../middleware/routePatientAccessGuards.js';
+
 const router = Router();
+
+// Per-route patient guard. The mount-level patientAccessGuard could never
+// decide this route: mount middleware runs before Express binds the path
+// param, so it saw req.params = {} and returned no_patient_context without
+// evaluating a policy. routePatientAccessGuards.js carries the full
+// rationale, the selector contract and the shadow-mode posture.
+//
+// Serves both patient-scoped reads: /panels/patient/:patientUid and
+// /trends/:patientUid/:testCode carry the subject in the same param.
+const guardLabPanelPatient = routePatientGuard('LAB_RESULT', {
+  tag: 'lab:patient-uid-param',
+  patientSelector: (req) => ({ uid: req.params?.patientUid }),
+});
+
 const LAB_PANEL_RECORD_ROLES = new Set([
   'LAB_STAFF',
   'LAB_INCHARGE',
@@ -109,7 +125,7 @@ router.get('/panels/:panelId', requireStaffOrAdmin, wrap(async (req) =>
 ));
 
 // GET /api/v1/lab/panels/patient/:patientUid?panelCode=&limit=
-router.get('/panels/patient/:patientUid', requireStaffOrAdmin, wrap(async (req) =>
+router.get('/panels/patient/:patientUid', requireStaffOrAdmin, guardLabPanelPatient, wrap(async (req) =>
   panelSvc.listPatientPanels(req.params.patientUid, {
     tenantId: tenantOf(req),
     panelCode: req.query.panelCode || null,
@@ -119,7 +135,7 @@ router.get('/panels/patient/:patientUid', requireStaffOrAdmin, wrap(async (req) 
 
 // ── Trends ──────────────────────────────────────────────────────────
 // GET /api/v1/lab/trends/:patientUid/:testCode?fromDate=&toDate=&limit=
-router.get('/trends/:patientUid/:testCode', requireStaffOrAdmin, wrap(async (req) =>
+router.get('/trends/:patientUid/:testCode', requireStaffOrAdmin, guardLabPanelPatient, wrap(async (req) =>
   panelSvc.getAnalyteTrend(req.params.patientUid, req.params.testCode, {
     tenantId: tenantOf(req),
     fromDate: req.query.fromDate || null,
