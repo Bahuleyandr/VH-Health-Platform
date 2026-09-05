@@ -23,6 +23,7 @@ const FIXTURE = `class AppStrings {
       'a.five':
           "Five {count} item's",
       'a.six': 'Six\\'s',
+      'a.seven': "Seven's",
     },
     'hi': {
       // REVIEW: AI first-pass
@@ -36,6 +37,8 @@ const FIXTURE = `class AppStrings {
           'पाँच {count}'
           ' वस्तु',
       'a.six': 'Six\\'s',
+      // REVIEW: quote style
+      'a.seven': "सात's",
     },
     'ml': {
       ...malayalamTechnicalParityPlaceholders,
@@ -141,4 +144,34 @@ test('the ml spread element is never treated as an entry and survives insertion'
   const ml = out.slice(out.indexOf(`'ml': {`), out.indexOf(`  };`));
   assert.ok(ml.indexOf(`...malayalamTechnicalParityPlaceholders`) < ml.indexOf(`'a.three'`),
     'an approved explicit ml value must come after the spread so it overrides the placeholder');
+});
+
+// ── Confirms must not rewrite quote style (OPEN-21 batch 1: 226 of 371 diff
+// lines were confirm rows whose only change was `"` → `'`) ──
+
+test('a confirm of an existing double-quoted entry leaves that line unchanged', () => {
+  const out = withFixture((f) => applyDecisions(f, [
+    { key: 'a.four', locale: 'hi', value: "चार's", approved: true, changed: false },
+  ]));
+  assert.ok(out.includes(`      'a.four': "चार's",`), 'the double-quoted literal is kept verbatim');
+  assert.ok(!out.includes(`'चार\\'s'`), 'not re-emitted as an escaped single-quoted literal');
+  assert.equal(out, FIXTURE);
+});
+
+test('a confirm of a double-quoted entry under a REVIEW flag strips the flag but keeps the line', () => {
+  const out = withFixture((f) => applyDecisions(f, [
+    { key: 'a.seven', locale: 'hi', value: "सात's", approved: true, changed: false },
+  ]));
+  assert.ok(!/REVIEW: quote style/.test(out));
+  assert.ok(out.includes(`      'a.seven': "सात's",`), 'the double-quoted literal is kept verbatim');
+  assert.ok(!out.includes(`'सात\\'s'`), 'not re-emitted as an escaped single-quoted literal');
+  assert.equal(out, FIXTURE.replace(`      // REVIEW: quote style\n`, ''));
+});
+
+test('a confirm of a multi-line adjacent-literal entry leaves its continuation lines untouched', () => {
+  const out = withFixture((f) => applyDecisions(f, [
+    { key: 'a.five', locale: 'hi', value: 'पाँच {count} वस्तु', approved: true, changed: false },
+  ]));
+  assert.ok(out.includes(`          'पाँच {count}'\n          ' वस्तु',`), 'continuation lines are kept, not collapsed');
+  assert.equal(out, FIXTURE);
 });

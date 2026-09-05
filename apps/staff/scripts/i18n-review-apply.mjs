@@ -3,9 +3,13 @@
 //
 // Applies linguistic-review decisions to lib/l10n/app_strings.dart.
 // Decisions are JSONL rows: {"key","locale","value","approved":true,"changed":bool}.
-// For each approved row: the entry's value is set to `value` (a no-op when equal),
-// every `// REVIEW:` line immediately above the entry is removed (approval IS the
-// flag's removal — see i18n-verify.mjs), and an `ml` row whose key has no explicit
+// For each approved row: the entry's value is set to `value` — but when the
+// decoded current value already equals it (a confirm), the entry's line(s) are
+// left byte-for-byte untouched: no `"` → `'` requoting, no multi-line collapse,
+// so the diff carries only real changes (OPEN-21 batch 1 had 226 of 371 changed
+// lines that were quote-only confirm rewrites). Every `// REVIEW:` line
+// immediately above the entry is removed either way (approval IS the flag's
+// removal — see i18n-verify.mjs), and an `ml` row whose key has no explicit
 // entry is appended to the 'ml' block so the generated parity placeholder can be
 // dropped by `--generate-ml-parity`. Nothing else in the file is touched.
 //
@@ -125,7 +129,10 @@ export function applyDecisions(filePath, decisions) {
     const block = localeBlocks(lines)[d.locale];
     const entry = findEntry(lines, block, d.key);
     if (entry) {
-      lines.splice(entry.line, entry.endLine - entry.line + 1, `      '${d.key}': ${dartString(d.value)},`);
+      // Confirm: value already equal → keep the existing line(s) verbatim.
+      if (entry.value !== d.value) {
+        lines.splice(entry.line, entry.endLine - entry.line + 1, `      '${d.key}': ${dartString(d.value)},`);
+      }
       stripReviewAbove(lines, entry.line);
     } else if (d.locale === 'ml') {
       lines.splice(block.end, 0, `      '${d.key}': ${dartString(d.value)},`);
