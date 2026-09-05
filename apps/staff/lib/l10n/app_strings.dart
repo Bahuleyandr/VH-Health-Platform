@@ -7969,6 +7969,8 @@ class AppStrings {
       's4.lib.cath_lab.readiness.confirm_title': "Confirm check status",
       's4.lib.cath_lab.readiness.confirm_body': "Set {check} to {status}?",
       's4.lib.cath_lab.readiness.confirm_critical': "Critical value present: {items}. Give a reason for passing this check.",
+      's4.lib.cath_lab.readiness.confirm_critical_unnamed':
+          "A critical value is present. Give a reason for passing this check.",
       's4.lib.cath_lab.readiness.confirm_notes': "Notes (optional)",
       's4.lib.cath_lab.readiness.confirm_reason': "Reason",
       's4.lib.cath_lab.readiness.reason_required': "A reason is required",
@@ -15519,6 +15521,8 @@ class AppStrings {
           "{check} को {status} पर सेट करें?",
       's4.lib.cath_lab.readiness.confirm_critical':
           "गंभीर मान मौजूद: {items}। इस जांच को पास करने का कारण दें।",
+      's4.lib.cath_lab.readiness.confirm_critical_unnamed':
+          "गंभीर मान मौजूद है। इस जांच को पास करने का कारण दें।",
       's4.lib.cath_lab.readiness.confirm_notes': "टिप्पणियाँ (वैकल्पिक)",
       's4.lib.cath_lab.readiness.confirm_reason': "कारण",
       's4.lib.cath_lab.readiness.reason_required': "कारण आवश्यक है",
@@ -24397,6 +24401,7 @@ class AppStrings {
       's4.lib.cath_lab.readiness.confirm_body':
           "{check} ஐ {status} ஆக அமைக்கவா?",
       's4.lib.cath_lab.readiness.confirm_critical': "ஆபத்தான மதிப்பு உள்ளது: {items}. இந்தச் சரிபார்ப்பை நிறைவேற்றுவதற்கான காரணத்தைக் குறிப்பிடவும்.",
+      's4.lib.cath_lab.readiness.confirm_critical_unnamed': "ஆபத்தான மதிப்பு உள்ளது. இந்தச் சரிபார்ப்பை நிறைவேற்றுவதற்கான காரணத்தைக் குறிப்பிடவும்.",
       's4.lib.cath_lab.readiness.confirm_notes':
           "குறிப்புகள் (விருப்பத்தேர்வு)",
       's4.lib.cath_lab.readiness.confirm_reason': "காரணம்",
@@ -33363,6 +33368,8 @@ class AppStrings {
       's4.lib.cath_lab.readiness.confirm_body':
           "{check}ని {status}కి సెట్ చేయాలా?",
       's4.lib.cath_lab.readiness.confirm_critical': "క్లిష్ట విలువ ఉంది: {items}. ఈ తనిఖీని ఆమోదించడానికి కారణం తెలియజేయండి.",
+      's4.lib.cath_lab.readiness.confirm_critical_unnamed':
+          "క్లిష్ట విలువ ఉంది. ఈ తనిఖీని ఆమోదించడానికి కారణం తెలియజేయండి.",
       's4.lib.cath_lab.readiness.confirm_notes': "గమనికలు (ఐచ్ఛికం)",
       's4.lib.cath_lab.readiness.confirm_reason': "కారణం",
       's4.lib.cath_lab.readiness.reason_required': "కారణం అవసరం",
@@ -39175,6 +39182,8 @@ class AppStrings {
       's4.lib.cath_lab.readiness.confirm_body':
           "{check} {status} ആയി സജ്ജമാക്കണോ?",
       's4.lib.cath_lab.readiness.confirm_critical': "ഗുരുതര മൂല്യം ഉണ്ട്: {items}. ഈ പരിശോധന പാസാക്കുന്നതിന്റെ കാരണം നൽകുക.",
+      's4.lib.cath_lab.readiness.confirm_critical_unnamed':
+          "ഗുരുതര മൂല്യം ഉണ്ട്. ഈ പരിശോധന പാസാക്കുന്നതിന്റെ കാരണം നൽകുക.",
       's4.lib.cath_lab.readiness.confirm_notes': "കുറിപ്പുകൾ (ഐച്ഛികം)",
       's4.lib.cath_lab.readiness.confirm_reason': "കാരണം",
       's4.lib.cath_lab.readiness.reason_required': "കാരണം ആവശ്യമാണ്",

@@ -187,6 +187,12 @@ class _CathReadinessChecklistState extends State<CathReadinessChecklist>
   ) async {
     if (_busy || status == check.status) return;
     final s = AppStrings.of(context);
+    // The confirm below awaits a route, and this list is rebound to ANOTHER
+    // case whenever the date changes, the worklist is pulled to refresh, or a
+    // poll replaces it. `widget.caseId` read after the await is therefore the
+    // new case, while `check` came from the old one — so the id is captured
+    // here and every use below goes through the capture.
+    final caseId = widget.caseId;
     String? notes;
     // `pending` is the only status that does not move the start gate, so it is
     // the only one that goes straight through. Everything else is a clinical
@@ -196,6 +202,25 @@ class _CathReadinessChecklistState extends State<CathReadinessChecklist>
           check.checkType == 'labs' &&
           status == 'pass' &&
           (check.criticalWarning || labs?.criticalWarning == true);
+      // Naming the items is the point: "critical value" alone does not tell
+      // the person passing the check WHICH value they are passing. But the
+      // backend empties `critical_items` for roles outside the result
+      // audience while keeping `critical_warning`, and a degraded read can
+      // leave `lab_readiness` null altogether — so when there is nothing to
+      // name the line drops the list rather than rendering the naming copy
+      // with an empty slot in it ("Critical value present: ."). The gate
+      // itself does not soften: `reasonRequired` still follows `critical`.
+      final criticalItems = cathReadinessItemList(
+        s,
+        labs?.criticalItems ?? const <String>[],
+      );
+      final String? criticalLine = !critical
+          ? null
+          : criticalItems.isEmpty
+          ? s.lookup('s4.lib.cath_lab.readiness.confirm_critical_unnamed')
+          : s.format('s4.lib.cath_lab.readiness.confirm_critical', {
+              'items': criticalItems,
+            });
       final result = await showDialog<_CathReadinessConfirmResult>(
         context: context,
         builder: (dialogContext) => _CathReadinessConfirmDialog(
@@ -204,16 +229,7 @@ class _CathReadinessChecklistState extends State<CathReadinessChecklist>
             'check': cathReadinessCheckLabel(s, check.checkType),
             'status': cathReadinessCheckStatusLabel(s, status),
           }),
-          // Naming the items is the point: "critical value" alone does not
-          // tell the person passing the check WHICH value they are passing.
-          criticalLine: critical
-              ? s.format('s4.lib.cath_lab.readiness.confirm_critical', {
-                  'items': cathReadinessItemList(
-                    s,
-                    labs?.criticalItems ?? const <String>[],
-                  ),
-                })
-              : null,
+          criticalLine: criticalLine,
           automationNote:
               check.checkType == 'labs' &&
                   (check.autoManaged || labs?.autoManaged == true)
@@ -230,13 +246,22 @@ class _CathReadinessChecklistState extends State<CathReadinessChecklist>
           confirmLabel: s.lookup('s4.lib.cath_lab.readiness.confirm_action'),
         ),
       );
-      if (result == null || !mounted) return;
+      // Rebound while the dialog stood open: `check` and the answer just
+      // given both describe the PREVIOUS case, so the write would land on the
+      // wrong patient. Drop it silently — the operator is now looking at a
+      // different case, and a snackbar about the old one would only confuse.
+      if (result == null || !mounted || widget.caseId != caseId) return;
       notes = result.notes;
     }
+    // The single choke point: nothing is written unless the row still shows
+    // the case the operator answered for. Redundant on the `pending` path,
+    // which awaits nothing above — kept so the invariant sits next to the
+    // write rather than only inside the confirm branch.
+    if (!mounted || widget.caseId != caseId) return;
     setState(() => _busy = true);
     try {
       await _updateCheck(
-        widget.caseId,
+        caseId,
         checkType: check.checkType,
         status: status,
         notes: notes,

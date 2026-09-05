@@ -38,6 +38,7 @@ CathCaseReadiness _readiness({
   List<String> orderableNow = const ['HCV'],
   bool caseStarted = false,
   bool autoManaged = true,
+  List<String>? criticalItems,
 }) {
   return CathCaseReadiness.fromJson({
     'readiness': [
@@ -57,13 +58,34 @@ CathCaseReadiness _readiness({
       'check_status': labsStatus,
       'auto_managed': autoManaged,
       'critical_warning': critical,
-      'critical_items': critical ? ['potassium'] : <String>[],
+      'critical_items':
+          criticalItems ?? (critical ? ['potassium'] : <String>[]),
       'items': items,
       'missing': missing,
       'orderable_now': orderableNow,
       'open_order_codes': <String>[],
       'case_started': caseStarted,
     },
+  });
+}
+
+/// A degraded read: the case checks came back, the `lab_readiness` block did
+/// not. The `labs` check still carries `critical_warning` in its own metadata,
+/// so the confirm still has to gate — with nothing to name.
+CathCaseReadiness _readinessWithoutLabBlock({bool critical = true}) {
+  return CathCaseReadiness.fromJson({
+    'readiness': [
+      for (final type in _checkTypes)
+        {
+          'check_type': type,
+          'status': 'pending',
+          'required': true,
+          'metadata': type == 'labs'
+              ? {'critical_warning': critical, 'auto_managed': true}
+              : <String, dynamic>{},
+        },
+    ],
+    'readiness_gate': {'ready': false},
   });
 }
 
@@ -344,6 +366,150 @@ void main() {
           'Nephrology reviewed, dialysis booked post-procedure',
         ],
       ]);
+    },
+  );
+
+  testWidgets(
+    'a critical pass with no NAMED items falls back to the unnamed line, '
+    'and still requires a reason (F1)',
+    (tester) async {
+      final calls = <List<Object?>>[];
+      await tester.pumpWidget(
+        _wrap(
+          CathReadinessDependencies(
+            // The backend empties `critical_items` for a role outside the
+            // result audience while keeping `critical_warning` — the flag is
+            // the safety signal, the names are the privileged part.
+            loadReadiness: (_) async => _readiness(
+              labsStatus: 'pending',
+              critical: true,
+              criticalItems: const <String>[],
+            ),
+            updateCheck:
+                (caseId, {required checkType, required status, notes}) async {
+                  calls.add([caseId, checkType, status, notes]);
+                },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await _chooseStatus(tester, 'labs', 'Pass');
+      expect(
+        find.text(
+          'A critical value is present. Give a reason for passing this check.',
+        ),
+        findsOneWidget,
+      );
+      // Never the named line with an empty slot in it.
+      expect(find.textContaining('Critical value present:'), findsNothing);
+
+      // The gate is the same gate: an unnamed critical value still cannot be
+      // passed without a reason.
+      await tester.tap(find.byKey(const ValueKey('cath-readiness-confirm-ok')));
+      await tester.pumpAndSettle();
+      expect(calls, isEmpty);
+      expect(find.text('A reason is required'), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const ValueKey('cath-readiness-confirm-notes')),
+        'Consultant reviewed the flagged value',
+      );
+      await tester.tap(find.byKey(const ValueKey('cath-readiness-confirm-ok')));
+      await tester.pumpAndSettle();
+      expect(calls, [
+        [42, 'labs', 'pass', 'Consultant reviewed the flagged value'],
+      ]);
+    },
+  );
+
+  testWidgets(
+    'a degraded read with no lab block still gates the critical pass on the '
+    'unnamed line (F1)',
+    (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          CathReadinessDependencies(
+            loadReadiness: (_) async => _readinessWithoutLabBlock(),
+            updateCheck: (
+              caseId, {
+              required checkType,
+              required status,
+              notes,
+            }) async {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await _chooseStatus(tester, 'labs', 'Pass');
+      expect(
+        find.text(
+          'A critical value is present. Give a reason for passing this check.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Critical value present:'), findsNothing);
+      expect(find.text('Reason'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'rebinding the list to another case while the confirm is open writes '
+    'nothing (F2)',
+    (tester) async {
+      final calls = <List<Object?>>[];
+      final caseId = ValueNotifier<int>(42);
+      addTearDown(caseId.dispose);
+      final deps = CathReadinessDependencies(
+        loadReadiness: (id) async => _readiness(labsStatus: 'pending'),
+        updateCheck: (id, {required checkType, required status, notes}) async {
+          calls.add([id, checkType, status, notes]);
+        },
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: SingleChildScrollView(
+              child: ValueListenableBuilder<int>(
+                valueListenable: caseId,
+                builder: (context, id, _) => CathReadinessChecklist(
+                  caseId: id,
+                  dependencies: deps,
+                  today: DateTime(2026, 9, 4),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await _chooseStatus(tester, 'consent', 'Pass');
+      expect(
+        find.byKey(const ValueKey('cath-readiness-confirm')),
+        findsOneWidget,
+      );
+
+      // The worklist swapped underneath: a date change, a pull-to-refresh or
+      // a realtime poll rebuilds this row against a DIFFERENT case while the
+      // dialog is still up.
+      caseId.value = 77;
+      await tester.pump();
+
+      await tester.enterText(
+        find.byKey(const ValueKey('cath-readiness-confirm-notes')),
+        'consent verified',
+      );
+      await tester.tap(find.byKey(const ValueKey('cath-readiness-confirm-ok')));
+      await tester.pumpAndSettle();
+
+      // The confirmation described case 42; the row now shows case 77. The
+      // write is dropped rather than aimed at the wrong patient — and it is
+      // dropped SILENTLY, since a failure snackbar would be about a case the
+      // operator is no longer looking at.
+      expect(calls, isEmpty);
+      expect(find.byType(SnackBar), findsNothing);
     },
   );
 
