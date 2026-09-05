@@ -1,5 +1,92 @@
 # Cath Pre-Procedure Lab Readiness Implementation Plan
 
+## Execution notes (as built)
+
+Tasks 1–6 are executed (commits below); Task 7's gate sweep and hand-back are in
+progress. Implementation worktree: `feat/cath-lab-readiness`, final at
+`84ded1b04`, with `main` merged in at `13e885d98`; the PR is **#TBD** (draft,
+merge authority stays with the coordinating session). Every task went through a
+review loop — implementer, spec review, code-quality review, fix commit(s),
+re-review — which is why several tasks carry more than one commit, and why the
+commit order below is not the task order (the loops interleaved; `84ded1b04`, a
+Task 3 fix, is the branch tip).
+
+The spec (`docs/superpowers/specs/2026-09-04-cath-pre-procedure-lab-readiness-design.md`)
+has been amended in place with **As built** paragraphs against §6.2, §6.3, §6.4,
+§7, §8.1–§8.3, §9, §10, §11 and §15, plus a new §16 listing the decisions still
+open with the owner. Read those alongside this plan; where this plan's code
+sketches and the spec's as-built paragraphs disagree, the spec is current — the
+sketches below carry **As built** notes only where the divergence is material.
+
+Commits per task:
+
+- **Task 1** (migration 766): `9a5ded249`, `f18f18a3b`
+- **Task 2** (pure resolution rules): `2eed70f8a`, `4cf9357a2`
+- **Task 3** (refresh, automation, lab hooks, actions): `9b4a3fbd4`, `34d0870ff`, `44cd6006b`, `84ded1b04`
+- **Task 4** (routes, projection, OpenAPI): `3a1abfbda`, `6d4067686`, `2a6893315`, `8fa02df9e`
+- **Task 5** (Staff app): `1133f8dec`, `692b94a35`
+- **Task 6** (Admin settings editor): `f5d9bd115`, `a7bad8ef5`, `86ec7be38`
+- **Task 7** (gates and hand-back): `main` merged at `13e885d98`; gate sweep and PR **#TBD**
+
+Deviations from this plan, accepted during execution:
+
+1. **Settings live on the governance mount, not the admin barrel.** Task 4
+   Step 2 designed `GET`/`PUT /api/v1/admin/cath-consumables/lab-readiness-settings`
+   behind a route-level role check. That mount's `ADMIN_ROUTE_ROLES` never
+   admitted QUALITY_OFFICER or INFECTION_CONTROL_OFFICER, and a route-level
+   `requireRole` under a prefix mount can only subtract from what the mount
+   already admits — Plan 2's prefix-mount lockout, hit again. They ship as
+   `GET`/`PUT /api/v1/cath-reprocessing/lab-readiness-settings` on
+   `cathReprocessingPolicyRoutes.js`, sharing that router's audience and its
+   `cath_reprocessing_policy` idempotency scope. Spec §10 as built.
+2. **`allowUnlinkedExternal` does not exist.** The escape is structural: one
+   private `recordManualLabResultRow({ …, external })` with two exported entry
+   points — public `recordResultManual` (`external: false`, forces
+   `manual_in_house`) and internal `recordExternalLabResultRow`, which no route
+   imports and whose call sites are pinned to this feature by
+   `tests/unit/labExternalResultCallSites.test.js`. A flag any new caller could
+   copy and flip was the wrong shape for "only the cath checklist may do this".
+   Spec §6.3 as built.
+3. **`contextOf` forwards the claimed key but NOT the claim's row id or body
+   hash.** Task 4 Step 1 said to add all four. Forwarding
+   `httpIdempotencyClaimId` / `requestFingerprint` would let the lab layer
+   finalise this route's HTTP claim from inside the lab transaction: a replay
+   would answer 200 with the lab service's payload instead of the route's
+   published 201, and a 5xx after that commit (the marker write, the audit and
+   the refresh all still to come) could neither release nor re-finalise the
+   claim. The lab rail derives its own content fingerprint instead — which is
+   also what makes an `hiv`, an `hbsag` and an `hcv` entry under one
+   `Idempotency-Key` three distinct commands.
+4. **The waive route claims an Idempotency-Key** (scope
+   `cath_lab_readiness_waive`), which this plan left off; a waiver is a clinical
+   decision and a double-tap would have recorded the same override twice. All
+   three write routes also run the case guard **before** the claim, and
+   `:item` is validated against the service's exported `ITEM_CODES` by
+   `requireReadinessItemParam` before a key is burned.
+5. **`_missing_items` was never emitted** and is not in the contract. Task 4
+   Step 3's schema declared it "so the strict contract accepts it"; the service
+   emits eleven keys and the schema declares exactly those.
+6. **`abnormal_flag` for outside values is not derived from
+   `lab_reference_ranges`** (spec §8.2). `labThresholdExceptionService` rewrites
+   the column from the governed policy after every insert, for every writer, and
+   the panel path inserts null outright; deriving one here would be overwritten
+   or would disagree with in-house rows. A tenant-wide fallback belongs in the
+   threshold layer — owner decision, spec §16.
+7. **`CATH_LAB_READINESS_ORDER_FAILED` is a 500**, not the spec's 502, carrying
+   `details.code` / `cause` / `created` so a retry does not double the orders
+   already placed. `AppError` has no gateway constructor and the failure is
+   in-process. Owner decision, spec §16.
+8. **`lab.mjs` was not touched.** Task 4 Step 3 said to add the four origin
+   fields to "the lab result item schema" there; no lab-result response schema
+   exists in that overlay, so there was nothing to extend.
+9. **Read-through refreshes run as the SYSTEM actor**, write only what changed,
+   and take `FOR NO KEY UPDATE` on the case row. Spec §7 as built.
+10. **A new pure module, `cathLabReadinessProjection.js`**, projects the
+    readiness block, the items array and the `readiness[]` check rows by role —
+    the report-read audience includes RECEPTIONIST and TECHNICIAN, and the three
+    serology items carry values, flags and criticality. Not in this plan; spec
+    §9 as built.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the cath case's `labs` readiness check tick itself when Hb, platelets, creatinine, potassium, HIV, HBsAg and HCV results exist, show a persistent "critical value" warning beside the tick, name exactly what is missing (never ordered, or ordered and awaiting), offer a one-tap order for the gaps, and let cath staff record outside-lab values as external lab results from the checklist only.
@@ -55,9 +142,54 @@ Same as Plan 2 Task 0 with `feat/cath-lab-readiness`, worktree `$SCRATCH/wt/read
 
 ## Task 1: Migration 766
 
+**Executed:** `9a5ded249`, `f18f18a3b` (review loop; see Execution notes at the top of this file).
+
 **Files:**
 - Create: `apps/backend/src/migrations/766_cath_lab_readiness.sql`
 - Modify: `apps/backend/prisma/schema.prisma`
+
+**As built — five differences from the SQL sketched below.** The shipped file is
+the authority; read it rather than this block.
+
+1. **Tenant-pinned composite FKs.** The sketch's single-column
+   `REFERENCES lab_results(id)` / `lab_specimens(id)` and its plain
+   `case_id BIGINT REFERENCES cath_lab_cases(id)` are replaced by composite
+   `(tenant_id, <column>)` keys — a readiness item can never bind to another
+   tenant's case, result, specimen or order. Three `(tenant_id, id)` uniques
+   (`ux_cath_lab_cases_tenant_id`, `ux_lab_results_tenant_id`,
+   `ux_lab_specimens_tenant_id`) are created first as targets;
+   `investigations` already had `ux_cc_investigations_tenant_id`. The release
+   action is `ON DELETE SET NULL (<column>)` — the Postgres 15+ column list,
+   because a bare `SET NULL` on a composite nulls the `NOT NULL` `tenant_id`
+   too and raises 23502 instead of releasing the pointer. No second
+   single-column FK: it would add no isolation and one more lock target.
+2. **`cath_lab_readiness_settings_items_check` also requires
+   `cardinality(required_items) >= 1`.** An empty set would make `labs` a check
+   that passes on an empty set — the bare human tick this table replaces. A
+   tenant that wants no lab gate marks the check not required on the case.
+3. **`lab_results_external_origin_check` tests
+   `NULLIF(btrim(external_lab_name), '') IS NOT NULL`**, not `IS NOT NULL`: a
+   laboratory name of spaces is not provenance.
+4. **`idx_cath_case_lab_readiness_items_case` was dropped.**
+   `(tenant_id, case_id)` is a strict leading prefix of
+   `ux_cath_case_lab_readiness_items (tenant_id, case_id, item_code)`, which the
+   planner already uses; a second index is write cost and one more lock target.
+5. **The header is self-contained.** It states the six rules the schema is
+   shaped by — seven items and only seven, per-item freshness with serology
+   borrowing migration 765's window, automation-alters-only-its-own-rows, a
+   critical value never blocks, external results are unverified and count only
+   by policy, and who may write the origin columns — so the file can be
+   understood without opening the design note, which it links for history. It
+   also records the copy-target widths (`value_text` 255 / `unit` 40 /
+   `abnormal_flag` 10 / `NUMERIC(15, 4)`) as deliberate mirrors of the
+   `lab_results` columns the refresh copies from: widen one without the other
+   and the refresh raises 22001 inside a cath-case read.
+
+The runtime-role GRANT block, the RLS policies and the `prisma.js`
+`runtime_mutable_no_delete_relations` / `runtime_nextval_sequences` registration
+landed as Plan 2's Task 1 described them (SELECT/INSERT/UPDATE; DELETE and
+TRUNCATE revoked — the refresh never deletes, it rewrites an item with
+`required = FALSE`).
 
 - [ ] **Step 1: Write the migration**
 
@@ -222,9 +354,50 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ## Task 2: Pure resolution rules (TDD)
 
+**Executed:** `2eed70f8a`, `4cf9357a2` (review loop).
+
 **Files:**
 - Create: `apps/backend/src/services/clinical/cathLabReadinessService.js` (pure part)
 - Test: `apps/backend/src/tests/unit/cathLabReadinessService.test.js`
+
+**As built — `resolveItemState` corrections.** The TDD structure below stands;
+these rules differ from the sketch and are what the tests pin (spec §7 as
+built):
+
+- `SIGNED_STATUSES` is **`final`, `corrected`, `amended`, `verified`** (four,
+  not two), and `result_final` also requires a usable `signed_off_at`.
+- **Freshness has a lower bound**: `withinWindow` requires `age >= 0` as well as
+  `age <= windowDays`, so a future-dated row can never be fresh and never
+  outranks a real value; a lone future-dated result resolves `stale`. Open
+  orders inherit the bound.
+- **External rows are dated from `external_reported_on`** (read as IST midnight;
+  a DATE has no zone), not from `performed_at`, which on such a row is only when
+  somebody keyed it in here.
+- **Open orders are resolved before the result branch**, and their
+  `investigation_id` / `specimen_id` / `ordered_at` pointers are attached to a
+  resolved result item too — a repeat draw in flight stays visible, so nobody is
+  told to order what is already ordered. The result still decides the state.
+- A booking-derived open order has no `investigations` row, so its
+  `investigation_id` is **`null`, never `Number(null) === 0`** (which would fail
+  the item schema's `minimum: 1` and bind an id no FK could satisfy).
+- **The specimen is the highest `id`** for the order's booking, chosen here
+  rather than leaning on the caller's `ORDER BY`.
+- Instants are read from `<column>_epoch_ms` twins where the caller supplies
+  them, falling back to the raw value so the pure function still works on the
+  plain ISO rows the unit tests hand it. Ranks are **compared, never
+  subtracted** — an unusable rank is `-Infinity`, and `-Infinity - -Infinity` is
+  `NaN`, which silently leaves a sort unapplied.
+- A waiver decides the **state, not the evidence**: the value that prompted it
+  stays on the item, so a waived potassium of 6.9 still raises the critical
+  warning. A waived item missing any of `waived_by` / `waived_at` /
+  `waive_reason` is a 400 here rather than a 23514 in the middle of a case read.
+
+**As built — `computeCheckDecision`.** `criticalItems` is derived from **all**
+items (required or not, waived or not); `missing` stays required-only, because
+`missing` is the gate and criticality is the warning. The auto-**retract**
+branch is deliberately **not** gated on `settings.auto_pass`: turning auto-pass
+off stops automation making new assertions, but withdrawing one it already made
+is a correction and moves the gate in the restrictive direction.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -579,6 +752,29 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ---
 
 ## Task 3: Persistence, refresh, automation, lab hooks, order-missing, external entry, waiver
+
+**Executed:** `9b4a3fbd4` (the feature), then the fix pass — `34d0870ff` (value
+validation, consistent reads, human-owned evidence, bookings, the structural
+external gate), `44cd6006b` (write-on-change, `FOR NO KEY UPDATE`) and
+`84ded1b04` (bind `waived_at` as ISO, bound external numeric values,
+case-insensitive external call-site pin).
+
+The fix pass was tracked as a lettered list (A–U) in the review thread; the
+letters are not recoverable from the repository, so the substance is recorded
+here and in the spec's **As built** paragraphs instead of by letter. The two
+worth carrying forward:
+
+- **Item B is void.** It asked for `abnormal_flag` on an outside value to be
+  derived from `lab_reference_ranges` the way the panel path does. The panel
+  path does not do that — it inserts `abnormal_flag: null` — because
+  `labThresholdExceptionService` owns the column and rewrites it from the
+  governed policy after **every** insert. Deriving one in the cath path would be
+  overwritten a statement later, or (where no policy matches the analyte) would
+  give an outside value a flag the in-house value for the same analyte does not
+  carry. "The same flag an in-house value would carry" means **the same rail**.
+  See spec §8.2 and §16.
+- **The `allowUnlinkedExternal` flag was replaced by a structural gate** — see
+  Step 3 below.
 
 **Files:**
 - Modify: `apps/backend/src/services/clinical/cathLabReadinessService.js` (append)
@@ -1006,6 +1202,26 @@ export async function recordExternalLabResult(caseId, itemCode, input = {}, cont
 
 - [ ] **Step 3: The `recordResultManual` escape hatch and origin columns**
 
+> **As built — the escape is structural, not a flag.** `allowUnlinkedExternal`
+> was never shipped. `recordResultManual`'s body moved into a **private**
+> `recordManualLabResultRow({ …, external, qualitative })`, and the module
+> exports two entry points over it:
+>
+> - `recordResultManual` — the public path, calls it with `external: false`.
+>   There is no argument on this entry point that can ask for an outside origin,
+>   so an origin arriving on that path is **overwritten**, not trusted.
+> - `recordExternalLabResultRow(input, context)` — internal, imported by no
+>   route. `cathLabReadinessService.js` is the only permitted caller, and
+>   `src/tests/unit/labExternalResultCallSites.test.js` pins that set so a new
+>   import fails the build.
+>
+> Read (a)–(i) below as a description of the *private* function, with
+> `allowUnlinkedExternal` renamed to the `external` parameter. The point of the
+> change: a boolean option is a convention a new caller inherits by copying an
+> existing call and flipping something it does not understand; a private
+> function with a pinned call graph is a rule the build enforces. Spec §6.3 as
+> built.
+
 In `apps/backend/src/services/lab/labResultsService.js`:
 
 (a) Signature: add `allowUnlinkedExternal = false, qualitative = false,` to the destructured parameters of `recordResultManual`.
@@ -1327,10 +1543,28 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ## Task 4: Routes and OpenAPI
 
+**Executed:** `3a1abfbda` (routes, settings, OpenAPI), then `6d4067686`
+(serology projection for report-read roles, middleware-owned claims on the
+external-result route, the `:item` guard, contract honesty), `2a6893315`
+(withhold serology **criticality** as well as values) and `8fa02df9e` (name
+`recordExternalLabResultRow` in the claim comments; scope the error-code pin).
+
 **Files:**
 - Modify: `apps/backend/src/routes/clinical/cathLabRoutes.js` (imports; after the `readiness/evidence/refresh` route)
-- Modify: `apps/backend/src/routes/admin/cathConsumablesRoutes.js`
-- Create: `apps/backend/scripts/openapi/schemas/cathLabReadiness.mjs`; modify `lab.mjs` (result fields), `generate-openapi.mjs`; regenerate `openapi.json`
+- ~~Modify: `apps/backend/src/routes/admin/cathConsumablesRoutes.js`~~ → **as built:** `apps/backend/src/routes/clinical/cathReprocessingPolicyRoutes.js` (Step 2)
+- Create: `apps/backend/src/services/clinical/cathLabReadinessProjection.js` (**as built**, not in this plan — role projection for the two read surfaces)
+- Create: `apps/backend/scripts/openapi/schemas/cathLabReadiness.mjs`; modify `generate-openapi.mjs`; regenerate `openapi.json`. **`lab.mjs` was not touched:** no lab-result response schema exists in that overlay to extend.
+
+**As built — role projection.** Both read surfaces are cath **report-read**,
+which admits RECEPTIONIST and TECHNICIAN, and the items carry serology values,
+flags and criticality. `cathLabReadinessProjection.js` (pure; no I/O, no clock,
+no tenant) projects `lab_readiness`, a bare `items[]`, and the `readiness[]`
+check rows' `metadata.live_evidence` / `metadata.critical_items` through
+`cathDeviceReuseService.roleSeesSerologyDetail` — the same predicate the reuse
+strip uses, deliberately not a second list. Keys are **blanked, not dropped**
+(the schemas are strict); `is_critical` is forced `false` on the three serology
+items and their codes are dropped from `critical_items`, because on a
+qualitative item criticality *is* the result. `critical_warning` is left alone.
 
 - [ ] **Step 1: Cath routes**
 
@@ -1345,7 +1579,32 @@ import {
 } from '../../services/clinical/cathLabReadinessService.js';
 ```
 
-`contextOf(req)` must expose `idempotencyKey`, `requestFingerprint`, `httpIdempotencyClaimId` and `requestId` (the external-result path forwards them to `recordResultManual`). Read `contextOf` and add any missing field: `idempotencyKey: req.idempotencyClaim?.requestKey || null, requestFingerprint: req.idempotencyClaim?.requestBodyHash || null, httpIdempotencyClaimId: req.idempotencyClaim?.id || null, requestId: req.id || null`.
+~~`contextOf(req)` must expose `idempotencyKey`, `requestFingerprint`, `httpIdempotencyClaimId` and `requestId`~~
+
+> **As built — `contextOf` forwards the claimed KEY and nothing else from the
+> claim.** It carries `idempotencyKey: req.idempotencyClaim?.requestKey ||
+> req.get('idempotency-key') || null` and `requestId`, but **not**
+> `requestFingerprint` (the claim's body hash) and **not**
+> `httpIdempotencyClaimId`. The one service that would read them —
+> `recordExternalLabResult` into `recordExternalLabResultRow` — hands them to
+> `finaliseHttpIdempotencyInTx`, which would mark *this route's* HTTP claim
+> complete/200 with the **lab layer's** payload from inside the lab
+> transaction. Two things then break: a replay answers 200 with the lab
+> service's `{ result, alerts }` instead of this route's published
+> `201 { lab_result_id, item, readiness }`; and a 5xx raised **after** that
+> transaction commits — the blood-borne marker write, the audit and the
+> readiness refresh are all still to come — can neither release the claim nor
+> re-finalise it, so the retry replays a success for work that never happened.
+> The middleware owns the claim on this router; the lab rail derives its own
+> content fingerprint (case id + item + value + unit + date + lab), which is
+> also what makes an `hiv`, an `hbsag` and an `hcv` entry sent under one
+> `Idempotency-Key` three distinct commands instead of one.
+>
+> `retainOnServerError` stays unset on the external-result route: a 5xx
+> **releases** the claim, the retry re-enters, the ingest rail replays the lab
+> row by content, and the marker write / audit / refresh that failed the first
+> time complete. Retaining it would freeze a half-done write behind a success
+> nobody can retry.
 
 Replace the evidence-refresh handler's `try` body with:
 
@@ -1407,22 +1666,95 @@ router.post('/cases/:id/readiness/labs/:item/waive', requireCathWorkflow, guardC
 });
 ```
 
+> **As built — three additions to the routes above.**
+>
+> 1. **The waive route claims an Idempotency-Key too**
+>    (`requireIdempotencyKey({ required: true, scope: 'cath_lab_readiness_waive' })`).
+>    A waiver is a clinical decision written to an item row and an audit row; a
+>    double-tap would have recorded the same override twice under two
+>    timestamps.
+> 2. **`requireReadinessItemParam` runs before the claim** on both `:item`
+>    routes: `ITEM_CODES.includes(req.params.item)` — the service's own exported
+>    list, so the two cannot disagree — answering
+>    `400 CATH_LAB_READINESS_ITEM_UNKNOWN` at the envelope root. The service
+>    validates too, but that is one layer too late: the idempotency claim in
+>    front of it would already have written a register row for a URL that can
+>    never succeed.
+> 3. **`GET .../readiness/labs` runs the refresh as the SYSTEM actor**
+>    (`{ requestId, actorUid: null, actorRole: 'SYSTEM' }`), not `contextOf(req)`.
+>    A GET is a read; stamping the reader would put `cath_lab_cases.updated_by`
+>    and a `cath_lab.readiness.labs.auto_*` audit row — a clearance decision —
+>    into the trail of someone who only looked. `getCase` does the same. The
+>    **POST** evidence-refresh is an act and keeps its full actor; its labs
+>    refresh is additive and answers `labs: null` on failure rather than losing
+>    the other seven checks' re-evidencing.
+> 4. Both read surfaces pass their result through
+>    `projectLabReadinessForRole` / `projectReadinessChecksForRole` before
+>    responding.
+
 - [ ] **Step 2: Admin settings routes**
 
-In `cathConsumablesRoutes.js` import `getReadinessSettings, upsertReadinessSettings` from `cathLabReadinessService.js` and add, gated by the same `requireReprocessingPolicyRole` (define it here if Plan 2 has not landed: `requireRole('QUALITY_OFFICER', 'INFECTION_CONTROL_OFFICER', 'SUPER_ADMIN')`):
+> **As built — the settings routes are NOT on the admin barrel.** They live on
+> the governance mount Plan 2 created,
+> `apps/backend/src/routes/clinical/cathReprocessingPolicyRoutes.js`, as
+> `GET`/`PUT /api/v1/cath-reprocessing/lab-readiness-settings`, sharing that
+> router's audience (`CATH_REPROCESSING_POLICY_ROUTE_ROLES`: QUALITY_OFFICER,
+> INFECTION_CONTROL_OFFICER, ADMIN, SUPER_ADMIN) and its
+> `cath_reprocessing_policy` idempotency scope — one screen, one command rail.
+>
+> The design below cannot work: `/api/v1/admin`'s `ADMIN_ROUTE_ROLES` is
+> SUPER_ADMIN/ADMIN, and a route-level `requireRole` under a prefix mount can
+> only **subtract** from what the mount already admits, so
+> `requireReprocessingPolicyRole` would have named the two officers while
+> letting neither through. This is the same prefix-mount lockout Plan 2 hit for
+> the reprocessing policy endpoints. Spec §10 as built.
+
+~~In `cathConsumablesRoutes.js`~~ In `cathReprocessingPolicyRoutes.js` import `getReadinessSettings, upsertReadinessSettings` from `cathLabReadinessService.js` and add:
 
 ```js
-router.get('/lab-readiness-settings', requireReprocessingPolicyRole, async (req, res, next) => {
-  try { return success(res, { settings: await getReadinessSettings({ tenantId: req.tenantId }) }, 'Cath lab readiness settings retrieved'); }
-  catch (err) { return next(err); }
+router.get('/lab-readiness-settings', async (req, res) => {
+  try {
+    const settings = await getReadinessSettings({ tenantId: tenantOf(req) });
+    return success(res, { settings }, 'Cath lab readiness settings retrieved');
+  } catch (err) { return handleFailure(res, err, 'get lab readiness settings'); }
 });
-router.put('/lab-readiness-settings', requireReprocessingPolicyRole, async (req, res, next) => {
-  try { return success(res, { settings: await upsertReadinessSettings({ ...(req.body || {}), tenantId: req.tenantId }, actorContext(req)) }, 'Cath lab readiness settings saved'); }
-  catch (err) { return next(err); }
+router.put('/lab-readiness-settings', policyIdempotency, async (req, res) => {
+  try {
+    const settings = await upsertReadinessSettings({ ...(req.body || {}), tenantId: tenantOf(req) }, contextOf(req));
+    return success(res, { settings }, 'Cath lab readiness settings saved');
+  } catch (err) { return handleFailure(res, err, 'save lab readiness settings'); }
 });
 ```
 
 - [ ] **Step 3: OpenAPI**
+
+> **As built — four corrections to the overlay sketched below.**
+>
+> 1. **`_missing_items` is gone**, from the schema and from the payload it was
+>    invented for. The service never emitted such a key; declaring it "so the
+>    strict contract accepts it" would have made the contract lie. The shipped
+>    file says so in its header.
+> 2. **`CathLabReadinessItem` requires EVERY key**, not four. The resolver
+>    spreads a complete base on every branch, so every key is always present and
+>    the ones with nothing to say are null. That is what makes the role
+>    projection safe: it can blank a value without breaking
+>    `additionalProperties: false`.
+> 3. **The settings operations are `GET`/`PUT /api/v1/cath-reprocessing/lab-readiness-settings`**,
+>    not `/api/v1/admin/cath-consumables/...` (Step 2). The overlay also
+>    documents `POST /api/v1/cath-lab/cases/{id}/readiness/evidence/refresh`,
+>    whose response now carries `labs`.
+> 4. **The external-result request takes `value_text` OR `value_numeric`**
+>    (an `anyOf`), not `value_text` unconditionally — a quantitative item may be
+>    filed with the number alone — and the overlay names the error codes each
+>    status can carry (`CATH_LAB_READINESS_ITEM_UNKNOWN`,
+>    `..._VALUE_INVALID`, `..._ORDER_FAILED`, `..._CASE_STARTED`,
+>    `..._ITEMS_EMPTY`) at the envelope root.
+>
+> The whole overlay is pinned to the service by
+> `src/tests/unit/cathLabReadinessOpenApiSource.test.js`, which drives the real
+> resolver and the real refresh against a stub db and compares key sets — so a
+> key the service adds and the overlay does not declare is a response that
+> violates its own contract, caught in unit tests rather than in the ward.
 
 ```js
 // apps/backend/scripts/openapi/schemas/cathLabReadiness.mjs
@@ -1519,7 +1851,11 @@ export const operations = {
 };
 ```
 
-In `lab.mjs`, find the lab result item schema (`grep -n "performed_by_lab" apps/backend/scripts/openapi/schemas/lab.mjs`) and add `result_origin: { type: 'string', enum: ['analyzer', 'manual_in_house', 'external_lab'], nullable: true }, external_lab_name: nullableString, external_report_ref: nullableString, external_reported_on: { type: 'string', format: 'date', nullable: true }` beside it. Register the module in `generate-openapi.mjs`, then `npm run openapi:generate && npm run openapi:check && npm test -- --testPathPatterns unit/openapi`.
+~~In `lab.mjs`, find the lab result item schema … and add `result_origin` …~~
+**As built: `lab.mjs` was not touched.** That overlay declares no lab-result
+response schema, so there was nothing to extend; the four provenance columns
+reach the wire only through the readiness surfaces, which declare them
+themselves. Register the module in `generate-openapi.mjs`, then `npm run openapi:generate && npm run openapi:check && npm test -- --testPathPatterns unit/openapi`.
 
 - [ ] **Step 4: Commit**
 
@@ -1533,6 +1869,42 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ---
 
 ## Task 5: Staff app — per-check readiness list, labs expansion, actions
+
+**Executed:** `1133f8dec` (the checklist, lab items, critical badge,
+order-missing and outside results), then `692b94a35` (keyed cards, confirmation
+over a gate change, reason required over a critical value, no serology/date
+defaults, server-driven `missing`, inline refresh errors, header signals).
+
+**As built — six differences from the sketch below** (spec §10 as built):
+
+1. **`waiveLabItem` requires an `idempotencyKey`** like the other two writes —
+   the route claims one (scope `cath_lab_readiness_waive`), so a call without
+   the header is a 400.
+2. **No defaults in the outside-result sheet.** The serology dropdown starts
+   **null**, not on a pre-selected value (a pre-selected "Non-reactive" turns an
+   unread form into a filed blood-borne marker), and the date field has **no
+   default of today** (that would date a months-old outside report as today's,
+   which is also what decides whether it is fresh). The date's upper bound is
+   the ward's today.
+3. **Gate-changing statuses are confirmed.** `pending` is the only status that
+   does not move the start gate, so it alone goes straight through. A pass over
+   a critical value additionally **names the critical items** and **requires a
+   reason** — the typed text becomes the override reason on the backend's
+   `CRITICAL_LAB_ACKNOWLEDGED` safety review, and an empty box would file
+   boilerplate. Where automation owns the check the dialog says it may set the
+   status back.
+4. **Keyed cards, `didUpdateWidget` and keep-alive.** The checklist is an
+   `AutomaticKeepAliveClientMixin` state that reloads on `didUpdateWidget`
+   (scheduled after the frame, never a `markNeedsBuild` during build) with a
+   generation counter so a stale response is dropped; every card, action and
+   dialog carries a stable `ValueKey`.
+5. **`missing` comes from the server**, not from a client-side re-derivation of
+   availability — the tenant's `external_results_count` policy and the per-item
+   windows live on the backend.
+6. **The header strip reads the loaded checklist**, never the case-list
+   payload's cleared/total counts: a case can be 8/8 on the check rows and still
+   be sitting on a potassium of 6.9. The case list carries no readiness summary,
+   so the strip appears once the card's checklist has loaded (follow-up).
 
 **Files:**
 - Create: `apps/staff/lib/features/cath_lab/models/cath_readiness_models.dart`, `widgets/cath_readiness_checklist.dart`, `widgets/cath_lab_readiness_panel.dart`, `widgets/cath_external_result_sheet.dart`
@@ -1682,6 +2054,11 @@ List<String> _strings(Object? v) => v is List ? v.map((e) => _text(e)).where((e)
   }
 ```
 
+> **As built:** `waiveLabItem` takes `{required String reason, required String
+> idempotencyKey}` and passes the key through, like the other two writes — the
+> route claims one (scope `cath_lab_readiness_waive`), so the signature above
+> would 400 on every call.
+
 Confirm the `GET /cath-lab/cases/:id` response key (`data.case` or the case object itself) by reading the handler at `cathLabRoutes.js` ≈330-343 and adjust `fetchCaseReadiness` to match.
 
 - [ ] **Step 3: Widgets**
@@ -1690,7 +2067,13 @@ Confirm the `GET /cath-lab/cases/:id` response key (`data.case` or the case obje
 
 `cath_lab_readiness_panel.dart` — `CathLabReadinessPanel(caseId, labs, onChanged, dependencies)`: one row per item (`key: ValueKey('cath-lab-item-<itemCode>')`) with a state chip coloured green (result_final), blue (external_recorded, text "external, unverified"), teal (result_preliminary), amber (awaiting states, label names the stage and `orderedAt`), red (not_ordered), grey (stale, showing the old date), and the value with unit and a red "critical" chip when `isCritical`; then a `Wrap` of actions: `FilledButton` "Order missing labs" (`key: ValueKey('cath-lab-order-missing')`, visible when `labs.orderableNow.isNotEmpty && !labs.caseStarted`), per-item `TextButton` "Enter outside result" (`key: ValueKey('cath-lab-external-<itemCode>')`, visible when `!item.available && !labs.caseStarted`) opening `CathExternalResultSheet`, and per-item "Waive" (`key: ValueKey('cath-lab-waive-<itemCode>')`) opening a reason dialog. Each action calls the dependency, then `onChanged(newLabs)`; idempotency keys come from `IdempotencyAttempt('cath-lab-order-<caseId>')` and `IdempotencyAttempt('cath-lab-external-<caseId>-<item>')`.
 
-`cath_external_result_sheet.dart` — a bottom-sheet `Form` for one item: for `hiv`/`hbsag`/`hcv` a `DropdownButtonFormField` over Reactive / Non-reactive / Indeterminate (`key: ValueKey('cath-external-value-select')`); otherwise a numeric field (`key: ValueKey('cath-external-value')`) and unit prefilled from the item (`g/dL`, `10^3/uL`, `mg/dL`, `mmol/L`); a date field defaulting to today (`key: ValueKey('cath-external-date')`, `showDatePicker`, `lastDate: DateTime.now()`), lab name (`key: ValueKey('cath-external-lab')`, required), report reference and notes; a save button (`key: ValueKey('cath-external-save')`) that pops a `CathExternalResultDraft`. Show a one-line note under the title: `s4.lib.cath_lab.readiness.external_unverified_hint`.
+`cath_external_result_sheet.dart` — a bottom-sheet `Form` for one item: for `hiv`/`hbsag`/`hcv` a `DropdownButtonFormField` over Reactive / Non-reactive / Indeterminate (`key: ValueKey('cath-external-value-select')`); otherwise a numeric field (`key: ValueKey('cath-external-value')`) and unit prefilled from the item (`g/dL`, `10^3/uL`, `mg/dL`, `mmol/L`); a date field (`key: ValueKey('cath-external-date')`, `showDatePicker`, `lastDate:` the ward's today), lab name (`key: ValueKey('cath-external-lab')`, required), report reference and notes; a save button (`key: ValueKey('cath-external-save')`) that pops a `CathExternalResultDraft`. Show a one-line note under the title: `s4.lib.cath_lab.readiness.external_unverified_hint`.
+
+> **As built — neither the serology value nor the date has a default.** The
+> dropdown starts null: a pre-selected "Non-reactive" turns a form nobody read
+> into a filed blood-borne marker. The date starts null too: defaulting it to
+> today would date a months-old outside report as today's, and the report date
+> is exactly what decides whether the value is fresh (spec §7 step 1 as built).
 
 In `cath_lab_screen.dart`, `CathLabScreen` gains `this.readinessDependencies = const CathReadinessDependencies()`, threads it to `_ReadinessCard`, and `_ReadinessCard` renders `CathReadinessChecklist(caseId: cathCase.id, dependencies: readinessDependencies)` between the progress row and `CathQuickWinsPanel`.
 
@@ -1808,6 +2191,28 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ## Task 6: Admin settings editor
 
+**Executed:** `f5d9bd115` (the tab), then `a7bad8ef5` (keep saved values on
+screen after save, enforce the validity range, exact-copy tests, prettier) and
+`86ec7be38` (the same save-revert fix carried back to Plan 2's reprocessing
+**policies**).
+
+**As built — three differences:**
+
+1. **The endpoint is the governance one**,
+   `/api/v1/cath-reprocessing/lab-readiness-settings`, not
+   `/api/v1/admin/cath-consumables/lab-readiness-settings` (Task 4 Step 2).
+   Both functions live in `apps/admin/src/lib/api/cathDevices.ts` beside Plan
+   2's, with the path as a named `const`.
+2. **`setQueryData` before `invalidateQueries`.** Invalidating alone let the
+   form snap back to the pre-save values for the moment before the refetch
+   landed — the operator saw their edit undo itself. The mutation now seeds the
+   cache with the server's response, then invalidates. The **same defect** was
+   found and fixed in Plan 2's reprocessing tab, in both its settings and its
+   policies forms (`a7bad8ef5`, `86ec7be38`).
+3. **1..365 is enforced client-side**, matching `positiveInt(…, 365)` on the
+   server, so `0`, `366`, `-5` and `1.5` are named in the form rather than
+   returned as a 400 from a save the operator has already committed to.
+
 **Files:**
 - Modify: `apps/admin/src/lib/api/cathDevices.ts` (or create `cathLabReadiness.ts` if Plan 2 has not landed)
 - Create: `apps/admin/src/app/(with-auth)/dashboard/quality/cath/components/LabReadinessSettingsTab.tsx`
@@ -1823,9 +2228,13 @@ export function getCathLabReadinessSettings() { return getJSON<{ settings: CathL
 export function updateCathLabReadinessSettings(body: Partial<Omit<CathLabReadinessSettings, "configured">>) { return putJSON<{ settings: CathLabReadinessSettings }>("/api/v1/admin/cath-consumables/lab-readiness-settings", body); }
 ```
 
+> **As built:** the path is `"/api/v1/cath-reprocessing/lab-readiness-settings"`
+> in both functions, held as a named `const` beside Plan 2's
+> `/api/v1/cath-reprocessing/settings` and `/policies` — see Task 4 Step 2.
+
 - [ ] **Step 2: Tab**
 
-A form with: seven checkboxes (`aria-label="Require <item>"`), a number input `aria-label="Lab validity days"` (1–365), two checkboxes `aria-label="Auto-pass labs check"` and `aria-label="External results count"`, and a save button `Save lab readiness settings` wired to `useMutation(updateCathLabReadinessSettings)` with `toast` on success/error and `queryClient.invalidateQueries({ queryKey: ["cath", "lab-readiness"] })`. Copy the layout and class names of `ReprocessingPolicyTab.tsx` (Plan 2) so the two tabs match; explain each switch in one line of muted text: "A critical value never blocks; it shows a warning beside the tick." Add `{ key: "lab-readiness", label: "Lab readiness", icon: FlaskConical }` to `TABS` in `quality/cath/page.tsx` and render the tab.
+A form with: seven checkboxes (`aria-label="Require <item>"`), a number input `aria-label="Lab validity days"` (1–365, enforced with `min`/`max` and a named validation message), two checkboxes `aria-label="Auto-pass labs check"` and `aria-label="External results count"`, and a save button `Save lab readiness settings` wired to `useMutation(updateCathLabReadinessSettings)` with `toast` on success/error and, **on success, `queryClient.setQueryData(LAB_READINESS_QUERY_KEY, data)` before `invalidateQueries({ queryKey: LAB_READINESS_QUERY_KEY })`** — invalidating alone lets the form snap back to the pre-save values until the refetch lands, which reads as the save undoing itself. The write also carries an idempotency key (`useIdempotencyKey("cath-reprocessing-policy")`), the scope the governance mount claims. Copy the layout and class names of `ReprocessingPolicyTab.tsx` (Plan 2) so the two tabs match; explain each switch in one line of muted text: "A critical value never blocks; it shows a warning beside the tick." Add `{ key: "lab-readiness", label: "Lab readiness", icon: FlaskConical }` to `TABS` in `quality/cath/page.tsx` and render the tab.
 
 - [ ] **Step 3: Test**
 
@@ -1864,7 +2273,25 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ## Task 7: Gates and hand-back
 
+**In progress:** `main` merged into the branch at `13e885d98`; gate sweep
+running; PR **#TBD** (draft). Merge authority stays with the coordinating
+session.
+
 Same procedure as Plan 2 Task 8 with branch `feat/cath-lab-readiness`, scratch DB `vh_clr_<initials>`, deep suites `cath-lab-readiness.deep|lab-signoff-safety.deep|lab-panel-critical-path.deep|lab-corrected-signoff-reack.deep|bloodborne-markers.deep`, and a PR body that states: spec path; migration number and the branch check; that the eight `check_type` values are unchanged and automation only alters rows it set; that a critical value never blocks by owner decision; the `lab_results` origin columns and which writers set them; that the public manual route rejects origin fields; the deep suite counts; OpenAPI regeneration; Staff strings pending OPEN-21 review; `Merge Gate` / `Full Merge Gate` by name with the head SHA. End with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`. Draft only; merge authority stays with the coordinating session.
+
+**As built — also state in the PR body**, because each is a decision a reviewer
+would otherwise have to reconstruct from the diff: the settings endpoints on the
+governance mount rather than the admin barrel; `CATH_LAB_READINESS_ORDER_FAILED`
+as a 500 with `details.created`; that `abnormal_flag` for outside values is
+owned by the governed threshold rail, not derived here; the resultable booking
+statuses and `ordered_at = created_at`; read-through refreshes as the system
+actor with write-on-change and a 60 s evidence stamp; and the Staff decisions
+(no serology or date default, gate-changing statuses confirmed). Follow-ups to
+list: the owner decisions in spec §16, the `RESULT_READY` booking hole (§15),
+`critical_warning` staying true for non-audience roles, the pre-existing OBX-11
+X/W/D collapse to `preliminary`, the case list carrying no readiness summary,
+OPEN-21 on the four non-English locales, and splitting
+`cathLabReadinessService.js` into rules / persistence / actions.
 
 ---
 
@@ -1876,8 +2303,8 @@ Same procedure as Plan 2 Task 8 with branch `feat/cath-lab-readiness`, scratch D
 - §7 resolution order (result → open order → stale → not ordered; waiver overrides; specimen state decides; window per item with serology from the reuse settings): Task 2 + Task 3 Step 1.
 - §7 refresh triggers: on read (`getCase`, `GET …/readiness/labs`), on lab events (manual, panel, sign-off, ORU ingest; ASTM and external-recovery rows are picked up on read — stated in Task 3 Step 3(i)–(j)), explicit refresh route: Task 3 Step 5, Task 4 Step 1.
 - §8.1 order-missing with CBC covering two items and idempotent skip: Task 3 Step 2. §8.2 external entry, canonical analyte code, `performed_by_lab` = lab name, marker creation for serology, audit: Task 3 Steps 2–3. §8.3 waive: Task 3 Step 2. §8.4 human pass over critical → safety review: Task 3 Step 5.
-- §9 payload shape: `refreshCaseLabReadiness` return + `CathLabReadiness` schema (Task 4). The `_missing_items` helper key is declared in the schema so the strict contract accepts it; drop it from the payload and the schema together if the reviewer prefers.
-- §10 Staff per-check list (new), labs expansion, actions, critical badge: Task 5. §11 error codes: `CATH_LAB_READINESS_ITEM_UNKNOWN`, `CATH_LAB_READINESS_VALUE_INVALID`, `CATH_LAB_READINESS_ORDER_FAILED` (thrown as an internal AppError carrying the code; the spec's 502 is not a constructor `AppError` offers, so the client keys on the code), `CATH_LAB_READINESS_CASE_STARTED`, and the public route's `LAB_RESULT_ORIGIN_NOT_ALLOWED` plus `LAB_RESULT_EXTERNAL_PROVENANCE_REQUIRED` for the internal escape.
+- §9 payload shape: `refreshCaseLabReadiness` return + `CathLabReadiness` schema (Task 4). ~~The `_missing_items` helper key is declared in the schema…~~ **As built: it is not.** The service emits eleven keys and the schema declares exactly those; the item key is `item_code` (only `missing[]` spells it `item`). The block is projected by role before it leaves either read surface.
+- §10 Staff per-check list (new), labs expansion, actions, critical badge: Task 5. §11 error codes: `CATH_LAB_READINESS_ITEM_UNKNOWN`, `CATH_LAB_READINESS_VALUE_INVALID`, `CATH_LAB_READINESS_ORDER_FAILED` (**500**, thrown as an `AppError` constructed directly so the code *and* `details.created` survive — `AppError.internal(message, code)` silently drops a third argument; the spec's 502 is not a constructor `AppError` offers, so the client keys on the code — owner decision, spec §16), `CATH_LAB_READINESS_CASE_STARTED`, `CATH_LAB_READINESS_ITEMS_EMPTY`, `CATH_LAB_READINESS_REVIEW_FAILED`, `CATH_LAB_BAD_UUID` / `CATH_LAB_BAD_ID`, and the public route's `LAB_RESULT_ORIGIN_NOT_ALLOWED` plus `LAB_RESULT_EXTERNAL_PROVENANCE_REQUIRED` on the internal entry point.
 - §13 tests: unit (Task 2, Task 3 Step 4), deep (Task 3 Step 6) including auto-pass, critical-with-warning, stale flip before/after start, human pass untouched, external entry + marker + policy off, public path forcing, order-missing idempotency, waiver; mutation checks: after Task 3, delete the `autoManaged` guard in `computeCheckDecision` and confirm the human-pass unit test goes red; delete the `!started` guard and confirm the post-start unit test goes red; restore both.
 - §14 rollout defaults: `SETTINGS_DEFAULTS` and the migration defaults agree (all seven, 30 days, auto-pass on, external counts).
 - Type consistency: `resolveItemState({ item, results, orders, specimens, waiver, windowDays, asOf })` is called identically in the unit test and in `refreshCaseLabReadiness`; `computeCheckDecision({ items, settings, check, caseRow })` likewise; Staff `CathExternalResultDraft.toJson()` emits the keys `CathLabReadinessExternalResultRequest` declares.
