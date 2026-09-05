@@ -6197,6 +6197,303 @@
           "BILLING_INSURANCE_REFUND_SETTLEMENT_EVIDENCE_REQUIRED"
         ]
       },
+      "BloodborneMarker": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenant_id",
+          "patient_uid",
+          "marker",
+          "marker_label",
+          "result",
+          "tested_on",
+          "source",
+          "lab_result_id",
+          "evidence",
+          "recorded_by",
+          "recorded_at",
+          "voided_at",
+          "voided_by",
+          "void_reason",
+          "notes"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "patient_uid": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "marker": {
+            "type": "string",
+            "enum": [
+              "hiv",
+              "hbsag",
+              "hcv",
+              "cjd_suspected",
+              "other"
+            ]
+          },
+          "marker_label": {
+            "type": "string",
+            "nullable": true,
+            "description": "Free-text label, set only when marker is 'other'."
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "reactive",
+              "non_reactive",
+              "indeterminate",
+              "pending"
+            ]
+          },
+          "tested_on": {
+            "type": "string",
+            "format": "date"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "lab_result",
+              "external_report",
+              "clinical_declaration"
+            ]
+          },
+          "lab_result_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "recorded_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "recorded_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "voided_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "voided_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "void_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "notes": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "BloodborneMarkerListData": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "markers",
+          "reuse_status"
+        ],
+        "properties": {
+          "markers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BloodborneMarker"
+            }
+          },
+          "reuse_status": {
+            "$ref": "#/components/schemas/BloodborneReuseStatus"
+          }
+        }
+      },
+      "BloodborneMarkerListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/BloodborneMarkerListData"
+          },
+          "requestId": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "BloodborneMarkerVoidData": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "marker"
+        ],
+        "properties": {
+          "marker": {
+            "$ref": "#/components/schemas/BloodborneMarker"
+          }
+        }
+      },
+      "BloodborneMarkerVoidRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      },
+      "BloodborneMarkerVoidResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/BloodborneMarkerVoidData"
+          },
+          "requestId": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "BloodborneReuseMarkerSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "marker",
+          "label",
+          "result",
+          "tested_on",
+          "source",
+          "age_days",
+          "within_window"
+        ],
+        "properties": {
+          "marker": {
+            "type": "string",
+            "enum": [
+              "hiv",
+              "hbsag",
+              "hcv",
+              "cjd_suspected",
+              "other"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "nullable": true
+          },
+          "result": {
+            "type": "string",
+            "enum": [
+              "reactive",
+              "non_reactive",
+              "indeterminate",
+              "pending"
+            ]
+          },
+          "tested_on": {
+            "type": "string",
+            "format": "date"
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "lab_result",
+              "external_report",
+              "clinical_declaration"
+            ]
+          },
+          "age_days": {
+            "type": "integer",
+            "nullable": true
+          },
+          "within_window": {
+            "type": "boolean"
+          }
+        }
+      },
+      "BloodborneReuseStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "reasons",
+          "markers",
+          "validity_days",
+          "evaluated_at"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "restricted",
+              "unknown",
+              "clear"
+            ],
+            "description": "'restricted' whenever any non-voided reactive row exists for any marker, at any age — a reactive result latches and is cleared only by voiding the row. 'clear' requires the latest HIV, HBsAg and HCV rows to all be non-reactive within validity_days. Anything else is 'unknown'."
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "markers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BloodborneReuseMarkerSummary"
+            }
+          },
+          "validity_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365
+          },
+          "evaluated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "BonusPayableReconciliationItem": {
         "type": "object",
         "additionalProperties": true,
@@ -8264,8 +8561,63 @@
               "not_linked",
               "decremented",
               "insufficient_stock",
-              "error"
+              "error",
+              "not_applicable",
+              "reused_device"
             ]
+          },
+          "device_id": {
+            "oneOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "string",
+                "pattern": "^[1-9][0-9]*$",
+                "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+              }
+            ],
+            "nullable": true
+          },
+          "reuse_cycle": {
+            "type": "integer",
+            "nullable": true
+          },
+          "post_use_disposition": {
+            "type": "string",
+            "enum": [
+              "sent_for_reprocessing",
+              "discarded_bloodborne_exposure",
+              "discarded_max_cycles",
+              "discarded_wasted",
+              "discarded_other",
+              "not_reprocessable"
+            ],
+            "nullable": true
+          },
+          "device_tag": {
+            "type": "string",
+            "nullable": true
+          },
+          "device_status": {
+            "type": "string",
+            "enum": [
+              "awaiting_reprocessing",
+              "in_cssd",
+              "available",
+              "in_case",
+              "quarantined",
+              "discarded"
+            ],
+            "nullable": true
+          },
+          "device_exposure_flag": {
+            "type": "boolean"
+          },
+          "allowed_post_use": {
+            "$ref": "#/components/schemas/CathPostUseOptions"
           },
           "inventory_movement_id": {
             "type": "integer",
@@ -8439,6 +8791,24 @@
           "waste_reason": {
             "type": "string"
           },
+          "reused_device_tag": {
+            "type": "string",
+            "pattern": "^[Rr][Pp][0-9]{8,19}$"
+          },
+          "exposure_acknowledgement": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "reason"
+            ],
+            "properties": {
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              }
+            }
+          },
           "metadata": {
             "type": "object",
             "additionalProperties": true
@@ -8450,7 +8820,9 @@
         "additionalProperties": false,
         "required": [
           "usage",
-          "count"
+          "count",
+          "reuse_restriction",
+          "reprocessing"
         ],
         "properties": {
           "usage": {
@@ -8462,6 +8834,39 @@
           "count": {
             "type": "integer",
             "minimum": 0
+          },
+          "reuse_restriction": {
+            "$ref": "#/components/schemas/BloodborneReuseStatus"
+          },
+          "reprocessing": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "settings",
+              "reprocessable_categories"
+            ],
+            "properties": {
+              "settings": {
+                "$ref": "#/components/schemas/CathReprocessingSettings"
+              },
+              "reprocessable_categories": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "stent",
+                    "balloon",
+                    "guidewire",
+                    "catheter",
+                    "sheath",
+                    "closure_device",
+                    "pacemaker",
+                    "lead",
+                    "other"
+                  ]
+                }
+              }
+            }
           }
         }
       },
@@ -8928,6 +9333,7 @@
           "batch_tracked",
           "default_unit_cost_reference",
           "billing_item_code",
+          "reused_billing_item_code",
           "status",
           "retired_at",
           "created_by",
@@ -8998,6 +9404,10 @@
             "nullable": true
           },
           "billing_item_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "reused_billing_item_code": {
             "type": "string",
             "nullable": true
           },
@@ -9198,6 +9608,11 @@
             "nullable": true,
             "maxLength": 50
           },
+          "reused_billing_item_code": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 50
+          },
           "status": {
             "type": "string",
             "enum": [
@@ -9228,6 +9643,8 @@
           "used_at",
           "billing_item_code",
           "inventory_decrement_status",
+          "reuse_cycle",
+          "reused_billing_item_code",
           "billing_gap_reason"
         ],
         "properties": {
@@ -9325,8 +9742,18 @@
               "not_linked",
               "decremented",
               "insufficient_stock",
-              "error"
+              "error",
+              "not_applicable",
+              "reused_device"
             ]
+          },
+          "reuse_cycle": {
+            "type": "integer",
+            "nullable": true
+          },
+          "reused_billing_item_code": {
+            "type": "string",
+            "nullable": true
           },
           "billing_gap_reason": {
             "type": "string",
@@ -9336,7 +9763,8 @@
               "billing_code_not_mapped",
               "billing_code_invalid",
               "billing_disabled",
-              "billing_pending_or_failed"
+              "billing_pending_or_failed",
+              "reused_billing_code_not_mapped"
             ]
           }
         }
@@ -9524,6 +9952,191 @@
           "acceptance_snapshot": {
             "type": "object",
             "additionalProperties": true
+          }
+        }
+      },
+      "CathDeviceHistoryData": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "device",
+          "uses",
+          "events"
+        ],
+        "properties": {
+          "device": {
+            "$ref": "#/components/schemas/CathReprocessableDevice"
+          },
+          "uses": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "usage_id",
+                "case_id",
+                "patient_uid",
+                "used_at",
+                "reuse_cycle",
+                "post_use_disposition",
+                "kind"
+              ],
+              "properties": {
+                "usage_id": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "case_id": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "patient_uid": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "used_at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "reuse_cycle": {
+                  "type": "integer",
+                  "nullable": true
+                },
+                "post_use_disposition": {
+                  "type": "string",
+                  "enum": [
+                    "sent_for_reprocessing",
+                    "discarded_bloodborne_exposure",
+                    "discarded_max_cycles",
+                    "discarded_wasted",
+                    "discarded_other",
+                    "not_reprocessable"
+                  ],
+                  "nullable": true
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "first_use",
+                    "reuse"
+                  ]
+                }
+              }
+            }
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "action",
+                "actor_uid",
+                "metadata",
+                "created_at"
+              ],
+              "properties": {
+                "action": {
+                  "type": "string"
+                },
+                "actor_uid": {
+                  "type": "string",
+                  "format": "uuid",
+                  "nullable": true
+                },
+                "metadata": {
+                  "type": "object",
+                  "additionalProperties": true
+                },
+                "created_at": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          }
+        }
+      },
+      "CathDeviceHistoryResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CathDeviceHistoryData"
+          },
+          "requestId": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "CathDeviceLookupData": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "device",
+          "reprocessable",
+          "cycles_remaining",
+          "exposure_rule",
+          "requires_acknowledgement",
+          "blocked"
+        ],
+        "properties": {
+          "device": {
+            "$ref": "#/components/schemas/CathReprocessableDevice"
+          },
+          "reprocessable": {
+            "type": "boolean"
+          },
+          "cycles_remaining": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "exposure_rule": {
+            "type": "string",
+            "enum": [
+              "discard",
+              "override_allowed"
+            ]
+          },
+          "requires_acknowledgement": {
+            "type": "boolean"
+          },
+          "blocked": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CathDeviceLookupResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CathDeviceLookupData"
+          },
+          "requestId": {
+            "type": "string",
+            "nullable": true
           }
         }
       },
@@ -9810,6 +10423,719 @@
           "requestId": {
             "type": "string",
             "nullable": true
+          }
+        }
+      },
+      "CathPostUseOptions": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "dispositions",
+          "requires_acknowledgement",
+          "exposure",
+          "discard_reason",
+          "blocked_code",
+          "reason_codes",
+          "units_max"
+        ],
+        "properties": {
+          "dispositions": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "reprocess",
+                "discard"
+              ]
+            }
+          },
+          "requires_acknowledgement": {
+            "type": "boolean"
+          },
+          "exposure": {
+            "type": "boolean"
+          },
+          "discard_reason": {
+            "type": "string",
+            "enum": [
+              "max_cycles_reached",
+              "bloodborne_exposure",
+              "late_reactive_marker",
+              "function_check_failed",
+              "sterilization_failed",
+              "damaged",
+              "wasted",
+              "policy_change",
+              "other"
+            ],
+            "nullable": true
+          },
+          "blocked_code": {
+            "type": "string",
+            "nullable": true
+          },
+          "reason_codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "units_max": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "CathPostUseRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "disposition"
+        ],
+        "properties": {
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "reprocess",
+              "discard"
+            ]
+          },
+          "units": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          },
+          "discard_reason": {
+            "type": "string",
+            "enum": [
+              "max_cycles_reached",
+              "bloodborne_exposure",
+              "late_reactive_marker",
+              "function_check_failed",
+              "sterilization_failed",
+              "damaged",
+              "wasted",
+              "policy_change",
+              "other"
+            ]
+          },
+          "discard_note": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "acknowledgement": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "reason"
+            ],
+            "properties": {
+              "reason": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              }
+            }
+          }
+        }
+      },
+      "CathPostUseResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CathPostUseResultData"
+          },
+          "requestId": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "CathPostUseResultData": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "usage_id",
+          "case_id",
+          "disposition",
+          "units",
+          "devices",
+          "restriction_status"
+        ],
+        "properties": {
+          "usage_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "case_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "disposition": {
+            "type": "string",
+            "enum": [
+              "sent_for_reprocessing",
+              "discarded_bloodborne_exposure",
+              "discarded_max_cycles",
+              "discarded_wasted",
+              "discarded_other",
+              "not_reprocessable"
+            ]
+          },
+          "units": {
+            "type": "integer",
+            "nullable": true
+          },
+          "devices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CathReprocessableDevice"
+            }
+          },
+          "restriction_status": {
+            "type": "string",
+            "enum": [
+              "restricted",
+              "unknown",
+              "clear"
+            ]
+          },
+          "idempotent_replay": {
+            "type": "boolean"
+          },
+          "device_already_discarded": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CathReprocessableDevice": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "tenant_id",
+          "facility_id",
+          "catalog_item_id",
+          "device_tag",
+          "origin_usage_id",
+          "origin_unit_index",
+          "cycle_count",
+          "max_cycles_snapshot",
+          "status",
+          "current_usage_id",
+          "exposure_flag",
+          "exposure_markers",
+          "last_reprocessed_at",
+          "last_reprocessed_by",
+          "last_cycle_type",
+          "last_function_check",
+          "quarantine_reason",
+          "quarantined_at",
+          "discard_reason",
+          "discard_note",
+          "discarded_at",
+          "discarded_by",
+          "created_by",
+          "created_at",
+          "updated_at",
+          "metadata",
+          "item_name",
+          "category",
+          "manufacturer",
+          "model"
+        ],
+        "properties": {
+          "id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "facility_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "catalog_item_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "device_tag": {
+            "type": "string",
+            "pattern": "^RP[0-9]{8,19}$"
+          },
+          "origin_usage_id": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "origin_unit_index": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "cycle_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "max_cycles_snapshot": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "awaiting_reprocessing",
+              "in_cssd",
+              "available",
+              "in_case",
+              "quarantined",
+              "discarded"
+            ]
+          },
+          "current_usage_id": {
+            "type": "integer",
+            "nullable": true
+          },
+          "exposure_flag": {
+            "type": "boolean"
+          },
+          "exposure_markers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "last_reprocessed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "last_reprocessed_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "last_cycle_type": {
+            "type": "string",
+            "enum": [
+              "steam",
+              "eto",
+              "plasma",
+              "dry_heat",
+              "chemical",
+              "other"
+            ],
+            "nullable": true
+          },
+          "last_function_check": {
+            "type": "string",
+            "enum": [
+              "not_required",
+              "pass",
+              "fail"
+            ],
+            "nullable": true
+          },
+          "quarantine_reason": {
+            "type": "string",
+            "nullable": true
+          },
+          "quarantined_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "discard_reason": {
+            "type": "string",
+            "enum": [
+              "max_cycles_reached",
+              "bloodborne_exposure",
+              "late_reactive_marker",
+              "function_check_failed",
+              "sterilization_failed",
+              "damaged",
+              "wasted",
+              "policy_change",
+              "other"
+            ],
+            "nullable": true
+          },
+          "discard_note": {
+            "type": "string",
+            "nullable": true
+          },
+          "discarded_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "discarded_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "item_name": {
+            "type": "string"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "stent",
+              "balloon",
+              "guidewire",
+              "catheter",
+              "sheath",
+              "closure_device",
+              "pacemaker",
+              "lead",
+              "other"
+            ]
+          },
+          "manufacturer": {
+            "type": "string",
+            "nullable": true
+          },
+          "model": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "CathReprocessingCategoryPolicy": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tenant_id",
+          "category",
+          "reprocessable",
+          "max_cycles",
+          "allowed_cycle_types",
+          "function_check_required",
+          "updated_by",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "stent",
+              "balloon",
+              "guidewire",
+              "catheter",
+              "sheath",
+              "closure_device",
+              "pacemaker",
+              "lead",
+              "other"
+            ]
+          },
+          "reprocessable": {
+            "type": "boolean"
+          },
+          "max_cycles": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50,
+            "nullable": true
+          },
+          "allowed_cycle_types": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "steam",
+                "eto",
+                "plasma",
+                "dry_heat",
+                "chemical",
+                "other"
+              ]
+            }
+          },
+          "function_check_required": {
+            "type": "boolean"
+          },
+          "updated_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        }
+      },
+      "CathReprocessingPoliciesData": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "policies",
+          "count"
+        ],
+        "properties": {
+          "policies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CathReprocessingCategoryPolicy"
+            }
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "CathReprocessingPoliciesResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CathReprocessingPoliciesData"
+          },
+          "requestId": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "CathReprocessingPoliciesUpdateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "policies"
+        ],
+        "properties": {
+          "policies": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "category",
+                "reprocessable"
+              ],
+              "properties": {
+                "category": {
+                  "type": "string",
+                  "enum": [
+                    "stent",
+                    "balloon",
+                    "guidewire",
+                    "catheter",
+                    "sheath",
+                    "closure_device",
+                    "pacemaker",
+                    "lead",
+                    "other"
+                  ]
+                },
+                "reprocessable": {
+                  "type": "boolean"
+                },
+                "max_cycles": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 50,
+                  "nullable": true
+                },
+                "allowed_cycle_types": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "steam",
+                      "eto",
+                      "plasma",
+                      "dry_heat",
+                      "chemical",
+                      "other"
+                    ]
+                  }
+                },
+                "function_check_required": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        }
+      },
+      "CathReprocessingSettings": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tenant_id",
+          "reactive_patient_rule",
+          "unknown_serology_rule",
+          "serology_validity_days",
+          "reviewed_by",
+          "reviewed_at",
+          "updated_by",
+          "created_at",
+          "updated_at",
+          "configured"
+        ],
+        "properties": {
+          "tenant_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reactive_patient_rule": {
+            "type": "string",
+            "enum": [
+              "discard",
+              "override_allowed"
+            ]
+          },
+          "unknown_serology_rule": {
+            "type": "string",
+            "enum": [
+              "warn",
+              "block_return"
+            ]
+          },
+          "serology_validity_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365
+          },
+          "reviewed_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "reviewed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_by": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "configured": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CathReprocessingSettingsData": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "settings"
+        ],
+        "properties": {
+          "settings": {
+            "$ref": "#/components/schemas/CathReprocessingSettings"
+          }
+        }
+      },
+      "CathReprocessingSettingsResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CathReprocessingSettingsData"
+          },
+          "requestId": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "CathReprocessingSettingsUpdateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "reactive_patient_rule": {
+            "type": "string",
+            "enum": [
+              "discard",
+              "override_allowed"
+            ]
+          },
+          "unknown_serology_rule": {
+            "type": "string",
+            "enum": [
+              "warn",
+              "block_return"
+            ]
+          },
+          "serology_validity_days": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 365
           }
         }
       },
@@ -20099,6 +21425,138 @@
           },
           "hsn_sac": {
             "type": "string"
+          }
+        }
+      },
+      "CssdDeviceDiscardRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "enum": [
+              "max_cycles_reached",
+              "bloodborne_exposure",
+              "late_reactive_marker",
+              "function_check_failed",
+              "sterilization_failed",
+              "damaged",
+              "wasted",
+              "policy_change",
+              "other"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
+      },
+      "CssdDeviceListResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CathReprocessableDevice"
+            }
+          },
+          "requestId": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "CssdDeviceNoteRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      },
+      "CssdDeviceReasonRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "reason"
+        ],
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          }
+        }
+      },
+      "CssdDeviceReprocessedRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "cycle_type"
+        ],
+        "properties": {
+          "cycle_type": {
+            "type": "string",
+            "enum": [
+              "steam",
+              "eto",
+              "plasma",
+              "dry_heat",
+              "chemical",
+              "other"
+            ]
+          },
+          "function_check_result": {
+            "type": "string",
+            "enum": [
+              "not_required",
+              "pass",
+              "fail"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        }
+      },
+      "CssdDeviceResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CathReprocessableDevice"
+          },
+          "requestId": {
+            "type": "string",
+            "nullable": true
           }
         }
       },
@@ -103085,6 +104543,119 @@
         ]
       }
     },
+    "/api/v1/bloodborne-markers/patient/{patientUid}": {
+      "get": {
+        "operationId": "get_api_v1_bloodborne_markers_patient_by_patientUid",
+        "tags": [
+          "clinical"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BloodborneMarkerListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Patient blood-borne marker rows (latest tested_on first) and the reuse-restriction status derived from them. Reactive rows never lapse; non-reactive rows are relied on for validity_days (default 90). Voided rows are excluded from both the list and the resolver unless include_voided=true, which adds them to `markers` only — the resolver always ignores them.",
+        "parameters": [
+          {
+            "name": "patientUid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "validity_days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 365,
+              "default": 90
+            }
+          },
+          {
+            "name": "include_voided",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/bloodborne-markers/patient/{patientUid}/markers/{id}/void": {
+      "post": {
+        "operationId": "post_api_v1_bloodborne_markers_patient_by_patientUid_markers_by_id_void",
+        "tags": [
+          "clinical"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BloodborneMarkerVoidResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Voids one marker row (entered in error). The route is mounted with requireIdempotencyKey({ required: true, scope: bloodborne_marker_void }), so the Idempotency-Key header is not optional — omitting it is a hard 400. A voided row is ignored by the reuse resolver and cannot be voided again (409 BLOODBORNE_MARKER_ALREADY_VOIDED); an id that is not this patient’s live or voided row is 404 BLOODBORNE_MARKER_NOT_FOUND. Voiding a lab-linked row does not retract the lab result: the next sign-off event or reconciliation run for that result re-inserts a row from the result’s current content. To retract durably, correct the lab result. There is deliberately no create route: rows are written by the lab sign-off hook and the cath readiness checklist.",
+        "parameters": [
+          {
+            "name": "patientUid",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BloodborneMarkerVoidRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/burns/charts": {
       "get": {
         "operationId": "get_api_v1_burns_charts",
@@ -104124,6 +105695,88 @@
         }
       }
     },
+    "/api/v1/cath-lab/cases/{id}/consumables/{usageId}/post-use": {
+      "post": {
+        "operationId": "post_api_v1_cath_lab_cases_by_id_consumables_by_usageId_post_use",
+        "tags": [
+          "clinical"
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CathPostUseResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Records what happened to a consumable after the case: reprocess (mints register rows for a first-use row, returns a reused device to CSSD) or discard. The allowed dispositions come from allowed_post_use on the consumables listing; anything outside that set is a 409 carrying the reason codes. Requires Idempotency-Key (scope cath_consumable_post_use) — a replay with the same key returns the recorded result with idempotent_replay true.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*$",
+                  "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+                }
+              ]
+            }
+          },
+          {
+            "name": "usageId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*$",
+                  "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+                }
+              ]
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CathPostUseRequest"
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/cath-lab/cases/{id}/contrast-radiation": {
       "post": {
         "operationId": "post_api_v1_cath_lab_cases_by_id_contrast_radiation",
@@ -104667,6 +106320,99 @@
         ]
       }
     },
+    "/api/v1/cath-lab/devices/lookup": {
+      "get": {
+        "operationId": "get_api_v1_cath_lab_devices_lookup",
+        "tags": [
+          "clinical"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CathDeviceLookupResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Device state for the capture sheet, pinned to the case facility: a device belonging to another facility is reported as not found rather than described. Carries no patient identity, but the device row does carry exposure_flag and exposure_markers — the blood-borne markers a PREVIOUS patient tested reactive for.",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*$",
+                  "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+                }
+              ]
+            }
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^[Rr][Pp][0-9]{8,19}$"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/cath-lab/devices/{deviceId}/history": {
+      "get": {
+        "operationId": "get_api_v1_cath_lab_devices_by_deviceId_history",
+        "tags": [
+          "clinical"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CathDeviceHistoryResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Every use of a device (the patients it touched included) and its register events, for infection-control lookback. Requires a cath-lab WORKFLOW role, not merely report read. PHI with no single patient subject, so the mount logger records patient_id = NULL and the route writes one hipaa_access_log row per distinct patient in the answer instead (capped at 25).",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*$",
+                  "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
     "/api/v1/cath-lab/report-templates": {
       "get": {
         "operationId": "get_api_v1_cath_lab_report_templates",
@@ -104909,6 +106655,174 @@
                 "schema": {
                   "$ref": "#/components/schemas/Success"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cath-reprocessing/devices/{deviceId}/history": {
+      "get": {
+        "operationId": "get_api_v1_cath_reprocessing_devices_by_deviceId_history",
+        "tags": [
+          "clinical"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CathDeviceHistoryResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "The same device history the cath router serves, on the governance mount so infection control can open the device tags named in its own exposure notifications without holding a cath-lab workflow role. Mounted at /api/v1/cath-reprocessing for QUALITY_OFFICER, INFECTION_CONTROL_OFFICER, ADMIN and SUPER_ADMIN. Writes one hipaa_access_log row per distinct patient in the answer.",
+        "parameters": [
+          {
+            "name": "deviceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*$",
+                  "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/cath-reprocessing/policies": {
+      "get": {
+        "operationId": "get_api_v1_cath_reprocessing_policies",
+        "tags": [
+          "clinical"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CathReprocessingPoliciesResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "One policy row per consumable category, defaulted to not reprocessable where the tenant has saved nothing. Mounted at /api/v1/cath-reprocessing for QUALITY_OFFICER, INFECTION_CONTROL_OFFICER, ADMIN and SUPER_ADMIN."
+      },
+      "put": {
+        "operationId": "put_api_v1_cath_reprocessing_policies",
+        "tags": [
+          "clinical"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CathReprocessingPoliciesResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Upserts category reprocessing policies. Implant categories can never be reprocessable, a reprocessable category needs max_cycles and at least one allowed cycle type, and a category may appear at most once. Mounted at /api/v1/cath-reprocessing for QUALITY_OFFICER, INFECTION_CONTROL_OFFICER, ADMIN and SUPER_ADMIN. Requires Idempotency-Key (scope cath_reprocessing_policy).",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CathReprocessingPoliciesUpdateRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cath-reprocessing/settings": {
+      "get": {
+        "operationId": "get_api_v1_cath_reprocessing_settings",
+        "tags": [
+          "clinical"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CathReprocessingSettingsResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Per-tenant device reuse rules. Mounted at /api/v1/cath-reprocessing for QUALITY_OFFICER, INFECTION_CONTROL_OFFICER, ADMIN and SUPER_ADMIN."
+      },
+      "put": {
+        "operationId": "put_api_v1_cath_reprocessing_settings",
+        "tags": [
+          "clinical"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CathReprocessingSettingsResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Saves the per-tenant device reuse rules. Mounted at /api/v1/cath-reprocessing for QUALITY_OFFICER, INFECTION_CONTROL_OFFICER, ADMIN and SUPER_ADMIN. Requires Idempotency-Key (scope cath_reprocessing_policy).",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CathReprocessingSettingsUpdateRequest"
               }
             }
           }
@@ -117917,6 +119831,369 @@
                 "schema": {
                   "$ref": "#/components/schemas/Success"
                 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cssd/devices": {
+      "get": {
+        "operationId": "get_api_v1_cssd_devices",
+        "tags": [
+          "cssd"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CssdDeviceListResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "CSSD reprocessable cath device queue, ordered by the work that is waiting first. Carries no patient data.",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "awaiting_reprocessing",
+                "in_cssd",
+                "available",
+                "in_case",
+                "quarantined",
+                "discarded"
+              ]
+            }
+          },
+          {
+            "name": "facility_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/cssd/devices/{id}/discard": {
+      "post": {
+        "operationId": "post_api_v1_cssd_devices_by_id_discard",
+        "tags": [
+          "cssd"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CssdDeviceResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Permanently discards a device with a reason from the register vocabulary. Requires Idempotency-Key (scope cssd_device_transition).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*$",
+                  "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+                }
+              ]
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CssdDeviceDiscardRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cssd/devices/{id}/quarantine": {
+      "post": {
+        "operationId": "post_api_v1_cssd_devices_by_id_quarantine",
+        "tags": [
+          "cssd"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CssdDeviceResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Quarantines a device pending review. Requires Idempotency-Key (scope cssd_device_transition).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*$",
+                  "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+                }
+              ]
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CssdDeviceReasonRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cssd/devices/{id}/receive": {
+      "post": {
+        "operationId": "post_api_v1_cssd_devices_by_id_receive",
+        "tags": [
+          "cssd"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CssdDeviceResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Receives a device into CSSD (awaiting_reprocessing to in_cssd). Requires Idempotency-Key (scope cssd_device_transition).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*$",
+                  "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+                }
+              ]
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ]
+      }
+    },
+    "/api/v1/cssd/devices/{id}/release": {
+      "post": {
+        "operationId": "post_api_v1_cssd_devices_by_id_release",
+        "tags": [
+          "cssd"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CssdDeviceResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Releases a quarantined device back to the reprocessing queue. Requires Idempotency-Key (scope cssd_device_transition).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*$",
+                  "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+                }
+              ]
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CssdDeviceNoteRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/cssd/devices/{id}/reprocessed": {
+      "post": {
+        "operationId": "post_api_v1_cssd_devices_by_id_reprocessed",
+        "tags": [
+          "cssd"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CssdDeviceResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "Records a completed reprocessing cycle. A failed function check discards the device instead of returning it to available. Requires Idempotency-Key (scope cssd_device_transition).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*$",
+                  "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+                }
+              ]
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "pattern": "^[A-Za-z0-9_\\-:.]+$"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CssdDeviceReprocessedRequest"
               }
             }
           }
@@ -152986,6 +155263,33 @@
         ]
       }
     },
+    "/api/v1/pharmacy-orders/orders/facility-authority": {
+      "get": {
+        "operationId": "get_api_v1_pharmacy_orders_orders_facility_authority",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "description": "Reports whether the authenticated actor currently holds pharmacy facility authority, so a client can decide whether to request facility-scoped data rather than firing a call it cannot be authorized for and rendering the refusal as a failure. ALWAYS answers 200: holding no authority is data, not a refusal, and every authenticated viewer of a pharmacy page may ask it. It resolves the facility through the same path the facility-scoped reads use, with the same actor and requested facility, so its answer predicts those calls rather than approximating them. Authority is NOT a role: ADMIN and SUPER_ADMIN are role-eligible but still require an active facility grant, so this cannot be decided from the session — and it is deliberately not cached there, because a grant revoked mid-session would leave a session-baked answer stale.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
     "/api/v1/pharmacy-orders/orders/my": {
       "get": {
         "operationId": "get_api_v1_pharmacy_orders_orders_my",
@@ -162524,6 +164828,33 @@
           }
         },
         "description": "Lists only the authenticated delivery staff member's unconsumed in-transit or return-pending pharmacy packages under a current active facility grant. Handoff secrets are never returned.",
+        "security": [
+          {
+            "ApiKeyAuth": [],
+            "BearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/pharmacy/orders/facility-authority": {
+      "get": {
+        "operationId": "get_api_v1_pharmacy_orders_facility_authority",
+        "tags": [
+          "pharmacy"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Success"
+                }
+              }
+            }
+          }
+        },
+        "description": "Reports whether the authenticated actor currently holds pharmacy facility authority, so a client can decide whether to request facility-scoped data rather than firing a call it cannot be authorized for and rendering the refusal as a failure. ALWAYS answers 200: holding no authority is data, not a refusal, and every authenticated viewer of a pharmacy page may ask it. It resolves the facility through the same path the facility-scoped reads use, with the same actor and requested facility, so its answer predicts those calls rather than approximating them. Authority is NOT a role: ADMIN and SUPER_ADMIN are role-eligible but still require an active facility grant, so this cannot be decided from the session — and it is deliberately not cached there, because a grant revoked mid-session would leave a session-baked answer stale.",
         "security": [
           {
             "ApiKeyAuth": [],

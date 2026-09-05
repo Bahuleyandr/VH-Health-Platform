@@ -79,6 +79,23 @@ export const CATH_INVENTORY_RECONCILIATION_ROUTE_ROLES = rolesFrom([
   'ADMIN',
   'SUPER_ADMIN',
 ]);
+// /api/v1/cath-reprocessing — device reuse POLICY (per-tenant reprocessing
+// rules and the per-category policy table), plus the device-history lookback
+// infection control opens from its own notifications. This is clinical
+// governance, not billing configuration, so it does not belong on the admin
+// console's cath-consumables barrel where it started life: that barrel is
+// gated for the whole platform-admin audience, and the two officers who
+// actually own device reuse are not on it.
+// ADMIN is included deliberately, not by inheritance: the same console
+// administers the consumable catalogue's billing codes (including
+// reused_billing_item_code, which only means anything once a category is
+// reprocessable) and hosts the policy editor. Revisiting that is one line.
+export const CATH_REPROCESSING_POLICY_ROUTE_ROLES = rolesFrom([
+  'QUALITY_OFFICER',
+  'INFECTION_CONTROL_OFFICER',
+  'SUPER_ADMIN',
+  'ADMIN',
+]);
 export const HOUSEKEEPING_ROUTE_ROLES = getRolesForCapabilityGroups('housekeeping');
 export const NOTIFICATION_AUDIT_ROUTE_ROLES = getRolesForCapabilityGroups('notifications_audit');
 
@@ -472,6 +489,43 @@ export const CSSD_ROUTE_ROLES = mergeRoles(
   THEATRE_ROUTE_ROLES,
   getRolesForCapabilityGroups(['supply_chain', 'notifications_audit']),
   rolesFrom(['STORES_PURCHASE_INCHARGE', 'QUALITY_OFFICER', 'INFECTION_CONTROL_OFFICER']),
+);
+
+// The /devices sub-tree of the CSSD router — the reprocessable cath device
+// register: receive, reprocess, quarantine, release, discard. The CSSD mount
+// audience is much wider than that, because the instrument-set board, loads
+// and issues are also read by the audit/compliance office (notifications_audit
+// brings HR_STAFF, DATA_PROTECTION_OFFICER and COMPLIANCE_OFFICER) and by
+// stores/purchase (supply_chain brings PHARMACY_INCHARGE and
+// STORES_PURCHASE_INCHARGE). None of those hands touch a sterilizer, and a
+// discard is irreversible, so the device sub-tree is narrowed to the roles
+// that physically run or govern reprocessing:
+//   OT_STAFF / OT_NURSE / OT_INCHARGE  sterile-processing is OT nursing here;
+//                                      there is no CSSD_* role in the policy
+//                                      graph, these ARE the CSSD hands.
+//   NURSING_STAFF                      wards return and receive sets.
+//   INFECTION_CONTROL_OFFICER          quarantines on a reactive result.
+//   QUALITY_OFFICER                    owns the reprocessing policy this
+//                                      queue enforces.
+//   ADMIN / SUPER_ADMIN                platform administration.
+// Cath-lab roles stay OUT on purpose: they hand a device to CSSD through the
+// post-use tap on the case and take it back through the case-pinned lookup —
+// they do not run the queue, and a cath role must not be able to mark a device
+// reprocessed without it passing through sterile processing.
+// Written as an intersection with the mount list so the gate can never become
+// dead by naming a role the mount already refuses.
+const CSSD_DEVICE_OPERATOR_ROLES = rolesFrom([
+  'OT_STAFF',
+  'OT_NURSE',
+  'OT_INCHARGE',
+  'NURSING_STAFF',
+  'INFECTION_CONTROL_OFFICER',
+  'QUALITY_OFFICER',
+  'ADMIN',
+  'SUPER_ADMIN',
+]);
+export const CSSD_DEVICE_ROUTE_ROLES = CSSD_ROUTE_ROLES.filter(
+  (role) => CSSD_DEVICE_OPERATOR_ROLES.includes(role),
 );
 
 export const BLOOD_BANK_ROUTE_ROLES = mergeRoles(

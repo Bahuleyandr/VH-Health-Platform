@@ -351,7 +351,11 @@ VALUES (
 
 $script:PatientToken = New-SmokeToken -Uid $PatientUid -UserId $patientId -Phone $PatientPhone
 $script:SosAdminToken = New-SmokeToken -Uid $SosAdminUid -UserId $sosAdminId -Phone $SosAdminPhone -Role "ADMIN"
+. (Join-Path $PSScriptRoot "lib/smoke-results.ps1")
+
 $results = [System.Collections.Generic.List[object]]::new()
+
+try {
 
 Invoke-SmokeRequest $results "dashboard_summary" "GET" "/api/v1/dashboard?phone=$PatientPhone" | Out-Null
 Invoke-SmokeRequest $results "departments_with_doctors" "GET" "/api/v1/departments/departments-with-doctors" | Out-Null
@@ -462,7 +466,7 @@ Invoke-SmokeRequest $results "devices_unregister" "POST" "/api/v1/devices/unregi
   deviceId = $deviceId
 } | Out-Null
 
-$results | Format-Table -AutoSize
+Write-SmokeResults $results
 
 $failed = @($results | Where-Object { -not $_.ok })
 if ($failed.Count -gt 0) {
@@ -471,3 +475,9 @@ if ($failed.Count -gt 0) {
 }
 
 Write-Host "Patient routing smoke passed: $($results.Count) check(s)."
+} finally {
+  # A terminating error above must not discard the checks already recorded.
+  # Write-SmokeResults is idempotent, so the normal path prints where it
+  # always did and this is a no-op after it.
+  Write-SmokeResults $results
+}

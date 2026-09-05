@@ -69,7 +69,7 @@ function routePrisma(sql, ...args) {
   if (sql.includes('FROM users') && sql.includes('REGEXP_REPLACE')) {
     return db.phoneRow ? [db.phoneRow] : [];
   }
-  if (sql.includes('FROM users') && sql.includes('$2::int IS NOT NULL AND id = $2::int')) {
+  if (sql.includes('FROM users') && sql.includes('$2::int IS NULL OR id = $2::int')) {
     return db.patientRow ? [db.patientRow] : [];
   }
   // care_team first: the care-team relationship SQL embeds a FROM admissions
@@ -107,6 +107,7 @@ const pharmacyOrderControllerMock = {
   getMyOrders: handlerMock('getMyOrders'),
   getOrderQueue: handlerMock('getOrderQueue'),
   getPharmacySLADashboard: handlerMock('getPharmacySLADashboard'),
+  getPharmacyFacilityAuthority: handlerMock('getPharmacyFacilityAuthority'),
   assignOrderFacility: handlerMock('assignOrderFacility'),
   resolveOrderLineIdentities: handlerMock('resolveOrderLineIdentities'),
   confirmOrder: handlerMock('confirmOrder'),
@@ -505,7 +506,7 @@ describe('subject-forcing routes', () => {
     expect(orderControllerMock.getOrdersByUID).toHaveBeenCalledTimes(1);
     // The decision validated the SAME uid the handler serves, tenant-scoped.
     const validate = prismaMock.$queryRawUnsafe.mock.calls.find(
-      ([sql]) => sql.includes('$2::int IS NOT NULL AND id = $2::int'),
+      ([sql]) => sql.includes('$2::int IS NULL OR id = $2::int'),
     );
     expect(validate.slice(1)).toEqual([TENANT, null, PATIENT_UID]);
   });

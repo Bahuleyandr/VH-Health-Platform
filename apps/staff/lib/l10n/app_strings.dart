@@ -8054,6 +8054,34 @@ class AppStrings {
       's4.dynamic.cath_lab.consumables.batch': "Batch/lot {batch}",
       's4.dynamic.cath_lab.consumables.expiry': "Expiry {expiry}",
       's4.dynamic.cath_lab.consumables.serial': "Serial {serial}",
+      's4.lib.cath_lab.consumables.mode_new': "New unit",
+      's4.lib.cath_lab.consumables.mode_reused': "Reprocessed device",
+      's4.lib.cath_lab.consumables.device_tag_label': "Device tag",
+      's4.lib.cath_lab.consumables.device_tag_hint': "RP00000042",
+      's4.lib.cath_lab.consumables.device_check': "Check device",
+      's4.lib.cath_lab.consumables.device_not_available':
+          "This device is not available for use",
+      's4.lib.cath_lab.consumables.device_blocked': "This device carries a blood-borne exposure flag and cannot be reused",
+      's4.lib.cath_lab.consumables.acknowledgement_label':
+          "Reason for proceeding",
+      's4.lib.cath_lab.consumables.restriction_restricted':
+          "Devices used in this case will be discarded, not reprocessed",
+      's4.lib.cath_lab.consumables.restriction_unknown':
+          "Serology not on record; reprocessing needs acknowledgement",
+      's4.lib.cath_lab.consumables.post_use_send': "Send to CSSD",
+      's4.lib.cath_lab.consumables.post_use_discard': "Discard",
+      's4.lib.cath_lab.consumables.post_use_units': "Units going to CSSD",
+      's4.lib.cath_lab.consumables.post_use_discard_reason': "Discard reason",
+      's4.lib.cath_lab.consumables.post_use_saved': "Post-use recorded",
+      's4.lib.cath_lab.consumables.reused_badge': "Reprocessed",
+      's4.lib.cath_lab.consumables.exposure_badge': "Exposure",
+      's4.dynamic.cath_lab.consumables.device_cycle': "Cycle {cycle} of {max}",
+      's4.dynamic.cath_lab.consumables.device_tag': "Tag {tag}",
+      's4.lib.cath_lab.consumables.post_use_device_already_discarded':
+          "Device was already discarded by CSSD; disposition recorded",
+      's4.lib.cath_lab.consumables.post_use_note': "Note",
+      's4.lib.cath_lab.consumables.post_use_confirm': "Confirm",
+      's4.dynamic.cath_lab.consumables.more_reasons': "+{count} more",
       'med03.cath_inventory.title': "Cath inventory reconciliation",
       'med03.cath_inventory.access_denied':
           "Your role is not authorized to open this Cath inventory workflow.",
@@ -15496,6 +15524,34 @@ class AppStrings {
       's4.dynamic.cath_lab.consumables.batch': "बैच/लॉट {batch}",
       's4.dynamic.cath_lab.consumables.expiry': "समाप्ति {expiry}",
       's4.dynamic.cath_lab.consumables.serial': "सीरियल {serial}",
+      's4.lib.cath_lab.consumables.mode_new': "नई इकाई",
+      's4.lib.cath_lab.consumables.mode_reused': "पुनःसंसाधित उपकरण",
+      's4.lib.cath_lab.consumables.device_tag_label': "उपकरण टैग",
+      's4.lib.cath_lab.consumables.device_tag_hint': "RP00000042",
+      's4.lib.cath_lab.consumables.device_check': "उपकरण जांचें",
+      's4.lib.cath_lab.consumables.device_not_available':
+          "यह उपकरण उपयोग के लिए उपलब्ध नहीं है",
+      's4.lib.cath_lab.consumables.device_blocked': "इस उपकरण पर रक्तजनित संक्रमण का चिह्न है और इसे पुनः उपयोग नहीं किया जा सकता",
+      's4.lib.cath_lab.consumables.acknowledgement_label': "आगे बढ़ने का कारण",
+      's4.lib.cath_lab.consumables.restriction_restricted':
+          "इस केस में उपयोग किए गए उपकरण नष्ट किए जाएंगे, पुनःसंसाधित नहीं",
+      's4.lib.cath_lab.consumables.restriction_unknown':
+          "सीरोलॉजी दर्ज नहीं है; पुनःसंसाधन के लिए पुष्टि आवश्यक",
+      's4.lib.cath_lab.consumables.post_use_send': "CSSD को भेजें",
+      's4.lib.cath_lab.consumables.post_use_discard': "नष्ट करें",
+      's4.lib.cath_lab.consumables.post_use_units': "CSSD को जाने वाली इकाइयां",
+      's4.lib.cath_lab.consumables.post_use_discard_reason':
+          "नष्ट करने का कारण",
+      's4.lib.cath_lab.consumables.post_use_saved':
+          "उपयोग-पश्चात दर्ज किया गया",
+      's4.lib.cath_lab.consumables.reused_badge': "पुनःसंसाधित",
+      's4.lib.cath_lab.consumables.exposure_badge': "संक्रमण जोखिम",
+      's4.dynamic.cath_lab.consumables.device_cycle': "चक्र {cycle} / {max}",
+      's4.dynamic.cath_lab.consumables.device_tag': "टैग {tag}",
+      's4.lib.cath_lab.consumables.post_use_device_already_discarded': "डिवाइस पहले ही CSSD द्वारा नष्ट किया जा चुका है; निपटान दर्ज किया गया",
+      's4.lib.cath_lab.consumables.post_use_note': "टिप्पणी",
+      's4.lib.cath_lab.consumables.post_use_confirm': "पुष्टि करें",
+      's4.dynamic.cath_lab.consumables.more_reasons': "+{count} और",
       'med03.cath_inventory.title': "कैथ इन्वेंटरी मिलान",
       'med03.cath_inventory.access_denied': "आपकी भूमिका इस कैथ इन्वेंटरी कार्यप्रवाह को खोलने के लिए अधिकृत नहीं है।",
       'med03.cath_inventory.invalid_target':
@@ -24263,6 +24319,36 @@ class AppStrings {
       's4.dynamic.cath_lab.consumables.batch': "தொகுதி/லாட் {batch}",
       's4.dynamic.cath_lab.consumables.expiry': "காலாவதி {expiry}",
       's4.dynamic.cath_lab.consumables.serial': "வரிசை {serial}",
+      's4.lib.cath_lab.consumables.mode_new': "புதிய அலகு",
+      's4.lib.cath_lab.consumables.mode_reused': "மறுசெயலாக்கப்பட்ட சாதனம்",
+      's4.lib.cath_lab.consumables.device_tag_label': "சாதன குறிச்சொல்",
+      's4.lib.cath_lab.consumables.device_tag_hint': "RP00000042",
+      's4.lib.cath_lab.consumables.device_check': "சாதனத்தைச் சரிபார்",
+      's4.lib.cath_lab.consumables.device_not_available':
+          "இந்த சாதனம் பயன்பாட்டிற்கு கிடைக்கவில்லை",
+      's4.lib.cath_lab.consumables.device_blocked': "இந்த சாதனத்தில் இரத்தம் வழி நோய்த்தொற்று குறி உள்ளது; மறுபயன்பாடு இயலாது",
+      's4.lib.cath_lab.consumables.acknowledgement_label':
+          "தொடர்வதற்கான காரணம்",
+      's4.lib.cath_lab.consumables.restriction_restricted': "இந்த வழக்கில் பயன்படுத்தப்படும் சாதனங்கள் அகற்றப்படும்; மறுசெயலாக்கப்படாது",
+      's4.lib.cath_lab.consumables.restriction_unknown':
+          "சீராலஜி பதிவில் இல்லை; மறுசெயலாக்கத்திற்கு ஒப்புதல் தேவை",
+      's4.lib.cath_lab.consumables.post_use_send': "CSSD-க்கு அனுப்பு",
+      's4.lib.cath_lab.consumables.post_use_discard': "அகற்று",
+      's4.lib.cath_lab.consumables.post_use_units':
+          "CSSD-க்கு செல்லும் அலகுகள்",
+      's4.lib.cath_lab.consumables.post_use_discard_reason':
+          "அகற்றுவதற்கான காரணம்",
+      's4.lib.cath_lab.consumables.post_use_saved':
+          "பயன்பாட்டிற்குப் பின் பதிவு செய்யப்பட்டது",
+      's4.lib.cath_lab.consumables.reused_badge': "மறுசெயலாக்கப்பட்டது",
+      's4.lib.cath_lab.consumables.exposure_badge': "தொற்று ஆபத்து",
+      's4.dynamic.cath_lab.consumables.device_cycle': "சுழற்சி {cycle} / {max}",
+      's4.dynamic.cath_lab.consumables.device_tag': "குறிச்சொல் {tag}",
+      's4.lib.cath_lab.consumables.post_use_device_already_discarded':
+          "சாதனம் ஏற்கனவே CSSD ஆல் அகற்றப்பட்டது; அகற்றல் பதிவு செய்யப்பட்டது",
+      's4.lib.cath_lab.consumables.post_use_note': "குறிப்பு",
+      's4.lib.cath_lab.consumables.post_use_confirm': "உறுதிப்படுத்து",
+      's4.dynamic.cath_lab.consumables.more_reasons': "+{count} மேலும்",
       'med03.cath_inventory.title': "காத் இருப்புச் சரிசெய்தல்",
       'med03.cath_inventory.access_denied': "இந்த காத் இருப்பு பணிப்பாய்வைத் திறக்க உங்கள் பங்கிற்கு அனுமதி இல்லை.",
       'med03.cath_inventory.invalid_target':
@@ -33107,6 +33193,35 @@ class AppStrings {
       's4.dynamic.cath_lab.consumables.batch': "బ్యాచ్/లాట్ {batch}",
       's4.dynamic.cath_lab.consumables.expiry': "గడువు {expiry}",
       's4.dynamic.cath_lab.consumables.serial': "సీరియల్ {serial}",
+      's4.lib.cath_lab.consumables.mode_new': "కొత్త యూనిట్",
+      's4.lib.cath_lab.consumables.mode_reused': "పునఃప్రాసెస్ చేసిన పరికరం",
+      's4.lib.cath_lab.consumables.device_tag_label': "పరికర ట్యాగ్",
+      's4.lib.cath_lab.consumables.device_tag_hint': "RP00000042",
+      's4.lib.cath_lab.consumables.device_check': "పరికరాన్ని తనిఖీ చేయండి",
+      's4.lib.cath_lab.consumables.device_not_available':
+          "ఈ పరికరం వినియోగానికి అందుబాటులో లేదు",
+      's4.lib.cath_lab.consumables.device_blocked':
+          "ఈ పరికరంపై రక్తజనిత సంక్రమణ గుర్తు ఉంది; తిరిగి వాడలేము",
+      's4.lib.cath_lab.consumables.acknowledgement_label': "కొనసాగడానికి కారణం",
+      's4.lib.cath_lab.consumables.restriction_restricted':
+          "ఈ కేసులో వాడిన పరికరాలు పారవేయబడతాయి; పునఃప్రాసెస్ చేయబడవు",
+      's4.lib.cath_lab.consumables.restriction_unknown':
+          "సెరాలజీ నమోదులో లేదు; పునఃప్రాసెసింగ్‌కు ధృవీకరణ అవసరం",
+      's4.lib.cath_lab.consumables.post_use_send': "CSSDకి పంపండి",
+      's4.lib.cath_lab.consumables.post_use_discard': "పారవేయండి",
+      's4.lib.cath_lab.consumables.post_use_units': "CSSDకి వెళ్లే యూనిట్లు",
+      's4.lib.cath_lab.consumables.post_use_discard_reason':
+          "పారవేయడానికి కారణం",
+      's4.lib.cath_lab.consumables.post_use_saved': "వినియోగానంతరం నమోదైంది",
+      's4.lib.cath_lab.consumables.reused_badge': "పునఃప్రాసెస్ చేయబడింది",
+      's4.lib.cath_lab.consumables.exposure_badge': "సంక్రమణ ప్రమాదం",
+      's4.dynamic.cath_lab.consumables.device_cycle': "చక్రం {cycle} / {max}",
+      's4.dynamic.cath_lab.consumables.device_tag': "ట్యాగ్ {tag}",
+      's4.lib.cath_lab.consumables.post_use_device_already_discarded':
+          "పరికరాన్ని CSSD ఇప్పటికే పారవేసింది; పారవేత నమోదైంది",
+      's4.lib.cath_lab.consumables.post_use_note': "గమనిక",
+      's4.lib.cath_lab.consumables.post_use_confirm': "నిర్ధారించండి",
+      's4.dynamic.cath_lab.consumables.more_reasons': "+{count} మరిన్ని",
       'med03.cath_inventory.title': "క్యాథ్ నిల్వ సమన్వయం",
       'med03.cath_inventory.access_denied':
           "ఈ క్యాథ్ నిల్వ వర్క్‌ఫ్లోను తెరవడానికి మీ పాత్రకు అనుమతి లేదు.",
@@ -38809,6 +38924,36 @@ class AppStrings {
       's4.dynamic.cath_lab.consumables.batch': 'ബാച്ച്/ലോട്ട് {batch}',
       's4.dynamic.cath_lab.consumables.expiry': 'കാലാവധി {expiry}',
       's4.dynamic.cath_lab.consumables.serial': 'സീരിയൽ {serial}',
+      's4.lib.cath_lab.consumables.mode_new': 'പുതിയ യൂണിറ്റ്',
+      's4.lib.cath_lab.consumables.mode_reused': 'പുനഃസംസ്കരിച്ച ഉപകരണം',
+      's4.lib.cath_lab.consumables.device_tag_label': 'ഉപകരണ ടാഗ്',
+      's4.lib.cath_lab.consumables.device_tag_hint': 'RP00000042',
+      's4.lib.cath_lab.consumables.device_check': 'ഉപകരണം പരിശോധിക്കുക',
+      's4.lib.cath_lab.consumables.device_not_available':
+          'ഈ ഉപകരണം ഉപയോഗത്തിന് ലഭ്യമല്ല',
+      's4.lib.cath_lab.consumables.device_blocked':
+          'ഈ ഉപകരണത്തിൽ രക്തജന്യ അണുബാധ ഫ്ലാഗ് ഉണ്ട്; പുനരുപയോഗം സാധ്യമല്ല',
+      's4.lib.cath_lab.consumables.acknowledgement_label': 'തുടരാനുള്ള കാരണം',
+      's4.lib.cath_lab.consumables.restriction_restricted': 'ഈ കേസിൽ ഉപയോഗിക്കുന്ന ഉപകരണങ്ങൾ നീക്കം ചെയ്യപ്പെടും; പുനഃസംസ്കരിക്കില്ല',
+      's4.lib.cath_lab.consumables.restriction_unknown':
+          'സെറോളജി രേഖയിലില്ല; പുനഃസംസ്കരണത്തിന് സ്ഥിരീകരണം ആവശ്യം',
+      's4.lib.cath_lab.consumables.post_use_send': 'CSSD-ലേക്ക് അയയ്ക്കുക',
+      's4.lib.cath_lab.consumables.post_use_discard': 'നീക്കം ചെയ്യുക',
+      's4.lib.cath_lab.consumables.post_use_units':
+          'CSSD-ലേക്ക് പോകുന്ന യൂണിറ്റുകൾ',
+      's4.lib.cath_lab.consumables.post_use_discard_reason':
+          'നീക്കം ചെയ്യാനുള്ള കാരണം',
+      's4.lib.cath_lab.consumables.post_use_saved':
+          'ഉപയോഗാനന്തരം രേഖപ്പെടുത്തി',
+      's4.lib.cath_lab.consumables.reused_badge': 'പുനഃസംസ്കരിച്ചത്',
+      's4.lib.cath_lab.consumables.exposure_badge': 'അണുബാധ സാധ്യത',
+      's4.dynamic.cath_lab.consumables.device_cycle': 'സൈക്കിൾ {cycle} / {max}',
+      's4.dynamic.cath_lab.consumables.device_tag': 'ടാഗ് {tag}',
+      's4.lib.cath_lab.consumables.post_use_device_already_discarded':
+          'ഉപകരണം CSSD ഇതിനകം നീക്കം ചെയ്തു; തീർപ്പാക്കൽ രേഖപ്പെടുത്തി',
+      's4.lib.cath_lab.consumables.post_use_note': 'കുറിപ്പ്',
+      's4.lib.cath_lab.consumables.post_use_confirm': 'സ്ഥിരീകരിക്കുക',
+      's4.dynamic.cath_lab.consumables.more_reasons': '+{count} കൂടുതൽ',
       'med03.cath_inventory.title': 'കാത്ത് ഇൻവെന്ററി പൊരുത്തപ്പെടുത്തൽ',
       'med03.cath_inventory.access_denied': 'ഈ കാത്ത് ഇൻവെന്ററി പ്രവർത്തനക്രമം തുറക്കാൻ നിങ്ങളുടെ റോളിന് അനുമതിയില്ല.',
       'med03.cath_inventory.invalid_target':

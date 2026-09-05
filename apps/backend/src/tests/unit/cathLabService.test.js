@@ -64,6 +64,25 @@ jest.unstable_mockModule('../../services/clinical/cathQuickWinsService.js', () =
   emitCathProcedureCompletionFollowUps: emitCathFollowUpsMock
 }));
 
+// Device reuse widened cathLabService's import graph again: the reuse service
+// pulls cdsEngine and the outbox, and bloodborneMarkerService pulls setTenant —
+// neither of which this suite's prisma/canonical mocks provide. Both are
+// covered end to end by cath-device-reuse.deep.test.js, so stub the boundary
+// rather than loading their graphs here.
+jest.unstable_mockModule('../../services/clinical/cathDeviceReuseService.js', () => ({
+  captureReusedDeviceTx: jest.fn(),
+  getReprocessingSettings: jest.fn(async () => ({
+    reactive_patient_rule: 'discard', unknown_serology_rule: 'warn', serology_validity_days: 90
+  })),
+  markDeviceInCaseTx: jest.fn(),
+  markDeviceWastedTx: jest.fn()
+}));
+jest.unstable_mockModule('../../services/clinical/bloodborneMarkerService.js', () => ({
+  resolveReuseStatus: jest.fn(async () => ({
+    status: 'unknown', reasons: ['HIV not on record'], markers: [], validity_days: 90
+  }))
+}));
+
 const {
   READINESS_TYPES,
   addContrastRadiationRecord,

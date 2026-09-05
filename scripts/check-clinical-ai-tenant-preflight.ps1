@@ -35,7 +35,18 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+. (Join-Path $PSScriptRoot "lib/smoke-results.ps1")
+
+# One formatter for both call sites below, so the crash path cannot print
+# a differently-shaped table from the normal path.
+$preflightResultFormatter = {
+  param($rows)
+  $rows | Format-Table name, status, detail -AutoSize
+}
+
 $script:Results = [System.Collections.Generic.List[object]]::new()
+
+try {
 
 function Assert-Command {
   param([string]$Name)
@@ -410,9 +421,10 @@ $preflightPayload = [pscustomobject]@{
 Write-JsonArtifact -Path $OutputPath -Payload $preflightPayload
 
 if ($Json) {
+  Write-SmokeResults -Results $script:Results -Quiet
   $preflightPayload | ConvertTo-Json -Depth 8
 } else {
-  $script:Results | Format-Table name, status, detail -AutoSize | Out-String | Write-Host
+  Write-SmokeResults -Results $script:Results -Formatter $preflightResultFormatter
   $summary | Format-List | Out-String | Write-Host
 }
 
@@ -424,4 +436,10 @@ if ($RequireRolloutReady -and $manualPending.Count -gt 0) {
 }
 if ($RequireNoWarnings -and $warnings.Count -gt 0) {
   throw "Clinical AI tenant preflight is not warning-clean: $($warnings.Count) warning(s) found."
+}
+} finally {
+  # A terminating error above must not discard the checks already recorded.
+  # Write-SmokeResults is idempotent, so the normal path prints where it
+  # always did and this is a no-op after it.
+  Write-SmokeResults -Results $script:Results -Formatter $preflightResultFormatter
 }

@@ -1039,6 +1039,25 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     inventory_item_id: async () =>
       (await seedCathInventoryBatch())?.inventory_item_id ?? null
   },
+  // mig 765: the defaults ARE the honest state — no tenant has reviewed the
+  // blood-borne reuse rules yet, so reviewed_by/reviewed_at stay NULL and the
+  // conservative 'discard'/'warn'/90-day defaults stand.
+  cath_reprocessing_settings: {
+    tenant_id: ctx => ctx.tenantId
+  },
+  // mig 765: seed the one policy shape that permits nothing. A reprocessable
+  // policy must also carry max_cycles and at least one sterilisation method
+  // (cath_reprocessing_category_policies_complete_check), and the walker
+  // derives category from the single-column CHECK — landing on 'stent', whose
+  // implant branch forbids reprocessing outright. 'catheter' with
+  // reprocessable = FALSE is a real, inert row.
+  cath_reprocessing_category_policies: {
+    tenant_id: ctx => ctx.tenantId,
+    category: 'catheter',
+    reprocessable: false,
+    max_cycles: null,
+    allowed_cycle_types: []
+  },
   surgical_implants: {
     tenant_id: ctx => ctx.tenantId,
     cath_case_id: null,
@@ -1297,6 +1316,34 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
   birth_notifications: {
     sex: 'female',
     mother_patient_uid: ctx => ctx.patient.uid
+  },
+  // mig 764: a marker row couples three decisions the per-column walker makes
+  // independently. void_check is all-or-nothing and voided_by is a nullable FK,
+  // which the walker fills unconditionally — producing a live row that also
+  // names a voider. lab_link_check ties the discriminator to the lab link
+  // ((source = 'clinical_declaration') = (lab_result_id IS NULL)); that check is
+  // a two-column equality, so checkedValue() reads no trigger in it and derives
+  // 'lab_result' from the single-column source CHECK, while lab_result_id is
+  // resolved from whichever lab_results row is first. And the patient and
+  // recorder are tenant-pinned composites into users ((tenant_id, patient_uid),
+  // (tenant_id, recorded_by)) whose members the walker resolves one column at a
+  // time.
+  //
+  // Seed the one shape that asserts nothing unearned: a live, never-voided
+  // clinical declaration recorded by a real doctor against a real patient of
+  // the seeded tenant, with no lab result behind it. marker and result need no
+  // pin — checkedValue() derives 'hiv' and 'indeterminate' from their
+  // single-column CHECKs, avoiding exactly the 'other' and 'cjd_suspected'
+  // literals that would engage marker_label and the CJD result branch.
+  patient_bloodborne_markers: {
+    tenant_id: ctx => ctx.tenantId,
+    patient_uid: ctx => ctx.patient.uid,
+    recorded_by: ctx => ctx.doctor.uid,
+    source: 'clinical_declaration',
+    lab_result_id: null,
+    voided_at: null,
+    voided_by: null,
+    void_reason: null
   },
   // Optional dependent linkage is real consent evidence, not synthetic seed
   // material. A plain family contact remains a valid coverage row.

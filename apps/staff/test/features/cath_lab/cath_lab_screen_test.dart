@@ -6,6 +6,7 @@ import 'package:vhhealth_core/services/realtime_client.dart';
 import 'package:vhhealth_staff/core/config/staff_role_contract.g.dart';
 import 'package:vhhealth_staff/core/services/stemi_pathway_api_service.dart';
 import 'package:vhhealth_staff/features/cath_lab/screens/cath_lab_screen.dart';
+import 'package:vhhealth_staff/features/cath_lab/models/cath_consumable_models.dart';
 import 'package:vhhealth_staff/features/cath_lab/models/cath_report_models.dart';
 import 'package:vhhealth_staff/features/cath_lab/services/cath_lab_api_service.dart';
 import 'package:vhhealth_staff/features/cath_lab/widgets/cath_case_reports_panel.dart';
@@ -55,6 +56,20 @@ void main() {
     expect(parsed.activePostOrderCount, 2);
     expect(parsed.signedReportCount, 1);
     expect(parsed.reportTatMinutes, 24);
+    // The case LIST carries no reuse decoration: absent must stay null, which
+    // is a different fact from a resolved `unknown` serology status.
+    expect(parsed.reuseRestriction, isNull);
+
+    final decorated = CathLabCaseSummary.fromJson({
+      'id': 42,
+      'reuse_restriction': {
+        'status': 'restricted',
+        'reasons': ['HBsAg reactive 2026-08-12'],
+        'validity_days': 90,
+      },
+    });
+    expect(decorated.reuseRestriction!.isRestricted, isTrue);
+    expect(decorated.reuseRestriction!.reasons, ['HBsAg reactive 2026-08-12']);
   });
 
   test(
@@ -191,6 +206,98 @@ void main() {
     await tester.tap(find.text('Post-orders'));
     await tester.pumpAndSettle();
     expect(find.text('2 active orders'), findsOneWidget);
+  });
+
+  testWidgets('case header carries the blood-borne restriction strip', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CathLabScreen(
+          currentStaffUid: 'staff-1',
+          loadStemiActivations: () async => const [],
+          realtimeEvents: (_) => const Stream<RealtimeEvent>.empty(),
+          loadCases: (_) async => [
+            const CathLabCaseSummary(
+              id: 42,
+              patientUid: '11111111-1111-4111-8111-111111111111',
+              patientName: 'Asha Rao',
+              requestedProcedure: 'Primary PCI',
+              status: 'ready',
+              urgency: 'emergency',
+              labRoom: 'CL-1',
+              plannedStartAt: null,
+              readinessTotal: 8,
+              readinessCleared: 8,
+              procedureCount: 1,
+              doseRecordCount: 1,
+              activePostOrderCount: 2,
+              deviceLinkCount: 1,
+              reuseRestriction: CathReuseRestriction(
+                status: 'restricted',
+                reasons: ['HBsAg reactive 2026-08-12'],
+                validityDays: 90,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('Readiness'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('cath-case-reuse-restriction-42')),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Devices used in this case will be discarded, not reprocessed'),
+      findsOneWidget,
+    );
+    expect(find.text('HBsAg reactive 2026-08-12'), findsOneWidget);
+  });
+
+  testWidgets('a case with no reuse decoration shows no restriction strip', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: CathLabScreen(
+          currentStaffUid: 'staff-1',
+          loadStemiActivations: () async => const [],
+          realtimeEvents: (_) => const Stream<RealtimeEvent>.empty(),
+          loadCases: (_) async => [
+            const CathLabCaseSummary(
+              id: 42,
+              patientUid: '11111111-1111-4111-8111-111111111111',
+              patientName: 'Asha Rao',
+              requestedProcedure: 'Primary PCI',
+              status: 'ready',
+              urgency: 'emergency',
+              labRoom: 'CL-1',
+              plannedStartAt: null,
+              readinessTotal: 8,
+              readinessCleared: 8,
+              procedureCount: 1,
+              doseRecordCount: 1,
+              activePostOrderCount: 2,
+              deviceLinkCount: 1,
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('Readiness'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('cath-case-reuse-restriction-42')),
+      findsNothing,
+    );
   });
 
   testWidgets('cath-lab screen shows an empty state for a selected day', (

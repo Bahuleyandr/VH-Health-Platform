@@ -4413,6 +4413,54 @@ export const cancelOrder = async (req, res) => {
   }
 };
 
+// OPEN-25. An always-200 answer to "may this actor read facility-scoped
+// pharmacy data?", so a page can decide whether to ask rather than firing a
+// call it cannot be authorized for and rendering the 403 as a failure.
+//
+// This deliberately asks the SAME question getPharmacySLADashboard asks, via
+// the same resolvePharmacyFacility call with the same actor and requested
+// facility. A probe that asked a similar-but-different question would be worse
+// than none: the page would gate on an answer that does not predict the call.
+//
+// Authority here is NOT a role. FACILITY_OPERATION_ROLES admits ADMIN and
+// SUPER_ADMIN (pharmacyFacilityAuthorityService.js:53-61), so this cannot be
+// decided client-side from the session; it needs a `staff` row and an active
+// pharmacy_staff_facility_grants row for this actor and facility. It is also
+// deliberately not baked into the session payload, which would go stale the
+// moment a grant is revoked mid-session.
+//
+// Absence of authority is a 200 with has_authority:false, not a 403 — the
+// question "do I have authority" is one every authenticated pharmacy-page
+// viewer may ask, and the answer "no" is data, not a refusal.
+const FACILITY_AUTHORITY_ABSENT_CODES = new Set([
+  'PHARMACY_FACILITY_REQUIRED',
+  'PHARMACY_FACILITY_GRANT_REQUIRED',
+]);
+
+export const getPharmacyFacilityAuthority = async (req, res) => {
+  const tenantId = requireTenantId(req.tenantId);
+  let facility = null;
+  let absentCode = null;
+  try {
+    facility = await resolvePharmacyFacility(prisma, {
+      tenantId,
+      ...pharmacyFacilityActorFromRequest(req),
+      requestedFacilityId: requestedPharmacyFacilityId(req),
+    });
+  } catch (err) {
+    // The catch ONLY classifies; it never answers. Anything that is not one of
+    // the two authority-absent codes is a real fault and is rethrown, so an
+    // outage can never be flattened into "no authority" and rendered as a calm
+    // empty state. (vhhealth/no-success-in-catch enforces exactly this shape.)
+    if (!FACILITY_AUTHORITY_ABSENT_CODES.has(err?.code)) throw err;
+    absentCode = err.code;
+  }
+  return absentCode
+    ? success(res, { has_authority: false, facility_id: null, code: absentCode })
+    // resolvePharmacyFacility returns the facility as `id`, not `facility_id`.
+    : success(res, { has_authority: true, facility_id: facility?.id ?? null, code: null });
+};
+
 export const getPharmacySLADashboard = async (req, res) => {
   try {
     const tenantId = requireTenantId(req.tenantId);

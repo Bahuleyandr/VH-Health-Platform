@@ -2385,6 +2385,19 @@ const OPS = [
     response: 'PharmacyOrderQueueResponse',
     additionalResponses: pharmacyOrderLifecycleErrorResponses,
   }],
+  ['GET /orders/facility-authority', {
+    description:
+      'Reports whether the authenticated actor currently holds pharmacy facility authority, so a '
+      + 'client can decide whether to request facility-scoped data rather than firing a call it '
+      + 'cannot be authorized for and rendering the refusal as a failure. ALWAYS answers 200: '
+      + 'holding no authority is data, not a refusal, and every authenticated viewer of a pharmacy '
+      + 'page may ask it. It resolves the facility through the same path the facility-scoped reads '
+      + 'use, with the same actor and requested facility, so its answer predicts those calls rather '
+      + 'than approximating them. Authority is NOT a role: ADMIN and SUPER_ADMIN are role-eligible '
+      + 'but still require an active facility grant, so this cannot be decided from the session — '
+      + 'and it is deliberately not cached there, because a grant revoked mid-session would leave a '
+      + 'session-baked answer stale.',
+  }],
   ['GET /orders/queue', {
     description: 'Alias for the governed tenant/facility pharmacy order queue.',
     parameters: pharmacyOrderQueueQueryParameters,

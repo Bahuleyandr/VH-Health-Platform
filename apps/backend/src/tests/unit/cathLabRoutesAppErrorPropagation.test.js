@@ -55,6 +55,21 @@ jest.unstable_mockModule('../../services/documents/cathReportPdfService.js', () 
   renderCathReportPdf: jest.fn(),
 }));
 
+// The device-reuse routes (post-use, device lookup, device history) and the
+// consumables listing's reuse decoration live here; stubbed for the same reason
+// as the services above — this suite pins the error envelope, not the register.
+jest.unstable_mockModule('../../services/clinical/cathDeviceReuseService.js', () => ({
+  decorateConsumablesWithReuse: jest.fn(async (usage) => ({
+    usage, reuse_restriction: null, reprocessing: null,
+  })),
+  deviceForCaseLookup: jest.fn(),
+  deviceHistory: jest.fn(),
+  logDeviceHistoryAccess: jest.fn(async () => ({ logged: 0, skipped: 0 })),
+  projectReuseRestrictionForRole: jest.fn((restriction) => restriction),
+  roleSeesSerologyDetail: jest.fn(() => true),
+  recordPostUse: jest.fn(),
+}));
+
 // cathLabRoutes mounts cathSchedulingRoutes; mock its service so the
 // Scheduling 2.0 chain stays out of this suite's module graph.
 jest.unstable_mockModule('../../services/clinical/cathSchedulingRegistryService.js', () => ({
