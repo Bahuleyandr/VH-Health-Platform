@@ -171,11 +171,17 @@ export default function ReprocessingPolicyTab() {
         settingsKey.keyFor(payloadIdentity({ kind: "settings", body })),
       );
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       settingsKey.reset();
       setSettingsError(null);
       setSettingsDirty(false);
       toast.success("Reprocessing settings saved");
+      // Seed the cache with what the PUT returned BEFORE invalidating. Clearing
+      // `settingsDirty` re-arms the reseed effect, and the only thing in the
+      // cache until the invalidate's refetch lands is the pre-save read — so
+      // without this the form snaps back to the OLD settings the moment the
+      // save succeeds, and a second Save writes those back over the new ones.
+      qc.setQueryData(SETTINGS_QUERY_KEY, data);
       void qc.invalidateQueries({ queryKey: SETTINGS_QUERY_KEY });
     },
     onError: (err: unknown) => {
@@ -190,11 +196,17 @@ export default function ReprocessingPolicyTab() {
         body,
         policiesKey.keyFor(payloadIdentity({ kind: "policies", body })),
       ),
-    onSuccess: () => {
+    onSuccess: (data) => {
       policiesKey.reset();
       setPolicyError(null);
       setPoliciesDirty(false);
       toast.success("Category policies saved");
+      // Seed the cache with what the PUT returned BEFORE invalidating. Clearing
+      // `policiesDirty` re-arms the reseed effect, and the only thing in the
+      // cache until the invalidate's refetch lands is the pre-save read — so
+      // without this the grid snaps back to the OLD policies the moment the
+      // save succeeds, and a second Save writes those back over the new ones.
+      qc.setQueryData(POLICIES_QUERY_KEY, data);
       void qc.invalidateQueries({ queryKey: POLICIES_QUERY_KEY });
     },
     onError: (err: unknown) => {
