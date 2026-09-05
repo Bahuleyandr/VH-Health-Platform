@@ -357,6 +357,96 @@ d('Lab pathologist sign-off safety contract', () => {
     })).rejects.toMatchObject({ statusCode: 409 });
   });
 
+  // The corrective predecessor lookup used to demand that a prior sign-off
+  // covered EXACTLY the id set being corrected. Two ordinary pathologist
+  // sequences produced a shape that had never existed, so the correction failed
+  // LAB_SIGNOFF_CORRECTION_PROVENANCE_REQUIRED and no retry could clear it.
+  async function markChanged(id) {
+    await prisma.$executeRawUnsafe(
+      `UPDATE lab_results
+          SET value_text = '9.9', value_numeric = 9.9,
+              updated_at = NOW() + interval '1 second'
+        WHERE id = $1::int AND tenant_id = $2::uuid`,
+      id, TENANT,
+    );
+  }
+
+  function correctiveSignOff(ids, decision = 'corrected') {
+    return signOffResults({
+      tenantId: TENANT,
+      signed_off_by: PATHOLOGIST_UID,
+      signed_off_by_role: 'PATHOLOGIST',
+      actorRoles: ['PATHOLOGIST'],
+      actorRawRole: 'PATHOLOGIST',
+      result_ids: ids,
+      decision,
+    });
+  }
+
+  it('corrects one analyte of a panel that was signed as a single batch', async () => {
+    const episode = await seedEpisode({
+      analytes: [{ testCode: 'S2A-SUB-A' }, { testCode: 'S2A-SUB-B' }],
+    });
+    const [a] = episode.resultIds;
+    await pathologist.post('/api/v1/lab/pathologist/signoff')
+      .set('Idempotency-Key', `${KEY_PREFIX}-subset-initial`)
+      .send({ result_ids: episode.resultIds, decision: 'verified' })
+      .expect(200);
+
+    await markChanged(a);
+    await expect(correctiveSignOff([a])).resolves.toBeDefined();
+
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT status FROM lab_results WHERE id = $1::int`, a,
+    );
+    expect(String(rows[0].status).toLowerCase()).toBe('corrected');
+  });
+
+  it('corrects two analytes together that were signed under separate batches', async () => {
+    const episode = await seedEpisode({
+      analytes: [{ testCode: 'S2A-SEP-A' }, { testCode: 'S2A-SEP-B' }],
+    });
+    const [a, b] = episode.resultIds;
+    await pathologist.post('/api/v1/lab/pathologist/signoff')
+      .set('Idempotency-Key', `${KEY_PREFIX}-sep-a`)
+      .send({ result_ids: [a], decision: 'verified' })
+      .expect(200);
+    await pathologist.post('/api/v1/lab/pathologist/signoff')
+      .set('Idempotency-Key', `${KEY_PREFIX}-sep-b`)
+      .send({ result_ids: [b], decision: 'verified' })
+      .expect(200);
+
+    await markChanged(a);
+    await markChanged(b);
+    // No single stored sign-off covers {a, b}; the baseline is the LATEST
+    // sign-off overlapping them, which is b's.
+    await expect(correctiveSignOff([a, b], 'amended')).resolves.toBeDefined();
+  });
+
+  // The provenance requirement itself must NOT be weakened: overlap changes
+  // which sign-off dates the generation, not whether a change is required.
+  it('still refuses a correction when nothing changed after the predecessor', async () => {
+    const episode = await seedEpisode({ analytes: [{ testCode: 'S2A-NOCHANGE' }] });
+    await pathologist.post('/api/v1/lab/pathologist/signoff')
+      .set('Idempotency-Key', `${KEY_PREFIX}-nochange`)
+      .send({ result_ids: episode.resultIds, decision: 'verified' })
+      .expect(200);
+
+    await expect(correctiveSignOff(episode.resultIds)).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'LAB_SIGNOFF_CORRECTION_PROVENANCE_REQUIRED',
+    });
+  });
+
+  it('still refuses a correction of a result that was never signed', async () => {
+    const episode = await seedEpisode({ analytes: [{ testCode: 'S2A-UNSIGNED' }] });
+    await markChanged(episode.resultIds[0]);
+    await expect(correctiveSignOff(episode.resultIds)).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'LAB_SIGNOFF_CORRECTION_PREDECESSOR_REQUIRED',
+    });
+  });
+
   it('rejects a cross-episode batch before creating a sign-off', async () => {
     const first = await seedEpisode();
     const second = await seedEpisode();
