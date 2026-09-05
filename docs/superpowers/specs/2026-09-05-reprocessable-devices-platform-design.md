@@ -1,0 +1,518 @@
+# Reprocessable devices platform (dialysis and OT) — design
+
+- Date: 2026-09-05
+- Status: owner decisions D1–D9 taken in conversation on 2026-09-05; this document designs within them and awaits written review
+- Base: `github/main` at `b27a730d3` (highest migration 766; 767 confirmed free against `main`, `feat/open21-linguistic-review` and `fix/inf-006-release-authority` at write time)
+- Programme: Plan 4 of the cath device-reuse programme. Plans 1–3 are merged (`764_patient_bloodborne_markers`, `765_cath_device_reuse`, `766_cath_lab_readiness`)
+- Companions: `2026-09-04-cath-device-reuse-and-bloodborne-markers-design.md` (the register shape, the state machine, the serology resolver and the CSSD queue this platform generalises — cited below as "the cath spec"), `2026-09-04-cath-pre-procedure-lab-readiness-design.md` (the role projection and the disclosure canary a new mount must join)
+- Scouting brief with file:line evidence: the read-only pass of 2026-09-05 over `apps/backend/src/migrations/{168,291,418,419,420,421,422,423,473,474,565,765}`, `services/clinical/{dialysisService,dialysisMachineService,cathDeviceReuseService,bloodborneMarkerService,bloodborneMarkerRules,cathLabReadinessProjection}.js`, `services/cssd/cssdService.js`, `routes/{cssd/cssdRoutes,clinical/dialysisRoutes,clinical/cathReprocessingPolicyRoutes}.js`, `lib/prisma.js`, `tests/unit/serologyDisclosureCanary.test.js`
+
+## 1. Problem and scope
+
+The platform holds **four independent reprocessing loops with four incompatible identity models**, built at four different times:
+
+| | cath (Plan 2, mig 765) | dialysis (mig 418) | OT/CSSD (migs 421–423) | linen (migs 473–474) |
+|---|---|---|---|---|
+| identity | system-minted `device_tag` `RP…` | operator-typed `dialyzer_serial` free text | `set_code` + `barcode`, operator-supplied | none (quantity) |
+| grain | one row per physical device | one row **per session** | one row per set + one issue row per OT case | per laundry cycle |
+| state machine | 6 states, `DEVICE_ACTIONS` from-lists | 3 flat statuses | 9 on the set, 7 on the issue | 5 on the cycle |
+| cycle ceiling | `max_cycles_snapshot`, DB CHECK | `reuse_cycle_count` 0..100, typed, no policy | none | none |
+| serology gate | full (`resolveReuseStatus`) | none — parallel `dialysis_patients.*_status` columns, never consulted by the reuse path | none | none |
+| sterilisation evidence | manual CSSD mark, no load link | `integrity_test_result` pass/fail, `disinfectant` free text | `sterilization_loads` with BI/CI/mechanical indicators | none |
+| per-patient dedication | pooled | recorded (`patient_uid`) but never enforced | pooled | pooled |
+
+Plan 4 is **convergence, not extension**: one register, one policy shape, one state machine, one serology gate and one CSSD queue serving dialysis and OT, with the cath register left where it is. Linen stays quantity-based and is out of scope.
+
+The three defects this closes, in order of clinical weight:
+
+1. **Dialysis has no serology gate and two serology records that disagree.** `dialysis_patients.hbsag_status / hcv_status / hiv_status` (168:45-50) drive `isolation_required` and the today board, but a reactive HBsAg signed off in the lab updates `patient_bloodborne_markers` (Plan 1) and *not* those columns. A patient the platform knows is reactive can sit on the board as non-isolation. The dialyser reuse path (`dialysisService.recordReuseRegister`, :928-999) reads neither record.
+2. **The dialyser cycle count is whatever the operator typed.** `reuse_cycle_count` is validated only against `dialysis_sessions.reuse_count`, a number the same client wrote on the previous call (:945-957). Nothing links two register rows carrying the same serial; nothing stops one serial appearing under two patients; there is no maximum, no TCV rule and no agent/contact-time record.
+3. **OT sets carry no cycle count, no exposure flag and no policy**, and a set used on a reactive patient is returned and re-issued like any other. Sterilisation evidence exists (`sterilization_loads`, 422) but cath devices are not on it, and a failed load does not touch a set already issued.
+
+### 1.1 Consumers and non-goals
+
+**Consumers of this lane:** dialysis (dialysers; bloodlines as a second category with no rules beyond cycle count) and OT (instrument sets, trays, procedure packs). Cath keeps `cath_reprocessable_devices` untouched (D1b); §2.6 states the seam a later cath migration would use.
+
+**Non-goals:**
+
+- Moving, renaming or viewing `cath_reprocessable_devices`; re-declaring `cath_inventory_authority_assert_contract_753` or `cath_authority_identity_guard_753` (a rename would force a fourth verbatim re-declaration of a ~400-line plpgsql body that no CI gate validates — the mig-952 lesson).
+- Implant reuse or implant lifecycle (D5). `surgical_implants` gains only the sterilisation-load evidence FK it lacks. The unmerged `audit/cath-implant-lifecycle` branch (which carries a colliding migration 764) is decided separately by the owner (D5b); nothing here depends on it or touches its tables.
+- Billing (D8). Dialysis keeps its flat `DIALYSIS-HD-SESSION` line (mig 420); OT keeps its zero-priced audit line; no reuse-differentiated tariff.
+- A dialyser catalogue. Dialysers are free-text strings in three places today; the register records `manufacturer` and `model_name` as text. A catalogue is a follow-up (§10).
+- `facility_id` on `dialysis_sessions` and `instrument_sets` (neither has one). The register's `facility_id` is nullable for that reason (§2.3); the upstream backfill is its own decision (§10).
+- Linen; `dialysis_machine_qa_logs` (its `machine_no` stays free text; a FK to the new `dialysis_machines` is a follow-up); the `device_registry` (371) and `clinical_ai_biomed_devices` (053) machine tables beyond the one optional FK in §2.7.
+- A patient-facing surface.
+- Editing migrations 168, 291, 418–423, 565, 764, 765 or 766. All schema change is forward-only under **767**.
+
+## 2. Decisions
+
+The owner's decisions are fixed; the reasons recorded here are the scouting brief's, kept so the migration header can state them inline.
+
+- **D1 — Owner references are typed, nullable per-domain FKs plus `CHECK (num_nonnulls(...) = 1)`.** The pattern is already in production on `surgical_implants` (`565:54-58`, `surgical_implants_source_check`). A `(ref_type, ref_id)` string pair cannot be a foreign key; three sibling registers cannot share a queue. Every arm is a tenant-pinned composite FK (§2.4).
+- **D1b — Cath stays in `cath_reprocessable_devices`.** Two registers, one service shape, one queue with a domain filter. The seam for a later cath migration is §2.6.
+- **D2 — The register is patient-blind.** Per-patient dedication of a dialyser lives on the dialysis link row (§2.5), never on `reprocessable_devices`. This is what keeps `/api/v1/cssd` free of a PHI logger and keeps the CSSD queue out of the serology disclosure blast radius.
+- **D2b — Domain is a fixed enum**, `dialysis` and `ot`, with `cath` reserved. Per-domain rules are code, not configuration; a tenant seeding a "Nephrology 2" department must not create a fourth rule set.
+- **D3 — Dialysis machines do not enter the register.** A minimal `dialysis_machines` table (§2.7) carries the isolation class; isolation is **warn-only with a recorded override**, mirroring `set_issue_log.warn_only / enforcement_enabled` (423:27-28), with a per-tenant switch to `block` for units that have tagged their machines.
+- **D5 — OT scope is instrument sets plus the sterilisation-load evidence FK on `surgical_implants`.** Implant reuse is out of scope.
+- **D6 — Dialysis converges: mint device identities for dialysers; `dialyzer_reuse_register` stays as the statutory log and gains `device_id`.** `reuse_cycle_count` becomes derived from the device, which is the defect being closed. Two behaviour changes follow and are flagged in §4.2: a client-typed cycle count that disagrees with the device is refused, and a register row stops being freely re-writable once the device has moved on.
+- **D7 — Sterilisation evidence is load-driven for OT and not for dialysis.** OT sets are already on `sterilization_loads` (`set_ids`, `instrument_sets.last_passed_load_id`, `set_issue_log.sterilization_load_id`); a passed load increments the set's device cycle and a failed load quarantines it. Dialyser reprocessing is a chemical reuse-room process recorded on the statutory row, not an autoclave load.
+- **D8 — Billing unchanged.**
+- **D9 — External identifiers are accepted alongside the minted tag.** `manufacturer_serial` (dialysers) and `hospital_asset_id` (the OT set barcode is copied here) are unique per tenant and domain when present; the minted `device_tag` is always present.
+
+Decisions taken by this spec within those:
+
+- **Two policy tables, not one.** The brief sketched a single `reprocessing_domain_policies (tenant × domain × category)` carrying the serology rule. The serology rule is needed *before a category is known*: the late-reactive exposure handler sweeps a whole domain, and the dialysis isolation warning is evaluated per session, not per device. So the three serology fields live on `reprocessing_domain_settings (tenant × domain)` — the exact shape of `cath_reprocessing_settings` with a domain column — and `reprocessing_domain_policies (tenant × domain × category)` carries reprocessable / max cycles / cycle types / function check / TCV threshold, the exact shape of `cath_reprocessing_category_policies` plus two columns. Plan 2's admin and service code shapes carry over unchanged.
+- **A third `reactive_patient_rule` value, `quarantine`.** Plan 2's `discard` means "the device is retired at post-use". Retiring a ₹2-lakh orthopaedic tray because it touched a reactive patient is not what any theatre does; the realistic action is to hold it for infection control, who either release it into a fresh cycle or discard it. Rather than make `discard` mean two things, the enum gains `quarantine`. Dialysis defaults to `discard` (a dialyser is a consumable), OT defaults to `quarantine`; either domain may choose either. The shared disposition function gains one branch; a parity test pins that, with no `quarantine` rule in play, it answers exactly what cath's `computePostUseOptions` answers for the same inputs.
+- **`max_cycles` is optional.** Instrument sets have no meaningful cycle ceiling (wear is per instrument, which is not modelled); dialysers do. `max_cycles_snapshot` on the register is nullable and the bound CHECK reads `max_cycles_snapshot IS NULL OR cycle_count <= max_cycles_snapshot`. This is the one place the register's CHECKs differ from 765's; it is stated in the migration header.
+- **OT sets get one register row each, linked 1:1 by `instrument_set_id`; `instrument_sets.status` keeps its nine values and the CSSD board keeps reading it.** The register row carries only what the set lacks (cycle count, ceiling, exposure, the six-state reuse status, the last passed load). The two states are kept coherent by three hooks inside `cssdService`'s existing transactions (§5.2) — issue, return, load transition — and a unit test pins that every `set_issue_log` write path in `cssdService.js` calls the hook. Where they can still disagree (a set edited by a path that does not exist yet) the register's row is the reuse truth and the set's row is the board truth; the device read joins both and exposes `set_status` beside `status`.
+- **Dialysis `dialysis_patients.*_status` columns become derived from the marker record; the read during transition is the union of the two records.** Justified in §3.3.
+- **The dialysis reprocessing record is one command.** `POST /sessions/:id/reuse-register` (existing) performs post-use and reprocessing together — the reuse room writes one form, and that is the form the statutory row is. Its body gains TCV, agent and contact time; the cycle count becomes read-only.
+
+### 2.6 The cath seam (not built here)
+
+A later migration converging cath would: widen `reprocessable_devices_domain_check` and `reprocessable_device_usages_domain_check` to admit `cath` (drop and re-add by name — the forward pattern 765 used on 564's constraint); add `cath_catalog_item_id` as a third identity arm on the register and `cath_case_id` / `cath_usage_id` as a third owner pair on the usage table with the CHECKs widened to `num_nonnulls(...) = 1` over three; add `legacy_tag VARCHAR(24)` unique per tenant so a migrated device keeps the `RP…` label already affixed to it (the generated `device_tag` cannot be overridden); copy rows; re-declare `cath_inventory_authority_assert_contract_753`'s `reused_device` branch to read the new table; and leave `cath_reprocessable_devices` as a view. Nothing in 767 forecloses any of that, and nothing in 767 depends on it.
+
+## 3. Serology gate
+
+### 3.1 One resolver
+
+`bloodborneMarkerService.resolveReuseStatus({ tenantId, patientUid, validityDays, asOf, db })` is already domain-free (it is patient-scoped and reads only `patient_bloodborne_markers`). Both new domains call it with the domain's `serology_validity_days` from `reprocessing_domain_settings`. The evidence-freezing rule from the cath spec §7.4 holds: the resolver output is stored as `reuse_screen` at capture and `post_use_screen` at return on `reprocessable_device_usages`, and a later result changes the device through the exposure handler, never the historical rows.
+
+### 3.2 One exposure handler, two domain arms
+
+`reprocessableDeviceService.quarantineDevicesExposedToPatient(event)` registers with `registerExposureHandler` at module load, exactly as `cathDeviceReuseService.js:1262` does. The registry is already domain-neutral; a second handler is a second `Set` member. For a reactive event `{ tenantId, patientUid, marker, testedOn, markerRowId }`:
+
+- **dialysis arm** — every device whose `reprocessable_device_dialysis_links.dedicated_patient_uid` is the patient and whose status is not `discarded` (no window: a dedicated dialyser is that patient's for life, and the exposure is the patient's own history), plus any dialysis device with an open usage on that patient;
+- **OT arm** — every OT device with a usage row for that patient with `captured_at >= tested_on − serology_validity_days` (Asia/Kolkata midnight boundary, the same `AT TIME ZONE` pin as 765), all uses for `cjd_suspected`;
+- each candidate is settled in its **own** transaction (the Plan 2 resilience contract: one lock timeout must not roll back nine quarantines): `available` / `awaiting_reprocessing` / `in_cssd` → `quarantine` with `exposure_flag`, the marker appended and `quarantine_reason = 'Late reactive <marker> result dated <date>'`; `in_case` or already `quarantined` → flag stamped without a transition; `discarded` re-checked under the lock and skipped;
+- then `dialysisReuseService.syncDialysisPatientSerology(tenantId, patientUid)` (§3.3);
+- then one `cds_alerts` row (`alert_type = 'bloodborne_reuse_exposure'`, `severity = 'high'`, description naming the domain and tags) and one `notification_outbox` row per active `INFECTION_CONTROL_OFFICER` (`type = 'bloodborne_reuse_exposure'`, `sourceEventKey = 'bloodborne-reuse-exposure:rpd:<markerRowId>:<officer uid>'`, deep link `/dashboard/cssd?tab=devices&domain=<domain>`), raised for whatever subset settled even when others failed.
+
+There is still no outbox between the marker commit and the handler call; a crash in that window loses the push and the pull-style resolver stays correct (cath spec §18). The reconciliation sweep recommended there now covers three domains and is listed again in §10.
+
+### 3.3 The `dialysis_patients` divergence
+
+The columns `hbsag_status`, `hcv_status`, `hiv_status` and the generated `isolation_required` are real (the baseline dump carries them and their CHECKs; census entries `168_dialysis_unit.sql#dialysis_patients#*` are `enforced: true`) and are read by the `dialysis_today` view, the admin roster and today board, and the enrolment form. They have three writers today: enrolment (defaulting to `'negative'` — a lie for an untested patient), `recordSerology`'s promotion (1134-1146), and nobody else. They latch nothing, have no window, no void path and no lab provenance; the marker record has all four.
+
+**Decision: the columns become derived from the marker record, and the marker record becomes their only writer.**
+
+- `dialysisReuseService.syncDialysisPatientSerology({ tenantId, patientUid })` maps the resolver's latest per core marker to the legacy vocabulary — `reactive → 'positive'`, `non_reactive` within window → `'negative'`, `pending → 'pending'`, anything else or absent → `'unknown'` — with the latch rule intact (a latched reactive row yields `'positive'` whatever came after), and **never downgrades an existing `'positive'`** (a column set before Plan 1 existed, for a patient with no marker row, must not be flipped to `'unknown'` by a sync that knows less than the person who typed it). It is called from the exposure handler, from `recordSerology`, from the marker void path and from the enrolment path; the reconciliation sweep (§10) repeats it for every active roster row.
+- `recordSerology` stops writing the three columns directly and instead records marker rows through `bloodborneMarkerService.recordMarkers` with a new source value **`dialysis_surveillance`** (`patient_bloodborne_markers_source_check` is dropped and re-added by name with the fourth value; `SOURCES` in `bloodborneMarkerRules.js` and the `bloodborneMarkers.mjs` overlay gain it). The polarity map is `positive → reactive`, `negative → non_reactive`, `pending → pending`, anything else → `indeterminate`. Evidence carries `{ origin: 'dialysis_serology', dialysis_serology_id }`. Mis-labelling a surveillance draw as a `clinical_declaration` would have been the cheaper edit and the wrong record.
+- `POST /api/v1/dialysis/patients` rejects `hbsag_status`, `hcv_status`, `hiv_status` in the body with 400 `DIALYSIS_SEROLOGY_FIELDS_NOT_ALLOWED` (the belt-and-braces shape of `rejectLabResultOriginFields`), and the column defaults move to `'unknown'` (`ALTER COLUMN … SET DEFAULT`; migration immutability does not forbid a forward default change). The enrolment path then runs the sync so a patient with markers on file enrols with the truth.
+- A unit test pins the shipping call sites that name the three columns in an `UPDATE` or `INSERT` to `dialysisReuseService.js` alone (the `labExternalResultCallSites` pattern).
+- **The restriction read for dialysis is the union of the two records during transition.** `dialysisReuseService.resolveDialysisRestriction` returns the resolver output, and when the resolver says `clear` or `unknown` while a legacy column still says `'positive'`, it returns `restricted` with reason `'<marker> positive on dialysis enrolment record (pre-marker)'` and `legacy_source: true`. The union collapses to the resolver once the operator has run the backfill script (`scripts/backfill-dialysis-markers.mjs`, §7.6), which writes `clinical_declaration` rows from legacy `'positive'` columns under a named actor — a SQL backfill cannot supply `recorded_by`. Until then, a patient is restricted if *either* record says so; a patient is never made less restricted by this change.
+
+### 3.4 The dialysis isolation WARN rule
+
+Evaluated in `startSession` and `scheduleSession` (both existing) for the session's machine and patient, and re-evaluated by `PATCH /sessions/:id/machine` (new, §6.1). Pure function `computeIsolationWarnings({ restriction, machine, enforcement })`:
+
+| Condition | Code | Severity |
+|---|---|---|
+| restriction `restricted` and no `dialysis_machines` row for `machine_no` | `DIALYSIS_MACHINE_UNREGISTERED` | warn |
+| restriction `restricted`, machine registered, `isolation_class` ∉ {the reactive marker's class, `isolation_mixed`} | `DIALYSIS_ISOLATION_MACHINE_MISMATCH` (payload `required_class`) | warn, or block when `enforcement = 'block'` |
+| restriction `unknown` | `DIALYSIS_SEROLOGY_UNKNOWN` | warn |
+| restriction `clear`, machine registered, `isolation_class <> 'general'` | `DIALYSIS_GENERAL_PATIENT_ON_ISOLATION_MACHINE` | warn |
+
+A clear patient on an unregistered machine produces nothing — otherwise every session on day one warns, and a warning nobody reads is not a warning. Marker → class: `hbsag → hbsag`, `hcv → hcv`, `hiv → hiv`; two reactive markers require `isolation_mixed`. When the code list is non-empty, `startSession` requires `isolation_override_reason` (400 `DIALYSIS_ISOLATION_OVERRIDE_REQUIRED`) and records it with actor and time; under `block`, a `MISMATCH` refuses with 409 `DIALYSIS_ISOLATION_MACHINE_BLOCKED` regardless of reason. The codes, the mode pair and the override are persisted on `dialysis_sessions` (§2.8) and audited as `dialysis.session.isolation_overridden`.
+
+### 3.5 Projection for non-audience roles
+
+`DIALYSIS_ROUTE_ROLES` admits three roles outside `roleSeesSerologyDetail` (`CLINICAL_STAFF_ROUTE_ROLES`): `BLOOD_BANK_TECHNICIAN`, `BLOOD_BANK_STAFF` and **`DIALYSIS_TECHNICIAN`**. `CSSD_ROUTE_ROLES` admits six (`STORES_PURCHASE_INCHARGE`, `HR_STAFF`, `QUALITY_OFFICER`, `INFECTION_CONTROL_OFFICER`, `DATA_PROTECTION_OFFICER`, `COMPLIANCE_OFFICER`). `THEATRE_ROUTE_ROLES` admits none. Every read surface added or changed by this lane projects by role through the **same predicate** (`cathDeviceReuseService.roleSeesSerologyDetail`, deliberately not a second list), keys blanked never dropped:
+
+- `reuse_restriction` on every payload: `projectReuseRestrictionForRole` (existing) — `status`, `validity_days`, `evaluated_at` survive; `reasons` and `markers` empty.
+- `isolation_warnings[]`: `code` survives; `required_class` is blanked. The code `DIALYSIS_ISOLATION_MACHINE_MISMATCH` says "this patient needs an isolation machine", which `isolation_required` already says to every dialysis role today; *which* isolation is withheld.
+- `dialysis_patients` rows on roster, today board and patient detail: `hbsag_status`, `hcv_status`, `hiv_status` → `null`; `isolation_required` survives (the advisory). `dialysis_serology` rows in patient detail: `hbsag`, `hbs_titre`, `anti_hcv`, `hcv_pcr`, `hiv` → `null`, `is_seroconversion` → `false`; `test_date` survives.
+- The CSSD queue carries no patient identity and therefore nothing to project; the canary proves it (§3.6).
+
+**Consequence the owner must see.** The dialysis technician is the person who runs the reuse room and, in most units, the person who puts a patient on a machine. Under this projection the technician sees "isolation required" and "restricted" but not which class of machine the patient needs. Either the technician role joins the serology audience (a one-line, reviewed widening of the pinned 35-role allow-list in the canary) or machine assignment for restricted patients is a nursing act. Flagged with the assignability question in §9.
+
+### 3.6 The canary gains three mounts
+
+`serologyDisclosureCanary.test.js` enumerates exactly three mounts today (`/api/v1/cath-lab`, `/api/v1/stemi-pathway`, `/api/v1/cath-reprocessing`). It gains `/api/v1/dialysis` (`DIALYSIS_ROUTE_ROLES`), `/api/v1/cssd` (`CSSD_ROUTE_ROLES`) and the new `/api/v1/reprocessing` (§6.4). The stubbed persistence layer poisons the dialysis roster row with `hbsag_status = SENTINEL`, a `dialysis_serology` row with `hbsag = SENTINEL`, and the marker rows the resolver reads so every `reuse_restriction` carries a sentinel-bearing reason. The disclosure predicate gains three checks beside the existing ones: any object carrying a non-null `hbsag_status` / `hcv_status` / `hiv_status`; any `reuse_restriction` (or `restriction`) with a non-empty `reasons` or `markers`; any `isolation_warnings[]` entry with a non-null `required_class`. The reachable-set snapshot is regenerated deliberately (`CANARY_WRITE_SNAPSHOT=1`, which rewrites and then fails) and the diff read: every new line is a GROWTH, which is expected for three new mounts and nothing else.
+
+## 4. Data model
+
+All new tables: `tenant_id UUID NOT NULL` with the GUC default used by 765, `REFERENCES tenants(id) ON DELETE CASCADE`, `ENABLE` and `FORCE ROW LEVEL SECURITY`, the `tenant_isolation` policy verbatim from 765, a role-guarded GRANT block (SELECT, INSERT, UPDATE; DELETE and TRUNCATE revoked; sequence USAGE and SELECT only), registration in `src/lib/prisma.js`'s `runtime_mutable_no_delete_relations` and `runtime_nextval_sequences`, `prismaCoverage.test.js` pins, and `TABLE_COLUMN_SEED_OVERRIDES` entries. Every CHECK is named. Every FK into an existing table is a tenant-pinned composite; composite `SET NULL` actions carry the column list. Only the two patient-keyed FKs are `DEFERRABLE INITIALLY DEFERRED` (the patient-merge sweep re-points `patient_uid` under `SET CONSTRAINTS ALL DEFERRED`). No relation fields are added to `schema.prisma` for the new FKs (`check:prisma-relations` budget); the mirror carries scalars, uniques and indexes only.
+
+None of the five new tables is baseline-owned. Of the tables 767 alters, `dialysis_patients`, `dialysis_sessions`, `ot_schedules`, `surgical_implants` and `clinical_ai_biomed_devices` **are** baseline-owned: every change to them is `ALTER TABLE … ADD COLUMN` / `ADD CONSTRAINT` / `CREATE UNIQUE INDEX`, never an inline re-declaration, so the census manifest and its `expectedAbsentCount` (411) do not change. `dialyzer_reuse_register`, `instrument_sets`, `sterilization_loads` and `set_issue_log` are not baseline-owned and are altered the same way.
+
+### 4.1 `reprocessing_domain_settings` (tenant × domain)
+
+| Column | Type | Notes |
+|---|---|---|
+| tenant_id | UUID NOT NULL | GUC default; FK `tenants(id)` |
+| domain | VARCHAR(16) NOT NULL | CHECK `reprocessing_domain_settings_domain_check`: `dialysis`, `ot` (`cath` reserved — widened by the cath migration, never by a tenant) |
+| reactive_patient_rule | VARCHAR(24) NOT NULL | CHECK `reprocessing_domain_settings_reactive_rule_check`: `discard`, `quarantine`, `override_allowed`. **No column default**: the honest default differs per domain (dialysis `discard`, OT `quarantine`) and is supplied by the service's read path when no row exists, so "no row" and "row with defaults" cannot disagree |
+| unknown_serology_rule | VARCHAR(24) NOT NULL DEFAULT 'warn' | CHECK `…_unknown_rule_check`: `warn`, `block_return` |
+| serology_validity_days | INTEGER NOT NULL DEFAULT 90 | CHECK `…_validity_check`: 1..365 |
+| isolation_enforcement | VARCHAR(8) NOT NULL DEFAULT 'warn' | CHECK `…_isolation_enforcement_check`: `warn`, `block`; CHECK `…_isolation_domain_check`: `domain = 'dialysis' OR isolation_enforcement = 'warn'` |
+| reviewed_by, reviewed_at, updated_by, created_at, updated_at | | |
+
+PK `(tenant_id, domain)`. Read path with no row: `{ dialysis: { discard, warn, 90, warn }, ot: { quarantine, warn, 90, warn } }`, `configured: false`.
+
+### 4.2 `reprocessing_domain_policies` (tenant × domain × category)
+
+| Column | Type | Notes |
+|---|---|---|
+| tenant_id, domain | | as above; CHECK `reprocessing_domain_policies_domain_check` |
+| category | VARCHAR(40) NOT NULL | CHECK `…_category_check`: `(domain = 'dialysis' AND category IN ('dialyser', 'bloodline', 'other')) OR (domain = 'ot' AND category IN ('instrument_set', 'tray', 'implant_set', 'procedure_pack', 'other'))` — the OT values are `instrument_sets_type_check`'s vocabulary (421:34-35) so an OT device's category is its set's `set_type` |
+| reprocessable | BOOLEAN NOT NULL DEFAULT false | |
+| max_cycles | INTEGER | CHECK `…_max_cycles_check`: 1..100 (418's ceiling); NULL = no ceiling |
+| allowed_cycle_types | TEXT[] NOT NULL DEFAULT '{}' | CHECK `…_cycle_types_check`: `<@ ARRAY['steam','eto','plasma','dry_heat','chemical','other']`; CHECK `…_dialysis_cycle_type_check`: `domain <> 'dialysis' OR allowed_cycle_types <@ ARRAY['chemical','other']` (a dialyser is never autoclaved) |
+| function_check_required | BOOLEAN NOT NULL DEFAULT false | CHECK `…_ot_function_check_check`: `domain <> 'ot' OR function_check_required = false` — OT's function check is the load release; no per-set check exists in the load flow |
+| tcv_min_pct | INTEGER | CHECK `…_tcv_check`: NULL, or `domain = 'dialysis' AND tcv_min_pct BETWEEN 50 AND 100`; the discard rule "TCV below N % of baseline" (§5.1); default written by the service for the `dialyser` category is 80 |
+| updated_by, created_at, updated_at | | |
+
+PK `(tenant_id, domain, category)`. CHECK `…_complete_check`: `reprocessable = false OR cardinality(allowed_cycle_types) >= 1` (max cycles optional — the one deliberate departure from 765's completeness rule). Dark by default: with no rows nothing is minted, the OT hooks are inert, and the dialysis reuse-register path behaves exactly as today.
+
+### 4.3 `reprocessable_devices` (the register)
+
+One row per physical device. **No patient identity.**
+
+| Column | Type | Notes |
+|---|---|---|
+| id | BIGSERIAL PK | |
+| tenant_id | UUID NOT NULL | GUC default; FK `tenants(id)` |
+| domain | VARCHAR(16) NOT NULL | CHECK `reprocessable_devices_domain_check`: `dialysis`, `ot` |
+| category | VARCHAR(40) NOT NULL | CHECK `…_category_check`: same pairs as §4.2 |
+| facility_id | INTEGER | composite FK `(tenant_id, facility_id) → facilities (tenant_id, id)`; **nullable** because neither `dialysis_sessions` nor `instrument_sets` carries a facility today (§1.1) |
+| device_tag | VARCHAR(24) GENERATED ALWAYS AS (`'RD' \|\| lpad(id::text, GREATEST(8, length(id::text)), '0')`) STORED | prefix `RD`, distinct from cath's `RP`, so a tag can never resolve against the wrong register; `DEVICE_TAG_PATTERN = /^RD[0-9]{8,19}$/` |
+| manufacturer_serial | VARCHAR(120) | D9; unique partial `(tenant_id, domain, manufacturer_serial) WHERE NOT NULL`; **required for dialysis** |
+| hospital_asset_id | VARCHAR(120) | D9; unique partial `(tenant_id, domain, hospital_asset_id) WHERE NOT NULL`; for OT the set's `barcode` is copied here at enrolment |
+| manufacturer, model_name | VARCHAR(120) | free text (no catalogue, §1.1) |
+| instrument_set_id | BIGINT | composite FK `(tenant_id, instrument_set_id) → instrument_sets (tenant_id, id) ON DELETE RESTRICT`; unique partial `(tenant_id, instrument_set_id) WHERE NOT NULL` |
+| enrolled_via | VARCHAR(24) NOT NULL | CHECK `…_enrolled_via_check`: `session_capture`, `set_issue`, `console` |
+| cycle_count | INTEGER NOT NULL DEFAULT 0 | CHECK `…_cycle_check`: ≥ 0 |
+| max_cycles_snapshot | INTEGER | CHECK `…_max_cycles_check`: NULL or ≥ 1; CHECK `…_cycle_bound_check`: `max_cycles_snapshot IS NULL OR cycle_count <= max_cycles_snapshot` |
+| status | VARCHAR(32) NOT NULL DEFAULT 'available' | CHECK `…_status_check`: `awaiting_reprocessing`, `in_cssd`, `available`, `in_case`, `quarantined`, `discarded` (765's six). Default `available`, not 765's `awaiting_reprocessing`: a dialyser is minted at first capture (new, sterile from the manufacturer) and a set at issue (already sterile from a passed load) |
+| current_usage_id | BIGINT | composite FK `(tenant_id, current_usage_id) → reprocessable_device_usages (tenant_id, id) ON DELETE SET NULL (current_usage_id)`, added after §4.4 exists; CHECK `…_in_case_check`: `(status = 'in_case') = (current_usage_id IS NOT NULL)` |
+| exposure_flag, exposure_markers | BOOLEAN NOT NULL DEFAULT false; TEXT[] NOT NULL DEFAULT '{}' | CHECK `…_exposure_check`: `exposure_flag OR cardinality(exposure_markers) = 0` |
+| last_reprocessed_at, last_reprocessed_by | | |
+| last_cycle_type | VARCHAR(20) | CHECK `…_cycle_type_check`: the six |
+| last_function_check | VARCHAR(16) | CHECK `…_function_check_check`: `not_required`, `pass`, `fail` |
+| last_sterilization_load_id | BIGINT | composite FK `(tenant_id, last_sterilization_load_id) → sterilization_loads (tenant_id, id) ON DELETE SET NULL (last_sterilization_load_id)`; CHECK `…_load_domain_check`: `domain = 'ot' OR last_sterilization_load_id IS NULL` (D7) |
+| quarantine_reason, quarantined_at | | cleared on `release` and `reprocessed`, as 765 does as built |
+| discard_reason | VARCHAR(40) | CHECK `…_discard_reason_check`: 765's nine plus `tcv_below_threshold`, `integrity_test_failed`, `set_retired`; CHECK `…_discarded_check`: `status <> 'discarded' OR (discard_reason IS NOT NULL AND discarded_at IS NOT NULL)` |
+| discard_note, discarded_at, discarded_by, created_by (NOT NULL), created_at, updated_at, metadata | | |
+
+CHECK `…_identity_check`: `((domain = 'ot') = (instrument_set_id IS NOT NULL)) AND (domain <> 'dialysis' OR manufacturer_serial IS NOT NULL)`. Uniques: `(tenant_id, device_tag)`; `(tenant_id, id)`; `(tenant_id, id, domain)` — the target that lets child rows pin the domain by FK rather than by trigger. Indexes: `(tenant_id, domain, status)`, `(tenant_id, facility_id, status) WHERE facility_id IS NOT NULL`.
+
+Transitions are 765's table verbatim (`DEVICE_ACTIONS`: receive, reprocessed, quarantine, release, discard, capture, return, with the same `from` lists). The dialysis reprocessing command applies `return` then `reprocessed` in one transaction (§5.1); every other path is one action per command.
+
+### 4.4 `reprocessable_device_usages` (patient linkage; owner pair per D1)
+
+One row per device per case.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | BIGSERIAL PK | |
+| tenant_id | UUID NOT NULL | GUC default |
+| domain | VARCHAR(16) NOT NULL | CHECK `reprocessable_device_usages_domain_check`: `dialysis`, `ot` |
+| device_id | BIGINT NOT NULL | composite FK `(tenant_id, device_id, domain) → reprocessable_devices (tenant_id, id, domain) ON DELETE RESTRICT` — three columns, so a usage row's domain can never disagree with its device's |
+| patient_uid | UUID NOT NULL | composite FK `(tenant_id, patient_uid) → users (tenant_id, uid) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED` |
+| dialysis_session_id | INTEGER | composite FK `(tenant_id, dialysis_session_id) → dialysis_sessions (tenant_id, id) ON DELETE RESTRICT` |
+| ot_schedule_id | INTEGER | composite FK `(tenant_id, ot_schedule_id) → ot_schedules (tenant_id, id) ON DELETE RESTRICT` |
+| set_issue_log_id | BIGINT | composite FK `(tenant_id, set_issue_log_id) → set_issue_log (tenant_id, id) ON DELETE SET NULL (set_issue_log_id)` |
+| sterilization_load_id | BIGINT | composite FK `(tenant_id, sterilization_load_id) → sterilization_loads (tenant_id, id) ON DELETE SET NULL (sterilization_load_id)` — the load that reprocessed the set **after** this use (D7 evidence) |
+| reuse_cycle | INTEGER NOT NULL | CHECK `…_reuse_cycle_check`: ≥ 0 — the device's `cycle_count` at capture; 0 is a first use (unlike 765, first use is a captured event here) |
+| captured_at, captured_by | TIMESTAMPTZ NOT NULL DEFAULT now(); UUID NOT NULL | `captured_by` composite FK to `users (tenant_id, uid)` |
+| capture_source | VARCHAR(24) NOT NULL | CHECK `…_capture_source_check`: `staff_app`, `admin_console`, `cssd_issue`, `system` |
+| reuse_screen, post_use_screen | JSONB | frozen resolver output |
+| post_use_disposition | VARCHAR(40) | CHECK `…_post_use_check`: `sent_for_reprocessing`, `quarantined_bloodborne_exposure`, `discarded_bloodborne_exposure`, `discarded_max_cycles`, `discarded_integrity_failed`, `discarded_tcv_below_threshold`, `discarded_other` |
+| returned_at, returned_by | | CHECK `…_returned_check`: `(post_use_disposition IS NULL) = (returned_at IS NULL)` |
+| acknowledgement_reason | TEXT | the override text, also written to `medication_safety_reviews` (§5.4) |
+| metadata, created_at, updated_at | | |
+
+CHECK `…_owner_check`: `num_nonnulls(dialysis_session_id, ot_schedule_id) = 1` (D1). CHECK `…_owner_domain_check`: `((domain = 'dialysis') = (dialysis_session_id IS NOT NULL)) AND ((domain = 'ot') = (ot_schedule_id IS NOT NULL))`. CHECK `…_ot_links_check`: `domain = 'ot' OR (set_issue_log_id IS NULL AND sterilization_load_id IS NULL)`.
+
+Uniques: `(tenant_id, id)`; `(tenant_id, device_id, reuse_cycle)` — each cycle is used at most once, the constraint 765 as built could not express; partial `(tenant_id, device_id) WHERE returned_at IS NULL` — at most one open usage per device; partial `(tenant_id, dialysis_session_id) WHERE dialysis_session_id IS NOT NULL` — one dialyser per session; partial `(tenant_id, set_issue_log_id) WHERE set_issue_log_id IS NOT NULL`. Indexes: `(tenant_id, patient_uid, captured_at DESC)`, `(tenant_id, ot_schedule_id) WHERE NOT NULL`.
+
+### 4.5 `reprocessable_device_dialysis_links` (per-patient dedication; D2)
+
+One row per dialysis-domain device, created at first capture.
+
+| Column | Type | Notes |
+|---|---|---|
+| device_id | BIGINT PK | |
+| tenant_id | UUID NOT NULL | GUC default |
+| domain | VARCHAR(16) NOT NULL DEFAULT 'dialysis' | CHECK `…_domain_check`: `domain = 'dialysis'`; composite FK `(tenant_id, device_id, domain) → reprocessable_devices (tenant_id, id, domain) ON DELETE CASCADE` — an OT device can never acquire a link row |
+| dedicated_patient_uid | UUID NOT NULL | composite FK `(tenant_id, dedicated_patient_uid) → users (tenant_id, uid) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED` |
+| dedicated_at, dedicated_by | TIMESTAMPTZ NOT NULL DEFAULT now(); UUID NOT NULL | |
+| baseline_tcv_ml | NUMERIC(6,1) | CHECK `…_baseline_tcv_check`: NULL or > 0; measured on the new dialyser before first use |
+| baseline_tcv_measured_at | TIMESTAMPTZ | |
+| created_at, updated_at | | |
+
+Index `(tenant_id, dedicated_patient_uid)`. The CSSD queue never joins this table.
+
+**Where TCV lives.** No TCV, priming-volume or fibre-bundle-volume field exists anywhere in the repository today. Baseline TCV is a device-level fact and lives here; each reprocessing's measured TCV is a per-event fact and lives on the statutory row (§4.8), with `tcv_pct_of_baseline` computed by the service at write time (a generated column cannot read another table). Priming volume is not stored: no clinical rule in this lane hangs on it (§10).
+
+### 4.6 `dialysis_machines` (minimal; D3)
+
+| Column | Type | Notes |
+|---|---|---|
+| id | SERIAL PK | |
+| tenant_id | UUID NOT NULL | GUC default; FK `tenants(id)` |
+| facility_id | INTEGER | composite FK to `facilities (tenant_id, id)` |
+| machine_no | VARCHAR(40) NOT NULL | the value `dialysis_sessions.machine_no` carries; UNIQUE `(tenant_id, machine_no)` |
+| display_name | VARCHAR(120) | |
+| biomed_device_id | INTEGER | composite FK `(tenant_id, biomed_device_id) → clinical_ai_biomed_devices (tenant_id, id) ON DELETE SET NULL (biomed_device_id)` — asset identity stays in 053 |
+| isolation_class | VARCHAR(24) NOT NULL DEFAULT 'general' | CHECK `dialysis_machines_isolation_class_check`: `general`, `hbsag`, `hcv`, `hiv`, `isolation_mixed` |
+| status | VARCHAR(20) NOT NULL DEFAULT 'active' | CHECK `…_status_check`: `active`, `out_of_service`, `retired` |
+| notes, created_by, updated_by, created_at, updated_at | | |
+
+Index `(tenant_id, isolation_class, status)`. No cycle count, no queue, no discard: a machine is not a device.
+
+### 4.7 Changes to `dialysis_sessions` and `dialysis_patients` (baseline-owned; ALTER only)
+
+`dialysis_sessions` gains `isolation_warning_codes TEXT[] NOT NULL DEFAULT '{}'`, `isolation_warn_only BOOLEAN NOT NULL DEFAULT true`, `isolation_enforcement_enabled BOOLEAN NOT NULL DEFAULT false`, `isolation_override_reason TEXT`, `isolation_override_by UUID`, `isolation_override_at TIMESTAMPTZ(6)`, `isolation_evaluated_at TIMESTAMPTZ(6)`; CHECK `dialysis_sessions_isolation_override_check`: `num_nonnulls(isolation_override_reason, isolation_override_by, isolation_override_at) IN (0, 3)`. The mode pair mirrors 423's names so a reader of one recognises the other. `machine_no`, `dialyser` and `reuse_count` are unchanged; the last two become derived at capture (§5.1).
+
+`dialysis_patients`: `ALTER COLUMN hbsag_status SET DEFAULT 'unknown'`, likewise `hcv_status`, `hiv_status` (§3.3). No column is added or removed; `isolation_required` keeps its generated expression.
+
+Backing uniques for the composite FKs above: `ux_dialysis_sessions_tenant_id (tenant_id, id)`, `ux_ot_schedules_tenant_id`, `ux_instrument_sets_tenant_id`, `ux_sterilization_loads_tenant_id`, `ux_set_issue_log_tenant_id`, `ux_clinical_ai_biomed_devices_tenant_id`. Each is a non-concurrent unique index build inside the migration transaction — the same deploy note 765/766 carry for `lab_results`; `ot_schedules` is the largest of these.
+
+### 4.8 Changes to `dialyzer_reuse_register` (mig 418; D6)
+
+Added columns: `device_id BIGINT`, `device_usage_id BIGINT`, `measured_tcv_ml NUMERIC(6,1)`, `tcv_pct_of_baseline NUMERIC(5,1)`, `reprocessing_agent VARCHAR(24)`, `disinfectant_contact_minutes INTEGER`, `disinfectant_concentration_pct NUMERIC(5,2)`. Constraints (all `ALTER TABLE … ADD CONSTRAINT`, named): `fk_dialyzer_reuse_register_device` `(tenant_id, device_id) → reprocessable_devices (tenant_id, id) ON DELETE SET NULL (device_id)`; `fk_dialyzer_reuse_register_device_usage` `(tenant_id, device_usage_id) → reprocessable_device_usages (tenant_id, id) ON DELETE SET NULL (device_usage_id)`; `chk_dialyzer_reuse_device_pair`: `(device_id IS NULL) = (device_usage_id IS NULL)`; `chk_dialyzer_reuse_agent`: NULL or `peracetic_acid`, `formaldehyde`, `glutaraldehyde`, `renalin`, `other`; `chk_dialyzer_reuse_contact_minutes`: NULL or 0..1440; `chk_dialyzer_reuse_measured_tcv`: NULL or > 0; `chk_dialyzer_reuse_tcv_pct`: NULL or 0..200. Existing columns, CHECKs and the per-session unique are untouched; `register_format_status` stays `format_pending` on every row (the statutory form is still owed, §9). `disinfectant VARCHAR(80)` stays as free-text detail beside the new enum.
+
+### 4.9 Changes to `surgical_implants` (baseline-owned; D5)
+
+`sterilization_load_id BIGINT` with `fk_surgical_implants_sterilization_load` `(tenant_id, sterilization_load_id) → sterilization_loads (tenant_id, id) ON DELETE SET NULL (sterilization_load_id)`, via `ALTER TABLE … ADD CONSTRAINT` (the table is baseline-owned; an inline re-declaration would trip the census gate). `sterilization_lot VARCHAR(120)` stays. The `POST /api/v1/surgical/implants` handler accepts the new field when the load exists in the tenant; nothing else about implants changes.
+
+### 4.10 Change to `patient_bloodborne_markers` (mig 764)
+
+`patient_bloodborne_markers_source_check` dropped and re-added by name with `dialysis_surveillance` as a fourth value (§3.3). Because 764's `patient_bloodborne_markers_lab_link_check` reads `(source = 'clinical_declaration') = (lab_result_id IS NULL)` and a surveillance row carries no lab link, that CHECK is dropped and re-added under its 764 name as `(source IN ('clinical_declaration', 'dialysis_surveillance')) = (lab_result_id IS NULL)`; `recordMarkerTx`'s two mirror guards change the same way. No other change.
+
+### 4.11 Migration 767 outline and the 753/758 hazard
+
+`767_reprocessable_devices_platform.sql`, one transaction, `lock_timeout 5s` / `statement_timeout 300s`, in this order: (1) the six backing uniques; (2) `reprocessing_domain_settings`; (3) `reprocessing_domain_policies`; (4) `reprocessable_devices` without `current_usage_id`'s FK; (5) `reprocessable_device_usages`; (6) the `current_usage_id` FK back onto the register; (7) `reprocessable_device_dialysis_links`; (8) `dialysis_machines`; (9) `dialysis_sessions` columns; (10) `dialysis_patients` defaults; (11) `dialyzer_reuse_register` columns and constraints; (12) `surgical_implants` column and FK; (13) the marker source CHECK; (14) RLS on the five new tables; (15) the GRANT block. Its header is self-contained: it states D1–D9 inline, the two policy tables, the `quarantine` rule, optional `max_cycles`, the derived `dialysis_patients` columns with the no-downgrade rule, and that `cath_reprocessable_devices` is not touched.
+
+**753/758 hazard assessment.** `cath_inventory_authority_assert_contract_753(uuid, bigint)` is bound to `cath_case_consumable_usage` and names `public.cath_reprocessable_devices` directly in its `reused_device` branch (765:551); `cath_authority_identity_guard_753()` dispatches on `TG_TABLE_NAME` over `cath_lab_cases`, `cath_consumable_catalog`, `cath_case_consumable_usage`, `tasks`, `workflow_sla_instances`, `notification_outbox` and `pharmacy_stock_movements`. None of the tables 767 creates or alters is on either list, and 767 does not insert into any of them. **Confirmed: a new generic table trips neither assert, and no plpgsql body is re-declared by this migration.** The scouting brief's conclusion stands.
+
+## 5. Flows
+
+### 5.1 Dialysis
+
+**Capture** — `POST /api/v1/dialysis/sessions/:id/dialyser`, idempotency scope `dialysis_dialyser_capture`, session guard before the claim. Body `{ manufacturer_serial?, device_tag?, model_name?, manufacturer?, hospital_asset_id?, baseline_tcv_ml?, initial_cycle_count?, exposure_acknowledgement?: { reason } }` — exactly one of `manufacturer_serial` / `device_tag`. Inside one tenant transaction, session locked `FOR UPDATE`:
+
+1. Session status ∈ {`scheduled`, `in_progress`}, no open usage on the session → else 409 `DIALYSER_ALREADY_CAPTURED`. The `dialyser` category policy must be reprocessable → else 409 `RPD_POLICY_NOT_REPROCESSABLE` (dark by default: the capture route refuses until a policy exists, and the legacy free-text `dialyser` column keeps working as today).
+2. Resolve the device `FOR UPDATE` by tag, or by `(tenant, 'dialysis', manufacturer_serial)`; a serial nobody has seen mints a row (`enrolled_via = 'session_capture'`, `status = 'available'`, `cycle_count = initial_cycle_count ?? 0` with `metadata.enrolled_mid_life = true` when non-zero, `max_cycles_snapshot` from policy) and a link row dedicated to the session's patient with `baseline_tcv_ml` if given. A tag unknown in the tenant → 404 `RPD_DEVICE_NOT_FOUND`; a tag whose device is not `dialysis` → 409 `RPD_DOMAIN_MISMATCH`.
+3. **Dedication**: link row exists and `dedicated_patient_uid <> session patient` → 409 `DIALYSER_DEDICATED_TO_ANOTHER_PATIENT`. No override exists for this; a dedicated dialyser on another patient is a never event.
+4. Device status must be `available` → else 409 `RPD_DEVICE_NOT_AVAILABLE` with the status. At the cycle ceiling (`cycle_count = max_cycles_snapshot`) → 409 `RPD_MAX_CYCLES_REACHED`.
+5. Serology screen (§3.1, union read §3.3) stored as `reuse_screen`. The device's own `exposure_flag` under rule `discard` blocks capture (`RPD_EXPOSURE_BLOCKED`) **unless the device is dedicated to this same patient** — the exposure is that patient's own history, and refusing a dialyser to the patient it was exposed by protects nobody; the capture records `metadata.exposure_same_patient = true`. Under `override_allowed` on a flagged device the acknowledgement reason is required (`RPD_ACKNOWLEDGEMENT_REQUIRED`) and a safety review is written (§5.4).
+6. Write the usage row (`dialysis_session_id`, `patient_uid`, `reuse_cycle = device.cycle_count`, `capture_source`), device → `in_case`, `dialysis_sessions.dialyser = COALESCE(model_name, manufacturer_serial)` and `reuse_count = reuse_cycle` (the legacy columns become derived, so the today board and the completion billing path keep working unchanged). Audit `rpd.device.captured`; realtime `dialyser-captured`.
+
+**Isolation warnings** at `startSession` / `scheduleSession` / `PATCH /sessions/:id/machine` per §3.4.
+
+**Reprocessing record** — `POST /api/v1/dialysis/sessions/:id/reuse-register` (existing route; now claims a key: scope `dialysis_reuse_register`, `retainOnServerError: true` because a per-session upsert has no self-blocking `from` list — scouting risk 8). Body: 418's fields plus `measured_tcv_ml`, `reprocessing_agent`, `disinfectant_contact_minutes`, `disinfectant_concentration_pct`, `acknowledgement?: { reason }`. Behaviour:
+
+- **No policy for `dialyser`** → the legacy path, byte for byte (free-text serial, typed count, upsert). The feature is dark.
+- **Policy on, session has an open usage** → the device is the usage's device; `reuse_cycle_count` in the body must equal `usage.reuse_cycle` or be absent → else 409 `DIALYZER_REUSE_CYCLE_DERIVED` (behaviour change; the admin modal renders the count read-only).
+- **Policy on, no usage, `dialyzer_serial` present** → implicit capture (steps 2–6 above with `capture_source = 'system'` and no acknowledgement path: an implicit capture on a restricted patient refuses with the capture code rather than guessing), then continue.
+- Disposition is decided by `computeDispositionOptions` (§5.3) over the post-use screen: body `status = 'in_use'` asks for `reprocess`; `discarded` asks for `discard`; `quarantined` asks for `quarantine`. A request outside the allowed set → 409 `RPD_DISPOSITION_NOT_ALLOWED` carrying `allowed`, `discard_reason` and `blocked_code`. `reprocess` under `unknown + warn` or `restricted + override_allowed` requires `acknowledgement.reason`.
+- `reprocess`: device `return` (→ `awaiting_reprocessing`), then the integrity verdict: `integrity_test_result = 'pass'` **and** TCV within threshold (`measured_tcv_ml >= baseline_tcv_ml × tcv_min_pct / 100`, evaluated only when both are known; a missing baseline records `tcv_pct_of_baseline = NULL` and passes) → `reprocessed` (`cycle_count + 1`, `last_cycle_type = 'chemical'`, `last_function_check = 'pass'`, → `available`), usage `sent_for_reprocessing`; TCV below → device `discard` reason `tcv_below_threshold`, usage `discarded_tcv_below_threshold`, register `status = 'discarded'`; `integrity_test_result = 'fail'` → device `discard` reason `integrity_test_failed`, usage `discarded_integrity_failed`.
+- `discard` / `quarantine`: device `discard` (reason from the screen or `other`) / `quarantine` (reason `bloodborne_exposure`), usage disposition accordingly.
+- The 418 row is upserted as today with `device_id`, `device_usage_id`, `reuse_cycle_count = usage.reuse_cycle`, `session_reuse_count = usage.reuse_cycle`, the TCV and agent fields; **a second write for a session whose usage is already returned** answers the stored row with 409 `DIALYZER_REUSE_REGISTER_SETTLED` unless the body is identical (notes may still be edited — `notes` is the one column a settled row accepts). Audit `dialysis.reuse_register.recorded`; realtime `reuse-register-updated`.
+
+**Read** — `GET /api/v1/dialysis/sessions/:id/dialyser` returns `{ usage, device, link: { dedicated_patient_uid, baseline_tcv_ml }, reuse_restriction (projected), allowed_dispositions, isolation: { codes, warn_only, enforcement_enabled, override } (projected) }` or `{ usage: null, … }` when nothing is captured. The existing `GET /sessions/:id/reuse-register` is unchanged in shape and gains the new columns.
+
+**Machines** — `GET /api/v1/dialysis/machines`, `POST /machines`, `PATCH /machines/:id` (scope `dialysis_machine`), roles `DIALYSIS_MACHINE_ADMIN_ROUTE_ROLES` = `DIALYSIS_ROUTE_ROLES ∩ {NURSING_INCHARGE, IP_INCHARGE, ICU_INCHARGE, ADMIN, SUPER_ADMIN}` (an intersection, so the gate can never be dead). `PATCH /sessions/:id/machine` `{ machine_no, isolation_override_reason? }` re-evaluates §3.4 and is on the session guard.
+
+### 5.2 OT (three hooks inside `cssdService`'s transactions; dark without a policy)
+
+- **`issueSet`** (`cssdService.js:731`): after the set is locked and the existing refusals have run, `cssdReuseHooks.onSetIssuedTx(tx, { set, issue, otSchedule, context })`: policy for `set.set_type` reprocessable → resolve or mint the set's register row (`enrolled_via = 'set_issue'`, `hospital_asset_id = set.barcode`, `status = 'available'`, `cycle_count = 0` with `metadata.enrolled_from_existing_set = true`); device must be `available` (a set that is `quarantined` in the register refuses issue with 409 `CSSD_SET_QUARANTINED` naming the reason); device `exposure_flag` under `discard` or `quarantine` → 409 `CSSD_SET_EXPOSURE_BLOCKED`, under `override_allowed` → `acknowledgement.reason` required (`CSSD_SET_ACKNOWLEDGEMENT_REQUIRED`); serology screen for `ot_schedules.patient_uid` → `reuse_screen`; usage row (`ot_schedule_id`, `set_issue_log_id`, `patient_uid`, `reuse_cycle`, `capture_source = 'cssd_issue'`); device `capture` → `in_case`. `POST /api/v1/cssd/issues` now claims a key (scope `cssd_set_issue`; the admin `createCssdIssue` caller moves to `core.ts` with a key).
+- **`transitionIssue` → `returned`**: `onSetReturnedTx`: post-use screen; `computeDispositionOptions` for the OT domain — there is no operator disposition at return, the rule decides: `clear` → device `return` (→ `awaiting_reprocessing`), usage `sent_for_reprocessing`; `restricted` under `quarantine` → device `return` then `quarantine` (reason `bloodborne_exposure`, flag + markers), usage `quarantined_bloodborne_exposure`; under `discard` → device `return` then `discard` (reason `bloodborne_exposure`) and `instrument_sets` set `usable = false, requires_reprocessing = true` (its status stays `returned`; the board still shows it); under `override_allowed` → `return` with the flag stamped and no acknowledgement (nobody is choosing anything at return — the acknowledgement was taken at issue); `unknown` under `warn` → `return`; under `block_return` → `return` then `quarantine` (reason `serology_required`) since a set cannot be left in theatre. `return_condition = 'contaminated'` additionally stamps `metadata.return_condition` on the usage.
+- **`transitionSterilizationLoad`** (`:588`): `onLoadTransitionedTx(tx, { load, status, setIds })`: for every set in `set_ids` with a register row: `passed` → if `load.cycle_type ∈ policy.allowed_cycle_types` and the device is `awaiting_reprocessing` or `in_cssd`, `reprocessed` (`cycle_count + 1`, `last_cycle_type = load.cycle_type`, `last_sterilization_load_id = load.id`, `last_function_check = 'not_required'`, → `available`) and the most recent returned usage's `sterilization_load_id = load.id`; a cycle type the policy forbids → `quarantine` with reason `cycle_type_not_allowed:<type>` and a warning in the load result's new `affected_devices[]`; a device already `quarantined` (exposure) is left quarantined — a passed load does not clear an exposure hold; `failed` → `quarantine` reason `sterilization_failed` for devices `awaiting_reprocessing` / `in_cssd`; devices `in_case` are untouched (the load never had them). At the cycle ceiling a `passed` load discards (`max_cycles_reached`) instead of releasing — "maximum-cycle discard happens on release without a click" (cath spec §14).
+- **CSSD `discard` on an OT device** also sets `instrument_sets.status = 'retired'`, `retired_at`, `retired_by`, `retirement_reason` (the register's `discard_note` or reason) — the one place the register writes the set's status.
+
+What this lane does **not** add for OT (recorded, not hidden): a failed load still does not recall sets already issued to a patient, and there is no BI-to-patient lookback (§10); there is no single-use flag on any OT item; the WHO sign-in strip is a Staff surface in §7.2 reading the same `reuse_restriction`, not a gate.
+
+### 5.3 Shared disposition rule
+
+`reprocessableDeviceRules.computeDispositionOptions({ domain, usage, policy, settings, restriction, device })` is `cathDeviceReuseService.computePostUseOptions` with the implant clause removed (no OT or dialysis category is an implant), `units_max` fixed at 1, and one added branch: `restricted` (or the device's own `exposure_flag`) under `reactive_patient_rule = 'quarantine'` → `{ dispositions: ['quarantine', 'discard'], quarantine_reason: 'bloodborne_exposure', reason_codes: ['bloodborne_restricted_quarantine'] }`. The evaluation order is 765's as built: the device's own flag, then the ceiling, then the patient's screen. A unit test feeds both functions the same inputs under `discard` and `override_allowed` and asserts equal output, so the two trees cannot drift silently while both exist.
+
+### 5.4 Overrides
+
+Every `acknowledgement.reason` and `exposure_acknowledgement.reason` is written to `medication_safety_reviews` with `review_type = 'reprocessable_device_reuse'`, `finding_code` ∈ `BLOODBORNE_RESTRICTED_OVERRIDE`, `SEROLOGY_UNKNOWN_ACKNOWLEDGED`, `EXPOSED_DEVICE_REUSED`, `override_required = true`, `payload.domain`, and the actor — the cath spec §7.5 shape with a domain field. `review_type` is `VARCHAR(80)` with no CHECK (269:196), so no migration is needed for the new value.
+
+## 6. Routes, OpenAPI, Admin and Staff
+
+All mutations claim an `Idempotency-Key`; every guard that can refuse runs **before** the claim so a request that can never succeed burns no key. Route role sets are intersections with the mount audience and a unit test asserts the subset for each (§8).
+
+### 6.1 Dialysis (`/api/v1/dialysis`, `DIALYSIS_ROUTE_ROLES`, `phiAccessLogger('DIALYSIS')`)
+
+| Method and path | Guard | Scope | Purpose |
+|---|---|---|---|
+| `POST /sessions/:id/dialyser` | `guardDialysisSessionParam` | `dialysis_dialyser_capture` | §5.1 capture |
+| `GET /sessions/:id/dialyser` | `guardDialysisSessionParam` | — | usage, device, restriction (projected), allowed dispositions, isolation |
+| `POST /sessions/:id/reuse-register` | existing guard | `dialysis_reuse_register` (`retainOnServerError`) | §5.1 reprocessing record (existing route; now claims a key — behaviour change) |
+| `GET /sessions/:id/reuse-register` | existing | — | unchanged shape plus the new columns |
+| `PATCH /sessions/:id/machine` | `guardDialysisSessionParam` | `dialysis_session_machine` | reassign machine, re-evaluate isolation |
+| `GET /machines` | role gate only | — | machine master |
+| `POST /machines`, `PATCH /machines/:id` | `requireRole(...DIALYSIS_MACHINE_ADMIN_ROUTE_ROLES)` | `dialysis_machine` | machine master writes |
+| `POST /patients` | existing | — | now rejects the three serology fields (400 `DIALYSIS_SEROLOGY_FIELDS_NOT_ALLOWED`) |
+| `GET /patients`, `GET /patients/:id`, `GET /today`, `GET /sessions/:id` | existing | — | responses projected per §3.5 |
+
+`startSession` and `scheduleSession` (existing routes) evaluate §3.4 and accept `isolation_override_reason`.
+
+### 6.2 CSSD (`/api/v1/cssd`, `CSSD_ROUTE_ROLES`; no PHI logger, no patient identity in any payload)
+
+The cath queue at `/devices/*` is unchanged (its ids are cath register ids). The platform register is a sibling sub-tree with the **same** role narrowing (`router.use('/reprocessable-devices', requireRole(...CSSD_DEVICE_ROUTE_ROLES))`) and its own scope, so a client key can never replay one register's stored response against the other:
+
+| Method and path | Scope | Purpose |
+|---|---|---|
+| `GET /reprocessable-devices?domain=&status=&facility_id=&limit=` | — | queue; rows carry `domain`, `category`, `device_tag`, `manufacturer_serial`, `hospital_asset_id`, `model_name`, `set_code`/`set_status` for OT, cycle, status, exposure, `last_sterilization_load_id`, `updated_at` |
+| `GET /reprocessable-devices/:id/label` | — | §6.5 label |
+| `POST /reprocessable-devices/:id/receive` | `cssd_reprocessable_device_transition` | awaiting → in_cssd |
+| `POST /reprocessable-devices/:id/reprocessed` | same | `{ cycle_type, function_check_result? }`; OT devices additionally accept `sterilization_load_id` (a passed load in the tenant), which is the normal path via the load hook; dialysis devices only `chemical` / `other` |
+| `POST /reprocessable-devices/:id/quarantine` | same | `{ reason }` |
+| `POST /reprocessable-devices/:id/release` | same | quarantined → awaiting_reprocessing, `{ note }`; never straight to available |
+| `POST /reprocessable-devices/:id/discard` | same | `{ reason, note }`; retires the set for OT |
+| `POST /issues` | `cssd_set_issue` | existing; now claims a key and accepts `acknowledgement` |
+| `PATCH /loads/:id/status` | existing | response gains `affected_devices[]` |
+
+`retainOnServerError` stays unset on the transitions for 765's reason (every `from` list excludes its own `to`); it is set on `POST /issues` because `issueSet` is not self-blocking on a set whose issue row was written but whose response was lost.
+
+### 6.3 Theatre (`/api/v1/theatre`, `THEATRE_ROUTE_ROLES`, `phiAccessLogger('OPERATING_THEATRE')`)
+
+`GET /theatre/:id/reprocessable-sets` (`guardTheatreCase`): the case's set issues joined to their register rows and load evidence (`load_code`, indicator results, `released_at`), plus `reuse_restriction` (projected) — the WHO sign-in strip's data. THEATRE_ROUTE_ROLES ⊂ CLINICAL_STAFF_ROUTE_ROLES, so the projection is a no-op today; it is applied anyway so a later widening cannot leak.
+
+### 6.4 Reprocessing governance (`/api/v1/reprocessing`, new mount)
+
+Mounted in `app.js` beside `/api/v1/cath-reprocessing` with `requireRole(...REPROCESSING_POLICY_ROUTE_ROLES)` where `REPROCESSING_POLICY_ROUTE_ROLES` is an alias of `CATH_REPROCESSING_POLICY_ROUTE_ROLES` (`QUALITY_OFFICER`, `INFECTION_CONTROL_OFFICER`, `ADMIN`, `SUPER_ADMIN`) — the same constant, aliased, not a copy that can drift. Clinical-mount posture: no step-up, IP allowlist or admin rate limiter (the cath spec §9.5 reasoning). The admin `/api/proxy` allowlist gains `api/v1/reprocessing`.
+
+| Method and path | Scope | Purpose |
+|---|---|---|
+| `GET` / `PUT /domains/:domain/settings` | `reprocessing_domain_policy` | §4.1 |
+| `GET` / `PUT /domains/:domain/policies` | same | §4.2, whole set per domain |
+| `GET /devices/:deviceId/history` | — | uses (case anchor, `patient_uid`, `captured_at`, cycle, disposition) and transitions. PHI with no single subject: writes one `hipaa_access_log` row per distinct patient in batches of 25 (`record_type = 'DIALYSIS'` or `'OPERATING_THEATRE'` by domain, `request_id` `"<incoming id, truncated> rpd_device:<id>"`) before responding — the 765 shape |
+
+`:domain` is validated against `DOMAINS` by a param guard before any key is claimed (400 `RPD_DOMAIN_INVALID`).
+
+### 6.5 Label endpoint (designed for reuse)
+
+`GET /cssd/reprocessable-devices/:id/label` answers the **same shape `GET /sets/:id/label` answers today** (`getInstrumentSetLabel`): `{ device_id, device_tag, external_ref, domain, item_name, cycle_count, barcode, barcode_symbology: 'code39', svg, generated_at }` with `barcode = device_tag` and `svg = code39Svg(device_tag, { module: 2, height: 44 })`, stamps `metadata.label_printed_at/by` on the register row and audits `rpd.device.label_printed`. The OpenAPI schema is `ReprocessableDeviceLabel`; the Plan 2 follow-up that adds `GET /cssd/devices/:id/label` for cath reuses that schema name and the admin's existing set-label print path renders both.
+
+### 6.6 OpenAPI
+
+New overlay `apps/backend/scripts/openapi/schemas/reprocessableDevices.mjs` registered in `SCHEMA_MODULES`: `ReprocessableDevice`, `ReprocessableDeviceUsage`, `ReprocessableDeviceLabel`, `ReprocessingDomainSettings`, `ReprocessingDomainPolicy`, `DialysisMachine`, `DialysisSessionDialyser`, `DialysisIsolationWarning`, `TheatreReprocessableSet`, `DispositionOptions`, request bodies and envelopes, and every operation in §6.1–§6.5 with error codes in descriptions; `bloodborneMarkers.mjs` gains the `dialysis_surveillance` source. `openapi:generate`, `openapi:check`, `openapi:sync-core`, `openapi:check-core` and `openapi:lint-budget` (zero new findings) run after every route change. The stale generated Dart client noted by the scouting brief (`/sessions/{id}/reuse-register` missing) is repaired by the same regeneration.
+
+### 6.7 Admin (Next.js)
+
+- `dashboard/cssd` Devices tab: a **domain filter** (`Cath | Dialysis | OT`, default Cath so the existing view is unchanged); cath rows keep calling `lib/api/cathDevices.ts`, the other two call the new `lib/api/reprocessableDevices.ts`; a unified row type; `ReprocessableDeviceActions.tsx` mirrors `DeviceActions.tsx` with the platform scope, plus a **Print label** action; the `in_case` and `discarded` rows offer nothing, as for cath.
+- `dashboard/quality/reprocessing` (new page under the `quality` segment, nav entry "Reprocessing policies"): a domain switch and, per domain, the settings form (three serology fields, plus isolation enforcement for dialysis) and the per-category policy rows (`tcv_min_pct` shown for dialysis only). Layout and class names copied from `ReprocessingPolicyTab.tsx`; `setQueryData` before `invalidateQueries` (the Plan 3 save-revert lesson).
+- `dashboard/dialysis`: `SessionTab`'s `ReuseRegisterModal` moves from `fetchAdminAPI` to `core.ts` with a key (scope `dialysis-reuse-register`), shows the derived cycle count read-only when a device is captured, adds TCV / agent / contact minutes / concentration; a **Dialyser** panel (capture by serial with the dedication refusal shown verbatim, restriction strip, isolation warnings); a **Machines** tab (master with isolation class); `RosterTab`'s enrol form loses the three serology selects (the server refuses them) and the roster shows the derived chips; `TodayBoardTab` shows an isolation-warning badge from `isolation_warning_codes`.
+- `dashboard/theatre`: nothing (the OT surface is Staff).
+- `src/__tests__/dashboard/cssd/router-coverage.test.ts` scans the new API module too, so every new CSSD route has a caller or a named exemption.
+
+### 6.8 Staff (Flutter)
+
+- **Dialysis is a new feature from zero** (`apps/staff/lib/features/dialysis/`). Prerequisite in the backend tree: a `dialysis` entry in `rolePolicyGraph.js`'s sidebar feature list (`capability_group: 'specialty_services'`) granted to the roles that run a unit, and `scripts/generate-staff-role-contract.mjs` re-run so `staff_role_contract.g.dart` carries it; then `role_config.dart` (`_dialysis` feature, route `/dialysis`), `app_router.dart`, `staff_route_policy.dart`. Screens: `DialysisTodayScreen` (`GET /dialysis/today`; per session: patient, station, machine, status, isolation badge, dialyser state); `DialyserCaptureSheet` (serial or tag entry, model, baseline TCV, the restriction strip reused from cath's `CathReuseRestrictionStrip` generalised to `ReuseRestrictionStrip` in `lib/core/widgets/`, the dedication refusal rendered from `DIALYSER_DEDICATED_TO_ANOTHER_PATIENT` as a named error, the exposure acknowledgement dialog when the server demands it); `IsolationWarningStrip` (codes, override reason field at start); `DialyserReprocessingSheet` (integrity, TCV measured with the live `%` of baseline, agent, contact minutes, concentration, the allowed dispositions rendered from `allowed_dispositions`, acknowledgement when required). Writes go through `IdempotencyAttemptRegistry` scopes `dialysis-dialyser-capture:<session>` and `dialysis-reuse-register:<session>`.
+- **OT**: `theatre_screen.dart`'s schedule card gains a **Sets** expansion (`GET /theatre/:id/reprocessable-sets`): each set with set code, last load code and indicator results, cycle, exposure; the `ReuseRestrictionStrip` for the case patient; an **Issue set** action (barcode scan or typed `set_code` → `POST /cssd/issues` with a key, acknowledgement dialog on `CSSD_SET_ACKNOWLEDGEMENT_REQUIRED`). `OT_NURSE` / `OT_STAFF` / `OT_INCHARGE` are on `CSSD_DEVICE_ROUTE_ROLES`, so the issue call is reachable from the theatre app.
+- **Five-locale string budget**: 58 new keys × 5 locales ≈ 290 lines in `app_strings.dart`. Every non-English rendering carries `// REVIEW:` per the OPEN-21 convention. Keys (all under `s4.lib.dialysis.*`, `s4.lib.theatre.sets.*`, `s4.lib.reuse.*`, `role.feature.dialysis`, `role.nav.dialysis`): the restriction strip (2, moved from cath's keys by aliasing so the cath strings are not duplicated), today screen (8), capture sheet (14 incl. `dedicated_other_patient`, `exposure_same_patient_note`), isolation strip (7: four codes, override label, hint, blocked), reprocessing sheet (16), theatre sets panel (9), feature/nav (2). Refusal messages stay English-only, as in Plans 2–3 (`ApiResponse.code` is not mapped through the tables; §10).
+
+## 7. Error codes, audit events, rollout
+
+### 7.1 Error codes
+
+| Code | HTTP | When |
+|---|---|---|
+| `RPD_DOMAIN_INVALID` | 400 | `:domain` outside `dialysis` / `ot` |
+| `RPD_DOMAIN_MISMATCH` | 409 | a tag resolves to a device of another domain |
+| `RPD_TAG_INVALID` | 400 | tag does not match `RD[0-9]{8,19}` |
+| `RPD_DEVICE_NOT_FOUND` | 404 | tag or id unknown in tenant |
+| `RPD_DEVICE_NOT_AVAILABLE` | 409 | status ≠ available at capture/issue; carries the status |
+| `RPD_INVALID_TRANSITION` | 409 | any action outside 765's table; names the state |
+| `RPD_POLICY_NOT_REPROCESSABLE` | 409 | no reprocessable policy for the category |
+| `RPD_MAX_CYCLES_REACHED` | 409 | capture or reprocess at the ceiling |
+| `RPD_EXPOSURE_BLOCKED` | 409 | device flagged under `discard` / `quarantine` (dialysis same-patient exception §5.1) |
+| `RPD_ACKNOWLEDGEMENT_REQUIRED` | 400 | rule permits but reason missing |
+| `RPD_SEROLOGY_REQUIRED` | 409 | `unknown` under `block_return` at a reprocess request |
+| `RPD_DISPOSITION_NOT_ALLOWED` | 409 | requested disposition outside the computed set; carries `allowed` |
+| `RPD_CYCLE_TYPE_INVALID` / `RPD_CYCLE_TYPE_NOT_ALLOWED` | 400 / 409 | outside the six / outside the policy (carries the allowed list) |
+| `RPD_EXTERNAL_REF_TAKEN` | 409 | serial or asset id already registered in the domain |
+| `RPD_LOAD_NOT_FOUND` / `RPD_LOAD_NOT_PASSED` | 404 / 409 | `sterilization_load_id` on a manual reprocessed call |
+| `DIALYSER_ALREADY_CAPTURED` | 409 | the session already has an open usage |
+| `DIALYSER_DEDICATED_TO_ANOTHER_PATIENT` | 409 | §5.1 step 3; no override |
+| `DIALYSER_TCV_INVALID` | 400 | non-positive or non-numeric TCV |
+| `DIALYZER_REUSE_CYCLE_DERIVED` | 409 | typed cycle count disagrees with the device |
+| `DIALYZER_REUSE_REGISTER_SETTLED` | 409 | a second, different write after the usage returned |
+| `DIALYSIS_ISOLATION_OVERRIDE_REQUIRED` | 400 | warnings present, no reason |
+| `DIALYSIS_ISOLATION_MACHINE_BLOCKED` | 409 | mismatch under `block` |
+| `DIALYSIS_MACHINE_NOT_FOUND` / `DIALYSIS_MACHINE_NO_TAKEN` | 404 / 409 | machine master |
+| `DIALYSIS_SEROLOGY_FIELDS_NOT_ALLOWED` | 400 | enrol body names a legacy serology column |
+| `CSSD_SET_QUARANTINED` / `CSSD_SET_EXPOSURE_BLOCKED` / `CSSD_SET_ACKNOWLEDGEMENT_REQUIRED` | 409 / 409 / 400 | issue-time refusals |
+| `BLOODBORNE_MARKER_INVALID` | 400 | unchanged; also a surveillance value outside the polarity map |
+
+Every code reaches the envelope root via `relayAppError`. Concurrency: device rows are read `FOR UPDATE` in every transition; nothing uses the bare Prisma client (plain `prisma` no longer bypasses RLS).
+
+### 7.2 Audit events (`audit_logs`, the CSSD column shape)
+
+`rpd.device.minted`, `rpd.device.captured`, `rpd.device.returned`, `rpd.device.received`, `rpd.device.reprocessed`, `rpd.device.quarantined`, `rpd.device.released`, `rpd.device.discarded`, `rpd.device.exposure_flagged`, `rpd.device.label_printed`, `rpd.settings.updated`, `rpd.policy.updated`, `dialysis.machine.created`, `dialysis.machine.updated`, `dialysis.session.isolation_evaluated`, `dialysis.session.isolation_overridden`, `dialysis.patient.serology_synced`, `dialysis.reuse_register.recorded`, `cssd.set.issued` (existing; metadata gains `device_id`, `usage_id`). Every transition's metadata carries `idempotency_key`, `device_tag`, `domain`, `from`, `to` and the reason fields.
+
+### 7.3 Rollout defaults
+
+- Dark by default: no `reprocessing_domain_policies` rows → nothing is minted, the CSSD hooks do nothing, the dialysis reuse-register route runs its legacy path. A tenant activates a domain by creating policy rows; the quality or infection-control officer owns that step.
+- Settings defaults when no row: dialysis `discard` / `warn` / 90 / `warn`; OT `quarantine` / `warn` / 90.
+- Isolation is `warn` until a tenant flips it; unregistered machines warn only for restricted patients.
+- The marker sync runs on events from deployment on; the legacy columns' defaults become `'unknown'`; no downgrade ever. The backfill script is an operator step (§7.6).
+- No data migration of 418 rows: legacy rows keep `device_id NULL`.
+- Existing instrument sets get register rows on their next issue after a policy exists, at `cycle_count = 0` with `enrolled_from_existing_set` — the count starts from enrolment, which is stated on the row.
+
+### 7.4 Prefix-mount lockout class
+
+Every new role gate is an intersection with its mount's audience and is asserted as a strict subset in `reprocessableDeviceRouteWiring.test.js`: `CSSD_DEVICE_ROUTE_ROLES ⊂ CSSD_ROUTE_ROLES` (existing), `DIALYSIS_MACHINE_ADMIN_ROUTE_ROLES ⊂ DIALYSIS_ROUTE_ROLES`, and `REPROCESSING_POLICY_ROUTE_ROLES` applied at the mount level (not under `/api/v1/admin`). `app.js`'s source is pinned in the same test so the harness cannot mount a different audience than production.
+
+### 7.5 CI tier routing
+
+Backend, Staff and Admin changes land in their owning trees (`apps/backend`, `apps/staff`, `apps/admin`); the role-contract regeneration for Staff writes a file under `apps/staff` from a script in the repo root and is committed with the Staff task. The last commit before hand-back carries `[full-ci]`.
+
+### 7.6 Operator scripts
+
+`apps/backend/scripts/backfill-dialysis-markers.mjs --tenant <uuid> --actor <uid> [--dry-run]`: for every `dialysis_patients` row with a legacy `'positive'` column and no non-voided reactive marker row for that marker, `recordMarkers` with `source = 'clinical_declaration'`, `tested_on = COALESCE(latest dialysis_serology.test_date, dialysis_patients.updated_at::date)`, evidence `{ origin: 'dialysis_patients_backfill' }`. Prints counts; idempotent. Until it has run, the union read in §3.3 keeps the restriction correct.
+
+## 8. Tests
+
+**Unit** (`src/tests/unit`):
+
+- `reprocessableDeviceRules.test.js`: `deviceTransition` for every allowed and refused pair; `computeDispositionOptions` for every domain × rule × screen combination including the `quarantine` branch and the device-flag-before-ceiling order; the **parity test** against `computePostUseOptions`; `computeIsolationWarnings` for every row of §3.4's table including the clear-on-unregistered silence and the two-marker `isolation_mixed` case; `tcvVerdict` at the boundary (exactly 80 % passes; 79.9 % fails; missing baseline passes with `pct = null`); `normalizeDeviceTag` accepts `rd00000042`, rejects `RP00000042`; `validatePolicyInput` per domain (dialysis refuses `steam`, OT refuses `function_check_required`, `tcv_min_pct` outside dialysis refused); `mapMarkerStatusToLegacy` incl. the latch and the no-downgrade rule.
+- `reprocessableDeviceProjection.test.js`: roster row, serology row, isolation warning, restriction — for one audience role and one non-audience role each; keys blanked, never dropped.
+- `reprocessableDeviceRouteWiring.test.js`: the census pattern of `cathDeviceReuseRouteWiring.test.js` — every command claims a key with the right scope, reads do not, guard-before-claim ordering on every guarded route, the three subset assertions of §7.4, `app.js` source pinned for the new mount, every role named is real.
+- `dialysisSerologyWriters.test.js`: textual pin that the only shipping module writing `hbsag_status` / `hcv_status` / `hiv_status` is `dialysisReuseService.js`.
+- `cssdReuseHookCallSites.test.js`: every `INSERT INTO set_issue_log` / `UPDATE set_issue_log` / passed-or-failed load write in `cssdService.js` sits in a function that calls the corresponding hook.
+- `serologyDisclosureCanary.test.js`: three mounts added, predicate extended, snapshot regenerated and read (§3.6).
+- `prismaCoverage.test.js`: pins for the five tables and three sequences.
+
+**Deep** (own tenant `…d1a1` for dialysis, `…0700` for OT; 30 s budget; run twice on a fresh database):
+
+- `reprocessable-devices-dialysis.deep.test.js`: capture mints and dedicates; second session on the same patient reuses the device at cycle 1; a different patient is refused; typed cycle count disagreeing is refused; reprocessing with pass and TCV 85 % releases and increments; TCV 70 % discards with the right reason on device, usage and 418 row; integrity fail discards; restricted patient under `discard` offers discard only and the register row records it; `override_allowed` records the safety review; a late reactive marker quarantines the patient's dedicated dialyser and flips `dialysis_patients.hbsag_status` to `'positive'`; a legacy `'positive'` column with no marker row still restricts (union); `recordSerology` writes a `dialysis_surveillance` marker and never touches the columns directly; enrol body with `hbsag_status` is refused; isolation: unregistered machine + restricted warns, mismatch under `block` refuses, override reason recorded; the settled register refuses a second different write; **RLS probe**: another tenant cannot read or transition a device, a usage, a link or a machine under the runtime role.
+- `reprocessable-devices-ot.deep.test.js`: issue under a policy mints from the set and captures; issue without a policy leaves no register row (dark); return on a clear patient → awaiting; passed load increments and stamps the usage's load; failed load quarantines; a load of a forbidden cycle type quarantines with the warning; restricted patient under `quarantine` returns to quarantine and the set is not re-issuable until released; release then a passed load releases it; discard retires the set; late reactive marker flags the set within the window and not outside it; `surgical_implants.sterilization_load_id` accepts a tenant load and refuses another tenant's; **RLS probe** as above.
+- `bloodborne-markers.deep.test.js` (existing) gains: a `dialysis_surveillance` row is accepted and latches.
+
+**Mutation checks** (the PR #973 lesson — a test that cannot fail proves nothing): delete the dedication refusal and confirm the other-patient test goes red; flip `computeDispositionOptions`' device-flag check below the ceiling check and confirm the discard-reason test goes red; delete the no-downgrade clause in `mapMarkerStatusToLegacy` and confirm the legacy-positive test goes red; remove the `required_class` blanking and confirm the projection test and the canary go red; delete the `onSetReturnedTx` call and confirm the call-site pin goes red.
+
+**Seeder**: the comprehensive seeder runs twice on a fresh database (second run: 0 new rows); `db:contracts:seeded` green; the five new tables have overrides (`reprocessing_domain_settings` dialysis row with `reactive_patient_rule = 'discard'`; `reprocessing_domain_policies` `dialysis` / `dialyser` / not reprocessable; `reprocessable_devices` one dialysis device with a serial, `enrolled_via = 'console'`, `available`; `reprocessable_device_usages` one **closed** usage on that device against a tenant session and patient; `reprocessable_device_dialysis_links` one link; `dialysis_machines` one `general` machine).
+
+**Gates**: lint chain; migration numbers / immutability / session-GUC; inline-check census static and `--verify-db` (manifest unchanged); `check:prisma-relations`; schema drift; OpenAPI check / core sync / lint budget; security stage; Flutter analyzer, widget tests, i18n guard and five-locale parity; Admin type-check, lint ratchet, format, suites; canonical `ci.yml` with `[full-ci]` on the last commit.
+
+## 9. Owner decisions pending
+
+1. **`DIALYSIS_TECHNICIAN` is non-assignable and outside the serology audience.** It is in `NON_ASSIGNABLE_HUMAN_ROLES` (`rolePolicyGraph.js:343-363`), so today no human can hold the role this register is written for; and it is outside `CLINICAL_STAFF_ROUTE_ROLES`, so under §3.5 the technician cannot see which isolation class a restricted patient needs. Two decisions, both prerequisites to the dialysis Staff screen being useful to its intended user: make the role assignable; and either widen the serology audience by one role (a reviewed change to the canary's pinned allow-list) or make machine assignment for restricted patients a nursing act.
+2. **The implant lane.** `audit/cath-implant-lifecycle` carries a colliding 764 and splits implant removal by origin. Revive and renumber, fold, or drop — decided before anything touches implant lifecycle. This spec adds one nullable FK to `surgical_implants` and nothing else.
+3. **Cath convergence.** Whether and when the cath register migrates into `reprocessable_devices` along the seam in §2.6.
+4. **The statutory dialyser register form.** Every 418 row is still `format_pending`; the sourcing decision N6-9 deferred is still open. This lane adds the columns the common Indian forms carry (agent, contact time, TCV) but does not claim to match a form nobody has produced.
+5. **`facility_id` on `dialysis_sessions` and `instrument_sets`**, and which facility owns historical rows.
+
+## 10. Deferred / follow-ups
+
+- Cath convergence per §2.6, including `legacy_tag`.
+- A dialyser catalogue (`manufacturer` / `model_name` are free text); per-model default TCV and cycle ceilings would hang off it.
+- `facility_id` upstream and the register's `facility_id` becoming NOT NULL.
+- Sterilisation-failure recall: a failed load does not recall sets already issued, and there is no BI lookback to prior loads or exposed patients. The register now knows which usages a load reprocessed (`sterilization_load_id` on the usage), which is the data such a lookback needs.
+- An exposure outbox (cath spec §18) and the reconciliation sweep for missed handler pushes, now across three domains; a scheduled `syncDialysisPatientSerology` sweep over the active roster.
+- A single-use-device flag on OT items and a reprocessing ban keyed on it.
+- Priming volume and fibre-bundle-volume fields, if a tenant's form requires them.
+- `dialysis_machine_qa_logs.machine_no → dialysis_machines` FK, and `dialysis_sessions.machine_no` becoming a FK once units have registered machines.
+- Filtering the CSSD cycle-type picker by policy (Plan 2's open item) and the cath label endpoint reusing `ReprocessableDeviceLabel`.
+- Staff refusal messages localised (`ApiResponse.code` mapping); OPEN-21 linguistic review of the ~290 new non-English lines.
+- The admin `Modal` focus trap (Plan 2 follow-up, exercised again by the new dialogs).
+- `dialysis_today` view gaining `isolation_warning_codes` (the today board reads them from the session row for now).
