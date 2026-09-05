@@ -1367,12 +1367,20 @@ describe('src/lib/prisma.js coverage completion', () => {
       expect(mutableNoDelete[1]).toContain("'cath_reprocessing_settings'");
       expect(mutableNoDelete[1]).toContain("'cath_reprocessing_category_policies'");
       expect(mutableNoDelete[1]).toContain("'cath_reprocessable_devices'");
+      // Migration 766, same once-per-database reach again: the readiness
+      // settings row is edited in place, and the per-case snapshot is UPSERTed
+      // by the refresh — seven fixed rows per case that are rewritten, never
+      // deleted, so a waiver and its clock survive an item ceasing to be
+      // required.
+      expect(mutableNoDelete[1]).toContain("'cath_lab_readiness_settings'");
+      expect(mutableNoDelete[1]).toContain("'cath_case_lab_readiness_items'");
       const nextvalSequences = grantSql.match(
         /runtime_nextval_sequences CONSTANT TEXT\[\] := ARRAY\[([\s\S]*?)\n {2}\];/,
       );
       expect(nextvalSequences).not.toBeNull();
       expect(nextvalSequences[1]).toContain("'patient_bloodborne_markers_id_seq'");
       expect(nextvalSequences[1]).toContain("'cath_reprocessable_devices_id_seq'");
+      expect(nextvalSequences[1]).toContain("'cath_case_lab_readiness_items_id_seq'");
       expect(mockLogger.info).toHaveBeenCalledWith(
         'Tenant RLS runtime role grants ensured',
         { role: 'vhhealth_app' },
