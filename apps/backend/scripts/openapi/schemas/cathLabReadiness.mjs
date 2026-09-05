@@ -165,8 +165,9 @@ const item = {
       description:
         'True when this item\'s waiver was recorded AFTER the case\'s actual_start_at — the '
         + 'decision to proceed without the item was documented while the patient was already on '
-        + 'the table. A waiver is never refused for being late (owner decision, 2026-09-06): a '
-        + 'team that has to proceed without a report still has to be able to record that it did. '
+        + 'the table. RECORDING a waiver is never refused for being late (owner decision, '
+        + '2026-09-06): a team that has to proceed without a report still has to be able to '
+        + 'record that it did. LIFTING one after the start is refused — see the unwaive route. '
         + 'DERIVED on every read from waived_at against actual_start_at, not a stored column, so '
         + 'it cannot go stale against either. False on every non-waived item, on a waiver that '
         + 'predates the start, and on a case that has not started.'
@@ -257,10 +258,12 @@ const readiness = {
     case_started: {
       type: 'boolean',
       description:
-        'True once the procedure has an actual start. Ordering the missing labs and recording '
-        + 'an outside result are refused after it; waiving an item and lifting a waiver are '
-        + 'NOT — those stay open and are marked as recorded late instead (owner decision, '
-        + '2026-09-06; see the item\'s `recorded_after_start`).'
+        'True once the procedure has an actual start. The write actions on this surface then '
+        + 'split three ways (owner decision, 2026-09-06): ordering the missing labs and '
+        + 'recording an outside result are refused; RECORDING a waiver stays open and is marked '
+        + '`recorded_after_start` instead; LIFTING a waiver is refused, because a lift regresses '
+        + 'the item and the labs check while a running case\'s status does not move, so the '
+        + 'regression would be invisible.'
     }
   }
 };
@@ -565,12 +568,15 @@ export const operations = {
       'Withdraws a waiver, so the item is resolved from the patient\'s lab evidence again — '
       + 'which may leave it missing and take the labs check back off pass. It is a SECOND '
       + 'decision recorded over the first, not an undo: the waiver and its audit row stand, and '
-      + 'this writes its own row carrying the withdrawn waiver\'s reason. NOT refused once the '
-      + 'procedure has started — the outside report that arrives mid-procedure is exactly why a '
-      + 'waiver comes off — and a lift recorded after `actual_start_at` is audited '
-      + '`lifted_after_start` so the record shows it was documented late (owner decision, '
-      + '2026-09-06). Refused only when the item is not waived. Requires Idempotency-Key (scope '
-      + 'cath_lab_readiness_unwaive).',
+      + 'this writes its own row carrying the withdrawn waiver\'s reason. REFUSED once the '
+      + 'procedure has started, which is the opposite of the sibling waive route and deliberate '
+      + '(owner decision, 2026-09-06: a waiver may be recorded after the start but not lifted). '
+      + 'A late RECORD is the less-restrictive direction and is merely marked; a late LIFT is '
+      + 'the more-restrictive one — it takes the item back to missing and the labs check back '
+      + 'to pending, while the case status of a running case does not move, so nothing on the '
+      + 'board shows the regression and a mis-tap with the patient on the table would silently '
+      + 'flip a running case\'s checklist. Also refused when the item is not waived. Requires '
+      + 'Idempotency-Key (scope cath_lab_readiness_unwaive).',
     pathParameters: { id: BIGINT_WIRE, item: { type: 'string', enum: ITEMS } },
     parameters: [idempotencyHeaderParameter],
     request: 'CathLabReadinessUnwaiveRequest',
@@ -582,10 +588,12 @@ export const operations = {
         ['CATH_LAB_READINESS_ITEM_UNKNOWN']
       ),
       409: errorResponse(
-        'The item carries no waiver to remove — decided from the stored row under the case '
-        + 'lock, so a second tap is told so rather than writing an audit row about a waiver '
-        + 'that was already gone.',
-        ['CATH_LAB_READINESS_NOT_WAIVED']
+        'The procedure has already started, so the waiver stands (a waiver may be RECORDED '
+        + 'after the start but not LIFTED: the lift regresses the item and the labs check under '
+        + 'a case status that does not move, hiding the regression) — or the item carries no '
+        + 'waiver to remove, decided from the stored row under the case lock so a second tap is '
+        + 'told so rather than writing an audit row about a waiver that was already gone.',
+        ['CATH_LAB_READINESS_CASE_STARTED', 'CATH_LAB_READINESS_NOT_WAIVED']
       )
     }
   },

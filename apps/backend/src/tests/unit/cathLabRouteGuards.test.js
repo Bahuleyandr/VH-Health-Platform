@@ -440,10 +440,12 @@ describe('lab readiness route chains', () => {
   it('POST unwaive CACHES any other deterministic 409 — only the named code is released', async () => {
     // The release list is CODE-scoped, not status-scoped: this is what stops it
     // being read as "un-waive never caches a 4xx". Driven with
-    // CATH_LAB_READINESS_CASE_STARTED, which the sibling order-missing and
-    // external-result mounts still raise through this same middleware (the two
-    // waiver paths no longer do — owner decision, 2026-09-06 — and a started
-    // case never un-starts, so it remains the deterministic example).
+    // CATH_LAB_READINESS_CASE_STARTED, which un-waive itself raises once the
+    // case has started (owner decision, 2026-09-06: a waiver may be RECORDED
+    // after the start but not LIFTED) and which the sibling order-missing and
+    // external-result mounts raise through this same middleware. A started case
+    // never un-starts, which is what makes it the deterministic example: unlike
+    // NOT_WAIVED it can never become valid on a retry, so caching it is right.
     const statements = await statementsAfterResponse(
       '/cases/:id/readiness/labs/:item/unwaive', 5,
       { status: 409, code: 'CATH_LAB_READINESS_CASE_STARTED' },

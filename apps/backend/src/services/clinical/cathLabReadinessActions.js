@@ -66,32 +66,44 @@ function requireItem(value) {
   return item;
 }
 
-// OWNER DECISION, 2026-09-06: "in emergencies with no reports immediately
-// available we will proceed with no reports and we might add while the
-// procedure is ongoing and the reports become available; we do not want the
-// pre-cath checklist to be restrictive as principle."
+// THE START GATE, AND WHY THE TWO WAIVER ROUTES MOVE IT IN OPPOSITE DIRECTIONS.
+// Read this before touching either waiveLabItem or unwaiveLabItem below.
 //
-// So NEITHER waiver path refuses a started case — in either direction. An
-// emergency team that is already at the table is exactly the team that has to
-// record "proceeding without HCV", and a checklist that refuses the record does
-// not stop the decision, it only stops the decision being written down. Lifting
-// one is the same story from the other side: the outside report that arrives
-// mid-procedure is the reason the waiver should come off.
+// RECORDING a waiver after actual_start_at is ALLOWED. That is the
+// less-restrictive direction the owner asked for: "in emergencies with no
+// reports immediately available we will proceed with no reports and we might
+// add while the procedure is ongoing and the reports become available; we do
+// not want the pre-cath checklist to be restrictive as principle." A team
+// already at the table is exactly the team that has to record "proceeding
+// without HCV", and refusing the write does not stop them proceeding — it only
+// stops the decision being written down. The lateness is DOCUMENTED instead:
+// recorded_after_start on the audit row, and the same boolean derived onto the
+// item itself so the ward sees it too.
 //
-// Lateness is MARKED, never refused. The write happens and the audit row says
-// when the decision was documented relative to the patient being on the table,
-// so a reader can still tell a pre-procedure record from a retrospective one.
+// LIFTING a waiver after actual_start_at is REFUSED — 409
+// CATH_LAB_READINESS_CASE_STARTED, the same code the order-missing and
+// outside-result paths answer with. This is the MORE-restrictive direction and
+// it is NOT the mirror image of the first. A lift re-resolves the item from the
+// patient's own evidence, which may be none: the item regresses to missing and
+// the `labs` check row regresses pass → pending, while recomputeCaseStatusTx
+// leaves an `in_progress` case status alone. So the case status does not move,
+// and the unmoving status HIDES the regression rather than making it safe — a
+// mis-tap with the patient on the table flips a running case's checklist and
+// nothing on the board says so.
 //
-// The caller passes the row it has ALREADY LOCKED, so the mark is made against
-// a case row no concurrent writer can start underneath it. The write's own
-// instant is NOW(), so "after start" is just whether the locked row already
-// carried a start that has passed. A row that carries an UNPARSEABLE start
-// still counts as started: a non-null actual_start_at is what "the procedure
-// has started" means everywhere else in this feature.
+// The asymmetry is clinical intent, not an oversight (owner decision
+// 2026-09-06, confirmed to the merge authority: record-yes / lift-no). Do not
+// "tidy" it into symmetry in either direction.
 //
-// (order-missing and external-result still refuse a started case — those two
-// reach outside the readiness tables into the order and lab rails, and their
-// own follow-up lane owns that decision.)
+// Both routes decide from the case row they have ALREADY LOCKED, so neither the
+// mark nor the refusal can be made against a case a concurrent writer starts
+// underneath it.
+
+// The waive side's marker. The write's own instant is NOW(), so "after start"
+// is just whether the locked row already carried a start that has passed. A row
+// that carries an UNPARSEABLE start still counts as started: a non-null
+// actual_start_at is what "the procedure has started" means everywhere else in
+// this feature.
 function isAfterCaseStart(cathCase, at = Date.now()) {
   const startedAt = cathCase?.actual_start_at;
   if (!startedAt) return false;
@@ -150,7 +162,9 @@ export async function waiveLabItem(caseId, itemCode, input = {}, context = {}) {
 // Lifting a waiver. The gate is not "undo": the waiver row and its audit trail
 // stay in the log, and this writes a SECOND decision over them — the item goes
 // back to being resolved from the patient's own lab evidence, which may leave
-// it missing again and take the check off pass.
+// it missing again and take the check off pass. That regression is exactly why
+// this route, alone of the two, stays closed after actual_start_at; the block
+// above waiveLabItem carries the reasoning.
 //
 // The state is not GUESSED here. Clearing the three waiver columns and running
 // the refresh on the SAME transaction is what re-resolves the item, so a
@@ -171,7 +185,17 @@ export async function unwaiveLabItem(caseId, itemCode, input = {}, context = {})
   requireUuid(context.actorUid, 'actorUid');
   return setTenantTx(tid, async (tx) => {
     const cathCase = await caseRowTx(tx, tid, caseId, { lock: true });
-    const liftedAfterStart = isAfterCaseStart(cathCase);
+    // The refusal half of the asymmetry documented above the waive path: a lift
+    // regresses the item and the check while the case status stands still, so
+    // it is closed once the patient is on the table. Decided from the LOCKED
+    // row and raised before any write — a refusal that has already cleared the
+    // waiver columns is the failure this guard exists to prevent.
+    if (cathCase?.actual_start_at) {
+      throw AppError.conflict(
+        'The procedure has started; a waiver may be recorded but no longer lifted',
+        'CATH_LAB_READINESS_CASE_STARTED',
+      );
+    }
     const rows = await tx.$queryRawUnsafe(
       `SELECT state, waive_reason
          FROM cath_case_lab_readiness_items
@@ -216,18 +240,16 @@ export async function unwaiveLabItem(caseId, itemCode, input = {}, context = {})
       // carried onto the row that withdraws it: the log otherwise says an
       // override was lifted without saying which override.
       //
-      // lifted_after_start is the un-waive twin of the waiver's
-      // recorded_after_start: the report that arrives mid-procedure is exactly
-      // why a waiver comes off late, and the trail says so. There is no derived
-      // marker for it on the item — lifting a waiver leaves the item resolved
-      // from evidence with no waiver columns at all, so the audit row is the
-      // only place this fact can live.
+      // There is deliberately no lifted_after_start twin of the waive path's
+      // recorded_after_start: the guard above means a lift can only ever happen
+      // before the start, so the field could only ever read false. A constant
+      // on an audit row is not provenance, it is noise a later reader would
+      // mistake for a fact that varies.
       metadata: {
         case_id: cathCase.id,
         item,
         reason,
         previous_reason: previousReason,
-        lifted_after_start: liftedAfterStart,
       },
     });
     return refreshCaseLabReadiness({ tenantId: tid, caseId: cathCase.id, db: tx, context });

@@ -14,7 +14,9 @@
  *     blocks the re-order that would produce some,
  *   - the two waiver actions, whose whole content is the order of their
  *     guards against a locked case row, the statements they then write, and
- *     the recorded_after_start / lifted_after_start marks they take off it.
+ *     the OPPOSITE ways the two of them treat a started case: a waiver may be
+ *     recorded after the start (and is marked recorded_after_start), and may
+ *     not be lifted after it.
  *
  * The stub answers each statement by its FROM target rather than by call order,
  * so reordering the reads inside the service does not silently feed one query
@@ -358,7 +360,7 @@ describe('outside-result entries key the lab rail per item', () => {
   });
 });
 
-describe('the waiver pair marks a late decision and guards the stored state', () => {
+describe('the waiver pair: a late record is marked, a late lift is refused', () => {
   // A start that is already in the PAST when the waiver statement runs, so
   // `waived_at > actual_start_at` is a fact about the fixture rather than a
   // race against the millisecond the two share.
@@ -373,10 +375,13 @@ describe('the waiver pair marks a late decision and guards the stored state', ()
     (entry) => /(INSERT INTO|UPDATE) cath_case_lab_readiness_items/.test(entry.sql),
   );
 
-  // OWNER DECISION, 2026-09-06: the pre-cath checklist is not restrictive. An
-  // emergency team already at the table is exactly the team that has to record
-  // "proceeding without HCV", so the waiver is ACCEPTED and marked, not
-  // refused. These two tests are the inverse of the ones they replace.
+  // OWNER DECISION, 2026-09-06 (confirmed to the merge authority): record-yes /
+  // lift-no. An emergency team already at the table is exactly the team that
+  // has to record "proceeding without HCV", so the waiver is ACCEPTED and
+  // marked. The lift is the other direction — it regresses the item and the
+  // check under a case status that does not move — and stays refused. These
+  // two tests are the pins on that asymmetry; if one of them starts agreeing
+  // with the other, the gate has been "tidied" into symmetry.
   test('waive after the case has started is accepted and marked recorded_after_start', async () => {
     stubRows.cathCase = startedCase();
 
@@ -416,30 +421,28 @@ describe('the waiver pair marks a late decision and guards the stored state', ()
     expect(after.items.find((row) => row.item_code === 'hcv').recorded_after_start).toBe(false);
   });
 
-  test('unwaive after the case has started is accepted and audited lifted_after_start', async () => {
+  test('unwaive after the case has started is refused, and writes nothing', async () => {
     await waiveLabItem(CASE_ID, 'hcv', { tenantId: TENANT, reason: 'on file elsewhere' }, ctx);
     executed = [];
     stubRows.cathCase = startedCase();
 
-    const after = await unwaiveLabItem(
+    await expect(unwaiveLabItem(
       CASE_ID, 'hcv', { tenantId: TENANT, reason: 'the report arrived mid-case' }, ctx,
-    );
+    )).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'CATH_LAB_READINESS_CASE_STARTED',
+    });
 
-    const audit = executed.find((entry) => /INSERT INTO audit_logs/.test(entry.sql));
-    expect(audit.params[3]).toBe('cath_lab.readiness.labs.unwaived');
-    expect(JSON.parse(audit.params[6])).toMatchObject({
-      item: 'hcv',
-      reason: 'the report arrived mid-case',
-      previous_reason: 'on file elsewhere',
-      lifted_after_start: true,
-    });
-    // The lift really happened: the report that turns up mid-procedure is the
-    // reason a waiver comes off, and refusing it would leave the record saying
-    // the team proceeded blind when it did not.
+    // BEFORE anything: not the item row, not the audit row. A lift that
+    // half-cleared the waiver columns and then refused would be the failure
+    // this guard exists to prevent.
+    expect(executed).toEqual([]);
+    // ...and the waiver is intact, which is the point: lifting it would send
+    // the item back to missing and the labs check back to pending while the
+    // case status stays `in_progress` and hides the regression.
     expect(stubRows.items.find((row) => row.item_code === 'hcv')).toMatchObject({
-      waived_by: null, waived_at: null, waive_reason: null,
+      state: 'waived', waive_reason: 'on file elsewhere',
     });
-    expect(after.items.find((row) => row.item_code === 'hcv').state).toBe('not_ordered');
   });
 
   test('unwaive refuses an item that carries no waiver, and writes nothing', async () => {

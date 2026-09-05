@@ -291,7 +291,9 @@ class _CathLabReadinessPanelState extends State<CathLabReadinessPanel> {
     // already on record) and no waiver (it looks available) and therefore no
     // way to make the case ready.
     final canEnterExternal = !labs.caseStarted && !item.available;
-    // NOT gated on `caseStarted`, unlike the two above.
+    // NOT gated on `caseStarted`, unlike the two above — and unlike its own
+    // exit, `canUnwaive`, three lines down. The two waiver rules move the start
+    // gate in OPPOSITE directions and that is deliberate; see the note there.
     //
     // OWNER DECISION, 2026-09-06: "in emergencies with no reports immediately
     // available we will proceed with no reports and we might add while the
@@ -310,10 +312,18 @@ class _CathLabReadinessPanelState extends State<CathLabReadinessPanel> {
     // The exit FROM a waiver, offered on exactly the rows that carry one. It is
     // deliberately NOT gated on the server's `missing[]`: a waived item is
     // never missing — that is what the waiver did — so reusing the waive rule
-    // here would hide the only way back out of it. Nor on `caseStarted`: the
-    // outside report that arrives mid-procedure is precisely why a waiver comes
-    // off, and the backend audits the lift as `lifted_after_start`.
-    final canUnwaive = item.state == 'waived';
+    // here would hide the only way back out of it.
+    //
+    // It IS gated on `caseStarted`, which is the asymmetry with `canWaive`
+    // above and is clinical intent, not an oversight (owner decision,
+    // 2026-09-06: record-yes / lift-no). Recording a waiver late is the
+    // less-restrictive direction. Lifting one is the more-restrictive one: the
+    // item and the labs check regress to pending while a running case's status
+    // does not move, so the board shows nothing and a mis-tap with the patient
+    // on the table would silently flip the checklist of a case in progress. The
+    // backend answers 409 CATH_LAB_READINESS_CASE_STARTED, and the panel must
+    // not offer the tap that earns it. Do not "tidy" the two into symmetry.
+    final canUnwaive = !labs.caseStarted && item.state == 'waived';
     return Padding(
       key: ValueKey('cath-lab-item-${item.itemCode}'),
       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -362,9 +372,9 @@ class _CathLabReadinessPanelState extends State<CathLabReadinessPanel> {
             ),
           // The waiver was recorded while the patient was already on the
           // table. The backend accepts that write (owner decision,
-          // 2026-09-06) — so the panel does not hide the action, it dates the
-          // record. Amber, not red: this is a documented decision, not a
-          // failure.
+          // 2026-09-06) — so the panel does not hide the waive action, it
+          // dates the record. Amber, not red: this is a documented decision,
+          // not a failure.
           if (item.state == 'waived' && item.recordedAfterStart)
             Padding(
               key: ValueKey('cath-lab-waived-after-start-${item.itemCode}'),

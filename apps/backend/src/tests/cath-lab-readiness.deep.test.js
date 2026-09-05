@@ -1020,9 +1020,9 @@ d('cath lab readiness (deep)', () => {
     const item = await pollForItem('hb', (row) => row?.state === 'result_final');
     expect(item).toMatchObject({ state: 'result_final', lab_result_id: resultId });
   }, 120000);
-  test('a waiver recorded after the procedure started is accepted and marked recorded_after_start; lifting it is accepted and audited lifted_after_start', async () => {
+  test('a waiver recorded after the procedure started is accepted and marked recorded_after_start', async () => {
     // A fresh, signed HCV value, so the item has real evidence to fall back to
-    // when the waiver over it is lifted in the next test. Every earlier HCV row
+    // when the waiver over it is lifted two tests below. Every earlier HCV row
     // (in-house and outside) is cancelled first so the resolver has one answer.
     await prisma.$executeRawUnsafe(
       `UPDATE lab_results SET status = 'cancelled'
@@ -1059,14 +1059,17 @@ d('cath lab readiness (deep)', () => {
       TENANT, CASE_ID,
     );
     try {
-      // OWNER DECISION, 2026-09-06: "in emergencies with no reports immediately
-      // available we will proceed with no reports and we might add while the
-      // procedure is ongoing and the reports become available; we do not want
-      // the pre-cath checklist to be restrictive as principle."
+      // OWNER DECISION, 2026-09-06 (confirmed to the merge authority):
+      // record-yes. "In emergencies with no reports immediately available we
+      // will proceed with no reports and we might add while the procedure is
+      // ongoing and the reports become available; we do not want the pre-cath
+      // checklist to be restrictive as principle."
       //
       // So the waiver is ACCEPTED once the case is running. Refusing it would
       // not stop the team proceeding without HIV — it would only stop them
-      // writing down that they did.
+      // writing down that they did. The other direction is the NEXT test: a
+      // lift after the start is refused, and the pair of them is the whole of
+      // the asymmetry.
       const lateWaive = await waiveLabItem(
         CASE_ID, 'hiv',
         { tenantId: TENANT, reason: 'Primary PCI under way, no HIV report available' },
@@ -1091,39 +1094,84 @@ d('cath lab readiness (deep)', () => {
         item: 'hiv', recorded_after_start: true,
       });
 
-      // ...and lifting one is accepted for the same reason from the other
-      // side: the report that arrives mid-procedure is exactly why a waiver
-      // comes off.
-      const lifted = await unwaiveLabItem(
-        CASE_ID, 'hiv', { tenantId: TENANT, reason: 'HIV report reached the lab' }, ctx(),
-      );
-      expect(lifted.items.find((row) => row.item_code === 'hiv').state).not.toBe('waived');
-      const unwaiveAudit = await prisma.$queryRawUnsafe(
-        `SELECT metadata FROM audit_logs
-          WHERE tenant_id = $1::uuid AND action = 'cath_lab.readiness.labs.unwaived'
-          ORDER BY created_at DESC, id DESC LIMIT 1`,
-        TENANT,
-      );
-      expect(unwaiveAudit[0].metadata).toMatchObject({
-        item: 'hiv',
-        reason: 'HIV report reached the lab',
-        previous_reason: 'Primary PCI under way, no HIV report available',
-        lifted_after_start: true,
-      });
-
-      // Both writes really landed on the stored rows, and hcv's own waiver —
-      // the one the NEXT test lifts — is still exactly as it was.
+      // The write really landed on the stored row, and hcv's own waiver — the
+      // one a later test lifts — is still exactly as it was.
       const rows = await prisma.$queryRawUnsafe(
         `SELECT item_code, state, waive_reason FROM cath_case_lab_readiness_items
           WHERE tenant_id = $1::uuid AND case_id = $2::bigint AND item_code IN ('hiv', 'hcv')
           ORDER BY item_code`,
         TENANT, CASE_ID,
       );
-      expect(rows.find((row) => row.item_code === 'hiv').state).not.toBe('waived');
+      expect(rows.find((row) => row.item_code === 'hiv')).toMatchObject({
+        state: 'waived',
+        waive_reason: 'Primary PCI under way, no HIV report available',
+      });
       expect(rows.find((row) => row.item_code === 'hcv')).toMatchObject({
         state: 'waived',
         waive_reason: 'Outside HCV report sighted at the desk',
       });
+    } finally {
+      await prisma.$executeRawUnsafe(
+        `UPDATE cath_lab_cases SET actual_start_at = NULL WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+        TENANT, CASE_ID,
+      );
+    }
+  }, 60000);
+
+  test('a waiver may not be lifted once the procedure has started', async () => {
+    // The other half of the owner's decision (2026-09-06): record-yes,
+    // LIFT-NO. Set up rather than inherited, so this test runs on its own as
+    // well as after the one above — waiveLabItem is an upsert, so re-waiving
+    // the item the previous test already waived is the same one row either way.
+    const waived = await waiveLabItem(
+      CASE_ID, 'hiv',
+      { tenantId: TENANT, reason: 'Primary PCI under way, no HIV report available' },
+      ctx(),
+    );
+    expect(waived.items.find((row) => row.item_code === 'hiv').state).toBe('waived');
+
+    const unwaiveAudits = async () => {
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT COUNT(*)::int AS n FROM audit_logs
+          WHERE tenant_id = $1::uuid AND action = 'cath_lab.readiness.labs.unwaived'`,
+        TENANT,
+      );
+      return rows[0].n;
+    };
+    const auditsBefore = await unwaiveAudits();
+
+    await prisma.$executeRawUnsafe(
+      `UPDATE cath_lab_cases SET actual_start_at = NOW()
+        WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+      TENANT, CASE_ID,
+    );
+    try {
+      // A lift re-resolves the item from evidence — here there is none, so hiv
+      // would go back to missing and the labs check back to pending. But
+      // recomputeCaseStatusTx only rewrites a case whose status is scheduled /
+      // readiness_pending / ready, so a RUNNING case's status would not move
+      // and the board would show nothing. The regression would be invisible,
+      // which is why a mis-tap with the patient on the table is refused
+      // outright rather than marked the way a late RECORD is.
+      await expect(unwaiveLabItem(
+        CASE_ID, 'hiv', { tenantId: TENANT, reason: 'HIV report reached the lab' }, ctx(),
+      )).rejects.toMatchObject({
+        statusCode: 409, code: 'CATH_LAB_READINESS_CASE_STARTED',
+      });
+
+      // The refusal wrote NOTHING: the waiver stands, with its own reason...
+      const rows = await prisma.$queryRawUnsafe(
+        `SELECT state, waive_reason, waived_by FROM cath_case_lab_readiness_items
+          WHERE tenant_id = $1::uuid AND case_id = $2::bigint AND item_code = 'hiv'`,
+        TENANT, CASE_ID,
+      );
+      expect(rows[0]).toMatchObject({
+        state: 'waived',
+        waive_reason: 'Primary PCI under way, no HIV report available',
+      });
+      expect(rows[0].waived_by).not.toBeNull();
+      // ...and no 'unwaived' row joined the trail claiming otherwise.
+      expect(await unwaiveAudits()).toBe(auditsBefore);
     } finally {
       await prisma.$executeRawUnsafe(
         `UPDATE cath_lab_cases SET actual_start_at = NULL WHERE tenant_id = $1::uuid AND id = $2::bigint`,

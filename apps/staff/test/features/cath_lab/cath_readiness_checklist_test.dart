@@ -1110,8 +1110,8 @@ void main() {
     },
   );
 
-  testWidgets('a started case still offers the waiver, and keeps the order and '
-      'outside-result actions closed', (tester) async {
+  testWidgets('a started case still offers the waiver, and keeps the lift, the '
+      'order and the outside-result actions closed', (tester) async {
     await tester.pumpWidget(
       _wrap(
         CathReadinessDependencies(
@@ -1158,6 +1158,11 @@ void main() {
     // RECORD that, and the backend accepts the write; hiding the button would
     // only lose the record, not the decision.
     expect(find.byKey(const ValueKey('cath-lab-waive-hb')), findsOneWidget);
+    // ...and CLOSED on the same panel, in the same render: the way out of the
+    // hcv waiver. Record-yes / lift-no is one screen's worth of asymmetry, so
+    // one test asserts both halves of it. The sibling test below carries the
+    // reasoning.
+    expect(find.byKey(const ValueKey('cath-lab-unwaive-hcv')), findsNothing);
   });
 
   testWidgets('a waived row offers the exit, and a plain row does not', (
@@ -1354,7 +1359,7 @@ void main() {
     expect(keys[0], isNot(keys[1]));
   });
 
-  testWidgets('a started case still offers the way OUT of a waiver', (
+  testWidgets('a started case offers no way to remove a waiver', (
     tester,
   ) async {
     await tester.pumpWidget(
@@ -1379,12 +1384,15 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // The backend accepts the lift on a started case and audits it
-    // `lifted_after_start` (owner decision, 2026-09-06). The outside report
-    // that arrives mid-procedure is exactly why a waiver comes off, so this is
-    // the tap the panel must keep offering.
+    // The two waiver actions move the start gate in OPPOSITE directions, and
+    // this test is the panel's pin on the refusing half (owner decision,
+    // 2026-09-06: record-yes / lift-no). A lift takes the item back to missing
+    // and the labs check back to pending while a running case's status does not
+    // move, so the regression would be invisible on the board; the backend
+    // answers 409 CATH_LAB_READINESS_CASE_STARTED and the panel must not offer
+    // the tap that earns it.
     expect(find.text('Waived: Emergency PCI'), findsOneWidget);
-    expect(find.byKey(const ValueKey('cath-lab-unwaive-hcv')), findsOneWidget);
+    expect(find.byKey(const ValueKey('cath-lab-unwaive-hcv')), findsNothing);
   });
 
   testWidgets('a waiver recorded after the case started is chipped as late', (
