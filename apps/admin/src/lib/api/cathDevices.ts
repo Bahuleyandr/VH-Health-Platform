@@ -241,6 +241,47 @@ export function exposureMarkerLabel(marker: string): string {
 /** GET /cssd/devices caps `limit` at 500; the console asks for a page of 200. */
 export const CSSD_DEVICE_LIST_LIMIT = 200;
 
+/**
+ * TanStack Query key for the category policy list, shared by the two screens
+ * that read it: the quality console's Reprocessing policy tab (which owns the
+ * editor) and the CSSD Devices tab (which offers a cycle-type picker built
+ * from it). One key means a policy saved on the first screen is what the
+ * second offers, from one cache entry — two keys would be two fetches and, for
+ * as long as one of them was stale, two different answers to "what may CSSD
+ * record for a catheter".
+ */
+export const CATH_REPROCESSING_POLICIES_QUERY_KEY = [
+  "cath",
+  "reprocessing",
+  "policies",
+] as const;
+
+/**
+ * The cycle types CSSD may record for a device of `category`. Mirrors
+ * `markDeviceReprocessed` in
+ * `apps/backend/src/services/clinical/cathDeviceReuseService.js`:
+ *
+ *   * no policy row for the category, or `reprocessable !== true`
+ *     → 409 `CATH_REPROCESSING_NOT_ALLOWED`, whatever type is sent;
+ *   * a type outside `allowed_cycle_types`
+ *     → 409 `CSSD_DEVICE_CYCLE_TYPE_NOT_ALLOWED`, carrying the allowed list.
+ *
+ * So an EMPTY return means "every cycle type would be refused", which is what
+ * the Devices tab disables the Reprocess action on. The result is ordered by
+ * the published vocabulary rather than by the stored array, so the picker
+ * reads the same however the policy happened to be saved, and a value the
+ * tenant stored that is not in the vocabulary is dropped rather than offered.
+ */
+export function allowedCycleTypesForCategory(
+  policies: readonly CathReprocessingPolicy[] | null | undefined,
+  category: CathCategory,
+): CathDeviceCycleType[] {
+  const policy = policies?.find((entry) => entry.category === category);
+  if (!policy || policy.reprocessable !== true) return [];
+  const allowed = new Set<string>(policy.allowed_cycle_types);
+  return CATH_DEVICE_CYCLE_TYPES.filter((type) => allowed.has(type));
+}
+
 function transitionHeaders(idempotencyKey: string) {
   return { "Idempotency-Key": assertIdempotencyKey(idempotencyKey) };
 }

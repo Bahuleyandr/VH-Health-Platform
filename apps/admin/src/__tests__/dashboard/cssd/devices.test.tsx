@@ -6,6 +6,14 @@
 // only the transitions the backend state machine allows are offered; and each
 // transition reaches the API with its payload AND an Idempotency-Key, since
 // the routes hard-400 without one.
+//
+// ...and, since the cycle-type picker was filtered, a fourth: the picker
+// offers only what the CATEGORY POLICY allows. That policy is a second gate
+// behind the state machine — `markDeviceReprocessed` answers 409
+// CATH_REPROCESSING_NOT_ALLOWED for a category the tenant has not made
+// reprocessable and 409 CSSD_DEVICE_CYCLE_TYPE_NOT_ALLOWED for a type outside
+// `allowed_cycle_types` — so an unfiltered picker offered choices that could
+// only ever be refused.
 
 import { DevicesTab } from "@/app/(with-auth)/dashboard/cssd/components/DevicesTab";
 import * as api from "@/lib/api/cathDevices";
@@ -22,6 +30,7 @@ import {
 jest.mock("@/lib/api/cathDevices", () => ({
   ...jest.requireActual("@/lib/api/cathDevices"),
   listCssdDevices: jest.fn(),
+  listCathReprocessingPolicies: jest.fn(),
   markCssdDeviceReprocessed: jest.fn(),
   receiveCssdDevice: jest.fn(),
   quarantineCssdDevice: jest.fn(),
@@ -75,6 +84,53 @@ const QUARANTINED = {
   status: "quarantined",
 } as unknown as api.CathDevice;
 
+/**
+ * GET /cath-reprocessing/policies always answers with one row per category
+ * (`listCategoryPolicies` defaults the ones the tenant never saved), so the
+ * fixture is the whole set — a sparse list would test a shape the backend
+ * cannot produce.
+ */
+function policiesFixture(
+  overrides: Partial<
+    Record<api.CathCategory, Partial<api.CathReprocessingPolicy>>
+  > = {},
+): api.CathReprocessingPoliciesResult {
+  const policies = api.CATH_CATEGORIES.map(
+    (category) =>
+      ({
+        tenant_id: "11111111-1111-4111-8111-111111111111",
+        category,
+        reprocessable: false,
+        max_cycles: null,
+        allowed_cycle_types: [],
+        function_check_required: false,
+        updated_by: null,
+        created_at: null,
+        updated_at: null,
+        ...overrides[category],
+      }) as api.CathReprocessingPolicy,
+  );
+  return { policies, count: policies.length };
+}
+
+/** The DEVICE fixture is a catheter, so this is the policy that governs it. */
+const CATHETER_POLICY = policiesFixture({
+  catheter: {
+    reprocessable: true,
+    max_cycles: 3,
+    // Deliberately NOT in vocabulary order, and deliberately a strict subset:
+    // dry_heat, chemical and other are the three the picker must drop.
+    allowed_cycle_types: ["plasma", "steam", "eto"],
+  },
+});
+
+function cycleTypeOptions() {
+  return within(screen.getByLabelText("Cycle type"))
+    .getAllByRole("option")
+    .map((option) => (option as HTMLOptionElement).value)
+    .filter((value) => value !== "");
+}
+
 function renderTab() {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -88,6 +144,9 @@ describe("CSSD Devices tab", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.mocked(api.listCssdDevices).mockResolvedValue([DEVICE]);
+    jest
+      .mocked(api.listCathReprocessingPolicies)
+      .mockResolvedValue(CATHETER_POLICY);
   });
 
   it("lists devices with tag, cycle and exposure markers", async () => {
@@ -232,6 +291,141 @@ describe("CSSD Devices tab", () => {
       target: { value: "steam" },
     });
     expect(screen.getByLabelText("Confirm device action")).toBeEnabled();
+  });
+
+  it("offers ONLY the cycle types the category policy allows, in vocabulary order", async () => {
+    renderTab();
+    fireEvent.click(
+      await screen.findByLabelText("Mark reprocessed RP00000001"),
+    );
+    // The policy stored plasma, steam, eto; the six-type vocabulary is
+    // steam, eto, plasma, dry_heat, chemical, other. The picker reads in
+    // vocabulary order and the three the policy omits are simply not there —
+    // sending one would be a 409 CSSD_DEVICE_CYCLE_TYPE_NOT_ALLOWED.
+    expect(cycleTypeOptions()).toEqual(["steam", "eto", "plasma"]);
+    expect(api.listCathReprocessingPolicies).toHaveBeenCalled();
+  });
+
+  it("disables Reprocess, naming the category, when no policy allows it", async () => {
+    // reprocessable:false is the default row `listCategoryPolicies` returns for
+    // a category the tenant never saved. Every cycle type would 409
+    // CATH_REPROCESSING_NOT_ALLOWED, so there is nothing to offer.
+    jest
+      .mocked(api.listCathReprocessingPolicies)
+      .mockResolvedValue(policiesFixture());
+    renderTab();
+    const row = (await screen.findByText("RP00000001")).closest("tr");
+    await waitFor(() =>
+      expect(
+        within(row!).getByLabelText("Mark reprocessed RP00000001"),
+      ).toBeDisabled(),
+    );
+    expect(
+      within(row!).getByText("No reprocessing policy allows catheter"),
+    ).toBeInTheDocument();
+    // ...and the operator is told where the policy is set, rather than left
+    // with a dead control.
+    expect(
+      within(row!).getByRole("link", { name: /reprocessing policy/i }),
+    ).toHaveAttribute("href", "/dashboard/quality/cath");
+    // The narrowing is the POLICY's, not the state machine's: the other
+    // transitions this status allows are untouched.
+    expect(within(row!).getByLabelText("Receive RP00000001")).toBeEnabled();
+    expect(within(row!).getByLabelText("Discard RP00000001")).toBeEnabled();
+  });
+
+  it("...and a policy that is reprocessable with an empty type list is the same refusal", async () => {
+    // The table's own CHECK allows this row shape; `markDeviceReprocessed`
+    // then refuses every type it is sent.
+    jest.mocked(api.listCathReprocessingPolicies).mockResolvedValue(
+      policiesFixture({
+        catheter: {
+          reprocessable: true,
+          max_cycles: 3,
+          allowed_cycle_types: [],
+        },
+      }),
+    );
+    renderTab();
+    const row = (await screen.findByText("RP00000001")).closest("tr");
+    await waitFor(() =>
+      expect(
+        within(row!).getByLabelText("Mark reprocessed RP00000001"),
+      ).toBeDisabled(),
+    );
+    expect(
+      within(row!).getByText("No reprocessing policy allows catheter"),
+    ).toBeInTheDocument();
+  });
+
+  it("disables Reprocess while the policy is still loading, and when it fails", async () => {
+    // A picker built from a policy nobody has read yet would offer whatever
+    // the empty default implies. Undecidable is not the same as forbidden, so
+    // the reason says so.
+    let resolvePolicies: (
+      value: api.CathReprocessingPoliciesResult,
+    ) => void = () => {};
+    jest.mocked(api.listCathReprocessingPolicies).mockReturnValue(
+      new Promise<api.CathReprocessingPoliciesResult>((resolve) => {
+        resolvePolicies = resolve;
+      }),
+    );
+    const { unmount } = renderTab();
+    const row = (await screen.findByText("RP00000001")).closest("tr");
+    expect(
+      within(row!).getByLabelText("Mark reprocessed RP00000001"),
+    ).toBeDisabled();
+    expect(
+      within(row!).getByText("Loading the reprocessing policy…"),
+    ).toBeInTheDocument();
+    resolvePolicies(CATHETER_POLICY);
+    await waitFor(() =>
+      expect(
+        within(row!).getByLabelText("Mark reprocessed RP00000001"),
+      ).toBeEnabled(),
+    );
+    unmount();
+
+    jest
+      .mocked(api.listCathReprocessingPolicies)
+      .mockRejectedValue(new Error("policy read failed"));
+    renderTab();
+    const failedRow = (await screen.findByText("RP00000001")).closest("tr");
+    await waitFor(() =>
+      expect(
+        within(failedRow!).getByLabelText("Mark reprocessed RP00000001"),
+      ).toBeDisabled(),
+    );
+    expect(
+      within(failedRow!).getByText(
+        "The reprocessing policy could not be loaded",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the backend 409 as the backstop when the policy changes under the dialog", async () => {
+    // The filter is a convenience, not the authority: the policy can be
+    // rewritten between the queue read and the transition, and the refusal the
+    // operator then gets is the backend's.
+    jest
+      .mocked(api.markCssdDeviceReprocessed)
+      .mockRejectedValue(
+        new Error("steam is not an allowed cycle type for catheter"),
+      );
+    renderTab();
+    fireEvent.click(
+      await screen.findByLabelText("Mark reprocessed RP00000001"),
+    );
+    fireEvent.change(screen.getByLabelText("Cycle type"), {
+      target: { value: "steam" },
+    });
+    fireEvent.click(screen.getByLabelText("Confirm device action"));
+
+    expect(
+      await screen.findByText(
+        "steam is not an allowed cycle type for catheter",
+      ),
+    ).toBeInTheDocument();
   });
 
   it("will not send a quarantine without a reason", async () => {

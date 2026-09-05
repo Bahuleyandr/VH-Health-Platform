@@ -21,11 +21,15 @@
 //
 // Only the transitions cathDeviceReuseService's state machine allows are
 // offered (see ACTIONS_BY_STATUS in DevicesTab) — anything else could only ever
-// answer 409 CATH_DEVICE_INVALID_TRANSITION.
+// answer 409 CATH_DEVICE_INVALID_TRANSITION. The cycle-type picker is narrowed
+// the same way, one gate further in: `allowedCycleTypes` is the category
+// policy's list, computed by DevicesTab, and a type outside it could only ever
+// answer 409 CSSD_DEVICE_CYCLE_TYPE_NOT_ALLOWED. Both narrowings are
+// convenience, not authority — the policy can change under an open dialog, and
+// the backend's refusal is what the operator then sees.
 
 import { useIdempotencyKey } from "@/hooks/useIdempotencyKey";
 import {
-  CATH_DEVICE_CYCLE_TYPES,
   CATH_DEVICE_DISCARD_REASONS,
   discardCssdDevice,
   markCssdDeviceReprocessed,
@@ -73,10 +77,21 @@ const TITLE: Record<DeviceAction, string> = {
 export function DeviceActionDialog({
   device,
   action,
+  allowedCycleTypes,
   onClose,
 }: {
   device: CathDevice;
   action: DeviceAction;
+  /**
+   * The cycle types this device's CATEGORY POLICY allows, computed by the
+   * caller from GET /cath-reprocessing/policies. Passed in rather than read
+   * here so the queue row and the dialog cannot disagree about whether the
+   * action is offerable at all. An empty list leaves the picker with nothing
+   * to choose and the confirm disabled — the caller disables the action
+   * outright in that case, so it is a backstop, not a state the operator
+   * should reach.
+   */
+  allowedCycleTypes: readonly CathDeviceCycleType[];
   onClose: () => void;
 }) {
   const qc = useQueryClient();
@@ -231,7 +246,7 @@ export function DeviceActionDialog({
               <option value="" disabled>
                 Select cycle type
               </option>
-              {CATH_DEVICE_CYCLE_TYPES.map((type) => (
+              {allowedCycleTypes.map((type) => (
                 <option key={type} value={type}>
                   {humanize(type)}
                 </option>

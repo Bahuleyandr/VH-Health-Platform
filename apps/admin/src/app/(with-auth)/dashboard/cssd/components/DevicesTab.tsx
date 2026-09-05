@@ -8,19 +8,33 @@
 // mirror the backend state machine exactly — a control for a transition
 // cathDeviceReuseService refuses could only ever answer 409
 // CATH_DEVICE_INVALID_TRANSITION.
+//
+// The state machine is not the only gate on "reprocessed": the per-category
+// reprocessing policy decides which cycle types may be recorded, and whether
+// the category may be reprocessed at all. So this tab reads the policy list
+// too (GET /cath-reprocessing/policies, from the same query cache the quality
+// console's editor writes) and offers only the cycle types it allows —
+// disabling the action outright, with the reason, when it allows none. The
+// backend refusals stay the authority: the policy can be rewritten between
+// this read and the transition, and a 409 CSSD_DEVICE_CYCLE_TYPE_NOT_ALLOWED
+// or CATH_REPROCESSING_NOT_ALLOWED still surfaces in the dialog.
 
 import { EmptyState } from "@/components/EmptyState";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import {
+  CATH_REPROCESSING_POLICIES_QUERY_KEY,
   CSSD_DEVICE_LIST_LIMIT,
   CSSD_DEVICE_STATUSES,
+  allowedCycleTypesForCategory,
   exposureMarkerLabel,
+  listCathReprocessingPolicies,
   listCssdDevices,
   type CathDevice,
   type CathDeviceStatus,
 } from "@/lib/api/cathDevices";
 import { useQuery } from "@tanstack/react-query";
 import { RefreshCw } from "lucide-react";
+import Link from "next/link";
 import { useState } from "react";
 
 import {
@@ -52,6 +66,13 @@ const ACTIONS_BY_STATUS: Record<CathDeviceStatus, DeviceAction[]> = {
   discarded: [],
 };
 
+/**
+ * Where the per-category reprocessing policy is set. There is no deep link to
+ * the tab itself — the quality console keeps the active tab in component state
+ * — so the link lands on the page and the label names the tab to open.
+ */
+const POLICY_TAB_HREF = "/dashboard/quality/cath";
+
 export function DevicesTab() {
   const [status, setStatus] = useState<CathDeviceStatus | "">(
     "awaiting_reprocessing",
@@ -70,6 +91,38 @@ export function DevicesTab() {
       }),
   });
   const devices = data ?? [];
+
+  // The category policy decides which cycle types CSSD may record — and
+  // whether it may record one at all. It is read from the SAME cache entry the
+  // quality console's policy editor writes, so a policy saved there is what
+  // this picker offers without a second fetch.
+  const policiesQuery = useQuery({
+    queryKey: CATH_REPROCESSING_POLICIES_QUERY_KEY,
+    queryFn: listCathReprocessingPolicies,
+    refetchOnWindowFocus: false,
+  });
+
+  /**
+   * Why this device's Reprocess action cannot be offered, or null when it can.
+   *
+   * Three refusals, deliberately distinguished: a policy nobody has read yet
+   * is UNDECIDABLE, not forbidden, and neither is a policy read that failed —
+   * offering the picker in either case would build it from an empty default
+   * and hand the operator choices the backend may well accept. Only the third
+   * is the policy actually saying no.
+   */
+  function reprocessBlockedReason(device: CathDevice): string | null {
+    if (policiesQuery.isPending) return "Loading the reprocessing policy…";
+    if (policiesQuery.isError) {
+      return "The reprocessing policy could not be loaded";
+    }
+    return allowedCycleTypesForCategory(
+      policiesQuery.data?.policies,
+      device.category,
+    ).length === 0
+      ? `No reprocessing policy allows ${humanize(device.category)}`
+      : null;
+  }
 
   return (
     <div className="space-y-4">
@@ -166,25 +219,50 @@ export function DevicesTab() {
                   </td>
                   <td className="p-3 text-xs">{fmtDate(device.updated_at)}</td>
                   <td className="p-3 text-right">
-                    <div className="flex flex-wrap justify-end gap-1">
-                      {(ACTIONS_BY_STATUS[device.status] ?? []).map(
-                        (action) => (
-                          <button
-                            key={action}
-                            type="button"
-                            aria-label={`${DEVICE_ACTION_LABEL[action]} ${device.device_tag}`}
-                            onClick={() => setDialog({ device, action })}
-                            className={`rounded border px-2 py-1 text-xs font-medium hover:bg-muted ${
-                              action === "discard"
-                                ? "border-rose-500/40 text-rose-700 dark:text-rose-300"
-                                : "border-border"
-                            }`}
-                          >
-                            {DEVICE_ACTION_LABEL[action]}
-                          </button>
-                        ),
-                      )}
-                    </div>
+                    {(() => {
+                      const actions = ACTIONS_BY_STATUS[device.status] ?? [];
+                      const blocked = actions.includes("reprocessed")
+                        ? reprocessBlockedReason(device)
+                        : null;
+                      return (
+                        <>
+                          <div className="flex flex-wrap justify-end gap-1">
+                            {actions.map((action) => {
+                              const refusal =
+                                action === "reprocessed" ? blocked : null;
+                              return (
+                                <button
+                                  key={action}
+                                  type="button"
+                                  aria-label={`${DEVICE_ACTION_LABEL[action]} ${device.device_tag}`}
+                                  disabled={refusal !== null}
+                                  title={refusal ?? undefined}
+                                  onClick={() => setDialog({ device, action })}
+                                  className={`rounded border px-2 py-1 text-xs font-medium hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50 ${
+                                    action === "discard"
+                                      ? "border-rose-500/40 text-rose-700 dark:text-rose-300"
+                                      : "border-border"
+                                  }`}
+                                >
+                                  {DEVICE_ACTION_LABEL[action]}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {blocked && (
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              <span>{blocked}</span>{" "}
+                              <Link
+                                href={POLICY_TAB_HREF}
+                                className="underline underline-offset-2"
+                              >
+                                Quality › Cath lab quality › Reprocessing policy
+                              </Link>
+                            </p>
+                          )}
+                        </>
+                      );
+                    })()}
                   </td>
                 </tr>
               ))}
@@ -197,6 +275,10 @@ export function DevicesTab() {
         <DeviceActionDialog
           device={dialog.device}
           action={dialog.action}
+          allowedCycleTypes={allowedCycleTypesForCategory(
+            policiesQuery.data?.policies,
+            dialog.device.category,
+          )}
           onClose={() => setDialog(null)}
         />
       )}
