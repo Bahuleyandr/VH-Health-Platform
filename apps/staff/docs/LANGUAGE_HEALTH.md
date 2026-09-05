@@ -105,17 +105,25 @@ unreferenced. The other 403 keys are read by live screens.
 
 ## Declared English fallback
 
-Three keys are deliberately **not** translated. Each is a declaration a
-person signs, where the wording is the legal content of the signature and
-must be the deploying hospital's approved text rather than a machine first
-pass. They fall through to English at runtime, and the parity gate skips
-exactly these three and prints them on every run:
+Five keys are deliberately **not** translated. The first three are each a
+declaration a person signs, where the wording is the legal content of the
+signature and must be the deploying hospital's approved text rather than a
+machine first pass. They fall through to English at runtime, and the parity
+gate skips exactly these five and prints them on every run:
 
 | Key | Why |
 |---|---|
 | `clinical_inbox.action.attestation` | First-person attestation the clinician signs against a diagnostic result. |
 | `ed_trauma.continuity.external_attestation` | States what an inter-facility handoff record asserts was confirmed. |
 | `s4.lib.referrals.continue_ownership` | First-person declaration of continuing clinical ownership of a patient. |
+| `continuity.unknown.allergy` | Continuity UNKNOWN marker, pinned English in all five locales by `test/i18n_guard_test.dart:37-46` so clinicians read the same marker whatever their language setting. |
+| `continuity.unknown.code_status` | Same class as `continuity.unknown.allergy`, pinned by the same test. |
+
+The last two differ in kind from the first three: they are **present** in
+every locale map carrying the English text, not absent from it. Declaring
+them records the decision and stops a reviewer "fixing" them; the only
+visible effect on the gate is that the `[loc] N/M` line counts them out of
+M while still counting them in N.
 
 The list lives in `DELIBERATE_ENGLISH_FALLBACK` in
 `apps/staff/scripts/i18n-verify.mjs`, with the reason next to each key. A key

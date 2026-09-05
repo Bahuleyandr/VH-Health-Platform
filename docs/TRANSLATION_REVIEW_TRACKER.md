@@ -153,6 +153,69 @@ review. The Staff Web activation title/message also remain unchanged and held
 for operator/release ownership. Neither hold may be converted into a technical
 placeholder merely to make the parity ledger look complete.
 
+## Confirm, do not fix (all locales)
+
+Everything in this section is already decided. A reviewer who meets one of these
+strings emits `confirm` — never `change`, and never `escalate` for wording. The
+only legitimate way to alter one is a separate, named decision by the authority
+in the "who decided" column, recorded here in the same commit as the change.
+
+### English by decision — Staff (`DELIBERATE_ENGLISH_FALLBACK` in `apps/staff/scripts/i18n-verify.mjs`)
+
+| Key | Why it stays English | Who decided |
+|---|---|---|
+| `clinical_inbox.action.attestation` | First-person attestation the clinician signs against a diagnostic result; the wording is the legal content of the signature. | Deploying hospital |
+| `ed_trauma.continuity.external_attestation` | States what an inter-facility handoff record asserts was confirmed. | Deploying hospital |
+| `s4.lib.referrals.continue_ownership` | First-person declaration of continuing clinical ownership of a patient. | Deploying hospital |
+| `continuity.unknown.allergy` | Pinned to `Allergy status UNKNOWN — not recorded` in all five locales by `apps/staff/test/i18n_guard_test.dart:37-46`; an UNKNOWN marker read by clinicians whatever their language setting. | Clinical safety (test-pinned) |
+| `continuity.unknown.code_status` | Pinned to `Code status NOT RECORDED — confirm per hospital policy` in all five locales by the same test. | Clinical safety (test-pinned) |
+
+Note that `continuity.unknown.generic` is NOT on this list: the same test asserts
+it resolves to something other than the key, and it is translated in hi/ta/te/ml.
+
+### English by decision — Patient (`DELIBERATE_ENGLISH_VALUES` in `apps/patient/scripts/i18n-verify.mjs`)
+
+The patient parity gate fails on an untranslated value unless the key is on this
+allowlist, so the allowlist is the authority; it currently holds eleven keys:
+
+| Key | Why it stays English |
+|---|---|
+| `profileEmailHint` | Literal example email address. |
+| `vitalsSpO2` | International clinical abbreviation. |
+| `splashAppName` | Product name. |
+| `aboutHospitalName` | Registered hospital name. |
+| `ancBpLabel`, `ancFhrLabel`, `ancHbLabel` | International clinical abbreviations (BP, FHR, Hb). |
+| `yourHealthTimelineRxPill` | International prescription symbol. |
+| `teleconsultBadge` | Product badge token. |
+| `abdmAddressHint` | Literal example ABHA address. |
+| `abhaEnrolOtpLabel` | ABDM programme term and required-field marker. |
+
+### Programme terms and units — Latin script in every locale
+
+`ABHA`, `OTP`, `HIV`, `HBsAg`, `HCV`; unit strings (`g/dL`, `mmol/L`, `10^3/uL`,
+`mmHg`, `bpm`); device tags (`RP00000042`); drug and test codes as printed on the
+report. `Aadhaar` is the exception: it takes the standard local form
+(hi आधार, ta ஆதார், te ఆధార్, ml ആധാർ). See `docs/i18n/GLOSSARY.md`.
+
+### Renderings pinned by a test
+
+Changing one of these is allowed, but the same commit updates the pin and the
+batch's tracker row says which pin moved and why.
+
+| Rendering | Key / locale | Pin |
+|---|---|---|
+| `வார்டு ஒதுக்கீடு` | `mar_supply.allocation` (ta) | `apps/staff/test/features/nursing/mar_supply_i18n_test.dart:80-92` |
+| `వార్డు కేటాయింపు` | `mar_supply.allocation` (te) | same test |
+| `कृपया फिर से साइन इन करें ताकि ऐप इस डिवाइस की पुष्टि कर सके।` | staff re-auth API error message (hi) | `apps/staff/test/core/utils/api_error_messages_test.dart:133-136` |
+| `ദാതൃ റീഫണ്ടിന് പൊരുത്തപ്പെടുത്തൽ ആവശ്യമാണ്` | gateway-refund reconciliation notification title (ml) | `apps/backend/src/tests/unit/paymentGatewayService.test.js:302` |
+| `Allergy status UNKNOWN — not recorded`, `Code status NOT RECORDED — confirm per hospital policy` | `continuity.unknown.allergy`, `continuity.unknown.code_status` (all five locales) | `apps/staff/test/i18n_guard_test.dart:37-46` |
+
+### Dead surfaces
+
+Keys marked dead in `apps/staff/docs/LANGUAGE_HEALTH.md` (`reception_counter.*`
+except the eight live ones) are `confirm` with reason `dead surface`. Do not
+spend review budget on them and do not delete them in a linguistic batch.
+
 ## Verification After Review
 
 ```bash
