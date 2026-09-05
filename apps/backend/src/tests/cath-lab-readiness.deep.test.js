@@ -793,6 +793,33 @@ d('cath lab readiness (deep)', () => {
     expect(await evidence()).toEqual(before);
   }, 60000);
 
+  test('a refresh that changes nothing rewrites nothing; a changed result still rewrites its item', async () => {
+    const stamps = () => prisma.$queryRawUnsafe(
+      `SELECT item_code, refreshed_at FROM cath_case_lab_readiness_items
+        WHERE tenant_id = $1::uuid AND case_id = $2::bigint
+        ORDER BY item_code`,
+      TENANT, CASE_ID,
+    ).then((rows) => rows.map((row) => `${row.item_code}:${row.refreshed_at.toISOString()}`));
+
+    await refreshCaseLabReadiness({ tenantId: TENANT, caseId: CASE_ID, context: ctx() });
+    const before = await stamps();
+    await refreshCaseLabReadiness({ tenantId: TENANT, caseId: CASE_ID, context: ctx() });
+    // Every GET of the case runs a refresh. Seven UPSERTs per read, for rows
+    // that say exactly what they already said, is the whole reason this holds.
+    expect(await stamps()).toEqual(before);
+
+    await prisma.$executeRawUnsafe(
+      `UPDATE lab_results SET value_text = '11.4', value_numeric = 11.4
+        WHERE tenant_id = $1::uuid AND patient_uid = $2::uuid AND test_code = 'HGB'`,
+      TENANT, PATIENT,
+    );
+    await refreshCaseLabReadiness({ tenantId: TENANT, caseId: CASE_ID, context: ctx() });
+    const after = await stamps();
+    const moved = after.filter((row, index) => row !== before[index]);
+    expect(moved).toHaveLength(1);
+    expect(moved[0].startsWith('hb:')).toBe(true);
+  }, 60000);
+
   test('a booking with no investigations row is an open order: the item reads ordered and no duplicate is placed', async () => {
     // Retire every haemoglobin value and every CBC order, so the ONLY evidence
     // that a count has been asked for is the patient-app booking.

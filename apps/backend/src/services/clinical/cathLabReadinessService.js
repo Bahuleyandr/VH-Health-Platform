@@ -446,6 +446,24 @@ function isCalendarDate(text) {
     && roundTrip.getUTCDate() === day;
 }
 
+// Structural equality for the JSON the check row already carries. Key ORDER is
+// not compared: `metadata` comes back out of jsonb, which does not preserve the
+// order the object was written in, so JSON.stringify on both sides would report
+// every read as a change and defeat the write-once rule below.
+function deepEqual(left, right) {
+  if (left === right) return true;
+  if (left === null || right === null) return false;
+  if (typeof left !== 'object' || typeof right !== 'object') return false;
+  if (Array.isArray(left) !== Array.isArray(right)) return false;
+  if (Array.isArray(left)) {
+    return left.length === right.length && left.every((item, i) => deepEqual(item, right[i]));
+  }
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+  return leftKeys.every((key) => Object.hasOwn(right, key) && deepEqual(left[key], right[key]));
+}
+
 function withTenant(tenantId, db, fn) {
   return db ? fn(db) : setTenant(tenantId, fn);
 }
@@ -594,13 +612,26 @@ async function serologyValidityDays(tenantId, db) {
 // Refresh: resolve the seven items, persist them, apply the check-level rule
 // ---------------------------------------------------------------------------
 
+// `lock`: false, 'update' or 'no key update'. Identifier-free — the clause is
+// chosen from this closed map, never interpolated from an argument.
+const CASE_LOCK_CLAUSES = Object.freeze({
+  update: 'FOR UPDATE',
+  // The refresh's lock. It still conflicts with the FOR UPDATE every other cath
+  // writer takes on the case row, so two refreshes and a writer still serialise
+  // — but it does NOT conflict with the FOR KEY SHARE that a child-row insert
+  // (a readiness item, a consumable, a device link) takes on the parent, so a
+  // read-driven refresh no longer parks writers behind it.
+  'no key update': 'FOR NO KEY UPDATE',
+});
+
 async function caseRowTx(client, tenantId, caseId, { lock = false } = {}) {
+  const lockClause = lock ? (CASE_LOCK_CLAUSES[lock] ?? CASE_LOCK_CLAUSES.update) : '';
   const rows = await client.$queryRawUnsafe(
     `SELECT id, tenant_id, patient_uid, encounter_id, facility_id, status, urgency, actual_start_at
        FROM cath_lab_cases
       WHERE tenant_id = $1::uuid
         AND id = $2::bigint
-      ${lock ? 'FOR UPDATE' : ''}
+      ${lockClause}
       LIMIT 1`,
     tenantOr(tenantId), positiveInt(caseId, 'case_id'),
   );
@@ -609,7 +640,72 @@ async function caseRowTx(client, tenantId, caseId, { lock = false } = {}) {
   return { ...row, id: num(row.id) };
 }
 
-async function upsertItemTx(tx, tenantId, caseId, item) {
+// Exactly what the UPSERT below binds, in one object, so the STORED row can be
+// compared against it column for column and an unchanged item skipped. The
+// widths mirror the lab_results columns migration 766 copies from.
+function itemWriteValues(item) {
+  return {
+    required: item.required !== false,
+    state: item.state,
+    // The copy targets mirror the lab_results widths (255 / 40 / 10); clamp
+    // rather than let a widened source column raise 22001 inside a case read.
+    value_text: cleanText(item.value_text, 255),
+    value_numeric: item.value_numeric == null ? null : Number(item.value_numeric),
+    unit: cleanText(item.unit, 40),
+    abnormal_flag: cleanText(item.abnormal_flag, 10),
+    is_critical: Boolean(item.is_critical),
+    observed_at: item.observed_at ?? null,
+    source: item.source ?? null,
+    lab_result_id: int4OrNull(item.lab_result_id),
+    investigation_id: int4OrNull(item.investigation_id),
+    specimen_id: int4OrNull(item.specimen_id),
+    ordered_at: item.ordered_at ?? null,
+    waived_by: item.waived_by ? requireUuid(item.waived_by, 'waived_by') : null,
+    waived_at: item.waived_at ?? null,
+    waive_reason: item.waive_reason ?? null,
+  };
+}
+
+const ITEM_TEXT_COLUMNS = Object.freeze([
+  'state', 'value_text', 'unit', 'abnormal_flag', 'source', 'waive_reason',
+]);
+const ITEM_INT_COLUMNS = Object.freeze(['lab_result_id', 'investigation_id', 'specimen_id']);
+const ITEM_INSTANT_COLUMNS = Object.freeze(['observed_at', 'ordered_at', 'waived_at']);
+
+// Does the stored row already say exactly what the computed item says? Compared
+// per column TYPE rather than with ===: the driver hands a NUMERIC back as a
+// Decimal or a string and a TIMESTAMPTZ back as a Date, while the computed item
+// carries a JS number and an ISO string. refreshed_at is deliberately excluded —
+// it is the write's own timestamp, not evidence, and comparing it would make
+// every row differ from itself.
+function storedItemMatches(stored, values) {
+  if (!stored) return false;
+  if (Boolean(stored.required) !== values.required) return false;
+  if (Boolean(stored.is_critical) !== values.is_critical) return false;
+  for (const column of ITEM_TEXT_COLUMNS) {
+    const left = stored[column] == null ? null : String(stored[column]);
+    if (left !== values[column]) return false;
+  }
+  for (const column of ITEM_INT_COLUMNS) {
+    const left = stored[column] == null ? null : Number(stored[column]);
+    if (left !== values[column]) return false;
+  }
+  for (const column of ITEM_INSTANT_COLUMNS) {
+    const left = stored[column] == null ? null : toMs(stored[column]);
+    const right = values[column] == null ? null : toMs(values[column]);
+    if (left !== right) return false;
+  }
+  const storedNumeric = stored.value_numeric == null ? null : Number(stored.value_numeric);
+  if (storedNumeric !== values.value_numeric) return false;
+  const storedWaivedBy = stored.waived_by == null ? null : String(stored.waived_by).toLowerCase();
+  return storedWaivedBy === values.waived_by;
+}
+
+const STORED_ITEM_SELECT = 'item_code, required, state, value_text, value_numeric, unit, '
+  + 'abnormal_flag, is_critical, observed_at, source, lab_result_id, investigation_id, '
+  + 'specimen_id, ordered_at, waived_by, waived_at, waive_reason, refreshed_at';
+
+async function upsertItemTx(tx, tenantId, caseId, itemCode, values) {
   await tx.$executeRawUnsafe(
     `INSERT INTO cath_case_lab_readiness_items
        (tenant_id, case_id, item_code, required, state, value_text, value_numeric, unit,
@@ -638,25 +734,23 @@ async function upsertItemTx(tx, tenantId, caseId, item) {
        refreshed_at = NOW()`,
     tenantId,
     caseId,
-    item.item_code,
-    item.required !== false,
-    item.state,
-    // The copy targets mirror the lab_results widths (255 / 40 / 10); clamp
-    // rather than let a widened source column raise 22001 inside a case read.
-    cleanText(item.value_text, 255),
-    item.value_numeric == null ? null : Number(item.value_numeric),
-    cleanText(item.unit, 40),
-    cleanText(item.abnormal_flag, 10),
-    Boolean(item.is_critical),
-    item.observed_at ?? null,
-    item.source ?? null,
-    int4OrNull(item.lab_result_id),
-    int4OrNull(item.investigation_id),
-    int4OrNull(item.specimen_id),
-    item.ordered_at ?? null,
-    item.waived_by ? requireUuid(item.waived_by, 'waived_by') : null,
-    item.waived_at ?? null,
-    item.waive_reason ?? null,
+    itemCode,
+    values.required,
+    values.state,
+    values.value_text,
+    values.value_numeric,
+    values.unit,
+    values.abnormal_flag,
+    values.is_critical,
+    values.observed_at,
+    values.source,
+    values.lab_result_id,
+    values.investigation_id,
+    values.specimen_id,
+    values.ordered_at,
+    values.waived_by,
+    values.waived_at,
+    values.waive_reason,
   );
 }
 
@@ -708,13 +802,19 @@ const RESULTABLE_BOOKING_STATUSES = Object.freeze([
   'BOOKED', 'CONFIRMED', 'DISPATCHED', 'COLLECTED', 'PROCESSING',
 ]);
 
+// How long the `labs` check row's live_evidence stamp may go unrefreshed before
+// the refresh writes it again even though nothing about the evidence changed.
+// A read-driven refresh runs on every GET of the case; without this the row
+// would be rewritten (metadata included, ~3 KB of it) on every one of them.
+const EVIDENCE_STAMP_MAX_AGE_MS = 60_000;
+
 export async function refreshCaseLabReadiness({
   tenantId, caseId, db = null, context = {},
 } = {}) {
   const tid = tenantOr(tenantId);
   const run = db ? (fn) => fn(db) : (fn) => setTenantTx(tid, fn);
   return run(async (tx) => {
-    const cathCase = await caseRowTx(tx, tid, caseId, { lock: true });
+    const cathCase = await caseRowTx(tx, tid, caseId, { lock: 'no key update' });
     const settings = await getReadinessSettings({ tenantId: tid, db: tx });
     const serologyDays = await serologyValidityDays(tid, tx);
     const asOf = new Date();
@@ -830,17 +930,22 @@ export async function refreshCaseLabReadiness({
         tid, bookingIds,
       )
       : [];
-    const waivers = await tx.$queryRawUnsafe(
-      `SELECT item_code, waived_by, waived_at, waive_reason
+    // The seven persisted rows, read ONCE. They are both the waiver source (a
+    // waiver lives on the item row it waives) and the baseline the write-once
+    // rule below compares against, so a second query for either would be a
+    // second chance for the two reads to disagree.
+    const storedRows = await tx.$queryRawUnsafe(
+      `SELECT ${STORED_ITEM_SELECT}
          FROM cath_case_lab_readiness_items
         WHERE tenant_id = $1::uuid
-          AND case_id = $2::bigint
-          AND state = 'waived'`,
+          AND case_id = $2::bigint`,
       tid, cathCase.id,
     );
+    const storedByCode = new Map(storedRows.map((row) => [row.item_code, row]));
 
     const items = ITEM_CODES.map((code) => {
-      const waiver = waivers.find((row) => row.item_code === code) || null;
+      const stored = storedByCode.get(code) || null;
+      const waiver = stored && stored.state === 'waived' ? stored : null;
       return {
         ...resolveItemState({
           item: code, results, orders, specimens, waiver, windowDays: windowDaysFor(code), asOf,
@@ -848,8 +953,13 @@ export async function refreshCaseLabReadiness({
         required: settings.required_items.includes(code),
       };
     });
+    // Write only what changed. A cath case is READ far more often than its labs
+    // move, and every read used to rewrite all seven rows — churning
+    // refreshed_at, the row versions and the WAL for nothing.
     for (const item of items) {
-      await upsertItemTx(tx, tid, cathCase.id, item);
+      const values = itemWriteValues(item);
+      if (storedItemMatches(storedByCode.get(item.item_code), values)) continue;
+      await upsertItemTx(tx, tid, cathCase.id, item.item_code, values);
     }
 
     const checkRows = await tx.$queryRawUnsafe(
@@ -892,42 +1002,59 @@ export async function refreshCaseLabReadiness({
       // by the next case read.
       const ownsEvidence = Boolean(decision.nextStatus) || autoManaged;
       const attachmentRef = `lab_readiness:${cathCase.id}`;
-      const metadataPatch = {
-        critical_warning: decision.criticalWarning,
-        critical_items: decision.criticalItems,
-        live_evidence: items,
-        live_evidence_refreshed_at: asOf.toISOString(),
-        auto_pending_reason: autoPendingReason,
-        ...(decision.nextStatus
-          ? {
-            auto_managed: true,
-            auto_passed_at: decision.nextStatus === 'pass' ? asOf.toISOString() : null,
-          }
-          : {}),
-      };
-      await tx.$executeRawUnsafe(
-        `UPDATE cath_lab_readiness_checks
-            SET status = COALESCE($4::text, status),
-                completed_at = CASE
-                  WHEN $4::text = 'pass' THEN NOW()
-                  WHEN $4::text = 'pending' THEN NULL
-                  ELSE completed_at
-                END,
-                completed_by = CASE WHEN $4::text IS NOT NULL THEN NULL ELSE completed_by END,
-                evidence_owner = CASE WHEN $6::boolean THEN 'lab_readiness' ELSE evidence_owner END,
-                source_name = CASE WHEN $6::boolean THEN 'lab_results' ELSE source_name END,
-                attachment_ref = CASE WHEN $6::boolean THEN $5 ELSE attachment_ref END,
-                metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb,
-                updated_at = NOW()
-          WHERE tenant_id = $1::uuid
-            AND id = $2::bigint`,
-        tid,
-        num(check.id),
-        JSON.stringify(metadataPatch),
-        decision.nextStatus,
-        attachmentRef,
-        ownsEvidence,
-      );
+      // The stored copy came back out of jsonb, so compare against the same
+      // round trip: a Date on this side and its ISO string on that one are the
+      // same evidence, and key order out of jsonb is not the order it went in.
+      const evidenceJson = JSON.parse(JSON.stringify(items));
+      const stampMs = toMs(priorMetadata.live_evidence_refreshed_at);
+      const stampIsStale = !Number.isFinite(stampMs)
+        || asOf.getTime() - stampMs > EVIDENCE_STAMP_MAX_AGE_MS;
+      const changed = Boolean(decision.nextStatus)
+        || (priorMetadata.critical_warning ?? null) !== decision.criticalWarning
+        || !deepEqual(priorMetadata.critical_items ?? null, decision.criticalItems)
+        || !deepEqual(priorMetadata.live_evidence ?? null, evidenceJson)
+        || (priorMetadata.auto_pending_reason ?? null) !== autoPendingReason
+        || (ownsEvidence && (check.evidence_owner !== 'lab_readiness'
+          || check.source_name !== 'lab_results'
+          || check.attachment_ref !== attachmentRef));
+      if (changed || stampIsStale) {
+        const metadataPatch = {
+          critical_warning: decision.criticalWarning,
+          critical_items: decision.criticalItems,
+          live_evidence: items,
+          live_evidence_refreshed_at: asOf.toISOString(),
+          auto_pending_reason: autoPendingReason,
+          ...(decision.nextStatus
+            ? {
+              auto_managed: true,
+              auto_passed_at: decision.nextStatus === 'pass' ? asOf.toISOString() : null,
+            }
+            : {}),
+        };
+        await tx.$executeRawUnsafe(
+          `UPDATE cath_lab_readiness_checks
+              SET status = COALESCE($4::text, status),
+                  completed_at = CASE
+                    WHEN $4::text = 'pass' THEN NOW()
+                    WHEN $4::text = 'pending' THEN NULL
+                    ELSE completed_at
+                  END,
+                  completed_by = CASE WHEN $4::text IS NOT NULL THEN NULL ELSE completed_by END,
+                  evidence_owner = CASE WHEN $6::boolean THEN 'lab_readiness' ELSE evidence_owner END,
+                  source_name = CASE WHEN $6::boolean THEN 'lab_results' ELSE source_name END,
+                  attachment_ref = CASE WHEN $6::boolean THEN $5 ELSE attachment_ref END,
+                  metadata = COALESCE(metadata, '{}'::jsonb) || $3::jsonb,
+                  updated_at = NOW()
+            WHERE tenant_id = $1::uuid
+              AND id = $2::bigint`,
+          tid,
+          num(check.id),
+          JSON.stringify(metadataPatch),
+          decision.nextStatus,
+          attachmentRef,
+          ownsEvidence,
+        );
+      }
       if (decision.nextStatus) {
         checkStatus = decision.nextStatus;
         autoManaged = true;
