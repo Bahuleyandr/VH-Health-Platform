@@ -300,6 +300,24 @@ export function listCssdDevices(
   });
 }
 
+/**
+ * The printed label for one device — `GET /cssd/devices/{id}/label`, which
+ * answers a 100 x 50 mm PDF by default (`?format=json` returns the same seven
+ * fields as JSON, and nothing here asks for that).
+ *
+ * A URL rather than a fetch: the response is binary, `core.ts` parses JSON,
+ * and what CSSD actually wants is the browser's own PDF viewer and its print
+ * dialog. Opened through the portal proxy so the httpOnly `auth_token` cookie
+ * rides along — the backend origin would not see it. Same shape as the
+ * cold-chain register export.
+ *
+ * The label carries no patient data and no serology: see DEVICE_LABEL_FIELDS
+ * in the backend service for why the register's exposure columns are not on it.
+ */
+export function cssdDeviceLabelUrl(id: number) {
+  return `/api/proxy${CSSD_DEVICES_PATH}/${id}/label`;
+}
+
 export function receiveCssdDevice(id: number, idempotencyKey: string) {
   // No request body in the spec; the route reads `req.params.id` alone.
   return postJSON<CathDevice>(

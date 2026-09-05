@@ -186,7 +186,18 @@ describe("CSSD Devices tab", () => {
     expect(
       within(row!).getByLabelText("Discard RP00000002"),
     ).toBeInTheDocument();
-    expect(within(row!).queryAllByRole("button")).toHaveLength(2);
+    // Two transitions plus the label print, which is not a transition at all —
+    // it moves nothing, so it is offered on every row that is still in
+    // circulation.
+    expect(
+      within(row!)
+        .queryAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual([
+      "Print label RP00000002",
+      "Release RP00000002",
+      "Discard RP00000002",
+    ]);
   });
 
   it("marks a device reprocessed with the chosen cycle type and an idempotency key", async () => {
@@ -426,6 +437,32 @@ describe("CSSD Devices tab", () => {
         "steam is not an allowed cycle type for catheter",
       ),
     ).toBeInTheDocument();
+  });
+
+  it("opens the label PDF through the portal proxy, and not for a discarded device", async () => {
+    // A binary response: `core.ts` parses JSON, so the label is opened in a
+    // tab (the browser's own PDF viewer carries the print dialog CSSD wants)
+    // rather than fetched. Same pattern as the cold-chain register export.
+    const open = jest.spyOn(window, "open").mockImplementation(() => null);
+    jest
+      .mocked(api.listCssdDevices)
+      .mockResolvedValue([
+        DEVICE,
+        { ...DEVICE, id: 3, device_tag: "RP00000003", status: "discarded" },
+      ] as unknown as api.CathDevice[]);
+    renderTab();
+
+    fireEvent.click(await screen.findByLabelText("Print label RP00000001"));
+    expect(open).toHaveBeenCalledWith(
+      "/api/proxy/api/v1/cssd/devices/1/label",
+      "_blank",
+      "noopener,noreferrer",
+    );
+
+    // A discarded device is out of circulation; a tag for it is a sticker for
+    // something nobody may put back in a case.
+    expect(screen.queryByLabelText("Print label RP00000003")).toBeNull();
+    open.mockRestore();
   });
 
   it("will not send a quarantine without a reason", async () => {

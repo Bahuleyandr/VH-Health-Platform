@@ -39,6 +39,22 @@ export const POST_USE_DISPOSITIONS = Object.freeze([
   'sent_for_reprocessing', 'discarded_bloodborne_exposure', 'discarded_max_cycles',
   'discarded_wasted', 'discarded_other', 'not_reprocessable',
 ]);
+// The printed CSSD label, field for field and in the order the label reads.
+//
+// It is DEVICE IDENTITY ONLY, and the omission is the point: the register also
+// carries exposure_flag and exposure_markers, which name a blood-borne marker a
+// PREVIOUS patient tested reactive for. A label is a physical artefact that
+// leaves the department stuck to the device — putting that on it would be a
+// serology disclosure to everyone who handles the tray, with no role gate
+// anywhere in front of it. The console shows those columns, behind
+// CSSD_DEVICE_ROUTE_ROLES; the sticker does not.
+//
+// The published contract (scripts/openapi/schemas/cathDeviceReuse.mjs,
+// CssdDeviceLabel) is diffed against this list, so neither copy can move alone.
+export const DEVICE_LABEL_FIELDS = Object.freeze([
+  'device_tag', 'category', 'catalogue_item', 'reuse_cycle', 'max_cycles', 'facility_name', 'printed_at',
+]);
+export const DEVICE_LABEL_FORMATS = Object.freeze(['pdf', 'json']);
 export const REACTIVE_PATIENT_RULES = Object.freeze(['discard', 'override_allowed']);
 export const UNKNOWN_SEROLOGY_RULES = Object.freeze(['warn', 'block_return']);
 export const CATH_CATEGORIES = Object.freeze([
@@ -494,6 +510,63 @@ export async function discardDevice(deviceId, input = {}, context = {}) {
   const reason = oneOf(rawReason, DISCARD_REASONS, 'reason', 'CATH_DEVICE_DISCARD_REASON_INVALID');
   requireUuid(context.actorUid, 'actorUid');
   return setTenantTx(tid, async (tx) => applyDeviceTransitionTx(tx, await lockDeviceTx(tx, tid, deviceId), 'discard', { discardReason: reason, discardNote: cleanText(input.note, 2000) }, context));
+}
+
+/**
+ * The printed label for one device: the seven DEVICE_LABEL_FIELDS, nothing
+ * else. See that constant for why the exposure columns are not among them.
+ *
+ * A read, not a transition — the device does not move because someone printed
+ * its tag — so it claims no idempotency key and takes no lock. It is still a
+ * transaction, because it writes an audit row: a printed label is a physical
+ * artefact in circulation, and "who printed this tag, when, in what format" is
+ * the only record that it exists at all. Same action shape as the CSSD
+ * instrument-set label (cssd.instrument_set.label_printed).
+ *
+ * No hipaa_access_log row: there is no patient subject to log one against, and
+ * a row with patient_id = NULL is noise in the one table breach detection
+ * queries by patient.
+ */
+export async function deviceLabel(deviceId, context = {}) {
+  const tid = tenantOr(context.tenantId);
+  const id = positiveInt(deviceId, 'device_id');
+  const format = oneOf(
+    context.format ?? DEVICE_LABEL_FORMATS[0], DEVICE_LABEL_FORMATS, 'format',
+    'CSSD_DEVICE_LABEL_FORMAT_INVALID',
+  );
+  requireUuid(context.actorUid, 'actorUid');
+  return setTenantTx(tid, async (tx) => {
+    // Both joins are tenant-pinned like the register's own DEVICE_FROM: a bare
+    // id join would name another tenant's facility or catalogue item on this
+    // tenant's label. facilities.display_name is NOT NULL and the device's
+    // (tenant_id, facility_id) FK is RESTRICT, so the inner joins always match
+    // a real device.
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT d.id, d.device_tag, d.cycle_count, d.max_cycles_snapshot,
+              c.item_name, c.category, f.display_name AS facility_name
+         FROM cath_reprocessable_devices d
+         JOIN cath_consumable_catalog c ON c.id = d.catalog_item_id AND c.tenant_id = d.tenant_id
+         JOIN facilities f ON f.id = d.facility_id AND f.tenant_id = d.tenant_id
+        WHERE d.tenant_id = $1::uuid AND d.id = $2::bigint
+        LIMIT 1`,
+      tid, id,
+    );
+    if (!rows[0]) throw AppError.notFound('Reprocessable device not found', 'CATH_DEVICE_NOT_FOUND');
+    const row = rows[0];
+    await recordDeviceAudit(tx, {
+      tenantId: tid, action: 'cssd.device.label_printed', resource: 'cath_reprocessable_devices',
+      resourceId: num(row.id), context, metadata: { device_tag: row.device_tag, format },
+    });
+    return {
+      device_tag: row.device_tag,
+      category: row.category,
+      catalogue_item: row.item_name,
+      reuse_cycle: Number(row.cycle_count),
+      max_cycles: Number(row.max_cycles_snapshot),
+      facility_name: row.facility_name,
+      printed_at: new Date().toISOString(),
+    };
+  });
 }
 
 // The generic validators (cleanText, requireUuid, positiveInt, oneOf) and the

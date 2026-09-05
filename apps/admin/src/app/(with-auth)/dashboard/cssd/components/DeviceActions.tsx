@@ -273,7 +273,8 @@ export function DeviceActionDialog({
           </Field>
           <p className="text-xs text-muted-foreground">
             Print and affix the label carrying tag {device.device_tag} before
-            the device leaves CSSD.
+            the device leaves CSSD — the queue row&apos;s{" "}
+            <span className="font-medium">Print label</span> action opens it.
           </p>
         </>
       )}

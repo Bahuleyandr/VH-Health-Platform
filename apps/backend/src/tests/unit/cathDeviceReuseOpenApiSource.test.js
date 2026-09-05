@@ -97,6 +97,52 @@ describe('CathReprocessableDevice mirrors DEVICE_SELECT exactly', () => {
   });
 });
 
+describe('CssdDeviceLabel mirrors the fields the label actually carries', () => {
+  const schema = overlay.schemas.CssdDeviceLabel;
+
+  it('publishes exactly DEVICE_LABEL_FIELDS, in order, all required', () => {
+    expect(schema.additionalProperties).toBe(false);
+    expect(schema.required).toEqual([...service.DEVICE_LABEL_FIELDS]);
+    expect(Object.keys(schema.properties)).toEqual([...service.DEVICE_LABEL_FIELDS]);
+  });
+
+  it('carries NO serology, exposure or patient column', () => {
+    // The label is printed and travels with the device. exposure_markers names
+    // a blood-borne marker a PREVIOUS patient tested reactive for, and it is
+    // on the device row one join away — publishing it here would put a
+    // serology disclosure on a sticker.
+    for (const forbidden of [
+      'exposure_flag', 'exposure_markers', 'patient_uid', 'reuse_screen',
+      'post_use_screen', 'reuse_restriction', 'current_usage_id', 'origin_usage_id',
+    ]) {
+      expect(Object.keys(schema.properties)).not.toContain(forbidden);
+    }
+  });
+
+  it('speaks the category vocabulary and bounds the cycle counters', () => {
+    expect(schema.properties.category.enum).toEqual([...service.CATH_CATEGORIES]);
+    expect(schema.properties.device_tag.pattern).toBe(overlay.ENUMS.DEVICE_TAG_OUT_PATTERN);
+    // cycle_count starts at 0 and max_cycles_snapshot at 1, the same bounds
+    // the device row publishes for the columns these two are read from.
+    expect(schema.properties.reuse_cycle).toMatchObject({ type: 'integer', minimum: 0 });
+    expect(schema.properties.max_cycles).toMatchObject({ type: 'integer', minimum: 1 });
+  });
+
+  it('the operation declares BOTH answers the route can send', () => {
+    const operation = overlay.operations['GET /api/v1/cssd/devices/{id}/label'];
+    const content = operation.additionalResponses[200].content;
+    expect(Object.keys(content).sort()).toEqual(['application/json', 'application/pdf']);
+    expect(content['application/json'].schema).toEqual({
+      $ref: '#/components/schemas/CssdDeviceLabelResponse',
+    });
+    expect(content['application/pdf'].schema).toEqual({ type: 'string', format: 'binary' });
+    // The format switch is published with the two values the service accepts.
+    const format = operation.parameters.find((parameter) => parameter.name === 'format');
+    expect(format.schema.enum).toEqual([...service.DEVICE_LABEL_FORMATS]);
+    expect(format.required).toBe(false);
+  });
+});
+
 describe('settings and policy rows mirror their SELECT lists', () => {
   it('CathReprocessingSettings = SETTINGS_SELECT + the derived `configured` flag', () => {
     const columns = [...selectColumns('SETTINGS_SELECT'), 'configured'];

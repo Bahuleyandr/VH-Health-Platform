@@ -22157,6 +22157,80 @@
           }
         }
       },
+      "CssdDeviceLabel": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "device_tag",
+          "category",
+          "catalogue_item",
+          "reuse_cycle",
+          "max_cycles",
+          "facility_name",
+          "printed_at"
+        ],
+        "properties": {
+          "device_tag": {
+            "type": "string",
+            "pattern": "^RP[0-9]{8,19}$"
+          },
+          "category": {
+            "type": "string",
+            "enum": [
+              "stent",
+              "balloon",
+              "guidewire",
+              "catheter",
+              "sheath",
+              "closure_device",
+              "pacemaker",
+              "lead",
+              "other"
+            ]
+          },
+          "catalogue_item": {
+            "type": "string"
+          },
+          "reuse_cycle": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "max_cycles": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "facility_name": {
+            "type": "string"
+          },
+          "printed_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CssdDeviceLabelResponse": {
+        "type": "object",
+        "required": [
+          "success",
+          "data"
+        ],
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CssdDeviceLabel"
+          },
+          "requestId": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
       "CssdDeviceListResponse": {
         "type": "object",
         "required": [
@@ -121075,6 +121149,67 @@
             }
           }
         }
+      }
+    },
+    "/api/v1/cssd/devices/{id}/label": {
+      "get": {
+        "operationId": "get_api_v1_cssd_devices_by_id_label",
+        "tags": [
+          "cssd"
+        ],
+        "responses": {
+          "200": {
+            "description": "The device label, as a PDF by default or as JSON on ?format=json.",
+            "content": {
+              "application/pdf": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CssdDeviceLabelResponse"
+                }
+              }
+            }
+          }
+        },
+        "description": "The printed CSSD label for one device: a 100 x 50 mm PDF carrying the device tag as large monospace text and as a Code 39 barcode, plus the catalogue item, category, cycle counter and facility. ?format=json returns the same seven fields as JSON. A read, so it claims no idempotency key; a reprint is not a second event. The label carries NO patient data and NO serology — the register exposure columns are deliberately not on it — so this path writes no PHI access log, only a cssd.device.label_printed audit row.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 9007199254740991
+                },
+                {
+                  "type": "string",
+                  "pattern": "^[1-9][0-9]*$",
+                  "description": "Decimal string when the identifier exceeds the JavaScript safe-integer range."
+                }
+              ]
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "pdf",
+                "json"
+              ],
+              "default": "pdf"
+            }
+          }
+        ]
       }
     },
     "/api/v1/cssd/devices/{id}/quarantine": {

@@ -20,9 +20,11 @@ import {
   upsertConsumableCatalogItem,
 } from '../services/clinical/cathLabService.js';
 import {
+  DEVICE_LABEL_FIELDS,
   decorateConsumablesWithReuse,
   deviceByTag,
   deviceHistory,
+  deviceLabel,
   discardDevice,
   listDevices,
   markDeviceReprocessed,
@@ -35,6 +37,7 @@ import {
   upsertReprocessingSettings,
 } from '../services/clinical/cathDeviceReuseService.js';
 import { clinicalDate, recordMarkers } from '../services/clinical/bloodborneMarkerService.js';
+import { renderCathDeviceLabelPdf } from '../services/documents/cathDeviceLabelPdfService.js';
 
 const hasDatabaseUrl = Boolean(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const describeIfDb = hasDatabaseUrl ? describe : describe.skip;
@@ -667,6 +670,50 @@ describeIfDb('cath device reuse (deep)', () => {
     expect(history.events.map((e) => e.action)).toEqual(expect.arrayContaining([
       'cath_device.created', 'cath_device.receive', 'cath_device.reprocessed', 'cath_device.capture',
     ]));
+  }, 60000);
+
+  test('the printed label reads the register and the facility, and audits the print', async () => {
+    // The only place the label SQL is exercised against the real schema: it
+    // joins facilities, which nothing else on this router does, and it runs
+    // under RLS on both tables.
+    const device = await deviceByTag({ tenantId: TENANT, tag: deviceTags[0] });
+    const label = await deviceLabel(device.id, ctx(CSSD_ACTOR, { format: 'pdf' }));
+
+    expect(Object.keys(label).sort()).toEqual([...DEVICE_LABEL_FIELDS].sort());
+    expect(label).toMatchObject({
+      device_tag: deviceTags[0],
+      category: 'catheter',
+      catalogue_item: 'Deep test reusable diagnostic catheter',
+      reuse_cycle: device.cycle_count,
+      max_cycles: device.max_cycles_snapshot,
+    });
+    // The facility name comes from the joined row, not from the register.
+    const [facility] = await prisma.$queryRawUnsafe(
+      `SELECT display_name FROM facilities WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT, facilityId,
+    );
+    expect(label.facility_name).toBe(facility.display_name);
+    // Nothing patient-shaped, and in particular no serology: this device has
+    // been through a case, so a leaky projection would have something to leak.
+    expect(JSON.stringify(label)).not.toMatch(/hbsag|patient|exposure/i);
+
+    const audits = await prisma.$queryRawUnsafe(
+      `SELECT action, metadata FROM audit_logs
+        WHERE tenant_id = $1::uuid AND resource = 'cath_reprocessable_devices'
+          AND resource_id = $2 AND action = 'cssd.device.label_printed'`,
+      TENANT, String(device.id),
+    );
+    expect(audits).toHaveLength(1);
+    expect(audits[0].metadata).toMatchObject({ device_tag: deviceTags[0], format: 'pdf' });
+
+    // ...and the PDF really is one, drawn from that label alone.
+    const pdf = await renderCathDeviceLabelPdf(label);
+    expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+
+    // Another tenant's id space is not this one's: an id that exists nowhere
+    // in this tenant is a 404, never a label for someone else's device.
+    await expect(deviceLabel(2147483646, ctx(CSSD_ACTOR)))
+      .rejects.toMatchObject({ code: 'CATH_DEVICE_NOT_FOUND' });
   }, 60000);
 
   test('a reused row is not a facility shutdown blocker', async () => {

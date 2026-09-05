@@ -5,6 +5,8 @@ import { CSSD_DEVICE_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
 import {
+  DEVICE_LABEL_FORMATS,
+  deviceLabel,
   discardDevice,
   listDevices,
   markDeviceReprocessed,
@@ -13,6 +15,7 @@ import {
   releaseDevice,
 } from '../../services/clinical/cathDeviceReuseService.js';
 import * as cssd from '../../services/cssd/cssdService.js';
+import { renderCathDeviceLabelPdf } from '../../services/documents/cathDeviceLabelPdfService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { success, relayAppError } from '../../utils/responseHelper.js';
 
@@ -115,6 +118,29 @@ router.get('/devices', wrap((req) =>
     facilityId: req.query.facility_id,
     limit: req.query.limit,
   })));
+
+// The printed label. A READ — the device does not move because someone printed
+// its tag — so it carries no idempotency claim, exactly like the queue read
+// above: burning a claim would make a reprint replay the first response instead
+// of printing. It answers a 100x50mm PDF by default and the same seven fields
+// as JSON on ?format=json, and it carries NO patient data (see
+// DEVICE_LABEL_FIELDS), so there is no PHI access log on this path either.
+//
+// `format` is normalised here the same way the service's `oneOf` normalises it
+// (trim + lower case) so the branch below and the validated value cannot
+// disagree; an unknown value is the service's 400, not a silent PDF.
+router.get('/devices/:id/label', wrap(async (req, res) => {
+  const format = String(req.query.format ?? DEVICE_LABEL_FORMATS[0]).trim().toLowerCase()
+    || DEVICE_LABEL_FORMATS[0];
+  const label = await deviceLabel(req.params.id, { ...contextOf(req), format });
+  if (format === 'json') return label;
+  const pdf = await renderCathDeviceLabelPdf(label);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="device-label-${label.device_tag}.pdf"`);
+  res.setHeader('Content-Length', String(pdf.length));
+  res.send(pdf);
+  return undefined;
+}, { message: 'Device label' }));
 
 router.post('/devices/:id/receive', deviceIdempotency, wrap((req) =>
   receiveDevice(req.params.id, deviceContext(req)), { message: 'Device received in CSSD' }));

@@ -23,6 +23,7 @@ const FUNCTION_CHECKS = ['not_required', 'pass', 'fail'];
 const DISCARD_REASONS = ['max_cycles_reached', 'bloodborne_exposure', 'late_reactive_marker', 'function_check_failed', 'sterilization_failed', 'damaged', 'wasted', 'policy_change', 'other'];
 const POST_USE_DISPOSITIONS = ['sent_for_reprocessing', 'discarded_bloodborne_exposure', 'discarded_max_cycles', 'discarded_wasted', 'discarded_other', 'not_reprocessable'];
 const REUSE_STATUSES = ['restricted', 'unknown', 'clear'];
+const DEVICE_LABEL_FORMATS = ['pdf', 'json'];
 const REACTIVE_PATIENT_RULES = ['discard', 'override_allowed'];
 const UNKNOWN_SEROLOGY_RULES = ['warn', 'block_return'];
 
@@ -173,6 +174,7 @@ const postUseOptions = {
 export const ENUMS = {
   CATEGORIES,
   DEVICE_STATUSES,
+  DEVICE_LABEL_FORMATS,
   CYCLE_TYPES,
   FUNCTION_CHECKS,
   DISCARD_REASONS,
@@ -309,6 +311,39 @@ export const schemas = {
       requestId: { type: 'string', nullable: true }
     }
   },
+  // The printed CSSD label. Mirrors DEVICE_LABEL_FIELDS in
+  // cathDeviceReuseService.js exactly — device IDENTITY only. The register's
+  // exposure_flag / exposure_markers are deliberately absent: they name a
+  // blood-borne marker a PREVIOUS patient tested reactive for, and this
+  // artefact leaves the department stuck to the device with no role gate in
+  // front of it.
+  CssdDeviceLabel: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['device_tag', 'category', 'catalogue_item', 'reuse_cycle', 'max_cycles', 'facility_name', 'printed_at'],
+    properties: {
+      device_tag: { type: 'string', pattern: DEVICE_TAG_OUT_PATTERN },
+      category: { type: 'string', enum: CATEGORIES },
+      catalogue_item: { type: 'string' },
+      reuse_cycle: { type: 'integer', minimum: 0 },
+      max_cycles: { type: 'integer', minimum: 1 },
+      // facilities.display_name is NOT NULL and the device's
+      // (tenant_id, facility_id) foreign key is RESTRICT, so the inner join
+      // always names a facility.
+      facility_name: { type: 'string' },
+      printed_at: { type: 'string', format: 'date-time' }
+    }
+  },
+  CssdDeviceLabelResponse: {
+    type: 'object',
+    required: ['success', 'data'],
+    properties: {
+      success: { type: 'boolean', example: true },
+      message: { type: 'string' },
+      data: { $ref: '#/components/schemas/CssdDeviceLabel' },
+      requestId: { type: 'string', nullable: true }
+    }
+  },
   CssdDeviceReprocessedRequest: {
     type: 'object',
     additionalProperties: false,
@@ -426,6 +461,25 @@ export const operations = {
       queryParameter('limit', { type: 'integer', minimum: 1, maximum: 500 })
     ],
     response: 'CssdDeviceListResponse'
+  },
+  'GET /api/v1/cssd/devices/{id}/label': {
+    description:
+      'The printed CSSD label for one device: a 100 x 50 mm PDF carrying the device tag as large monospace text and as a Code 39 barcode, plus the catalogue item, category, cycle counter and facility. ?format=json returns the same seven fields as JSON. A read, so it claims no idempotency key; a reprint is not a second event. The label carries NO patient data and NO serology — the register exposure columns are deliberately not on it — so this path writes no PHI access log, only a cssd.device.label_printed audit row.',
+    pathParameters: { id: BIGINT_WIRE },
+    parameters: [queryParameter('format', { type: 'string', enum: DEVICE_LABEL_FORMATS, default: 'pdf' })],
+    // Declared through additionalResponses because ONE 200 carries TWO media
+    // types here, and the overlay's `response` key models a single one. The
+    // JSON variant is what the generated clients type; the PDF is the default
+    // the browser opens.
+    additionalResponses: {
+      200: {
+        description: 'The device label, as a PDF by default or as JSON on ?format=json.',
+        content: {
+          'application/pdf': { schema: { type: 'string', format: 'binary' } },
+          'application/json': { schema: { $ref: '#/components/schemas/CssdDeviceLabelResponse' } }
+        }
+      }
+    }
   },
   'POST /api/v1/cssd/devices/{id}/receive': {
     description: 'Receives a device into CSSD (awaiting_reprocessing to in_cssd). Requires Idempotency-Key (scope cssd_device_transition).',

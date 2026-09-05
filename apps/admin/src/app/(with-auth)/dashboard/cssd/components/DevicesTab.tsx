@@ -26,6 +26,7 @@ import {
   CSSD_DEVICE_LIST_LIMIT,
   CSSD_DEVICE_STATUSES,
   allowedCycleTypesForCategory,
+  cssdDeviceLabelUrl,
   exposureMarkerLabel,
   listCathReprocessingPolicies,
   listCssdDevices,
@@ -227,6 +228,22 @@ export function DevicesTab() {
                       return (
                         <>
                           <div className="flex flex-wrap justify-end gap-1">
+                            {device.status !== "discarded" && (
+                              <button
+                                type="button"
+                                aria-label={`Print label ${device.device_tag}`}
+                                onClick={() =>
+                                  window.open(
+                                    cssdDeviceLabelUrl(device.id),
+                                    "_blank",
+                                    "noopener,noreferrer",
+                                  )
+                                }
+                                className="rounded border border-border px-2 py-1 text-xs font-medium hover:bg-muted"
+                              >
+                                Print label
+                              </button>
+                            )}
                             {actions.map((action) => {
                               const refusal =
                                 action === "reprocessed" ? blocked : null;
