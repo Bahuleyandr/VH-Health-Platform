@@ -4432,9 +4432,15 @@ and, beside `serologyItemLeaks` and mirroring it exactly — a **VALUE** test ag
 // publishes it, and it is the label D11's NO branch replaces with
 // isolation_group), so machine rows are out of scope.
 const ISOLATION_CLASS_VALUES = new Set([...SEROLOGY_CODES, 'isolation_mixed']);
+// Population counters for the liveness test below: a VALUE walk over zero
+// matching nodes passes vacuously, so the suite must prove the poisoned
+// envelope and the poisoned Decision were actually visited.
+const d11Population = { warningNodes: 0, decisionNodes: 0 };
 function isolationClassLeaks(node, where) {
   const leaks = [];
   if (node.machine_no != null) return leaks;
+  if (typeof node.code === 'string' && 'machine_id' in node && 'severity' in node) d11Population.warningNodes += 1;
+  if (typeof node.status === 'string' && 'evidence' in node && 'asOf' in node) d11Population.decisionNodes += 1;
   for (const key of ['isolation_class', 'required_class']) {
     if (node[key] != null && ISOLATION_CLASS_VALUES.has(String(node[key]))) {
       leaks.push(`${where}.${key} = ${JSON.stringify(node[key])} (a patient's isolation class - D11)`);
@@ -4443,6 +4449,19 @@ function isolationClassLeaks(node, where) {
   return leaks;
 }
 ```
+
+(c2) **Population (liveness) assertion - the walk must have something to check.** Under the interim payload (spec §3.4) no response legitimately carries a patient's class, so the value sweep in (c) has a population of **zero by design** and can only ever prove absence; on its own it would also pass over a fixture that never reached a body (an unmounted route, a mock that stopped returning `POISONED_ISOLATION`, a walker that skipped arrays). Add one test that runs AFTER the non-entitled sweep and fails as an inert fixture rather than passing over nothing:
+
+```js
+test('the D11 sentinel walk has a population: the poisoned isolation envelope and Decision were visited', () => {
+  // Counted during the non-entitled sweep over the dialysis mounts. Zero means the
+  // value check in isolationClassLeaks ran over nothing and proved nothing.
+  expect(d11Population.warningNodes).toBeGreaterThan(0); // isolation_warnings[] entries (code + machine_id + severity)
+  expect(d11Population.decisionNodes).toBeGreaterThan(0); // Decision-shaped nodes (status + evidence + asOf): the projected reuse_restriction
+});
+```
+
+Reset both counters in the sweep's `beforeAll` so the numbers describe this run. The same test also pins that an **entitled** role's body over `GET /sessions/:id/dialyser` still carries the poisoned `reuse_restriction.reasons` sentinel (the existing entitled-sees assertion pattern): proof the mock payload flows to the body, so the non-entitled absence is a projection result and not a dead route.
 
 (d) Regenerate the snapshot deliberately and read the diff:
 
@@ -5094,7 +5113,7 @@ Expected: analyzer clean, every suite PASS (including the five-locale parity gua
 
 - [ ] **Step 4: Mutation checks, all restored before commit**
 
-Run each, confirm the named test goes red, restore: (1) dedication refusal in `captureTx` → dialysis deep "refused for another patient"; (2) flag/ceiling order in `computeDispositionOptions` → rules "checked BEFORE the ceiling" and the parity test; (3) the live `isolationDecisionTx` in `recordDialyserReprocessing` replaced by `usage.reuse_screen` → dialysis deep "snapshot vs decision" and the fourth `dialysisReuseHookCallSites` test; (4) `codes.push('DIALYSIS_SEROLOGY_UNKNOWN')` for `unknown` in `computeIsolationWarnings` → rules "UNKNOWN never isolates" and dialysis deep "an unknown patient is never blocked"; (5) the `onSessionCancelledTx(` call in `cancelSession` → dialysis deep "a scheduled session releases its captured dialyser" and `dialysisReuseHookCallSites`; (6) `partialUse` forced to `false` in `onSessionCancelledTx` and in `onIssueCancelledTx` → the `RPD_RETURN_REQUIRED` tests in both deep suites; (7) the `onSetReturnedTx` call in `transitionIssue` → the call-site pin; (8) the `onIssueCancelledTx(` call → the cancelled-branch pin and OT deep "an issued set is released"; (9) the `retainOnServerError: true` on the reuse-register claim → the wiring test; (10) `bool_or` → `DISTINCT ON … ORDER BY id DESC` in the census → census deep "older-row positive"; (11) a `UPDATE dialysis_patients SET hbsag_status` added to `dialysisReuseService.js` → `dialysisSerologyWriters`; (12) **`required_class: 'hbsag'` added to `POISONED_ISOLATION`'s warning entry** → the canary goes red for the three non-entitled dialysis readers, naming `isolation_warnings[0].required_class` (Task 6 Step 4(e); D11, spec §2) — and `'general'` in the same slot must stay **green**, because that is a machine label and not a marker class; (13) **`includeIsolationClass: true` added to `getSessionDialyser`'s resolver call** → `dialysisReuseHookCallSites`'s opt-in pin goes red on the count. (There is still no `isolation` projection to mutate — the payload carries no class to blank, spec §3.4/§3.5 — so no check names one; there is no legacy-column mapper or enrol guard in this lane to mutate either.)
+Run each, confirm the named test goes red, restore: (1) dedication refusal in `captureTx` → dialysis deep "refused for another patient"; (2) flag/ceiling order in `computeDispositionOptions` → rules "checked BEFORE the ceiling" and the parity test; (3) the live `isolationDecisionTx` in `recordDialyserReprocessing` replaced by `usage.reuse_screen` → dialysis deep "snapshot vs decision" and the fourth `dialysisReuseHookCallSites` test; (4) `codes.push('DIALYSIS_SEROLOGY_UNKNOWN')` for `unknown` in `computeIsolationWarnings` → rules "UNKNOWN never isolates" and dialysis deep "an unknown patient is never blocked"; (5) the `onSessionCancelledTx(` call in `cancelSession` → dialysis deep "a scheduled session releases its captured dialyser" and `dialysisReuseHookCallSites`; (6) `partialUse` forced to `false` in `onSessionCancelledTx` and in `onIssueCancelledTx` → the `RPD_RETURN_REQUIRED` tests in both deep suites; (7) the `onSetReturnedTx` call in `transitionIssue` → the call-site pin; (8) the `onIssueCancelledTx(` call → the cancelled-branch pin and OT deep "an issued set is released"; (9) the `retainOnServerError: true` on the reuse-register claim → the wiring test; (10) `bool_or` → `DISTINCT ON … ORDER BY id DESC` in the census → census deep "older-row positive"; (11) a `UPDATE dialysis_patients SET hbsag_status` added to `dialysisReuseService.js` → `dialysisSerologyWriters`; (12) **`required_class: 'hbsag'` added to `POISONED_ISOLATION`'s warning entry** → the canary goes red for the three non-entitled dialysis readers, naming `isolation_warnings[0].required_class` (Task 6 Step 4(e); D11, spec §2) — and `'general'` in the same slot must stay **green**, because that is a machine label and not a marker class; (13) **`includeIsolationClass: true` added to `getSessionDialyser`'s resolver call** → `dialysisReuseHookCallSites`'s opt-in pin goes red on the count. (14) **`isolation: POISONED_ISOLATION` removed from the `getSessionDialyser` mock (or `isolation_warnings` set to `[]`)** → the canary's population test goes red naming `warningNodes: 0` (Task 6 Step 4(c2)); the value sentinel alone would stay green, which is the point. (There is still no `isolation` projection to mutate — the payload carries no class to blank, spec §3.4/§3.5 — so no check names one; there is no legacy-column mapper or enrol guard in this lane to mutate either.)
 
 - [ ] **Step 5: Push and open the DRAFT PR**
 
