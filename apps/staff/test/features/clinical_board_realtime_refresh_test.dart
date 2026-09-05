@@ -8,7 +8,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
 import 'package:vhhealth_staff/core/providers/theme_provider.dart';
 import 'package:vhhealth_staff/core/services/stemi_pathway_api_service.dart';
+import 'package:vhhealth_staff/features/cath_lab/models/cath_readiness_models.dart';
 import 'package:vhhealth_staff/features/cath_lab/screens/cath_lab_screen.dart';
+import 'package:vhhealth_staff/features/cath_lab/widgets/cath_readiness_checklist.dart';
 import 'package:vhhealth_staff/features/emergency/screens/ambulance_tracking_screen.dart';
 import 'package:vhhealth_staff/features/emergency/screens/ed_trauma_workbench_screen.dart';
 import 'package:vhhealth_staff/features/emr/screens/patient_command_board_screen.dart';
@@ -72,6 +74,14 @@ Future<void> _pumpLabBookings(
   );
   await tester.pumpAndSettle();
 }
+
+/// The readiness checklist loads on mount; these tests are about the
+/// worklist and its tabs, so they hand it an empty case payload rather
+/// than letting it reach for the network.
+final _noReadiness = CathReadinessDependencies(
+  loadReadiness: (_) async =>
+      CathCaseReadiness.fromJson(const <String, dynamic>{}),
+);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -275,6 +285,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: CathLabScreen(
+            readinessDependencies: _noReadiness,
             currentStaffUid: 'staff-1',
             loadCases: (_) async => const [],
             loadStemiActivations: () async {

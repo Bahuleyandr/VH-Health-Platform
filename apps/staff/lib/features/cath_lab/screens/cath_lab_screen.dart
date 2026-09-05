@@ -22,6 +22,7 @@ import '../widgets/cath_case_reports_panel.dart';
 import '../widgets/cath_schedule_strip.dart';
 import '../widgets/cath_case_consumables_panel.dart';
 import '../widgets/cath_quick_wins_panel.dart';
+import '../widgets/cath_readiness_checklist.dart';
 import '../widgets/cath_reuse_restriction_strip.dart';
 
 typedef CathLabCaseLoader = Future<List<CathLabCaseSummary>> Function(
@@ -79,6 +80,7 @@ class CathLabScreen extends StatefulWidget {
     this.reportDependencies = const CathReportDependencies(),
     this.consumableDependencies = const CathConsumableDependencies(),
     this.quickWinsDependencies = const CathQuickWinsDependencies(),
+    this.readinessDependencies = const CathReadinessDependencies(),
   });
 
   final CathLabCaseLoader? loadCases;
@@ -92,6 +94,7 @@ class CathLabScreen extends StatefulWidget {
   final CathReportDependencies reportDependencies;
   final CathConsumableDependencies consumableDependencies;
   final CathQuickWinsDependencies quickWinsDependencies;
+  final CathReadinessDependencies readinessDependencies;
 
   @override
   State<CathLabScreen> createState() => _CathLabScreenState();
@@ -440,6 +443,7 @@ class _CathLabScreenState extends State<CathLabScreen>
       itemBuilder: (context, index) => _ReadinessCard(
         cathCase: cases[index],
         quickWinsDependencies: widget.quickWinsDependencies,
+        readinessDependencies: widget.readinessDependencies,
       ),
     );
   }
@@ -958,10 +962,12 @@ class _ReadinessCard extends StatelessWidget {
   const _ReadinessCard({
     required this.cathCase,
     this.quickWinsDependencies = const CathQuickWinsDependencies(),
+    this.readinessDependencies = const CathReadinessDependencies(),
   });
 
   final CathLabCaseSummary cathCase;
   final CathQuickWinsDependencies quickWinsDependencies;
+  final CathReadinessDependencies readinessDependencies;
 
   @override
   Widget build(BuildContext context) {
@@ -1017,6 +1023,10 @@ class _ReadinessCard extends StatelessWidget {
                   style: TextStyle(color: AppTheme.textSecondary),
                 ),
               ],
+            ),
+            CathReadinessChecklist(
+              caseId: cathCase.id,
+              dependencies: readinessDependencies,
             ),
             CathQuickWinsPanel(
               caseId: cathCase.id,

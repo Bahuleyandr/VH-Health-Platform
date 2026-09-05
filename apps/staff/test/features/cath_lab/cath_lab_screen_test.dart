@@ -5,11 +5,21 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_core/services/realtime_client.dart';
 import 'package:vhhealth_staff/core/config/staff_role_contract.g.dart';
 import 'package:vhhealth_staff/core/services/stemi_pathway_api_service.dart';
+import 'package:vhhealth_staff/features/cath_lab/models/cath_readiness_models.dart';
 import 'package:vhhealth_staff/features/cath_lab/screens/cath_lab_screen.dart';
+import 'package:vhhealth_staff/features/cath_lab/widgets/cath_readiness_checklist.dart';
 import 'package:vhhealth_staff/features/cath_lab/models/cath_consumable_models.dart';
 import 'package:vhhealth_staff/features/cath_lab/models/cath_report_models.dart';
 import 'package:vhhealth_staff/features/cath_lab/services/cath_lab_api_service.dart';
 import 'package:vhhealth_staff/features/cath_lab/widgets/cath_case_reports_panel.dart';
+
+/// The readiness checklist loads on mount; these tests are about the
+/// worklist and its tabs, so they hand it an empty case payload rather
+/// than letting it reach for the network.
+final _noReadiness = CathReadinessDependencies(
+  loadReadiness: (_) async =>
+      CathCaseReadiness.fromJson(const <String, dynamic>{}),
+);
 
 void main() {
   test('consumable capture role gate matches the backend workflow gate', () {
@@ -162,6 +172,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: CathLabScreen(
+          readinessDependencies: _noReadiness,
           currentStaffUid: 'staff-1',
           loadStemiActivations: () async => const [],
           realtimeEvents: (_) => const Stream<RealtimeEvent>.empty(),
@@ -214,6 +225,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: CathLabScreen(
+          readinessDependencies: _noReadiness,
           currentStaffUid: 'staff-1',
           loadStemiActivations: () async => const [],
           realtimeEvents: (_) => const Stream<RealtimeEvent>.empty(),
@@ -265,6 +277,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: CathLabScreen(
+          readinessDependencies: _noReadiness,
           currentStaffUid: 'staff-1',
           loadStemiActivations: () async => const [],
           realtimeEvents: (_) => const Stream<RealtimeEvent>.empty(),
@@ -306,6 +319,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: CathLabScreen(
+          readinessDependencies: _noReadiness,
           currentStaffUid: 'staff-1',
           loadCases: (_) async => const [],
           loadStemiActivations: () async => const [],
@@ -328,6 +342,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: CathLabScreen(
+          readinessDependencies: _noReadiness,
           currentStaffUid: 'staff-1',
           now: () => DateTime.utc(2026, 7, 11, 10, 10, 30),
           loadCases: (_) async => const [],
@@ -379,6 +394,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: CathLabScreen(
+          readinessDependencies: _noReadiness,
           currentStaffUid: 'staff-1',
           now: () => DateTime.utc(2026, 7, 11, 10, 10, 30),
           loadCases: (_) async => const [],
@@ -409,6 +425,7 @@ void main() {
       await tester.pumpWidget(
         MaterialApp(
           home: CathLabScreen(
+            readinessDependencies: _noReadiness,
             currentStaffUid: 'staff-1',
             loadCases: (_) async => const [],
             loadStemiActivations: () async {
@@ -474,6 +491,7 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         home: CathLabScreen(
+          readinessDependencies: _noReadiness,
           loadCases: (_) async => const [cathCase],
           loadRole: () async => 'DOCTOR',
           // The merged workbench also boots the STEMI strip; inject inert
