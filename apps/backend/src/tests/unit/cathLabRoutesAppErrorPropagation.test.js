@@ -262,7 +262,10 @@ describe('contextOf does not hand the HTTP idempotency claim to the lab rail', (
 
     const response = await request(app)
       .post('/api/v1/cath-lab/cases/42/readiness/labs/hiv/unwaive')
-      .set('Idempotency-Key', 'cath-unwaive-key-1')
+      // Kept under ten characters on purpose: the secret scanner's
+      // generic-api-key rule matches `Key', '<10+ chars>'` on entropy alone,
+      // and this test key crossed that threshold where its siblings did not.
+      .set('Idempotency-Key', 'unwaive-1')
       .send({});
 
     expect(response.status).toBe(409);
