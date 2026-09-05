@@ -108,13 +108,7 @@ function fetchAdminApiRoutes(): string[] {
  */
 function coreHelperRoutes(): string[] {
   const source = read(DEVICE_API_MODULE);
-  const constants = new Map(
-    [
-      ...source.matchAll(
-        /export const ([A-Z][A-Z0-9_]*) =\s*"([^"]+)" as const;/g,
-      ),
-    ].map(([, name, value]) => [name, value]),
-  );
+  const constants = devicePathConstants(source);
   const verbs: Record<string, string> = {
     getJSON: "GET",
     postJSON: "POST",
@@ -134,9 +128,49 @@ function coreHelperRoutes(): string[] {
   return calls;
 }
 
-/** The union of both client modules. */
+/** The module's exported path constants, resolved from its own source. */
+function devicePathConstants(source: string): Map<string, string> {
+  return new Map(
+    [
+      ...source.matchAll(
+        /export const ([A-Z][A-Z0-9_]*) =\s*"([^"]+)" as const;/g,
+      ),
+    ].map(([, name, value]) => [name, value]),
+  );
+}
+
+/**
+ * Paths the module hands to the BROWSER as a URL rather than fetching. The
+ * device label answers a binary PDF, so the console opens it through the
+ * portal proxy (`window.open`) and never sends it through core.ts — but a URL
+ * builder is still a caller, and a label route with no control behind it is
+ * exactly the defect this file exists to catch.
+ */
+function proxyUrlRoutes(): string[] {
+  const source = read(DEVICE_API_MODULE);
+  const constants = devicePathConstants(source);
+  const urls = [
+    ...source.matchAll(/`\/api\/proxy\$\{([A-Z][A-Z0-9_]*)\}([^`]*)`/g),
+  ].map(([, constName, rest]) => {
+    const base = constants.get(constName);
+    // An unresolvable constant would quietly drop the URL from the census.
+    expect(base).toBeDefined();
+    // A URL opened in a tab is a GET.
+    return `GET ${normalizeLiteral(`${base as string}${rest}`)}`;
+  });
+  expect(urls.length).toBeGreaterThan(0);
+  return urls;
+}
+
+/** The union of both client modules, fetches and opened URLs alike. */
 function calledRoutes(): string[] {
-  return [...new Set([...fetchAdminApiRoutes(), ...coreHelperRoutes()])];
+  return [
+    ...new Set([
+      ...fetchAdminApiRoutes(),
+      ...coreHelperRoutes(),
+      ...proxyUrlRoutes(),
+    ]),
+  ];
 }
 
 describe("CSSD router coverage", () => {
