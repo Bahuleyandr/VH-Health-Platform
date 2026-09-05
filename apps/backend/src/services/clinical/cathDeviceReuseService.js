@@ -55,6 +55,14 @@ export const DEVICE_LABEL_FIELDS = Object.freeze([
   'device_tag', 'category', 'catalogue_item', 'reuse_cycle', 'max_cycles', 'facility_name', 'printed_at',
 ]);
 export const DEVICE_LABEL_FORMATS = Object.freeze(['pdf', 'json']);
+/**
+ * The one status a label is refused for. A discard is the register's only
+ * terminal state: the device is out of circulation and a sticker is a physical
+ * instruction to put it back on a tray. Every other status — including
+ * `quarantined`, where CSSD still needs the tag to identify what it is holding
+ * — prints.
+ */
+export const DEVICE_LABEL_BLOCKED_STATUS = 'discarded';
 export const REACTIVE_PATIENT_RULES = Object.freeze(['discard', 'override_allowed']);
 export const UNKNOWN_SEROLOGY_RULES = Object.freeze(['warn', 'block_return']);
 export const CATH_CATEGORIES = Object.freeze([
@@ -322,16 +330,25 @@ function normalizeDevice(row) {
     current_usage_id: row.current_usage_id == null ? null : num(row.current_usage_id), cycle_count: Number(row.cycle_count),
     max_cycles_snapshot: Number(row.max_cycles_snapshot), facility_id: Number(row.facility_id), exposure_markers: Array.isArray(row.exposure_markers) ? row.exposure_markers : [] };
 }
-// One queue row: the device columns plus the two the queue joins in. The
-// COALESCE in DEVICE_QUEUE_SELECT makes status_changed_at non-null, so the
-// published contract can require it — but be explicit rather than trusting a
-// SQL expression to stay non-null across an edit.
+// One queue row: the device columns plus the two the queue joins in.
+//
+// Both are passed through as the query returned them, with NO nullable
+// fallback, because the published contract (CssdDeviceQueueItem) requires both
+// as non-nullable strings and the SQL already guarantees it: the facilities
+// join is INNER on a RESTRICT foreign key with a NOT NULL display_name, and
+// DEVICE_QUEUE_SELECT COALESCEs status_changed_at onto d.created_at, itself
+// NOT NULL DEFAULT NOW() (migration 765).
+//
+// A `?? null` here would look defensive and be the opposite: it would take a
+// query that had somehow stopped guaranteeing the column and hand every
+// consumer a null their generated types say cannot occur — the admin console's
+// sort would compare NaN and its clock would read "-" forever, silently. If
+// that invariant ever breaks, it should break where it broke.
 function normalizeQueueDevice(row) {
-  const device = normalizeDevice(row);
   return {
-    ...device,
-    facility_name: row.facility_name ?? null,
-    status_changed_at: row.status_changed_at ?? row.created_at ?? null,
+    ...normalizeDevice(row),
+    facility_name: row.facility_name,
+    status_changed_at: row.status_changed_at,
   };
 }
 // The audit actions that ARE a status change, for the queue's
@@ -605,7 +622,7 @@ export async function deviceLabel(deviceId, context = {}) {
     // (tenant_id, facility_id) FK is RESTRICT, so the inner joins always match
     // a real device.
     const rows = await tx.$queryRawUnsafe(
-      `SELECT d.id, d.device_tag, d.cycle_count, d.max_cycles_snapshot,
+      `SELECT d.id, d.device_tag, d.cycle_count, d.max_cycles_snapshot, d.status,
               c.item_name, c.category, f.display_name AS facility_name
          FROM cath_reprocessable_devices d
          JOIN cath_consumable_catalog c ON c.id = d.catalog_item_id AND c.tenant_id = d.tenant_id
@@ -616,6 +633,19 @@ export async function deviceLabel(deviceId, context = {}) {
     );
     if (!rows[0]) throw AppError.notFound('Reprocessable device not found', 'CATH_DEVICE_NOT_FOUND');
     const row = rows[0];
+    // A discard is irreversible and takes the device out of circulation for
+    // good, so its tag must not be re-stickered: a label is a physical
+    // instruction to put the thing back on a tray. The console already hides
+    // the control, but the URL is guessable and the SERVICE is the authority —
+    // the same reason every transition is refused here rather than in the UI.
+    // Refused BEFORE the audit row below: a print that did not happen is not a
+    // printed label in circulation.
+    if (row.status === DEVICE_LABEL_BLOCKED_STATUS) {
+      throw AppError.conflict(
+        `Device ${row.device_tag} is discarded; a label would put it back in circulation`,
+        'CSSD_DEVICE_LABEL_NOT_PRINTABLE', { status: row.status },
+      );
+    }
     await recordDeviceAudit(tx, {
       tenantId: tid, action: 'cssd.device.label_printed', resource: 'cath_reprocessable_devices',
       resourceId: num(row.id), context, metadata: { device_tag: row.device_tag, format },

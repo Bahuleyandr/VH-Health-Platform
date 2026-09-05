@@ -24,6 +24,16 @@ const DISCARD_REASONS = ['max_cycles_reached', 'bloodborne_exposure', 'late_reac
 const POST_USE_DISPOSITIONS = ['sent_for_reprocessing', 'discarded_bloodborne_exposure', 'discarded_max_cycles', 'discarded_wasted', 'discarded_other', 'not_reprocessable'];
 const REUSE_STATUSES = ['restricted', 'unknown', 'clear'];
 const DEVICE_LABEL_FORMATS = ['pdf', 'json'];
+// Everything GET /cssd/devices/{id}/label can refuse with, `code` for `code`.
+// CSSD_DEVICE_LABEL_NOT_PRINTABLE is the 409: a discard is the register's one
+// terminal state, and a sticker is a physical instruction to put the device
+// back on a tray. The other three are the 400/404 the same handler answers.
+const DEVICE_LABEL_ERROR_CODES = [
+  'CATH_LAB_BAD_ID',
+  'CSSD_DEVICE_LABEL_FORMAT_INVALID',
+  'CATH_DEVICE_NOT_FOUND',
+  'CSSD_DEVICE_LABEL_NOT_PRINTABLE'
+];
 const REACTIVE_PATIENT_RULES = ['discard', 'override_allowed'];
 const UNKNOWN_SEROLOGY_RULES = ['warn', 'block_return'];
 
@@ -53,6 +63,16 @@ const idempotencyHeaderParameter = {
   schema: { type: 'string', minLength: 1, maxLength: 200, pattern: '^[A-Za-z0-9_\\-:.]+$' }
 };
 const queryParameter = (name, schema) => ({ name, in: 'query', required: false, schema });
+
+/** One `additionalResponses` entry for the label surface, naming its codes. */
+const labelErrorResponse = (description, codes) => ({
+  description: `${description} \`code\`: ${codes.join(', ')}.`,
+  content: {
+    'application/json': {
+      schema: { $ref: '#/components/schemas/CssdDeviceLabelErrorResponse' }
+    }
+  }
+});
 
 const device = {
   type: 'object',
@@ -195,6 +215,7 @@ export const ENUMS = {
   CATEGORIES,
   DEVICE_STATUSES,
   DEVICE_LABEL_FORMATS,
+  DEVICE_LABEL_ERROR_CODES,
   CYCLE_TYPES,
   FUNCTION_CHECKS,
   DISCARD_REASONS,
@@ -365,6 +386,21 @@ export const schemas = {
       requestId: { type: 'string', nullable: true }
     }
   },
+  // The label's failure envelope. `code` sits at the ROOT beside `success` and
+  // `message` (responseHelper.error's topLevel branch lifts an AppError code
+  // there), never under `details`.
+  CssdDeviceLabelErrorResponse: {
+    type: 'object',
+    additionalProperties: true,
+    required: ['success'],
+    properties: {
+      success: { type: 'boolean', enum: [false] },
+      message: { type: 'string' },
+      code: { type: 'string', enum: DEVICE_LABEL_ERROR_CODES },
+      details: { type: 'object', additionalProperties: true },
+      requestId: { type: 'string', nullable: true }
+    }
+  },
   CssdDeviceReprocessedRequest: {
     type: 'object',
     additionalProperties: false,
@@ -485,7 +521,7 @@ export const operations = {
   },
   'GET /api/v1/cssd/devices/{id}/label': {
     description:
-      'The printed CSSD label for one device: a 100 x 50 mm PDF carrying the device tag as large monospace text and as a Code 39 barcode, plus the catalogue item, category, cycle counter and facility. ?format=json returns the same seven fields as JSON. A read, so it claims no idempotency key; a reprint is not a second event. The label carries NO patient data and NO serology — the register exposure columns are deliberately not on it — so this path writes no PHI access log, only a cssd.device.label_printed audit row.',
+      'The printed CSSD label for one device: a 100 x 50 mm PDF carrying the device tag as large monospace text and as a Code 39 barcode, plus the catalogue item, category, cycle counter and facility. ?format=json returns the same seven fields as JSON. A read, so it claims no idempotency key; a reprint is not a second event. Answered Cache-Control: no-store — the label carries the cycle counter, which moves, and a replayed sticker would disagree with the register. A DISCARDED device is refused (409 CSSD_DEVICE_LABEL_NOT_PRINTABLE): a discard is irreversible and a label is a physical instruction to put the device back on a tray. The label carries NO patient data and NO serology — the register exposure columns are deliberately not on it — so this path writes no PHI access log, only a cssd.device.label_printed audit row.',
     pathParameters: { id: BIGINT_WIRE },
     parameters: [queryParameter('format', { type: 'string', enum: DEVICE_LABEL_FORMATS, default: 'pdf' })],
     // Declared through additionalResponses because ONE 200 carries TWO media
@@ -499,7 +535,10 @@ export const operations = {
           'application/pdf': { schema: { type: 'string', format: 'binary' } },
           'application/json': { schema: { $ref: '#/components/schemas/CssdDeviceLabelResponse' } }
         }
-      }
+      },
+      409: labelErrorResponse(
+        'The device cannot be labelled.', ['CSSD_DEVICE_LABEL_NOT_PRINTABLE']
+      )
     }
   },
   'POST /api/v1/cssd/devices/{id}/receive': {

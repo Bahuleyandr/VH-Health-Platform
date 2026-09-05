@@ -133,6 +133,12 @@ router.get('/devices/:id/label', wrap(async (req, res) => {
   const format = String(req.query.format ?? DEVICE_LABEL_FORMATS[0]).trim().toLowerCase()
     || DEVICE_LABEL_FORMATS[0];
   const label = await deviceLabel(req.params.id, { ...contextOf(req), format });
+  // Never cached, in either format. The label carries the CYCLE COUNTER, which
+  // moves: a browser or proxy that replayed a stored sticker would print
+  // "cycle 1 of 3" for a device the register has since advanced, and the
+  // printed artefact is the copy the bench trusts. Same header, same reason,
+  // as the closed-loop specimen label (routes/lab/labRoutes.js).
+  res.setHeader('Cache-Control', 'no-store');
   if (format === 'json') return label;
   const pdf = await renderCathDeviceLabelPdf(label);
   res.setHeader('Content-Type', 'application/pdf');

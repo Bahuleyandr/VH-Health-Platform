@@ -138,6 +138,25 @@ describe('CssdDeviceQueueItem is the device row plus what the queue joins in', (
     expect(SERVICE_SOURCE).toContain("action: 'cath_device.exposure_flagged'");
   });
 
+  it('publishes both joined columns as NON-nullable, and the normaliser agrees', () => {
+    // The contract says string, not string|null, because the SQL guarantees
+    // it: an INNER join on a RESTRICT foreign key with a NOT NULL
+    // display_name, and a COALESCE onto d.created_at (NOT NULL DEFAULT NOW(),
+    // migration 765). A `?? null` in the normaliser would publish one thing
+    // and answer another — the admin console's generated types say the null
+    // cannot happen, so its sort would compare NaN and its clock would read
+    // "-" forever, with nothing failing anywhere.
+    expect(schema.properties.facility_name).toEqual({ type: 'string' });
+    expect(schema.properties.status_changed_at.nullable).toBeUndefined();
+    const normalizer = SERVICE_SOURCE.match(
+      /function normalizeQueueDevice\(row\) \{([\s\S]*?)\n\}/,
+    );
+    expect(normalizer).not.toBeNull();
+    expect(normalizer[1]).toContain('facility_name: row.facility_name,');
+    expect(normalizer[1]).toContain('status_changed_at: row.status_changed_at,');
+    expect(normalizer[1]).not.toContain('??');
+  });
+
   it('the queue list response carries the queue item, not the bare device', () => {
     expect(overlay.schemas.CssdDeviceListResponse.properties.data.items).toEqual({
       $ref: '#/components/schemas/CssdDeviceQueueItem',
@@ -193,6 +212,37 @@ describe('CssdDeviceLabel mirrors the fields the label actually carries', () => 
     const format = operation.parameters.find((parameter) => parameter.name === 'format');
     expect(format.schema.enum).toEqual([...service.DEVICE_LABEL_FORMATS]);
     expect(format.required).toBe(false);
+  });
+
+  it('publishes the 409 a discarded device answers, and the code it carries', () => {
+    // The console hides the button; the SERVICE is the authority and the spec
+    // is what a second client reads. All three have to say the same thing.
+    const operation = overlay.operations['GET /api/v1/cssd/devices/{id}/label'];
+    const conflict = operation.additionalResponses[409];
+    expect(conflict.description).toContain('CSSD_DEVICE_LABEL_NOT_PRINTABLE');
+    expect(conflict.content['application/json'].schema).toEqual({
+      $ref: '#/components/schemas/CssdDeviceLabelErrorResponse',
+    });
+    expect(overlay.schemas.CssdDeviceLabelErrorResponse.properties.code.enum)
+      .toContain('CSSD_DEVICE_LABEL_NOT_PRINTABLE');
+    // ...and the code the service throws is that one, spelled the same way.
+    expect(SERVICE_SOURCE).toContain("'CSSD_DEVICE_LABEL_NOT_PRINTABLE'");
+    // The refused status is the register's ONE terminal state — a wider gate
+    // would take the tag away from CSSD while it still holds the device.
+    expect(service.DEVICE_LABEL_BLOCKED_STATUS).toBe('discarded');
+    expect([...service.DEVICE_STATUSES]).toContain(service.DEVICE_LABEL_BLOCKED_STATUS);
+  });
+
+  it('the published error codes are the ones this route can actually answer', () => {
+    for (const code of overlay.ENUMS.DEVICE_LABEL_ERROR_CODES) {
+      // Every published code is thrown by the service or by the shared id
+      // guard the route sits behind — no aspirational vocabulary.
+      expect(
+        SERVICE_SOURCE.includes(`'${code}'`) || code === 'CATH_LAB_BAD_ID',
+      ).toBe(true);
+    }
+    expect(overlay.ENUMS.DEVICE_LABEL_ERROR_CODES).toContain('CATH_DEVICE_NOT_FOUND');
+    expect(overlay.ENUMS.DEVICE_LABEL_ERROR_CODES).toContain('CSSD_DEVICE_LABEL_FORMAT_INVALID');
   });
 });
 

@@ -27,6 +27,8 @@
  * because in both of them the handler body is never run.
  */
 
+import zlib from 'node:zlib';
+
 import { jest } from '@jest/globals';
 import express from 'express';
 import request from 'supertest';
@@ -178,6 +180,44 @@ function binaryParser(res, callback) {
   const chunks = [];
   res.on('data', (chunk) => chunks.push(Buffer.from(chunk)));
   res.on('end', () => callback(null, Buffer.concat(chunks)));
+}
+
+/**
+ * Every string the PDF actually DRAWS, in draw order.
+ *
+ * `%PDF-` and a `content-type` prove a PDF was produced; they prove nothing
+ * about what is printed on it, and a leak on a sticker is a leak of the PDF's
+ * TEXT. So this opens it: PDFKit writes the page's content stream Flate-
+ * compressed, so each `stream ... endstream` payload is inflated, and the text
+ * is read back out of the `[<hex> 0] TJ` show operators the standard-14 fonts
+ * emit. Hex digits decode as WinAnsi, which is Latin-1 over the range a label
+ * can carry (the `·` separator included).
+ *
+ * Deliberately NOT a `{ compress: false }` switch on the renderer: a test-only
+ * flag would assert against a document the printer never receives.
+ */
+const WIN_ANSI = new TextDecoder('windows-1252');
+function pdfTextLines(pdf) {
+  let content = '';
+  for (let index = 0; ;) {
+    const start = pdf.indexOf('stream', index);
+    if (start < 0) break;
+    const end = pdf.indexOf('endstream', start);
+    if (end < 0) break;
+    let from = start + 'stream'.length;
+    if (pdf[from] === 0x0d) from += 1;
+    if (pdf[from] === 0x0a) from += 1;
+    try {
+      content += zlib.inflateSync(pdf.subarray(from, end)).toString('latin1');
+    } catch {
+      // A stream that is not Flate (an embedded font, say) carries no text.
+    }
+    index = end + 1;
+  }
+  return [...content.matchAll(/\[([^\]]*)\]\s*TJ/g)].map(([, show]) =>
+    [...show.matchAll(/<([0-9A-Fa-f]*)>/g)]
+      .map(([, hex]) => WIN_ANSI.decode(Buffer.from(hex, 'hex')))
+      .join(''));
 }
 
 /** Route the stubbed prisma by the SQL each read issues. */
@@ -749,6 +789,7 @@ describe('the printed CSSD device label carries no patient or serology data', ()
     cycle_count: 1,
     max_cycles_snapshot: 3,
     facility_id: 4,
+    status: 'available',
     item_name: 'Diagnostic catheter',
     category: 'catheter',
     facility_name: 'Venkataeswara Hospitals, Nandanam',
@@ -803,6 +844,77 @@ describe('the printed CSSD device label carries no patient or serology data', ()
     expect(res.body.subarray(0, 5).toString()).toBe('%PDF-');
     expect(Number(res.headers['content-length'])).toBe(res.body.length);
   });
+
+  it('the PDF PRINTS exactly the seven fields and nothing else', async () => {
+    // The JSON assertions above cannot see this. The renderer takes the label
+    // object, but what reaches the sticker is whatever it chooses to DRAW —
+    // and a renderer that stamped the exposure marker onto the page would pass
+    // every other test in this file. So the page's own text is read back.
+    const res = await request(appFor('OT_NURSE'))
+      .get('/api/v1/cssd/devices/77/label')
+      .buffer(true)
+      .parse(binaryParser);
+
+    const lines = pdfTextLines(res.body);
+    // Exhaustive, in draw order. `printed_at` is the one field the sticker
+    // renders rather than echoes (ISO-8601 is not a bench-readable stamp), so
+    // it is matched on shape; the other six are matched verbatim.
+    expect(lines).toHaveLength(5);
+    expect(lines.slice(0, 4)).toEqual([
+      'RP00000077',
+      'Diagnostic catheter',
+      'catheter · cycle 1 of 3',
+      'Venkataeswara Hospitals, Nandanam',
+    ]);
+    expect(lines[4]).toMatch(/^Printed \d{4}-\d{2}-\d{2} \d{2}:\d{2} IST$/);
+    // ...and, belt and braces, the same forbidden vocabulary the JSON answer
+    // is held to. This is the assertion a mutation that printed
+    // "EXPOSURE: HBSAG REACTIVE" onto the label has to get past.
+    expect(lines.join('\n')).not.toMatch(FORBIDDEN);
+  });
+
+  it('is never cached — a reprint must re-read the register', async () => {
+    // A label carries the cycle counter, which moves. `labRoutes.js`'s
+    // specimen label sets the same header for the same reason: a browser or
+    // proxy replaying a stale sticker would print a cycle count the register
+    // no longer agrees with.
+    for (const path of ['/api/v1/cssd/devices/77/label', '/api/v1/cssd/devices/77/label?format=json']) {
+      const res = await request(appFor('OT_NURSE')).get(path).buffer(true).parse(binaryParser);
+      expect(res.status).toBe(200);
+      expect(res.headers['cache-control']).toBe('no-store');
+    }
+  });
+
+  it('refuses to print a label for a DISCARDED device', async () => {
+    // The console already hides the button, but the URL is guessable and the
+    // route is the authority: a discarded device is out of circulation, and a
+    // sticker for one is a tag on something nobody may put back in a case.
+    dispatch([['FROM cath_reprocessable_devices d', [{ ...LABEL_ROW, status: 'discarded' }]]]);
+    executeRawUnsafeMock.mockClear();
+
+    const res = await request(appFor('OT_NURSE'))
+      .get('/api/v1/cssd/devices/77/label?format=json');
+
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('CSSD_DEVICE_LABEL_NOT_PRINTABLE');
+    expect(res.body.details).toMatchObject({ status: 'discarded' });
+    // ...and it refuses BEFORE the audit row: a refused print is not a print.
+    expect(executeRawUnsafeMock.mock.calls.filter(([sql]) =>
+      String(sql).includes('INSERT INTO audit_logs'))).toHaveLength(0);
+  });
+
+  it.each(['awaiting_reprocessing', 'in_cssd', 'available', 'in_case', 'quarantined'])(
+    'still prints for a %s device — only discard is terminal',
+    async (status) => {
+      dispatch([['FROM cath_reprocessable_devices d', [{ ...LABEL_ROW, status }]]]);
+
+      const res = await request(appFor('OT_NURSE'))
+        .get('/api/v1/cssd/devices/77/label?format=json');
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.device_tag).toBe('RP00000077');
+    },
+  );
 
   it('writes one cssd.device.label_printed audit row naming the tag and the format', async () => {
     executeRawUnsafeMock.mockClear();

@@ -717,6 +717,13 @@ describeIfDb('cath device reuse (deep)', () => {
   }, 60000);
 
   test('the queue names the facility and when the device last MOVED', async () => {
+    // CAVEAT, recorded in the spec's §18 as well: this harness connects as the
+    // database SUPERUSER, for whom every row-level security policy is bypassed.
+    // So this proves the lateral onto audit_logs is CORRECT — it is tenant-
+    // pinned in SQL and reads the right row — but it cannot prove the tenant
+    // runtime role is allowed to read audit_logs at all. A policy that refused
+    // that reader would pass here and surface in production as a queue where
+    // every row reads "just now".
     const device = await deviceByTag({ tenantId: TENANT, tag: deviceTags[0] });
     const [row] = (await listDevices({ tenantId: TENANT }))
       .filter((entry) => entry.device_tag === deviceTags[0]);
@@ -986,6 +993,25 @@ describeIfDb('cath device reuse (deep)', () => {
     const movedRow = queue.find((entry) => entry.device_tag === device.device_tag);
     expect(new Date(movedRow.status_changed_at).getTime())
       .toBeGreaterThan(new Date(queuedAtRelease).getTime());
+    // ...and terminal means the LABEL is refused too. A discarded device is
+    // out of circulation and a sticker is a physical instruction to put it
+    // back on a tray, so the print is a 409 rather than a PDF — asserted
+    // against the real row here because it reads d.status from the same
+    // tenant-pinned SELECT the label is built from.
+    await expect(deviceLabel(device.id, ctx(CSSD_ACTOR)))
+      .rejects.toMatchObject({
+        code: 'CSSD_DEVICE_LABEL_NOT_PRINTABLE',
+        details: { status: 'discarded' },
+      });
+    const printAudits = await prisma.$queryRawUnsafe(
+      `SELECT count(*)::int AS n FROM audit_logs
+        WHERE tenant_id = $1::uuid AND resource = 'cath_reprocessable_devices'
+          AND resource_id = $2 AND action = 'cssd.device.label_printed'`,
+      TENANT, String(device.id),
+    );
+    // The refusal wrote no print row: a label that was not printed is not a
+    // label in circulation.
+    expect(printAudits[0].n).toBe(0);
   }, 60000);
 
   test('under override_allowed an exposure-flagged device is captured and the override lands on the record', async () => {
