@@ -677,6 +677,34 @@ for (const [key, entry] of EXEMPT_MOUNT_PAIR_ENTRIES) {
   EXEMPT_MOUNT_PAIRS.set(key, entry);
 }
 
+// Param-only PHI reads converted BY THIS CHANGE to carry their own per-route
+// patient guard. This is the anti-lapse ledger: each entry must still EXIST in
+// the census, so a rename or deletion is a deliberate edit here rather than a
+// silent loss of coverage. The universal invariant below is what asserts the
+// guard is still ON them — and on every other param-only route too.
+const GUARDED_PARAM_ONLY_ROUTES = [
+  '/api/v1/records GET /patient/:patient_id',
+  '/api/v1/records GET /patient/:patient_id/summary',
+  '/api/v1/dental GET /patients/:uid/chart',
+  '/api/v1/dental GET /patients/:uid/procedures',
+  '/api/v1/ophthalmology GET /patients/:uid/history',
+  '/api/v1/physio GET /patients/:uid/summary',
+  '/api/v1/radiology GET /patient/:uid',
+  '/api/v1/dietary GET /patient/:uid',
+  '/api/v1/lab GET /panels/patient/:patientUid',
+  '/api/v1/lab GET /trends/:patientUid/:testCode',
+  '/api/v1/paediatric GET /immunisations/patient/:patientUid',
+  '/api/v1/paediatric GET /immunisations/patient/:patientUid/due',
+];
+
+// Param-only PHI routes allowed to carry NO per-route patient guard.
+//
+// Seeded EMPTY, and that is the point: with this change every param-only route
+// under a PHI-guarded mount has its own decision, so the correct baseline is
+// zero. A new entry here is a PHI read with no patient-access control and needs
+// a written reason and a decision to accept it — not a quiet append.
+const PARAM_ONLY_GUARD_EXCEPTIONS = new Map([]);
+
 function describePair(p) {
   const c = p.byClass;
   const examples = p.undecided.slice(0, 3).map((r) => `${r.methods.join('|').toUpperCase()} ${r.path}`).join(', ');
@@ -795,5 +823,55 @@ describe('mount-level patientAccessGuard census — the durable gate', () => {
       expect(entry.reason.trim().length).toBeGreaterThan(25);
       expect(typeof entry.fixInFlight).toBe('boolean');
     }
+  });
+
+  // -------------------------------------------------------------------------
+  // The assertion `perRouteGuard` was computed for and never given.
+  //
+  // walkRouter has always recorded, per route, whether the route itself carries
+  // a patient guard — and nothing read it. The GATE above asks only "does a
+  // mount guard cover routes it cannot decide?", which an exemption satisfies;
+  // it says NOTHING about whether those routes carry a guard of their own. So a
+  // param-only PHI read could have no patient-access control at all and stay
+  // green under an exemption granted for its pair's OTHER routes. That is
+  // exactly what happened: exemption reasons NAMED these routes as param-only
+  // while no policy was ever evaluated on them.
+  //
+  // Proof the gate was blind to it: adding the twelve guards this change makes
+  // did not alter whether this file passed. Deleting them would not either,
+  // without the two assertions below.
+  it('GATE: every param-only PHI route carries its own per-route patient guard', () => {
+    const unguarded = [];
+    for (const p of CENSUS.pairs) {
+      for (const r of p.byClass['param-only']) {
+        if (r.perRouteGuard === true) continue;
+        for (const m of r.methods) {
+          const key = `${p.mountPath} ${m.toUpperCase()} ${r.path.replaceAll('<nested>', '')}`;
+          if (!PARAM_ONLY_GUARD_EXCEPTIONS.has(key)) unguarded.push(key);
+        }
+      }
+    }
+
+    // A mount guard cannot decide these routes — it never sees the param. With
+    // no per-route guard they reach the handler with NO patient-access policy
+    // evaluated, in shadow and in enforce alike.
+    expect(unguarded).toEqual([]);
+  });
+
+  it('LEDGER: the routes this change converted are all still in the census', () => {
+    const seen = new Set();
+    for (const p of CENSUS.pairs) {
+      for (const r of p.byClass['param-only']) {
+        for (const m of r.methods) {
+          seen.add(`${p.mountPath} ${m.toUpperCase()} ${r.path.replaceAll('<nested>', '')}`);
+        }
+      }
+    }
+
+    // A route that vanished was renamed, moved, or reclassified out of
+    // param-only. Any of those is fine — but it must be a deliberate edit
+    // here, because the GATE above can only protect routes it still sees.
+    const missing = GUARDED_PARAM_ONLY_ROUTES.filter((entry) => !seen.has(entry));
+    expect(missing).toEqual([]);
   });
 });

@@ -10,7 +10,25 @@ import {
   doctorIdValidator
 } from '../../validators/record/recordValidators.js';
 
+import { routePatientGuard } from '../../middleware/routePatientAccessGuards.js';
+
 const router = express.Router();
+
+// Per-route patient guard. The mount-level patientAccessGuard could never
+// decide this route: mount middleware runs before Express binds the path
+// param, so it saw req.params = {} and returned no_patient_context without
+// evaluating a policy. routePatientAccessGuards.js carries the full
+// rationale, the selector contract and the shadow-mode posture.
+//
+// RECORD TYPE — PATIENT_RECORD, not the mount's MEDICAL_RECORD. Both fall
+// through policyCodeForRecordType to the same PATIENT_RECORD_VIEW policy,
+// but PATIENT_RECORD is already in CARE_TEAM_GOVERNED_RECORD_TYPES and
+// already at a governed call site (the sibling patientRoutes.js), so the
+// exact-set census in careTeamGovernedRecordTypes.test.js is unchanged.
+const guardRecordPatientId = routePatientGuard('PATIENT_RECORD', {
+  tag: 'records:patient-id-param',
+  patientSelector: (req) => ({ id: req.params?.patient_id }),
+});
 
 // Get all medical records with filtering
 router.get('/records', 
@@ -27,6 +45,7 @@ router.get('/records/:id',
 // Get patient records
 router.get('/patient/:patient_id', 
   patientIdValidator, 
+  guardRecordPatientId,
   medicalStaffController.getPatientRecords
 );
 
@@ -39,6 +58,7 @@ router.get('/doctor/:doctor_id',
 // Get patient summary
 router.get('/patient/:patient_id/summary', 
   patientIdValidator, 
+  guardRecordPatientId,
   medicalStaffController.getPatientSummary
 );
 

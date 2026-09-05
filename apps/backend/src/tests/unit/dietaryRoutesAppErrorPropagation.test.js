@@ -28,11 +28,28 @@ jest.unstable_mockModule('../../services/dietary/dietaryService.js', () => ({
   },
 }));
 
+// This is an ERROR-RELAY unit test, not a PHI authorization test. The router
+// now carries a per-route patient guard on GET /patient/:uid whose real
+// implementation reaches the database and so fails closed here (500 'Patient
+// access check failed') before the handler is ever called. Mock it to a
+// pass-through so this suite keeps testing what it is about; the guard's
+// PRESENCE is asserted structurally by mountLevelPatientGuardCensus.test.js,
+// so mocking it here weakens nothing.
+jest.unstable_mockModule('../../middleware/phiAccessMiddleware.js', () => ({
+  patientAccessGuard: () => (_req, _res, next) => next(),
+  patientAccessGuardForResource: () => (_req, _res, next) => next(),
+  phiAccessLogger: () => (_req, _res, next) => next(),
+}));
+
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   resolveTenantOrThrow: () => '00000000-0000-4000-8000-000000000001',
   // kitchenService (imported by dietaryRoutes since migration 685) pulls
   // requireTenantId from the same module — the mock must keep the export.
   requireTenantId: (v) => v,
+  // The router's new per-route patient guard reaches careTeamEnforcement,
+  // which reads the tenant to resolve care_team_enforcement_mode. null falls
+  // back to the env/default posture, which is 'shadow'.
+  getTenantById: async () => null,
 }));
 
 const { default: dietaryRoutes } = await import('../../routes/dietary/dietaryRoutes.js');

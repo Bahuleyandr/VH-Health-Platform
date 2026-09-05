@@ -26,6 +26,13 @@ jest.unstable_mockModule('../../services/clinical/physioService.js', () => ({
 
 jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
   resolveTenantOrThrow: () => '00000000-0000-4000-8000-000000000001',
+  // The router now carries a per-route patient guard, whose accessDecision /
+  // careTeamEnforcement chain imports more of this module. An ESM mock factory
+  // must provide EVERY export the graph imports or the suite fails to LOAD,
+  // which reads like a missing test rather than a missing mock line.
+  requireTenantId: (tenantId) => tenantId,
+  // null falls back to the env/default posture, which is 'shadow'.
+  getTenantById: async () => null,
 }));
 
 const { default: physioRoutes } = await import('../../routes/clinical/physioRoutes.js');
