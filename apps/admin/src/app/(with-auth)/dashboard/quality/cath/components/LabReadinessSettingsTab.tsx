@@ -20,9 +20,14 @@
 // on error is what lets a request that timed out on the wire but committed on
 // the server be written a second time.
 //
-// Three things this screen enforces rather than discovering as a 400 or a
+// Four things this screen enforces rather than discovering as a 400 or a
 // silent overwrite:
 //
+//   * `lab_validity_days` must be a whole number in 1..365, the range
+//     `positiveInt(..., 365)` enforces server-side. Left to the `min`/`max`
+//     attributes alone — which the browser does not apply to a value set by
+//     script and which nothing checks on submit — 0, 366, -5 and 1.5 all reach
+//     the wire and return a 400 that names no field.
 //   * `required_items` may not be empty (CATH_LAB_READINESS_ITEMS_EMPTY). The
 //     answer to "we do not check labs for this case" is the case's own
 //     not-required flag, not a tenant policy that requires nothing.
@@ -61,6 +66,24 @@ const panelClass =
   "rounded-md border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-700 dark:text-rose-300";
 
 const LAB_READINESS_QUERY_KEY = ["cath", "lab-readiness"] as const;
+
+// `upsertReadinessSettings` runs the window through `positiveInt(..., 365)`:
+// decimal digits only, 1..365. Enforced here so 0, 366, -5 and 1.5 are named
+// at the field instead of coming back as a generic 400 the operator has to
+// translate.
+const VALIDITY_MIN_DAYS = 1;
+const VALIDITY_MAX_DAYS = 365;
+const VALIDITY_RANGE_MESSAGE =
+  "Lab validity must be a whole number of days between 1 and 365.";
+
+function validityOutOfRange(days: number | null | undefined) {
+  if (days == null) return false;
+  return (
+    !Number.isInteger(days) ||
+    days < VALIDITY_MIN_DAYS ||
+    days > VALIDITY_MAX_DAYS
+  );
+}
 
 /**
  * A cleared number box is null, not 0. Coercing "" to 0 would post a validity
@@ -124,6 +147,9 @@ export default function LabReadinessSettingsTab() {
       if (validityDays == null) {
         throw new Error("Lab validity (days) is required");
       }
+      if (validityOutOfRange(validityDays)) {
+        throw new Error(VALIDITY_RANGE_MESSAGE);
+      }
       if (form.required_items.length === 0) {
         throw new Error(
           "At least one lab item must be required; mark the labs check not required on the case instead",
@@ -141,11 +167,17 @@ export default function LabReadinessSettingsTab() {
         settingsKey.keyFor(payloadIdentity({ kind: "lab-readiness", body })),
       );
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       settingsKey.reset();
       setSaveError(null);
       setDirty(false);
       toast.success("Lab readiness settings saved");
+      // Seed the cache with what the PUT returned BEFORE invalidating. Clearing
+      // `dirty` re-arms the reseed effect, and the only thing in the cache until
+      // the invalidate's refetch lands is the pre-save read — so without this
+      // the form snaps back to the OLD policy the moment the save succeeds, and
+      // a second Save writes that old policy back over the new one.
+      qc.setQueryData(LAB_READINESS_QUERY_KEY, data);
       void qc.invalidateQueries({ queryKey: LAB_READINESS_QUERY_KEY });
     },
     onError: (err: unknown) => {
@@ -159,24 +191,38 @@ export default function LabReadinessSettingsTab() {
     },
   });
 
-  function update(patch: Partial<LabReadinessForm>) {
+  function update(
+    patch:
+      | Partial<LabReadinessForm>
+      | ((current: LabReadinessForm) => Partial<LabReadinessForm>),
+  ) {
     setDirty(true);
-    setForm((current) => (current ? { ...current, ...patch } : current));
+    setForm((current) =>
+      current
+        ? {
+            ...current,
+            ...(typeof patch === "function" ? patch(current) : patch),
+          }
+        : current,
+    );
   }
 
   function toggleItem(item: CathLabReadinessItem, required: boolean) {
-    if (!form) return;
-    update({
+    // Read the checklist off the updater's `current`, not the render's closure:
+    // two boxes ticked inside one batch would otherwise both build their new
+    // list from the same stale snapshot and the first tick would be lost.
+    update((current) => ({
       required_items: required
         ? CATH_LAB_READINESS_ITEMS.filter(
-            (code) => code === item || form.required_items.includes(code),
+            (code) => code === item || current.required_items.includes(code),
           )
-        : form.required_items.filter((code) => code !== item),
-    });
+        : current.required_items.filter((code) => code !== item),
+    }));
   }
 
   const ready = settingsQuery.isSuccess && form !== null;
   const validityMissing = form?.lab_validity_days == null;
+  const validityBadRange = validityOutOfRange(form?.lab_validity_days);
   const noItems = (form?.required_items.length ?? 0) === 0;
 
   return (
@@ -227,16 +273,16 @@ export default function LabReadinessSettingsTab() {
                 })}
               </div>
               <p className="text-xs text-gray-500">
-                Serology items (HIV, HBsAg, HCV) are judged against the
-                serology validity window on the Reprocessing policy tab, not
-                the window below — one tenant answer to how long a blood-borne
-                marker result is good for.
+                Serology items (HIV, HBsAg, HCV) are judged against the serology
+                validity window on the Reprocessing policy tab, not the window
+                below — one tenant answer to how long a blood-borne marker
+                result is good for.
               </p>
               {noItems ? (
                 <p className="text-xs text-rose-700 dark:text-rose-300">
                   At least one item must be required. To skip labs for a
-                  particular case, mark that case&apos;s labs check not
-                  required instead.
+                  particular case, mark that case&apos;s labs check not required
+                  instead.
                 </p>
               ) : null}
             </div>
@@ -265,6 +311,11 @@ export default function LabReadinessSettingsTab() {
             {validityMissing ? (
               <p className="text-xs text-rose-700 dark:text-rose-300">
                 Enter a lab validity window (1–365 days) before saving.
+              </p>
+            ) : null}
+            {validityBadRange ? (
+              <p className="text-xs text-rose-700 dark:text-rose-300">
+                {VALIDITY_RANGE_MESSAGE}
               </p>
             ) : null}
 
@@ -297,15 +348,17 @@ export default function LabReadinessSettingsTab() {
               </label>
               <p className="text-xs text-gray-500">
                 With this off, a result recorded from a patient&apos;s outside
-                report is still shown on the case but does not satisfy the
-                check on its own.
+                report is still shown on the case but does not satisfy the check
+                on its own.
               </p>
             </div>
 
             <button
               type="button"
               onClick={() => save.mutate()}
-              disabled={save.isPending || validityMissing || noItems}
+              disabled={
+                save.isPending || validityMissing || validityBadRange || noItems
+              }
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
               {save.isPending ? "Saving…" : "Save lab readiness settings"}

@@ -282,18 +282,113 @@ describe("Lab readiness settings tab", () => {
     expect(api.updateCathLabReadinessSettings).not.toHaveBeenCalled();
   });
 
-  it("says whether the tenant has ever set the policy", async () => {
+  // The two `configured` branches are asserted in separate tests, on the EXACT
+  // copy, and each denies the other. Rendering both into one test and matching
+  // /Set by this tenant/ passes on the unconfigured tree alone: that branch's
+  // own words are "Not yet set by this tenant — …", so the loose pattern never
+  // reaches the configured render it was meant to prove.
+  it("says the platform defaults are in force until the tenant sets the policy", async () => {
     renderTab();
     expect(
-      await screen.findByText(/platform defaults are in force/i),
+      await screen.findByText(
+        "Not yet set by this tenant — the platform defaults are in force until they are saved here.",
+      ),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByText("Set by this tenant; the policy below is in force."),
+    ).toBeNull();
+  });
 
+  it("says the tenant's own policy is in force once it is configured", async () => {
     jest
       .mocked(api.getCathLabReadinessSettings)
       .mockResolvedValue({ settings: settings({ configured: true }) });
     renderTab();
     expect(
-      await screen.findByText(/Set by this tenant/i),
+      await screen.findByText(
+        "Set by this tenant; the policy below is in force.",
+      ),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        "Not yet set by this tenant — the platform defaults are in force until they are saved here.",
+      ),
+    ).toBeNull();
+  });
+
+  it("keeps the saved window on screen when the refetch has not landed", async () => {
+    // The PUT answers with the new policy; the invalidate's refetch is still in
+    // flight. The cache must already hold the PUT's response, or clearing
+    // `dirty` reseeds the form from the PRE-SAVE read: the box snaps back to 30
+    // and the next Save writes 30 over the 14 that was just committed.
+    jest.mocked(api.updateCathLabReadinessSettings).mockResolvedValue({
+      settings: settings({ lab_validity_days: 14, configured: true }),
+    });
+    jest
+      .mocked(api.getCathLabReadinessSettings)
+      .mockResolvedValueOnce({ settings: DEFAULTS })
+      .mockReturnValue(new Promise<never>(() => {}));
+
+    renderTab();
+    fireEvent.change(await screen.findByLabelText("Lab validity days"), {
+      target: { value: "14" },
+    });
+    fireEvent.click(screen.getByText("Save lab readiness settings"));
+    await waitFor(() =>
+      expect(jest.mocked(toast.success)).toHaveBeenCalledWith(
+        "Lab readiness settings saved",
+      ),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Lab validity days")).toHaveValue(14),
+    );
+    // The response, not just the untouched form: `configured` flipped to true,
+    // which only the cached PUT result can say.
+    expect(
+      screen.getByText("Set by this tenant; the policy below is in force."),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Save lab readiness settings"));
+    await waitFor(() =>
+      expect(api.updateCathLabReadinessSettings).toHaveBeenCalledTimes(2),
+    );
+    expect(
+      jest.mocked(api.updateCathLabReadinessSettings).mock.calls[1][0],
+    ).toMatchObject({ lab_validity_days: 14 });
+  });
+
+  it("will not send a validity window outside 1–365 whole days", async () => {
+    // `min`/`max` are advisory attributes: nothing checks them on submit, so
+    // without a guard these reach the wire and return a 400 naming no field.
+    renderTab();
+    const box = await screen.findByLabelText("Lab validity days");
+
+    for (const rejected of ["366", "0", "-5", "1.5"]) {
+      fireEvent.change(box, { target: { value: rejected } });
+      expect(screen.getByText("Save lab readiness settings")).toBeDisabled();
+      expect(
+        screen.getByText(
+          "Lab validity must be a whole number of days between 1 and 365.",
+        ),
+      ).toBeInTheDocument();
+      fireEvent.click(screen.getByText("Save lab readiness settings"));
+    }
+    expect(api.updateCathLabReadinessSettings).not.toHaveBeenCalled();
+
+    fireEvent.change(box, { target: { value: "14" } });
+    expect(screen.getByText("Save lab readiness settings")).toBeEnabled();
+    expect(
+      screen.queryByText(
+        "Lab validity must be a whole number of days between 1 and 365.",
+      ),
+    ).toBeNull();
+    fireEvent.click(screen.getByText("Save lab readiness settings"));
+    await waitFor(() =>
+      expect(api.updateCathLabReadinessSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ lab_validity_days: 14 }),
+        expect.any(String),
+      ),
+    );
   });
 });

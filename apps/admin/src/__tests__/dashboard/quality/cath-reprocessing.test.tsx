@@ -252,4 +252,86 @@ describe("Reprocessing policy tab", () => {
     fireEvent.click(screen.getByText("Save settings"));
     expect(api.updateCathReprocessingSettings).not.toHaveBeenCalled();
   });
+
+  it("keeps the saved serology window on screen when the refetch has not landed", async () => {
+    // The PUT answers with the new settings; the invalidate's refetch is still
+    // in flight. The cache must already hold the PUT's response, or clearing
+    // `settingsDirty` reseeds the form from the PRE-SAVE read: the box snaps
+    // back to 90 and the next Save writes 90 over the 30 just committed.
+    jest.mocked(api.updateCathReprocessingSettings).mockResolvedValue({
+      settings: {
+        ...SETTINGS,
+        serology_validity_days: 30,
+        configured: true,
+      } as api.CathReprocessingSettings,
+    });
+    jest
+      .mocked(api.getCathReprocessingSettings)
+      .mockResolvedValueOnce({ settings: SETTINGS })
+      .mockReturnValue(new Promise<never>(() => {}));
+
+    renderTab();
+    fireEvent.change(await screen.findByLabelText("Serology validity days"), {
+      target: { value: "30" },
+    });
+    fireEvent.click(screen.getByText("Save settings"));
+    await waitFor(() =>
+      expect(jest.mocked(toast.success)).toHaveBeenCalledWith(
+        "Reprocessing settings saved",
+      ),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Serology validity days")).toHaveValue(30),
+    );
+    // The response, not just the untouched form: `configured` flipped to true,
+    // which only the cached PUT result can say.
+    expect(
+      screen.getByText(
+        "Reviewed by an owner; the defaults below are in force.",
+      ),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Save settings"));
+    await waitFor(() =>
+      expect(api.updateCathReprocessingSettings).toHaveBeenCalledTimes(2),
+    );
+    expect(
+      jest.mocked(api.updateCathReprocessingSettings).mock.calls[1][0],
+    ).toMatchObject({ serology_validity_days: 30 });
+  });
+
+  it("will not send a serology window outside 1–365 whole days", async () => {
+    // `positiveInt(..., { max: 365 })` server-side; `min`/`max` here are
+    // advisory attributes that nothing checks on submit.
+    renderTab();
+    const box = await screen.findByLabelText("Serology validity days");
+
+    for (const rejected of ["366", "0", "-5", "1.5"]) {
+      fireEvent.change(box, { target: { value: rejected } });
+      expect(screen.getByText("Save settings")).toBeDisabled();
+      expect(
+        screen.getByText(
+          "Serology validity must be a whole number of days between 1 and 365.",
+        ),
+      ).toBeInTheDocument();
+      fireEvent.click(screen.getByText("Save settings"));
+    }
+    expect(api.updateCathReprocessingSettings).not.toHaveBeenCalled();
+
+    fireEvent.change(box, { target: { value: "14" } });
+    expect(screen.getByText("Save settings")).toBeEnabled();
+    expect(
+      screen.queryByText(
+        "Serology validity must be a whole number of days between 1 and 365.",
+      ),
+    ).toBeNull();
+    fireEvent.click(screen.getByText("Save settings"));
+    await waitFor(() =>
+      expect(api.updateCathReprocessingSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ serology_validity_days: 14 }),
+        expect.any(String),
+      ),
+    );
+  });
 });
