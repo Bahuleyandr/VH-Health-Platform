@@ -8,7 +8,7 @@
 
 **Tech Stack:** Node 26 ESM backend (Express, raw SQL via `setTenantTx`, Postgres 17 RLS), jest ESM, OpenAPI overlays; Flutter Staff app (`AppStrings` five-locale map, `ApiClient`, `IdempotencyAttemptRegistry`); Next.js Admin (`@tanstack/react-query`, `core.ts` typed helpers, `useIdempotencyKey`).
 
-**Spec:** `docs/superpowers/specs/2026-09-05-reprocessable-devices-platform-design.md`. **Depends on Plans 1–3 merged** (`bloodborneMarkerService.js`, `cathDeviceReuseService.js`, `cathLabReadinessProjection.js`, the canary) — all on `github/main` at `b27a730d3`. **The dialysis arm (Task 4) DEPENDS ON Phase 1** — the dialysis isolation derivation lane (dev-ea; migration 767; `resolveDialysisIsolation`) being on `main`; Task 4 Step 0b gates it, and Task 9 merges nothing before it. Tasks 1–3 and 5–8 are unblocked.
+**Spec:** `docs/superpowers/specs/2026-09-05-reprocessable-devices-platform-design.md`. **Depends on Plans 1–3 merged** (`bloodborneMarkerService.js`, `cathDeviceReuseService.js`, `cathLabReadinessProjection.js`, the canary) — all on `github/main` at `b27a730d3`. **The dialysis arm (Task 4) DEPENDS ON Phase 1** — the dialysis isolation derivation lane (**dev-1b**, the merge-authority session, formerly signing as dev-ea; migration 767; `resolveDialysisIsolation`) being on `main`; Task 4 Step 0b gates it, and Task 9 merges nothing before it. Tasks 1–3 and 5–8 are unblocked. **Owner decisions of 2026-09-06 that this plan is written to:** **D11 = NO** — `dialysis_machines.isolation_group` is the routing key, the class → group mapping lives in `reprocessing_domain_settings.isolation_groups`, `required_group` is the live warning key and `required_class` is retired (spec §2, §3.4); and **Q1 = a legacy non-reactive `'negative'` declaration MEANS `clear`**, which unblocks Phase 1's migration 767 (spec §7.3, §9). Throughout this plan **dev-1b** is the merge-authority session that owns Phase 1 and 767.
 
 **Base:** `github/main`, branch `feat/reprocessable-devices-platform`.
 
@@ -21,8 +21,8 @@
 - **`cath_reprocessable_devices` and the two 753 plpgsql functions are not touched.** The new tables are on neither assert's table list; `NNN` re-declares no plpgsql body.
 - **Baseline-owned tables (`dialysis_sessions`, `ot_schedules`, `surgical_implants`, `clinical_ai_biomed_devices`) are altered only with `ALTER TABLE … ADD COLUMN / ADD CONSTRAINT` and `CREATE UNIQUE INDEX`.** An inline re-declaration trips the census gate. The manifest and `expectedAbsentCount` (411) do not change. `dialysis_patients` and `patient_bloodborne_markers` are **not altered** by this lane.
 - **Nothing in this lane writes `dialysis_patients.hbsag_status / hcv_status / hiv_status`** — no sync, no latch, no union read, no enrol guard, no `recordSerology` change, no backfill. All of that is the Phase 1 lane's (spec §3.3); `dialysisSerologyWriters.test.js` pins it.
-- **Every dialysis decision reads a live `Decision` through `dialysisIsolationAdapter.js`** — never the frozen `reuse_screen` / `post_use_screen`, never `resolveReuseStatus`, never the columns. `includeMarkers` is forwarded by no caller in this lane. `includeIsolationClass` is forwarded by exactly two **server-side** paths — `assessIsolationTx` (and therefore `evaluateIsolationForSessionTx`, which wraps it) for machine routing, and `recordDialyserReprocessing` for the device's `exposure_markers` stamp — and by **no read surface**: not the roster, the today board, a session or case list, patient detail, capture, the session read or any CSSD path (spec §3.3). Without the Phase 1 module the adapter fails closed (`RPD_ISOLATION_RESOLVER_UNAVAILABLE`, 503); no stub is ever reachable from product code.
-- **Nothing user-facing carries an isolation class until owner decision D11 is answered** (spec §2, §3.4). The API's `isolation` payload is `{ codes, isolation_warnings: [{ code, machine_id, severity }], warn_only, enforcement_enabled, override }` — no `required_class`, no `required_group`. `computeIsolationWarnings` still returns `required_class` for the server-side mismatch test and the audit metadata; it just never leaves the process. The frozen `reuse_screen` / `post_use_screen` carry no class either — they are published raw inside `usage`. The canary pins the value, not the key.
+- **Every dialysis decision reads a live `Decision` through `dialysisIsolationAdapter.js`** — never the frozen `reuse_screen` / `post_use_screen`, never `resolveReuseStatus`, never the columns. `includeMarkers` is forwarded by no caller in this lane. `includeIsolationClass` is forwarded by exactly **one** server-side path — `assessIsolationTx` (and therefore `evaluateIsolationForSessionTx`, which wraps it) for machine routing, where the class is mapped to the tenant's routing group and never leaves the frame. It is forwarded by **no read surface** and, since D11 = NO, **not by `recordDialyserReprocessing` either**: the dialysis `exposure_markers` stamp is the flag alone, so the post-use path has no consumer for a class (spec §3.3, §2 D11(e)/(g)). Without the Phase 1 module the adapter fails closed (`RPD_ISOLATION_RESOLVER_UNAVAILABLE`, 503); no stub is ever reachable from product code.
+- **Nothing anywhere carries an isolation class — D11 = NO (spec §2, §3.4).** The API's `isolation` payload is `{ codes, isolation_warnings: [{ code, machine_id, severity, required_group }], warn_only, enforcement_enabled, override }`. `required_group` is a tenant label for a bay and is published to every dialysis role; **`required_class` is retired** — `computeIsolationWarnings` returns `{ codes, required_group, blocked }`, the marker class survives only as an unnamed local inside that function (where it indexes `settings.isolation_groups`), and no audit row, no error detail and no response carries it. The frozen `reuse_screen` / `post_use_screen` carry no class either — they are published raw inside `usage`, and `snapshotOf` has no `keepClass` form. The canary pins the value, not the key, and a marker-class value under `isolation_class` / `required_class` is now an unambiguous defect rather than a pending question.
 - **Every FK is a tenant-pinned composite; every composite `SET NULL` carries its column list; only the two patient-keyed FKs are `DEFERRABLE INITIALLY DEFERRED`.**
 - **No relation fields in `schema.prisma` for the new FKs** — scalars, `@@unique`, `@@index` only (`check:prisma-relations` budget).
 - **Every new role gate is an intersection with the mount audience and asserted as a subset in a test** (prefix-mount lockout class). `REPROCESSING_POLICY_ROUTE_ROLES` is an alias of `CATH_REPROCESSING_POLICY_ROUTE_ROLES`, applied at the mount in `app.js`.
@@ -43,7 +43,7 @@
 | Create `src/services/clinical/reprocessableDeviceRules.js` + `src/tests/unit/reprocessableDeviceRules.test.js` | Pure rules. |
 | Create `src/services/clinical/reprocessableDeviceService.js` | Settings, policies, register, transitions, CSSD actions, capture/return tx helpers, history + PHI trail, label, exposure handler. |
 | Create `src/services/clinical/reprocessableDeviceProjection.js` + test | Role projection for dialysis roster and serology rows, and the `Decision`'s `isolation_class` blanked for a non-audience role (no projection of the `isolation` envelope, which carries no class — spec §3.5). |
-| Create `src/services/clinical/dialysisIsolationAdapter.js` + test | The one binding to the Phase 1 resolver (`resolveDialysisIsolation`): batch + single-uid, `includeMarkers` **and `includeIsolationClass`** default off, `snapshotOf` strips markers, the class asserted only when asked for, fails closed (503) without Phase 1; named stub for unit tests. |
+| Create `src/services/clinical/dialysisIsolationAdapter.js` + test | The one binding to the Phase 1 resolver (`resolveDialysisIsolation`): batch + single-uid, `includeMarkers` **and `includeIsolationClass`** default off, `snapshotOf` strips markers **and the class unconditionally** (no `keepClass` form under D11 = NO), the class asserted only when asked for, fails closed (503) without Phase 1; named stub for unit tests. |
 | Create `src/services/clinical/dialysisReuseService.js`; modify `dialysisService.js` (`scheduleSession`, `startSession`, `cancelSession`, `recordReuseRegister`, `validateReuseRegisterInput`), `routes/clinical/dialysisRoutes.js` | Capture (freezes the `Decision` as the evidence snapshot), un-capture on cancel, reprocessing record (re-resolves live), isolation (assessed before the schedule insert, live), machines. **DEPENDS ON Phase 1.** `enrolPatient` / `recordSerology` untouched. |
 | Create `src/services/clinical/dialysisIsolationCensus.js`, `scripts/dialysis-isolation-census.mjs` + deep test | The Phase 2 gate: per-tenant orphan `patient_uid` count and un-backfilled legacy-positive count (`bool_or` over the roster). No Phase 1 dependency. |
 | Modify `src/services/clinical/dialysisMachineService.js` (pre-flight, separate commit, only if `main` has not) | Tenant predicate on the machine-ingest session match. |
@@ -132,8 +132,13 @@ Facts confirmed against the tree before writing (re-verify; do not assume):
 --       reprocessable_device_dialysis_links, never on reprocessable_devices.
 --   D2b domain is a fixed enum ('dialysis', 'ot'); per-domain rules are code.
 --   D3  dialysis machines do not enter the register; a minimal dialysis_machines
---       carries the isolation class; enforcement is warn-only with a recorded
---       override (dialysis_sessions.isolation_*), switchable to block per tenant.
+--       carries the tenant's ROUTING GROUP (isolation_group, nullable = general);
+--       enforcement is warn-only with a recorded override
+--       (dialysis_sessions.isolation_*), switchable to block per tenant.
+--   D11 NO (owner, 2026-09-06): a routing role learns THAT a patient is isolated,
+--       never WHICH marker. isolation_group replaces isolation_class on the
+--       machine; the marker-class -> group map is reprocessing_domain_settings
+--       .isolation_groups, edited by infection control / admin only.
 --   D5  OT scope is instrument sets + the sterilisation-load evidence FK on
 --       surgical_implants; implant reuse is out of scope.
 --   D6  dialyzer_reuse_register stays as the statutory log and gains device_id
@@ -203,6 +208,12 @@ CREATE TABLE reprocessing_domain_settings (
   unknown_serology_rule VARCHAR(24) NOT NULL DEFAULT 'warn',
   serology_validity_days INTEGER NOT NULL DEFAULT 90,
   isolation_enforcement VARCHAR(8) NOT NULL DEFAULT 'warn',
+  -- D11 = NO: the tenant's marker-class -> routing-group map, e.g.
+  -- {"hbsag":"Bay 1","hcv":"Bay 2","hiv":"Bay 2","isolation_mixed":"Bay 3"}.
+  -- Values are the tenant's own dialysis_machines.isolation_group labels and
+  -- carry no clinical meaning; the KEYS are pinned by CHECK so nothing else can
+  -- be smuggled into this object.
+  isolation_groups JSONB NOT NULL DEFAULT '{}'::jsonb,
   reviewed_by UUID,
   reviewed_at TIMESTAMPTZ(6),
   updated_by UUID,
@@ -220,7 +231,13 @@ CREATE TABLE reprocessing_domain_settings (
   CONSTRAINT reprocessing_domain_settings_isolation_enforcement_check
     CHECK (isolation_enforcement IN ('warn', 'block')),
   CONSTRAINT reprocessing_domain_settings_isolation_domain_check
-    CHECK (domain = 'dialysis' OR isolation_enforcement = 'warn')
+    CHECK (domain = 'dialysis' OR isolation_enforcement = 'warn'),
+  CONSTRAINT reprocessing_domain_settings_isolation_groups_shape_check
+    CHECK (jsonb_typeof(isolation_groups) = 'object'),
+  CONSTRAINT reprocessing_domain_settings_isolation_groups_keys_check
+    CHECK (isolation_groups - ARRAY['hbsag', 'hcv', 'hiv', 'isolation_mixed'] = '{}'::jsonb),
+  CONSTRAINT reprocessing_domain_settings_isolation_groups_domain_check
+    CHECK (domain = 'dialysis' OR isolation_groups = '{}'::jsonb)
 );
 
 -- ---------------------------------------------------------------------------
@@ -503,7 +520,10 @@ CREATE TABLE dialysis_machines (
   machine_no VARCHAR(40) NOT NULL,
   display_name VARCHAR(120),
   biomed_device_id INTEGER,
-  isolation_class VARCHAR(24) NOT NULL DEFAULT 'general',
+  -- D11 = NO: the tenant's own routing label ("Bay 1", "Red side"). NULLABLE,
+  -- and NULL means a general machine. No enum CHECK: the vocabulary is the
+  -- tenant's, not the platform's, and it names no marker.
+  isolation_group VARCHAR(40),
   status VARCHAR(20) NOT NULL DEFAULT 'active',
   notes TEXT,
   created_by UUID,
@@ -515,14 +535,14 @@ CREATE TABLE dialysis_machines (
   CONSTRAINT fk_dialysis_machines_biomed_device
     FOREIGN KEY (tenant_id, biomed_device_id) REFERENCES clinical_ai_biomed_devices (tenant_id, id)
     ON DELETE SET NULL (biomed_device_id),
-  CONSTRAINT dialysis_machines_isolation_class_check
-    CHECK (isolation_class IN ('general', 'hbsag', 'hcv', 'hiv', 'isolation_mixed')),
+  CONSTRAINT dialysis_machines_isolation_group_check
+    CHECK (isolation_group IS NULL OR btrim(isolation_group) <> ''),
   CONSTRAINT dialysis_machines_status_check
     CHECK (status IN ('active', 'out_of_service', 'retired')),
   CONSTRAINT ux_dialysis_machines_machine_no UNIQUE (tenant_id, machine_no)
 );
 
-CREATE INDEX idx_dialysis_machines_class ON dialysis_machines (tenant_id, isolation_class, status);
+CREATE INDEX idx_dialysis_machines_group ON dialysis_machines (tenant_id, isolation_group, status);
 
 -- ---------------------------------------------------------------------------
 -- 9. dialysis_sessions: isolation evaluation (mirrors 423's warn_only /
@@ -530,6 +550,11 @@ CREATE INDEX idx_dialysis_machines_class ON dialysis_machines (tenant_id, isolat
 -- ---------------------------------------------------------------------------
 ALTER TABLE dialysis_sessions
   ADD COLUMN isolation_warning_codes TEXT[] NOT NULL DEFAULT '{}'::text[],
+  -- D11 = NO: the routing GROUP the evaluation decided, persisted beside the
+  -- codes so the session read can re-serialise the warning without asking the
+  -- resolver for a marker class. A bay label, publishable to every dialysis
+  -- role; there is deliberately no isolation_required_class column.
+  ADD COLUMN isolation_required_group VARCHAR(40),
   ADD COLUMN isolation_warn_only BOOLEAN NOT NULL DEFAULT TRUE,
   ADD COLUMN isolation_enforcement_enabled BOOLEAN NOT NULL DEFAULT FALSE,
   ADD COLUMN isolation_override_reason TEXT,
@@ -830,7 +855,11 @@ In `apps/backend/scripts/seed-comprehensive-test-data.mjs`, inside `TABLE_COLUMN
   reprocessing_domain_settings: {
     tenant_id: ctx => ctx.tenantId,
     domain: 'dialysis',
-    reactive_patient_rule: 'discard'
+    reactive_patient_rule: 'discard',
+    // D11 = NO: seeded EMPTY on purpose. A mapping is a tenant's clinical
+    // configuration, not test data, and an unmapped tenant routes by "any
+    // isolation machine" (spec 3.4) - which is the honest day-one state.
+    isolation_groups: {}
   },
   // mig NNN: the one policy shape that permits nothing (mirrors the 765
   // 'catheter' row). The domain/category CHECK is a two-column disjunction the
@@ -914,7 +943,7 @@ In `apps/backend/scripts/seed-comprehensive-test-data.mjs`, inside `TABLE_COLUMN
     machine_no: 'HD-01',
     display_name: 'Station 1',
     biomed_device_id: null,
-    isolation_class: 'general',
+    isolation_group: null,
     status: 'active',
     created_by: ctx => ctx.doctor.uid,
     updated_by: null
@@ -958,7 +987,7 @@ import {
   computeDispositionOptions,
   computeIsolationWarnings,
   deviceTransition,
-  exposureMarkersForIsolationClass,
+  dialysisExposureStamp,
   normalizeDeviceTag,
   settingsDefaultsFor,
   tcvVerdict,
@@ -1076,48 +1105,67 @@ describe('computeDispositionOptions', () => {
   });
 });
 
-describe('computeIsolationWarnings (over a Phase 1 Decision, spec §3.3 / §3.4)', () => {
-  const machine = (isolation_class) => ({ machine_no: 'HD-01', isolation_class, status: 'active' });
+describe('computeIsolationWarnings (over a Phase 1 Decision + the tenant group map, spec §3.3 / §3.4)', () => {
+  // D11 = NO: the machine's routing key is a tenant LABEL, nullable, and NULL is
+  // a general machine. The marker class never leaves this function.
+  const machine = (isolation_group) => ({ machine_no: 'HD-01', isolation_group, status: 'active' });
+  const groups = { hbsag: 'Bay 1', hcv: 'Bay 2', hiv: 'Bay 2', isolation_mixed: 'Bay 3' };
+  const warn = (decision, m, isolationGroups = groups, enforcement = 'warn') => computeIsolationWarnings({ decision, machine: m, isolationGroups, enforcement });
   test('clear patient on an unregistered machine: silence', () => {
-    expect(computeIsolationWarnings({ decision: dec('clear'), machine: null, enforcement: 'warn' })).toEqual({ codes: [], required_class: null, blocked: false });
+    expect(warn(dec('clear'), null)).toEqual({ codes: [], required_group: null, blocked: false });
   });
-  test('restricted patient on an unregistered machine warns; required_class is the Decision\'s isolation_class', () => {
-    expect(computeIsolationWarnings({ decision: dec('restricted', 'hbsag'), machine: null, enforcement: 'warn' })).toMatchObject({ codes: ['DIALYSIS_MACHINE_UNREGISTERED'], required_class: 'hbsag' });
+  test('restricted patient on an unregistered machine warns; required_group is the tenant label, never the class', () => {
+    const out = warn(dec('restricted', 'hbsag'), null);
+    expect(out).toEqual({ codes: ['DIALYSIS_MACHINE_UNREGISTERED'], required_group: 'Bay 1', blocked: false });
+    expect(JSON.stringify(out)).not.toMatch(/hbsag|hcv|hiv|isolation_mixed/);   // no marker class in the output, ever
   });
-  test('restricted patient on a general machine: mismatch, warn-only', () => {
-    expect(computeIsolationWarnings({ decision: dec('restricted', 'hbsag'), machine: machine('general'), enforcement: 'warn' })).toEqual({ codes: ['DIALYSIS_ISOLATION_MACHINE_MISMATCH'], required_class: 'hbsag', blocked: false });
+  test('restricted patient on a general machine (isolation_group NULL): mismatch, warn-only', () => {
+    expect(warn(dec('restricted', 'hbsag'), machine(null))).toEqual({ codes: ['DIALYSIS_ISOLATION_MACHINE_MISMATCH'], required_group: 'Bay 1', blocked: false });
   });
   test('restricted patient on a general machine under block: blocked', () => {
-    expect(computeIsolationWarnings({ decision: dec('restricted', 'hbsag'), machine: machine('general'), enforcement: 'block' }).blocked).toBe(true);
+    expect(warn(dec('restricted', 'hbsag'), machine(null), groups, 'block').blocked).toBe(true);
   });
-  test('restricted patient on the matching or a mixed machine: silence', () => {
-    expect(computeIsolationWarnings({ decision: dec('restricted', 'hbsag'), machine: machine('hbsag'), enforcement: 'block' }).codes).toEqual([]);
-    expect(computeIsolationWarnings({ decision: dec('restricted', 'hbsag'), machine: machine('isolation_mixed'), enforcement: 'block' }).codes).toEqual([]);
+  test('restricted patient in the mapped bay: silence; two classes may share one bay', () => {
+    expect(warn(dec('restricted', 'hbsag'), machine('Bay 1'), groups, 'block').codes).toEqual([]);
+    expect(warn(dec('restricted', 'hcv'), machine('Bay 2'), groups, 'block').codes).toEqual([]);
+    expect(warn(dec('restricted', 'hiv'), machine('Bay 2'), groups, 'block').codes).toEqual([]);   // one label, two classes (spec §4.1)
   });
-  test('an isolation_mixed Decision is satisfied by a mixed machine only; a restricted Decision with no class is treated as mixed', () => {
-    expect(computeIsolationWarnings({ decision: dec('restricted', 'isolation_mixed'), machine: machine('hbsag'), enforcement: 'warn' })).toMatchObject({ codes: ['DIALYSIS_ISOLATION_MACHINE_MISMATCH'], required_class: 'isolation_mixed' });
-    expect(computeIsolationWarnings({ decision: dec('restricted', null), machine: machine('isolation_mixed'), enforcement: 'block' })).toEqual({ codes: [], required_class: 'isolation_mixed', blocked: false });
+  test('restricted patient in the WRONG bay: mismatch', () => {
+    expect(warn(dec('restricted', 'hbsag'), machine('Bay 2'))).toMatchObject({ codes: ['DIALYSIS_ISOLATION_MACHINE_MISMATCH'], required_group: 'Bay 1' });
+  });
+  test('an UNMAPPED class: required_group is null, any non-null group satisfies, a general machine still mismatches', () => {
+    expect(warn(dec('restricted', 'isolation_mixed'), machine('Bay 9'), {})).toEqual({ codes: [], required_group: null, blocked: false });
+    expect(warn(dec('restricted', 'isolation_mixed'), machine(null), {}, 'block')).toEqual({ codes: ['DIALYSIS_ISOLATION_MACHINE_MISMATCH'], required_group: null, blocked: true });
+    // A restricted Decision with NO class is read as isolation_mixed (the safe reading).
+    expect(warn(dec('restricted', null), machine('Bay 3'))).toEqual({ codes: [], required_group: 'Bay 3', blocked: false });
   });
   test('UNKNOWN never isolates and never blocks: no code on any machine under warn or block (spec §3.3)', () => {
     for (const enforcement of ['warn', 'block']) {
-      for (const m of [null, machine('general'), machine('hcv'), machine('isolation_mixed')]) {
-        expect(computeIsolationWarnings({ decision: dec('unknown', null, 'none'), machine: m, enforcement })).toEqual({ codes: [], required_class: null, blocked: false });
+      for (const m of [null, machine(null), machine('Bay 1'), machine('Bay 3')]) {
+        expect(warn(dec('unknown', null, 'none'), m, groups, enforcement)).toEqual({ codes: [], required_group: null, blocked: false });
       }
     }
-    expect(computeIsolationWarnings({ decision: null, machine: machine('general'), enforcement: 'block' })).toEqual({ codes: [], required_class: null, blocked: false });
+    expect(warn(null, machine(null), groups, 'block')).toEqual({ codes: [], required_group: null, blocked: false });
   });
-  test('a clear patient on an isolation machine warns (general-patient code); a clear Decision from a legacy declaration counts as clear', () => {
-    expect(computeIsolationWarnings({ decision: dec('clear'), machine: machine('hcv'), enforcement: 'warn' }).codes).toEqual(['DIALYSIS_GENERAL_PATIENT_ON_ISOLATION_MACHINE']);
-    expect(computeIsolationWarnings({ decision: dec('clear', null, 'legacy_declaration'), machine: machine('general'), enforcement: 'block' }).codes).toEqual([]);
+  test('a clear patient in an isolation bay warns (general-patient code); a clear Decision from a legacy declaration counts as clear', () => {
+    expect(warn(dec('clear'), machine('Bay 2')).codes).toEqual(['DIALYSIS_GENERAL_PATIENT_ON_ISOLATION_MACHINE']);
+    expect(warn(dec('clear', null, 'legacy_declaration'), machine(null), groups, 'block').codes).toEqual([]);
   });
 });
 
-describe('exposureMarkersForIsolationClass', () => {
-  test('a single class names its one marker; isolation_mixed, null and junk name none (the flag is the truth)', () => {
-    expect(exposureMarkersForIsolationClass('hbsag')).toEqual(['hbsag']);
-    expect(exposureMarkersForIsolationClass('hcv')).toEqual(['hcv']);
-    expect(exposureMarkersForIsolationClass('hiv')).toEqual(['hiv']);
-    for (const cls of ['isolation_mixed', null, undefined, 'general', 'HBSAG']) expect(exposureMarkersForIsolationClass(cls)).toEqual([]);
+describe('dialysisExposureStamp (D11 = NO: the flag alone)', () => {
+  test('the flag follows status and the marker list is ALWAYS empty - including for a Decision that still carries a class', () => {
+    expect(dialysisExposureStamp(dec('restricted', 'hbsag'))).toEqual({ exposure_flag: true, exposure_markers: [] });
+    expect(dialysisExposureStamp(dec('restricted', 'isolation_mixed'))).toEqual({ exposure_flag: true, exposure_markers: [] });
+    expect(dialysisExposureStamp(dec('restricted', null))).toEqual({ exposure_flag: true, exposure_markers: [] });
+    for (const d of [dec('clear'), dec('unknown', null, 'none'), null, undefined, {}]) {
+      expect(dialysisExposureStamp(d)).toEqual({ exposure_flag: false, exposure_markers: [] });
+    }
+  });
+  test('the module exports no class -> marker map at all', async () => {
+    const mod = await import('../../services/clinical/reprocessableDeviceRules.js');
+    expect(Object.keys(mod)).not.toContain('exposureMarkersForIsolationClass');
+    expect(JSON.stringify(mod.default)).not.toMatch(/exposureMarkersForIsolationClass/);
   });
 });
 
@@ -1194,7 +1242,13 @@ export const POST_USE_DISPOSITIONS = Object.freeze([
 export const REACTIVE_PATIENT_RULES = Object.freeze(['discard', 'quarantine', 'override_allowed']);
 export const UNKNOWN_SEROLOGY_RULES = Object.freeze(['warn', 'block_return']);
 export const ISOLATION_ENFORCEMENT = Object.freeze(['warn', 'block']);
-export const ISOLATION_CLASSES = Object.freeze(['general', 'hbsag', 'hcv', 'hiv', 'isolation_mixed']);
+// D11 = NO: these are the MARKER CLASSES the Phase 1 Decision speaks and the
+// keys of the tenant's isolation_groups map. 'general' is gone with the machine
+// column it labelled - a general machine is one with isolation_group IS NULL.
+export const ISOLATION_CLASSES = Object.freeze(['hbsag', 'hcv', 'hiv', 'isolation_mixed']);
+// The dialysis_machines.isolation_group column width; the settings validator
+// refuses a longer label rather than letting the INSERT truncate or fail.
+export const ISOLATION_GROUP_MAX_LEN = 40;
 export const ENROLLED_VIA = Object.freeze(['session_capture', 'set_issue', 'console']);
 export const CAPTURE_SOURCES = Object.freeze(['staff_app', 'admin_console', 'cssd_issue', 'system']);
 export const REPROCESSING_AGENTS = Object.freeze(['peracetic_acid', 'formaldehyde', 'glutaraldehyde', 'renalin', 'other']);
@@ -1328,14 +1382,14 @@ export function computeDispositionOptions({ domain, usage, policy, settings, res
 // or more -> isolation_mixed). This module never derives a class from markers.
 export const DECISION_STATUSES = Object.freeze(['restricted', 'unknown', 'clear']);
 
-// Decision.isolation_class -> the one marker a single class names. A dialysis
-// device's exposure_markers come from here at post-use (a Decision carries no
-// markers). isolation_mixed and null name none: the exposure FLAG is the truth,
-// the list is detail.
-const ISOLATION_CLASS_MARKER = Object.freeze({ hbsag: 'hbsag', hcv: 'hcv', hiv: 'hiv' });
-export function exposureMarkersForIsolationClass(isolationClass) {
-  const marker = ISOLATION_CLASS_MARKER[isolationClass];
-  return marker ? [marker] : [];
+// D11 = NO (spec §2, §3.3): a dialysis device is stamped with the exposure FLAG
+// and nothing else. There is deliberately no class -> marker map here any more -
+// this helper reads `status` and could not name a marker if it wanted to, which
+// is the point: the CSSD queue acts on the flag under universal precautions and
+// never learns what isolated the patient. (The OT arm is unchanged and still
+// derives its markers from resolveReuseStatus - see returnDeviceTx, Task 3.)
+export function dialysisExposureStamp(decision) {
+  return { exposure_flag: decision?.status === 'restricted', exposure_markers: [] };
 }
 
 // §3.4 over a live Decision. A clear patient on an unregistered machine produces
@@ -1343,24 +1397,35 @@ export function exposureMarkersForIsolationClass(isolationClass) {
 // is not a warning. An UNKNOWN patient produces nothing either, and is never
 // blocked (spec §3.3: zero markers exist cluster-wide; unknown-isolates would
 // isolate every patient on day one; the amber state is Phase 1's roster chip).
-export function computeIsolationWarnings({ decision, machine, enforcement = 'warn' }) {
+// D11 = NO: `isolationGroups` is the tenant's class -> group map, supplied by the
+// caller from reprocessing_domain_settings. The marker class is an INTERNAL
+// INTERMEDIATE - the local `cls` below - used only to index that map. It is not a
+// key of the return value, and there is no other way to build the verdict, so a
+// future caller cannot leak it by forgetting something.
+export function computeIsolationWarnings({ decision, machine, isolationGroups = {}, enforcement = 'warn' }) {
   const codes = [];
   const status = DECISION_STATUSES.includes(decision?.status) ? decision.status : 'unknown';
   // A restricted Decision always carries a class by Phase 1's rule; if one ever
   // arrives without, the safe reading is "needs the most restrictive machine".
-  const required = status === 'restricted' ? (decision.isolation_class || 'isolation_mixed') : null;
+  const cls = status === 'restricted' ? (decision.isolation_class || 'isolation_mixed') : null;
+  const requiredGroup = cls ? (isolationGroups?.[cls] ?? null) : null;
+  const group = machine ? (machine.isolation_group ?? null) : null;
   let blocked = false;
   if (status === 'restricted') {
     if (!machine) {
       codes.push('DIALYSIS_MACHINE_UNREGISTERED');
-    } else if (machine.isolation_class !== required && machine.isolation_class !== 'isolation_mixed') {
+    } else if (group === null || (requiredGroup !== null && group !== requiredGroup)) {
+      // A general machine (isolation_group IS NULL) never satisfies a restricted
+      // patient. When the tenant has NOT mapped this class (requiredGroup null -
+      // the day-one state) any non-null group satisfies: the patient is at least
+      // in an isolation bay, and the platform must not invent a label.
       codes.push('DIALYSIS_ISOLATION_MACHINE_MISMATCH');
       blocked = enforcement === 'block';
     }
-  } else if (status === 'clear' && machine && machine.isolation_class !== 'general') {
+  } else if (status === 'clear' && machine && group !== null) {
     codes.push('DIALYSIS_GENERAL_PATIENT_ON_ISOLATION_MACHINE');
   }
-  return { codes, required_class: required, blocked };
+  return { codes, required_group: requiredGroup, blocked };
 }
 
 // The dialyser discard rule: measured TCV must be at least minPct of the
@@ -1376,18 +1441,18 @@ export function tcvVerdict({ baseline, measured, minPct = DEFAULT_TCV_MIN_PCT })
 export default {
   DOMAINS, CATEGORIES_BY_DOMAIN, DEVICE_STATUSES, CYCLE_TYPES, DIALYSIS_CYCLE_TYPES, FUNCTION_CHECK_RESULTS,
   DISCARD_REASONS, POST_USE_DISPOSITIONS, REACTIVE_PATIENT_RULES, UNKNOWN_SEROLOGY_RULES, ISOLATION_ENFORCEMENT,
-  ISOLATION_CLASSES, ENROLLED_VIA, CAPTURE_SOURCES, REPROCESSING_AGENTS, DEFAULT_TCV_MIN_PCT, DEVICE_TAG_PATTERN,
+  ISOLATION_CLASSES, ISOLATION_GROUP_MAX_LEN, ENROLLED_VIA, CAPTURE_SOURCES, REPROCESSING_AGENTS, DEFAULT_TCV_MIN_PCT, DEVICE_TAG_PATTERN,
   DEVICE_ACTIONS, DECISION_STATUSES, requireDomain, deviceTransition, normalizeDeviceTag, settingsDefaultsFor, validatePolicyInput,
-  computeDispositionOptions, computeIsolationWarnings, exposureMarkersForIsolationClass, tcvVerdict,
+  computeDispositionOptions, computeIsolationWarnings, dialysisExposureStamp, tcvVerdict,
 };
 ```
 
 - [ ] **Step 4: Run to verify pass**
 
 Run: `npm test -- --testPathPatterns unit/reprocessableDeviceRules`
-Expected: PASS, 49 tests (1 domains + 9 allowed + 7 refused + 1 uncapture shape + 6 tag + 2 defaults + 12 disposition + 8 isolation + 1 tcv + 1 policy + 1 exposure-markers). If the parity test fails on `reason_codes` for the max-cycles device under `override_allowed`, read both functions side by side — the order is flag, ceiling, screen in both, and the fix is in the new module, never in cath's.
+Expected: PASS, 51 tests (1 domains + 9 allowed + 7 refused + 1 uncapture shape + 6 tag + 2 defaults + 12 disposition + 9 isolation + 1 tcv + 1 policy + 2 exposure-stamp). If the parity test fails on `reason_codes` for the max-cycles device under `override_allowed`, read both functions side by side — the order is flag, ceiling, screen in both, and the fix is in the new module, never in cath's.
 
-- [ ] **Step 5: Mutation checks** — swap the flag and ceiling branches in `computeDispositionOptions`, run, confirm the "device flag is checked BEFORE the ceiling" test and the parity test go red; restore. Add `else if (status === 'unknown') codes.push('DIALYSIS_SEROLOGY_UNKNOWN');` to `computeIsolationWarnings`, run, confirm the "UNKNOWN never isolates" test goes red; restore.
+- [ ] **Step 5: Mutation checks** — swap the flag and ceiling branches in `computeDispositionOptions`, run, confirm the "device flag is checked BEFORE the ceiling" test and the parity test go red; restore. Add `else if (status === 'unknown') codes.push('DIALYSIS_SEROLOGY_UNKNOWN');` to `computeIsolationWarnings`, run, confirm the "UNKNOWN never isolates" test goes red; restore. Then add `required_class: cls` to `computeIsolationWarnings`' return object, run, and confirm the "required_group is the tenant label, never the class" test goes red on the `JSON.stringify` assertion; restore. Then make `dialysisExposureStamp` return `[decision.isolation_class]` when the class is a marker, run, and confirm both exposure-stamp tests go red; restore. These two are the D11 = NO guards inside the pure module, upstream of the canary.
 
 - [ ] **Step 6: Commit**
 
@@ -1436,11 +1501,14 @@ import { logPhiAccess, logPhiAccessBatch } from '../../utils/hipaaAudit.js';
 import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
 import { persistCdsAlert } from '../emr/cdsEngine.js';
 import { requireTenantId } from '../tenant/tenantService.js';
+// D11 = NO: the one list that may write the class -> group mapping. Imported
+// from the route policy, never re-declared here (spec §4.1).
+import { ISOLATION_GROUP_ADMIN_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 import { MARKERS, registerExposureHandler, resolveReuseStatus } from './bloodborneMarkerService.js';
 import { recordMedicationSafetyReviews } from './canonicalClinicalPlatformService.js';
 import {
   CAPTURE_SOURCES, CATEGORIES_BY_DOMAIN, CYCLE_TYPES, DEVICE_STATUSES, DIALYSIS_CYCLE_TYPES, DISCARD_REASONS, ENROLLED_VIA,
-  FUNCTION_CHECK_RESULTS, ISOLATION_ENFORCEMENT, REACTIVE_PATIENT_RULES, UNKNOWN_SEROLOGY_RULES,
+  FUNCTION_CHECK_RESULTS, ISOLATION_CLASSES, ISOLATION_ENFORCEMENT, ISOLATION_GROUP_MAX_LEN, REACTIVE_PATIENT_RULES, UNKNOWN_SEROLOGY_RULES,
   deviceTransition, normalizeDeviceTag, requireDomain, settingsDefaultsFor, validatePolicyInput,
 } from './reprocessableDeviceRules.js';
 
@@ -1507,7 +1575,13 @@ async function recordAudit(tx, { tenantId, action, resource, resourceId, context
 // ---------------------------------------------------------------------------
 // Settings (tenant x domain)
 // ---------------------------------------------------------------------------
-const SETTINGS_SELECT = `tenant_id, domain, reactive_patient_rule, unknown_serology_rule, serology_validity_days, isolation_enforcement, reviewed_by, reviewed_at, updated_by, created_at, updated_at`;
+const SETTINGS_SELECT = `tenant_id, domain, reactive_patient_rule, unknown_serology_rule, serology_validity_days, isolation_enforcement, isolation_groups, reviewed_by, reviewed_at, updated_by, created_at, updated_at`;
+// D11 = NO (spec §4.1): the class -> group map may be WRITTEN only by infection
+// control / admin. The list is `ISOLATION_GROUP_ADMIN_ROUTE_ROLES` from
+// config/routeRolePolicy.js (an intersection with the governance mount audience,
+// so the gate can never be dead); QUALITY_OFFICER reads the settings and cannot
+// change the map, and DIALYSIS_TECHNICIAN never reaches the mount at all.
+// Imported, never re-declared: two lists would drift.
 
 export async function getDomainSettings({ tenantId, domain, db = null } = {}) {
   const tid = tenantOr(tenantId);
@@ -1515,8 +1589,10 @@ export async function getDomainSettings({ tenantId, domain, db = null } = {}) {
   const rows = await withTenant(tid, db, (client) => client.$queryRawUnsafe(
     `SELECT ${SETTINGS_SELECT} FROM reprocessing_domain_settings WHERE tenant_id = $1::uuid AND domain = $2`, tid, dom,
   ));
-  if (rows[0]) return { ...rows[0], serology_validity_days: num(rows[0].serology_validity_days), configured: true };
-  return { tenant_id: tid, domain: dom, ...settingsDefaultsFor(dom), reviewed_by: null, reviewed_at: null, updated_by: null, created_at: null, updated_at: null, configured: false };
+  if (rows[0]) return { ...rows[0], serology_validity_days: num(rows[0].serology_validity_days), isolation_groups: rows[0].isolation_groups || {}, configured: true };
+  // No row: an EMPTY map, never an invented one. computeIsolationWarnings reads
+  // that as "any isolation machine satisfies a restricted patient" (spec §3.4).
+  return { tenant_id: tid, domain: dom, ...settingsDefaultsFor(dom), isolation_groups: {}, reviewed_by: null, reviewed_at: null, updated_by: null, created_at: null, updated_at: null, configured: false };
 }
 
 export async function upsertDomainSettings({ tenantId, domain, ...input } = {}, context = {}) {
@@ -1529,22 +1605,58 @@ export async function upsertDomainSettings({ tenantId, domain, ...input } = {}, 
   const days = positiveInt(input.serology_validity_days ?? current.serology_validity_days, 'serology_validity_days', { max: 365 });
   const enforcement = oneOf(input.isolation_enforcement ?? current.isolation_enforcement, ISOLATION_ENFORCEMENT, 'isolation_enforcement');
   if (dom !== 'dialysis' && enforcement !== 'warn') throw AppError.badRequest('isolation_enforcement applies to dialysis only', 'RPD_POLICY_INVALID');
+  // ---- D11 = NO: the class -> group map (spec §4.1) ----------------------
+  // Role gate FIRST, so a role that may not write it cannot learn from a
+  // validation error whether its value would have been accepted.
+  const wantsGroups = Object.prototype.hasOwnProperty.call(input, 'isolation_groups');
+  if (wantsGroups && !ISOLATION_GROUP_ADMIN_ROUTE_ROLES.includes(String(context.actorRole || '').toUpperCase())) {
+    throw AppError.forbidden('isolation_groups may be changed only by infection control or an administrator', 'RPD_ISOLATION_GROUPS_FORBIDDEN');
+  }
+  let groups = current.isolation_groups || {};
+  if (wantsGroups) {
+    const raw = input.isolation_groups;
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) throw AppError.badRequest('isolation_groups must be an object', 'RPD_ISOLATION_GROUPS_INVALID');
+    if (dom !== 'dialysis' && Object.keys(raw).length) throw AppError.badRequest('isolation_groups applies to dialysis only', 'RPD_ISOLATION_GROUPS_INVALID');
+    groups = {};
+    for (const [cls, label] of Object.entries(raw)) {
+      if (!ISOLATION_CLASSES.includes(cls)) throw AppError.badRequest(`isolation_groups key ${cls} is not a marker class`, 'RPD_ISOLATION_GROUPS_INVALID');
+      if (label === null || label === '') continue;                       // an unmapped class is an ABSENT key, not a null value
+      const text = cleanText(label, ISOLATION_GROUP_MAX_LEN);
+      if (!text) throw AppError.badRequest(`isolation_groups.${cls} must be a non-empty label of at most ${ISOLATION_GROUP_MAX_LEN} characters`, 'RPD_ISOLATION_GROUPS_INVALID');
+      groups[cls] = text;
+    }
+  }
+  // ADVISORY, never a refusal (spec §4.1): a unit may map its bays before it
+  // tags the machines. The warning is returned beside the saved row.
+  const warnings = [];
+  if (wantsGroups && Object.keys(groups).length) {
+    const named = [...new Set(Object.values(groups))];
+    const present = await setTenant(tid, (tx) => tx.$queryRawUnsafe(
+      `SELECT DISTINCT isolation_group FROM dialysis_machines WHERE tenant_id = $1::uuid AND status <> 'retired' AND isolation_group = ANY($2::text[])`, tid, named,
+    ));
+    const have = new Set(present.map((r) => r.isolation_group));
+    for (const label of named) if (!have.has(label)) warnings.push(`isolation_group "${label}" is on no registered machine`);
+  }
   return setTenantTx(tid, async (tx) => {
     const rows = await tx.$queryRawUnsafe(
       `INSERT INTO reprocessing_domain_settings
-         (tenant_id, domain, reactive_patient_rule, unknown_serology_rule, serology_validity_days, isolation_enforcement, reviewed_by, reviewed_at, updated_by)
-       VALUES ($1::uuid, $2, $3, $4, $5::int, $6, $7::uuid, NOW(), $7::uuid)
+         (tenant_id, domain, reactive_patient_rule, unknown_serology_rule, serology_validity_days, isolation_enforcement, isolation_groups, reviewed_by, reviewed_at, updated_by)
+       VALUES ($1::uuid, $2, $3, $4, $5::int, $6, $7::jsonb, $8::uuid, NOW(), $8::uuid)
        ON CONFLICT (tenant_id, domain) DO UPDATE SET
          reactive_patient_rule = EXCLUDED.reactive_patient_rule,
          unknown_serology_rule = EXCLUDED.unknown_serology_rule,
          serology_validity_days = EXCLUDED.serology_validity_days,
          isolation_enforcement = EXCLUDED.isolation_enforcement,
+         isolation_groups = EXCLUDED.isolation_groups,
          reviewed_by = EXCLUDED.reviewed_by, reviewed_at = NOW(), updated_by = EXCLUDED.updated_by, updated_at = NOW()
        RETURNING ${SETTINGS_SELECT}`,
-      tid, dom, reactive, unknownRule, days, enforcement, actor,
+      tid, dom, reactive, unknownRule, days, enforcement, JSON.stringify(groups), actor,
     );
-    await recordAudit(tx, { tenantId: tid, action: 'rpd.settings.updated', resource: 'reprocessing_domain_settings', resourceId: `${tid}:${dom}`, context, metadata: { domain: dom, reactive_patient_rule: reactive, unknown_serology_rule: unknownRule, serology_validity_days: days, isolation_enforcement: enforcement, idempotency_key: context.idempotencyKey ?? null } });
-    return { ...rows[0], serology_validity_days: num(rows[0].serology_validity_days), configured: true };
+    // The audit names the GROUPS, which are equipment labels; it never names a
+    // marker class as a patient fact (the map's KEYS are the vocabulary, not a
+    // patient's status) - spec §7.2, D11 = NO.
+    await recordAudit(tx, { tenantId: tid, action: 'rpd.settings.updated', resource: 'reprocessing_domain_settings', resourceId: `${tid}:${dom}`, context, metadata: { domain: dom, reactive_patient_rule: reactive, unknown_serology_rule: unknownRule, serology_validity_days: days, isolation_enforcement: enforcement, isolation_groups: groups, idempotency_key: context.idempotencyKey ?? null } });
+    return { ...rows[0], serology_validity_days: num(rows[0].serology_validity_days), isolation_groups: rows[0].isolation_groups || {}, warnings, configured: true };
   });
 }
 
@@ -1874,10 +1986,11 @@ export async function captureDeviceTx(tx, { device, patientUid, owner, captureSo
 // Settles the open usage of a device: disposition, post_use_screen, return
 // transition, then quarantine/discard when the disposition says so.
 // exposureMarkers: OT leaves it null and the markers come from the screen
-// (resolveReuseStatus carries them); dialysis passes the list derived from the
-// Decision's isolation_class (a Decision carries no markers - spec §3.3).
-// deviceMetadata rides on the return transition (dialysis stamps
-// exposure_isolation_class for a mixed-class exposure).
+// (resolveReuseStatus carries them) - UNCHANGED by D11. Dialysis passes an EMPTY
+// list: under D11 = NO a dialysis device is stamped with the exposure FLAG alone
+// and nothing on it names a marker (spec §3.3, §2 D11(e)).
+// deviceMetadata rides on the return transition; dialysis passes {} - the old
+// exposure_isolation_class stamp is retired with the class.
 export async function returnDeviceTx(tx, { device, usage, disposition, postUseScreen, options, discardReason = null, discardNote = null, acknowledgementReason = null, exposureMarkers = null, deviceMetadata = {}, context }) {
   const tid = device.tenant_id;
   if (!usage || usage.device_id !== device.id || usage.returned_at) throw AppError.conflict('No open usage for this device', 'RPD_USAGE_NOT_OPEN');
@@ -2098,8 +2211,8 @@ export const DIALYSIS_SEROLOGY_ROW_KEYS = Object.freeze(['hbsag', 'hbs_titre', '
 //   * the dialysis Phase 1 Decision { status, asOf, evidence, reasons, isolation_class?, markers? }
 //     (spec §3.3), told apart by `evidence`.
 // isolation_class is BLANKED, not carried: a value of 'hiv' is serology whatever
-// the caller calls it (the reason dev-ea refused it as an unconditional field),
-// and whether a routing role may read it at all is owner decision D11 (§2).
+// the caller calls it (the reason dev-1b refused it as an unconditional field),
+// and D11 = NO settled that no routing role reads it at all (§2).
 // Belt and braces: no read surface in this lane asks for the class, so the key
 // is normally absent - this makes a future forwarding route fail closed.
 export function projectReuseRestrictionForRole(restriction, role) {
@@ -2128,9 +2241,10 @@ export function projectDialysisSerologyRowsForRole(rows, role) {
 }
 // There is deliberately NO projection of the `isolation` envelope (spec §3.5) -
 // because there is nothing in it to project. The codes, the machine the warning
-// is about and its severity are what whoever puts the patient on a machine must
-// read; the class never enters the payload at all (spec §3.4 interim shape,
-// pending D11). The marker VALUES above and the Decision's class stay blanked.
+// is about, its severity and the required_group are what whoever puts the
+// patient on a machine must read, and a group is a tenant's label for a BAY, not
+// a clinical value (D11 = NO). The class never enters the payload at all (spec
+// §3.4). The marker VALUES above and the Decision's class stay blanked.
 export default { projectReuseRestrictionForRole, projectDialysisPatientForRole, projectDialysisPatientsForRole, projectDialysisSerologyRowsForRole };
 ```
 
@@ -2193,7 +2307,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 ## Task 4: Dialysis — capture, one-command reprocessing record, isolation, machines (consumes the Phase 1 resolver)
 
-**DEPENDS ON Phase 1.** Every dialysis *decision* in this task — the frozen capture snapshot, the isolation rule at schedule / start / reassign, the post-use disposition — reads `resolveDialysisIsolation` from the dialysis isolation derivation lane (dev-ea, migration 767; spec §3.3). Step 0b checks that the resolver is on `github/main` before any of it is written. Until it is: Steps 1 (adapter + named stub), 4 (census), 5 (pins) and every unit test can land; Step 2's service compiles against the adapter; the dialysis deep suite is *skipped by name*. Nothing in this task falls back to a stub or to the roster columns at runtime — with a dialyser policy on and no resolver importable, the dialysis paths fail closed with `RPD_ISOLATION_RESOLVER_UNAVAILABLE` (503). This lane writes **nothing** to `dialysis_patients.hbsag_status / hcv_status / hiv_status`: no sync, no latch, no union read, no enrol guard, no `recordSerology` change, no backfill — all Phase 1's (spec §3.3, hand-over notes there).
+**DEPENDS ON Phase 1.** Every dialysis *decision* in this task — the frozen capture snapshot, the isolation rule at schedule / start / reassign, the post-use disposition — reads `resolveDialysisIsolation` from the dialysis isolation derivation lane (dev-1b, migration 767; spec §3.3). Step 0b checks that the resolver is on `github/main` before any of it is written. Until it is: Steps 1 (adapter + named stub), 4 (census), 5 (pins) and every unit test can land; Step 2's service compiles against the adapter; the dialysis deep suite is *skipped by name*. Nothing in this task falls back to a stub or to the roster columns at runtime — with a dialyser policy on and no resolver importable, the dialysis paths fail closed with `RPD_ISOLATION_RESOLVER_UNAVAILABLE` (503). This lane writes **nothing** to `dialysis_patients.hbsag_status / hcv_status / hiv_status`: no sync, no latch, no union read, no enrol guard, no `recordSerology` change, no backfill — all Phase 1's (spec §3.3, hand-over notes there).
 
 **Files:**
 - Create: `apps/backend/src/services/clinical/dialysisIsolationAdapter.js`, `apps/backend/src/services/clinical/dialysisReuseService.js`, `apps/backend/src/services/clinical/dialysisIsolationCensus.js`, `apps/backend/scripts/dialysis-isolation-census.mjs`
@@ -2286,7 +2400,7 @@ git show github/main:apps/backend/src/services/clinical/dialysisIsolationResolve
 git show github/main:apps/backend/src/services/clinical/dialysisIsolationResolver.js 2>/dev/null | grep -n -E "isolation_class|includeMarkers|includeIsolationClass|evidence" | head
 ```
 
-Expected once Phase 1 has landed: `1`, `1`, and lines naming `evidence`, `includeMarkers`, `includeIsolationClass` and `isolation_class`. Record the module path (the constant `PHASE1_RESOLVER_MODULE` in Step 1 is the only line to change if dev-ea named it differently) and confirm that `isolation_class` is gated on `includeIsolationClass` (spec §3.3: agreed with dev-ea as **opt-in**, present only when asked for and `null` unless `status === 'restricted'` — Plan 4's original ask for an unconditional fifth field was rejected and this is the agreed counter-proposal). If the resolver returns the class **unconditionally**, that is a Phase 1 defect, not a convenience: stop and raise it, because an unrequested class would reach the read surfaces the projection has to blank. If `includeIsolationClass` is absent altogether, stop and raise it too — do not derive a class from marker detail here. If the first two print `0`: write Steps 1, 4 and 5 now, write Step 2 against the adapter, leave Step 7's dialysis suite behind its guard, and name the dependency in the PR body. Do not invent a resolver; do not read the columns; do not change `describeIfPhase1` into `describe`.
+Expected once Phase 1 has landed: `1`, `1`, and lines naming `evidence`, `includeMarkers`, `includeIsolationClass` and `isolation_class`. Record the module path (the constant `PHASE1_RESOLVER_MODULE` in Step 1 is the only line to change if dev-1b named it differently) and confirm that `isolation_class` is gated on `includeIsolationClass` (spec §3.3: agreed with dev-1b as **opt-in**, present only when asked for and `null` unless `status === 'restricted'` — Plan 4's original ask for an unconditional fifth field was rejected and this is the agreed counter-proposal). If the resolver returns the class **unconditionally**, that is a Phase 1 defect, not a convenience: stop and raise it, because an unrequested class would reach the read surfaces the projection has to blank. If `includeIsolationClass` is absent altogether, stop and raise it too — do not derive a class from marker detail here. If the first two print `0`: write Steps 1, 4 and 5 now, write Step 2 against the adapter, leave Step 7's dialysis suite behind its guard, and name the dependency in the PR body. Do not invent a resolver; do not read the columns; do not change `describeIfPhase1` into `describe`.
 
 - [ ] **Step 1: The resolver adapter and its named stub**
 
@@ -2298,7 +2412,7 @@ Expected once Phase 1 has landed: `1`, `1`, and lines naming `evidence`, `includ
 // isolation rule at schedule/start/reassign, the post-use disposition - reads
 // a Decision through here, LIVE, inside the caller's transaction.
 //
-// Contract consumed (agreed with dev-ea in full, 2026-09-05):
+// Contract consumed (agreed with dev-1b in full, 2026-09-05; unchanged by D11):
 //   resolveDialysisIsolation({ tenantId, patientUids, db,
 //                              includeMarkers = false, includeIsolationClass = false })
 //     -> Map<patientUid, Decision>
@@ -2313,19 +2427,21 @@ Expected once Phase 1 has landed: `1`, `1`, and lines naming `evidence`, `includ
 //     so. No caller in THIS lane passes it (the roster / patient-detail surface
 //     that may is Phase 1's); the flag exists here so that surface has one seam.
 //   * includeIsolationClass defaults to false on the same footing. Plan 4 asked
-//     for the class as an unconditional fifth field; dev-ea refused, because a
+//     for the class as an unconditional fifth field; dev-1b refused, because a
 //     value of 'hiv' IS serology whatever the caller calls it - "it's a routing
-//     instruction" is the reframing that produced two earlier disclosures. Only
-//     TWO server-side paths pass it: assessIsolationTx (machine routing, Step 2)
-//     and recordDialyserReprocessing (the device's exposure_markers stamp). No
-//     read surface passes it, so no read surface can leak it. What a routing
-//     role may SEE is owner decision D11 (spec §2) and is not this file's call.
-//   * snapshotOf() strips `markers` AND `isolation_class`: the frozen
-//     reuse_screen / post_use_screen carry neither, because those rows are
-//     returned raw inside `usage` by GET /sessions/:id/dialyser. The explicit
-//     { keepClass: true } form is for the two in-process consumers that need
-//     the class and never serialise it (the isolation audit metadata and the
-//     device's exposure_markers stamp).
+//     instruction" is the reframing that produced two earlier disclosures. Since
+//     owner decision D11 = NO, exactly ONE server-side path passes it:
+//     assessIsolationTx (machine routing, Step 2), which maps the class to the
+//     tenant's routing GROUP and drops it in the same frame. The post-use path
+//     no longer asks - its two consumers (the exposure_markers stamp and the
+//     exposure_isolation_class metadata) are retired. No read surface passes it,
+//     so no read surface can leak it.
+//   * snapshotOf() strips `markers` AND `isolation_class`, ALWAYS. There is no
+//     { keepClass } form: under D11 = NO nothing downstream of the resolver call
+//     may hold a class, and the frozen reuse_screen / post_use_screen are
+//     returned raw inside `usage` by GET /sessions/:id/dialyser. The one
+//     consumer that needs the class reads it off the LIVE Decision before the
+//     freeze, inside assessIsolationTx.
 //   * A missing resolver is a 503, never a fallback: with a dialyser policy on
 //     and no Phase 1 module, capture / reprocess / schedule / start fail closed
 //     (RPD_ISOLATION_RESOLVER_UNAVAILABLE). The roster columns are not read.
@@ -2392,26 +2508,23 @@ export async function isolationDecisionsTx(tx, { tenantId, patientUids, includeM
 }
 
 // Single uid: the per-session paths (schedule, start, reassign, capture, reprocess, session read).
-// includeIsolationClass is passed by assessIsolationTx and recordDialyserReprocessing ONLY.
+// includeIsolationClass is passed by assessIsolationTx ONLY (D11 = NO, spec §3.3).
 export async function isolationDecisionTx(tx, { tenantId, patientUid, includeMarkers = false, includeIsolationClass = false }) {
   const map = await isolationDecisionsTx(tx, { tenantId, patientUids: [patientUid], includeMarkers, includeIsolationClass });
   return map.get(String(patientUid));
 }
 
 // What gets FROZEN on a usage row (spec §3.3): the Decision minus marker detail
-// AND minus the isolation class. A frozen screen is returned raw inside `usage`
-// by GET /sessions/:id/dialyser, so a class left on it would be published to
-// every dialysis role - the exact thing D11 has not decided. `keepClass: true`
-// is for the two in-process consumers that need it and never serialise it: the
-// isolation audit metadata and the exposure_markers stamp.
-export function snapshotOf(decision, { keepClass = false } = {}) {
+// AND minus the isolation class, unconditionally. A frozen screen is returned
+// raw inside `usage` by GET /sessions/:id/dialyser, so a class left on it would
+// publish a marker name to every dialysis role. D11 = NO removed the last
+// in-process consumer of a frozen class (the exposure stamp), so there is no
+// opt-out here and no argument to add one back: assessIsolationTx reads the
+// class off the LIVE Decision and never stores it.
+export function snapshotOf(decision) {
   if (!decision) return null;
   const { markers, isolation_class: cls, ...rest } = decision; // eslint-disable-line no-unused-vars
-  return {
-    ...rest,
-    ...(keepClass && 'isolation_class' in decision ? { isolation_class: cls ?? null } : {}),
-    reasons: Array.isArray(rest.reasons) ? [...rest.reasons] : [],
-  };
+  return { ...rest, reasons: Array.isArray(rest.reasons) ? [...rest.reasons] : [] };
 }
 
 // Test seams. Unit tests install a named stub or point the module path at a
@@ -2472,8 +2585,10 @@ test('the frozen snapshot carries neither marker detail nor the isolation class,
   expect('markers' in snap).toBe(false);
   expect('isolation_class' in snap).toBe(false);   // a frozen screen is published raw inside `usage` (§3.3)
   expect(snap.reasons).not.toBe(d.reasons);
-  // keepClass is the in-process form: the audit metadata and the exposure stamp.
-  expect(snapshotOf(d, { keepClass: true }).isolation_class).toBe('hbsag');
+  // D11 = NO: there is no opt-out. snapshotOf takes ONE argument and always
+  // strips the class - a second argument must not resurrect it.
+  expect(snapshotOf.length).toBe(1);
+  expect('isolation_class' in snapshotOf(d, { keepClass: true })).toBe(false);
   expect(snapshotOf(null)).toBeNull();
 });
 test('a decision outside the three statuses, with an unknown class, or missing for a uid is refused', async () => {
@@ -2521,8 +2636,8 @@ import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { isolationDecisionTx, snapshotOf } from './dialysisIsolationAdapter.js';
 import {
-  ISOLATION_CLASSES, REPROCESSING_AGENTS, applyDeviceTransitionTx, captureDeviceTx, categoryPolicyTx, cleanText,
-  computeDispositionOptions, computeIsolationWarnings, exposureMarkersForIsolationClass, getDomainSettings,
+  ISOLATION_GROUP_MAX_LEN, REPROCESSING_AGENTS, applyDeviceTransitionTx, captureDeviceTx, categoryPolicyTx, cleanText,
+  computeDispositionOptions, computeIsolationWarnings, dialysisExposureStamp, getDomainSettings,
   lockDeviceBySerialTx, lockDeviceByTagTx, lockDeviceTx, mintDeviceTx, nonNegativeInt, normalizeUsage, num, oneOf,
   positiveInt, recordReuseSafetyReview, requireUuid, returnDeviceTx, tcvVerdict, uncaptureDeviceTx,
 } from './reprocessableDeviceService.js';
@@ -2541,7 +2656,10 @@ async function auditTx(tx, { tenantId, action, resource, resourceId, context = {
 // ---------------------------------------------------------------------------
 // Machines (D3) and the isolation rule (§3.4)
 // ---------------------------------------------------------------------------
-const MACHINE_SELECT = `id, tenant_id, facility_id, machine_no, display_name, biomed_device_id, isolation_class, status, notes, created_by, updated_by, created_at, updated_at`;
+const MACHINE_SELECT = `id, tenant_id, facility_id, machine_no, display_name, biomed_device_id, isolation_group, status, notes, created_by, updated_by, created_at, updated_at`;
+// D11 = NO: a machine's routing key is the tenant's own label. NULL is a general
+// machine; the platform validates the shape and never the vocabulary.
+const machineGroup = (value) => { const text = cleanText(value, ISOLATION_GROUP_MAX_LEN); return text || null; };
 export async function listMachines({ tenantId, status = null } = {}) {
   const tid = tenantOr(tenantId);
   const args = [tid]; const conds = ['tenant_id = $1::uuid'];
@@ -2551,16 +2669,16 @@ export async function listMachines({ tenantId, status = null } = {}) {
 export async function createMachine({ tenantId, ...body }, context = {}) {
   const tid = tenantOr(tenantId); const actor = requireUuid(context.actorUid, 'actorUid');
   const machineNo = cleanText(body.machine_no, 40); if (!machineNo) throw AppError.badRequest('machine_no is required', 'DIALYSIS_MACHINE_INVALID');
-  const isolationClass = oneOf(body.isolation_class ?? 'general', ISOLATION_CLASSES, 'isolation_class', 'DIALYSIS_MACHINE_INVALID');
+  const isolationGroup = machineGroup(body.isolation_group);
   return setTenantTx(tid, async (tx) => {
     const exists = await tx.$queryRawUnsafe(`SELECT id FROM dialysis_machines WHERE tenant_id = $1::uuid AND machine_no = $2`, tid, machineNo);
     if (exists[0]) throw AppError.conflict('machine_no already registered', 'DIALYSIS_MACHINE_NO_TAKEN');
     const rows = await tx.$queryRawUnsafe(
-      `INSERT INTO dialysis_machines (tenant_id, facility_id, machine_no, display_name, biomed_device_id, isolation_class, status, notes, created_by, updated_by)
+      `INSERT INTO dialysis_machines (tenant_id, facility_id, machine_no, display_name, biomed_device_id, isolation_group, status, notes, created_by, updated_by)
        VALUES ($1::uuid, $2::int, $3, $4, $5::int, $6, 'active', $7, $8::uuid, $8::uuid) RETURNING ${MACHINE_SELECT}`,
-      tid, body.facility_id == null ? null : positiveInt(body.facility_id, 'facility_id'), machineNo, cleanText(body.display_name, 120), body.biomed_device_id == null ? null : positiveInt(body.biomed_device_id, 'biomed_device_id'), isolationClass, cleanText(body.notes, 2000), actor,
+      tid, body.facility_id == null ? null : positiveInt(body.facility_id, 'facility_id'), machineNo, cleanText(body.display_name, 120), body.biomed_device_id == null ? null : positiveInt(body.biomed_device_id, 'biomed_device_id'), isolationGroup, cleanText(body.notes, 2000), actor,
     );
-    await auditTx(tx, { tenantId: tid, action: 'dialysis.machine.created', resource: 'dialysis_machines', resourceId: rows[0].id, context, metadata: { machine_no: machineNo, isolation_class: isolationClass, idempotency_key: context.idempotencyKey ?? null } });
+    await auditTx(tx, { tenantId: tid, action: 'dialysis.machine.created', resource: 'dialysis_machines', resourceId: rows[0].id, context, metadata: { machine_no: machineNo, isolation_group: isolationGroup, idempotency_key: context.idempotencyKey ?? null } });
     return rows[0];
   });
 }
@@ -2569,14 +2687,16 @@ export async function updateMachine({ tenantId, id, ...body }, context = {}) {
   return setTenantTx(tid, async (tx) => {
     const current = (await tx.$queryRawUnsafe(`SELECT ${MACHINE_SELECT} FROM dialysis_machines WHERE tenant_id = $1::uuid AND id = $2::int FOR UPDATE`, tid, machineId))[0];
     if (!current) throw AppError.notFound('Dialysis machine not found', 'DIALYSIS_MACHINE_NOT_FOUND');
-    const isolationClass = oneOf(body.isolation_class ?? current.isolation_class, ISOLATION_CLASSES, 'isolation_class', 'DIALYSIS_MACHINE_INVALID');
+    // `isolation_group: null` in the body means "make this a general machine";
+    // an ABSENT key leaves the current label alone.
+    const isolationGroup = Object.prototype.hasOwnProperty.call(body, 'isolation_group') ? machineGroup(body.isolation_group) : (current.isolation_group ?? null);
     const status = oneOf(body.status ?? current.status, ['active', 'out_of_service', 'retired'], 'status', 'DIALYSIS_MACHINE_INVALID');
     const rows = await tx.$queryRawUnsafe(
-      `UPDATE dialysis_machines SET display_name = COALESCE($3, display_name), isolation_class = $4, status = $5, notes = COALESCE($6, notes), facility_id = COALESCE($7::int, facility_id), biomed_device_id = COALESCE($8::int, biomed_device_id), updated_by = $9::uuid, updated_at = NOW()
+      `UPDATE dialysis_machines SET display_name = COALESCE($3, display_name), isolation_group = $4, status = $5, notes = COALESCE($6, notes), facility_id = COALESCE($7::int, facility_id), biomed_device_id = COALESCE($8::int, biomed_device_id), updated_by = $9::uuid, updated_at = NOW()
         WHERE tenant_id = $1::uuid AND id = $2::int RETURNING ${MACHINE_SELECT}`,
-      tid, machineId, cleanText(body.display_name, 120), isolationClass, status, cleanText(body.notes, 2000), body.facility_id == null ? null : positiveInt(body.facility_id, 'facility_id'), body.biomed_device_id == null ? null : positiveInt(body.biomed_device_id, 'biomed_device_id'), actor,
+      tid, machineId, cleanText(body.display_name, 120), isolationGroup, status, cleanText(body.notes, 2000), body.facility_id == null ? null : positiveInt(body.facility_id, 'facility_id'), body.biomed_device_id == null ? null : positiveInt(body.biomed_device_id, 'biomed_device_id'), actor,
     );
-    await auditTx(tx, { tenantId: tid, action: 'dialysis.machine.updated', resource: 'dialysis_machines', resourceId: machineId, context, metadata: { from: { isolation_class: current.isolation_class, status: current.status }, to: { isolation_class: isolationClass, status }, idempotency_key: context.idempotencyKey ?? null } });
+    await auditTx(tx, { tenantId: tid, action: 'dialysis.machine.updated', resource: 'dialysis_machines', resourceId: machineId, context, metadata: { from: { isolation_group: current.isolation_group, status: current.status }, to: { isolation_group: isolationGroup, status }, idempotency_key: context.idempotencyKey ?? null } });
     return rows[0];
   });
 }
@@ -2588,52 +2708,70 @@ export async function updateMachine({ tenantId, id, ...body }, context = {}) {
 // scheduleSession inserts with the bare client outside any tx,
 // dialysisService.js:466-481) and by evaluateIsolationForSessionTx for start and
 // reassign, where the session row already exists.
-// This is THE routing read, and the only place besides recordDialyserReprocessing
-// that passes includeIsolationClass: true (spec §3.3). The class decides a
-// machine assignment and is never rendered - what leaves the API is
-// isolationPayload() below, which has no class key at all pending D11 (§3.4).
+// This is THE routing read and, since D11 = NO, the ONLY place in Plan 4 that
+// passes includeIsolationClass: true (spec §3.3). The class is read, mapped to
+// the tenant's routing GROUP through settings.isolation_groups, and dropped in
+// this frame: the snapshot below strips it, the audit names the group, and what
+// leaves the API is isolationPayload(), which has no class key at all (§3.4).
 export async function assessIsolationTx(tx, { tenantId, patientUid, machineNo, overrideReason = null, requireReasonWhenWarned = false, context = {} }) {
   const tid = tenantOr(tenantId);
   const settings = await getDomainSettings({ tenantId: tid, domain: DOMAIN, db: tx });
   const decision = await isolationDecisionTx(tx, { tenantId: tid, patientUid, includeIsolationClass: true });
   const machine = machineNo ? (await tx.$queryRawUnsafe(`SELECT ${MACHINE_SELECT} FROM dialysis_machines WHERE tenant_id = $1::uuid AND machine_no = $2 AND status <> 'retired'`, tid, cleanText(machineNo, 40)))[0] || null : null;
-  const verdict = computeIsolationWarnings({ decision, machine, enforcement: settings.isolation_enforcement });
+  const verdict = computeIsolationWarnings({ decision, machine, isolationGroups: settings.isolation_groups, enforcement: settings.isolation_enforcement });
   const reason = cleanText(overrideReason, 2000);
   const actor = context.actorUid ? requireUuid(context.actorUid, 'actorUid') : null;
-  // The refusal names neither the class nor the marker: a routing role learns
-  // THAT the machine is wrong, not WHICH marker says so (D11, spec §2).
-  if (verdict.blocked) throw AppError.conflict('This patient must be dialysed on an isolation machine of the required class', 'DIALYSIS_ISOLATION_MACHINE_BLOCKED', { codes: verdict.codes });
+  // The refusal names the GROUP, never the class or the marker: a routing role
+  // learns THAT the machine is wrong and WHICH BAY to move to (D11 = NO, §2).
+  if (verdict.blocked) {
+    throw AppError.conflict(
+      verdict.required_group ? `This patient must be dialysed on a machine in isolation group ${verdict.required_group}` : 'This patient must be dialysed on an isolation machine',
+      'DIALYSIS_ISOLATION_MACHINE_BLOCKED', { codes: verdict.codes, required_group: verdict.required_group },
+    );
+  }
   if (requireReasonWhenWarned && verdict.codes.length && !reason) throw AppError.badRequest('isolation_override_reason is required when isolation warnings are present', 'DIALYSIS_ISOLATION_OVERRIDE_REQUIRED', { codes: verdict.codes });
   const overridden = verdict.codes.length > 0 && Boolean(reason);
   // dialysis_sessions_isolation_override_check: reason, by and at are
   // all-or-nothing, so an override without a named actor cannot be stored.
   if (overridden && !actor) throw AppError.badRequest('isolation_override_reason must be recorded by a named actor', 'DIALYSIS_ISOLATION_OVERRIDE_REQUIRED', { codes: verdict.codes });
   return {
-    codes: verdict.codes, required_class: verdict.required_class, blocked: false,   // required_class is INTERNAL: audit + mismatch test only
+    codes: verdict.codes, required_group: verdict.required_group, blocked: false,   // the GROUP is publishable; there is no class field to leak
     machine_id: machine?.id ?? null, enforcement: settings.isolation_enforcement,
     warn_only: settings.isolation_enforcement === 'warn', enforcement_enabled: settings.isolation_enforcement === 'block',
-    override: overridden ? { reason, by: actor } : null, decision: snapshotOf(decision, { keepClass: true }), machine_no: machineNo || null,
+    override: overridden ? { reason, by: actor } : null, decision: snapshotOf(decision), machine_no: machineNo || null,
   };
 }
 
 // The ONE serialiser for everything this lane returns under `isolation` (spec
-// §3.4 interim payload). It drops required_class - and there is no other way to
-// build the payload, so a future caller cannot forget. Under D11 = YES each
-// warning regains `required_class`; under D11 = NO it gains `required_group`.
+// §3.4, D11 = NO). Each warning carries the tenant's required GROUP - a bay
+// label every dialysis role may read - and there is no other way to build the
+// payload, so a future caller cannot forget and cannot invent a class key: the
+// internal object has none to copy.
 export function isolationPayload(isolation, { severityFor = (code) => (code === 'DIALYSIS_ISOLATION_MACHINE_MISMATCH' && isolation.enforcement_enabled ? 'block' : 'warn') } = {}) {
   const codes = isolation?.codes || [];
+  const requiredGroup = isolation?.required_group ?? null;
   return {
     codes,
-    isolation_warnings: codes.map((code) => ({ code, machine_id: code === 'DIALYSIS_MACHINE_UNREGISTERED' ? null : (isolation.machine_id ?? null), severity: severityFor(code) })),
+    isolation_warnings: codes.map((code) => ({
+      code,
+      machine_id: code === 'DIALYSIS_MACHINE_UNREGISTERED' ? null : (isolation.machine_id ?? null),
+      severity: severityFor(code),
+      // null on DIALYSIS_GENERAL_PATIENT_ON_ISOLATION_MACHINE (a clear patient
+      // needs no bay) and whenever the tenant has not mapped the class.
+      required_group: code === 'DIALYSIS_GENERAL_PATIENT_ON_ISOLATION_MACHINE' ? null : requiredGroup,
+    })),
     warn_only: isolation.warn_only, enforcement_enabled: isolation.enforcement_enabled, override: isolation.override ?? null,
   };
 }
 
 export async function recordIsolationAuditTx(tx, { tenantId, session, isolation, context = {} }) {
-  // The Decision's status / evidence / asOf / isolation_class are audited; its
-  // reasons and any markers never are (spec §7.2).
+  // The Decision's status / evidence / asOf are audited beside the required
+  // GROUP; its reasons, its markers and the marker CLASS never are (spec §7.2,
+  // D11 = NO - the class is written nowhere, audit_logs included). `isolation
+  // .decision` is a snapshotOf() result and carries no class to write by
+  // accident, which is why this reads three named fields and not a spread.
   const d = isolation.decision || {};
-  await auditTx(tx, { tenantId: tenantOr(tenantId), action: isolation.override ? 'dialysis.session.isolation_overridden' : 'dialysis.session.isolation_evaluated', resource: 'dialysis_sessions', resourceId: session.id, context, metadata: { codes: isolation.codes, required_class: isolation.required_class, machine_no: isolation.machine_no, enforcement: isolation.enforcement, decision: { status: d.status ?? null, evidence: d.evidence ?? null, as_of: d.asOf ?? null, isolation_class: d.isolation_class ?? null }, override_reason: isolation.override?.reason ?? null } });
+  await auditTx(tx, { tenantId: tenantOr(tenantId), action: isolation.override ? 'dialysis.session.isolation_overridden' : 'dialysis.session.isolation_evaluated', resource: 'dialysis_sessions', resourceId: session.id, context, metadata: { codes: isolation.codes, required_group: isolation.required_group, machine_no: isolation.machine_no, enforcement: isolation.enforcement, decision: { status: d.status ?? null, evidence: d.evidence ?? null, as_of: d.asOf ?? null }, override_reason: isolation.override?.reason ?? null } });
 }
 
 // Called by startSession / PATCH /sessions/:id/machine inside THEIR transaction
@@ -2642,21 +2780,22 @@ export async function recordIsolationAuditTx(tx, { tenantId, session, isolation,
 // blocks under 'block'. (scheduleSession calls assessIsolationTx directly and
 // writes the result in its INSERT - Step 3(a).)
 //
-// This is the machine-routing path, and its assessIsolationTx call is one of the
-// two places in Plan 4 that ask the Phase 1 resolver for isolation_class. It
-// returns the INTERNAL isolation object; every route serialises it through
+// This is the machine-routing path, and its assessIsolationTx call is the ONE
+// place in Plan 4 that asks the Phase 1 resolver for isolation_class (D11 = NO).
+// It returns the INTERNAL isolation object; every route serialises it through
 // isolationPayload() before it reaches a client (spec §3.4).
 export async function evaluateIsolationForSessionTx(tx, { tenantId, session, patientUid, machineNo, overrideReason = null, requireReasonWhenWarned = false, context = {} }) {
   const tid = tenantOr(tenantId);
   const isolation = await assessIsolationTx(tx, { tenantId: tid, patientUid, machineNo, overrideReason, requireReasonWhenWarned, context });
   await tx.$executeRawUnsafe(
     `UPDATE dialysis_sessions SET isolation_warning_codes = $3::text[], isolation_warn_only = $4::boolean, isolation_enforcement_enabled = $5::boolean,
+            isolation_required_group = $8::varchar,
             isolation_override_reason = CASE WHEN $6::text IS NULL THEN isolation_override_reason ELSE $6::text END,
             isolation_override_by = CASE WHEN $6::text IS NULL THEN isolation_override_by ELSE $7::uuid END,
             isolation_override_at = CASE WHEN $6::text IS NULL THEN isolation_override_at ELSE NOW() END,
             isolation_evaluated_at = NOW(), updated_at = NOW()
       WHERE tenant_id = $1::uuid AND id = $2::int`,
-    tid, session.id, isolation.codes, isolation.warn_only, isolation.enforcement_enabled, isolation.override?.reason ?? null, isolation.override?.by ?? null,
+    tid, session.id, isolation.codes, isolation.warn_only, isolation.enforcement_enabled, isolation.override?.reason ?? null, isolation.override?.by ?? null, isolation.required_group ?? null,
   );
   await recordIsolationAuditTx(tx, { tenantId: tid, session, isolation, context });
   return isolation;
@@ -2765,7 +2904,7 @@ export async function onSessionCancelledTx(tx, { tenantId, session, target, cont
 export async function getSessionDialyser({ tenantId, sessionId }) {
   const tid = tenantOr(tenantId);
   return setTenant(tid, async (tx) => {
-    const session = (await tx.$queryRawUnsafe(`SELECT s.id, s.status, s.machine_no, s.isolation_warning_codes, s.isolation_warn_only, s.isolation_enforcement_enabled, s.isolation_override_reason, s.isolation_override_by, s.isolation_override_at, p.patient_uid FROM dialysis_sessions s JOIN dialysis_patients p ON p.id = s.dialysis_patient_id AND p.tenant_id = s.tenant_id WHERE s.tenant_id = $1::uuid AND s.id = $2::int`, tid, positiveInt(sessionId, 'session_id')))[0];
+    const session = (await tx.$queryRawUnsafe(`SELECT s.id, s.status, s.machine_no, s.isolation_warning_codes, s.isolation_required_group, s.isolation_warn_only, s.isolation_enforcement_enabled, s.isolation_override_reason, s.isolation_override_by, s.isolation_override_at, p.patient_uid FROM dialysis_sessions s JOIN dialysis_patients p ON p.id = s.dialysis_patient_id AND p.tenant_id = s.tenant_id WHERE s.tenant_id = $1::uuid AND s.id = $2::int`, tid, positiveInt(sessionId, 'session_id')))[0];
     if (!session) throw AppError.notFound('Session not found', 'DIALYSIS_SESSION_NOT_FOUND');
     const settings = await getDomainSettings({ tenantId: tid, domain: DOMAIN, db: tx });
     const policy = await categoryPolicyTx(tx, tid, DOMAIN, 'dialyser');
@@ -2780,11 +2919,14 @@ export async function getSessionDialyser({ tenantId, sessionId }) {
     const options = usage && device ? computeDispositionOptions({ domain: DOMAIN, usage, policy, settings, restriction: decision, device }) : null;
     // The warnings are read back from the session row, where the routing path
     // persisted them; this read does not re-run the rule and carries no class
-    // (spec §3.4 interim payload). machine_id is resolved from the session's
-    // machine_no, and is null when the machine is not registered.
-    const machine = session.machine_no ? (await tx.$queryRawUnsafe(`SELECT id FROM dialysis_machines WHERE tenant_id = $1::uuid AND machine_no = $2 AND status <> 'retired'`, tid, session.machine_no))[0] || null : null;
+    // (spec §3.4). machine_id and the machine's own isolation_group come from the
+    // session's machine_no; both are null when the machine is not registered.
+    // The required_group is re-derived from the tenant map and the LIVE decision
+    // WITHOUT asking for a class: the decision here has none, so the read falls
+    // back to the machine's own group, which is equipment data (D11 = NO).
+    const machine = session.machine_no ? (await tx.$queryRawUnsafe(`SELECT id, isolation_group FROM dialysis_machines WHERE tenant_id = $1::uuid AND machine_no = $2 AND status <> 'retired'`, tid, session.machine_no))[0] || null : null;
     const isolation = isolationPayload({
-      codes: session.isolation_warning_codes || [], machine_id: machine?.id ?? null,
+      codes: session.isolation_warning_codes || [], machine_id: machine?.id ?? null, required_group: session.isolation_required_group ?? null,
       warn_only: session.isolation_warn_only, enforcement_enabled: session.isolation_enforcement_enabled,
       override: session.isolation_override_reason ? { reason: session.isolation_override_reason, by: session.isolation_override_by, at: session.isolation_override_at } : null,
     });
@@ -2825,12 +2967,13 @@ export async function recordDialyserReprocessing({ tenantId, sessionId, body, no
     // RE-RESOLVE, live (spec §3.3). The frozen usage.reuse_screen is NOT the
     // input here: a marker recorded between capture and this command must
     // change the disposition. What we act on is frozen afterwards as
-    // post_use_screen. This is the SECOND and last path that asks for the
-    // class, and it asks for one reason only: the device's exposure_markers
-    // stamp below. keepClass keeps it IN PROCESS; the screen frozen onto the
-    // usage row goes through plain snapshotOf(), which strips it - that row is
-    // published raw inside `usage` by GET /sessions/:id/dialyser.
-    const decision = snapshotOf(await isolationDecisionTx(tx, { tenantId: tid, patientUid: session.patient_uid, includeIsolationClass: true }), { keepClass: true });
+    // post_use_screen. This path asks for NO class (D11 = NO): its two former
+    // consumers - the exposure_markers stamp and the exposure_isolation_class
+    // metadata - are retired, computeDispositionOptions reads only
+    // restriction.status, and dedication is keyed on dedicated_patient_uid. One
+    // asker remains in the lane, assessIsolationTx, and the textual pin in Step
+    // 5 counts it.
+    const decision = snapshotOf(await isolationDecisionTx(tx, { tenantId: tid, patientUid: session.patient_uid }));
     const options = computeDispositionOptions({ domain: DOMAIN, usage, policy, settings, restriction: decision, device });
     const disposition = normalized.status === 'in_use' ? 'reprocess' : normalized.status === 'quarantined' ? 'quarantine' : 'discard';
     const acknowledgement = cleanText(body.acknowledgement?.reason, 2000);
@@ -2853,11 +2996,12 @@ export async function recordDialyserReprocessing({ tenantId, sessionId, body, no
       await recordReuseSafetyReview(tx, { tenantId: tid, patientUid: session.patient_uid, domain: DOMAIN, findingCode: options.exposure ? 'BLOODBORNE_RESTRICTED_OVERRIDE' : 'SEROLOGY_UNKNOWN_ACKNOWLEDGED', message: `Dialyser ${device.device_tag} reprocessed under acknowledgement`, reason: acknowledgement, actorUid: context.actorUid, payload: { device_id: device.id, usage_id: usage.id } });
     }
     const allowed = finalDisposition === 'discard' && !options.dispositions.includes('discard') ? [...options.dispositions, 'discard'] : options.dispositions;
-    // A Decision carries no markers; the device's exposure_markers come from
-    // its isolation_class (a single class names its marker; isolation_mixed
-    // sets the flag alone and says so in metadata - spec §3.3).
-    const exposureMarkers = exposureMarkersForIsolationClass(decision.isolation_class);
-    const deviceMetadata = decision.status === 'restricted' && decision.isolation_class === 'isolation_mixed' ? { exposure_isolation_class: 'isolation_mixed' } : {};
+    // D11 = NO: the dialysis stamp is the FLAG alone. The empty list is passed
+    // explicitly rather than left null, because returnDeviceTx's null branch
+    // falls back to deriving markers from the screen - which is right for OT and
+    // would be a marker name on a dialysis device (spec §3.3, §2 D11(e)).
+    const { exposure_markers: exposureMarkers } = dialysisExposureStamp(decision);
+    const deviceMetadata = {};
     const returned = await returnDeviceTx(tx, { device, usage, disposition: finalDisposition, postUseScreen: snapshotOf(decision), options: { ...options, dispositions: allowed }, discardReason, discardNote: cleanText(normalized.discardReason || body.notes, 2000), acknowledgementReason: acknowledgement, exposureMarkers, deviceMetadata, context });
     let settled = returned.device;
     if (finalDisposition === 'reprocess') settled = await applyDeviceTransitionTx(tx, settled, 'reprocessed', { cycleType: 'chemical', functionCheck: 'pass', note: body.notes }, context);
@@ -2906,14 +3050,16 @@ export async function recordDialyserReprocessing({ tenantId, sessionId, body, no
          anticoag_initial_dose, anticoag_maintenance,
          status, conducted_by, supervised_by, prescription_id, tenant_id,
          isolation_warning_codes, isolation_warn_only, isolation_enforcement_enabled,
-         isolation_override_reason, isolation_override_by, isolation_override_at, isolation_evaluated_at)
+         isolation_override_reason, isolation_override_by, isolation_override_at, isolation_evaluated_at,
+         isolation_required_group)
       VALUES ($1, $2, $3::date,
               $4, $5, $6, $7, $8,
               $9::timestamptz, $10, $11, $12, $13,
               'scheduled', $14, $15, $16, $17,
               $18::text[], $19::boolean, $20::boolean,
               $21::text, $22::uuid, CASE WHEN $21::text IS NULL THEN NULL ELSE NOW() END,
-              CASE WHEN $23::boolean THEN NOW() ELSE NULL END)
+              CASE WHEN $23::boolean THEN NOW() ELSE NULL END,
+              $24::varchar)
       RETURNING *`;
     const rows = await tx.$queryRawUnsafe(sql,
       patient.id, accessId,
@@ -2929,19 +3075,19 @@ export async function recordDialyserReprocessing({ tenantId, sessionId, body, no
       rx?.id || null,
       tenantOr(tenantId),
       isolation?.codes ?? [], isolation ? isolation.warn_only : true, isolation ? isolation.enforcement_enabled : false,
-      isolation?.override?.reason ?? null, isolation?.override?.by ?? null, Boolean(isolation));
+      isolation?.override?.reason ?? null, isolation?.override?.by ?? null, Boolean(isolation), isolation?.required_group ?? null);
     const row = unwrap(rows);
     if (isolation) await recordIsolationAuditTx(tx, { tenantId, session: row, isolation, context: { actorUid: body.actorUid || body.conducted_by || null, actorRole: body.actorRole || null } });
-    // isolationPayload() is what leaves the process: the internal object carries
-    // required_class for the audit and the mismatch test, and nothing
-    // user-facing may name a class pending D11 (spec §2, §3.4).
+    // isolationPayload() is what leaves the process. The internal object carries
+    // required_group - a bay label, publishable - and no class at all: under
+    // D11 = NO nothing anywhere may name a marker class (spec §2, §3.4).
     return { ...row, isolation: isolation ? isolationPayload(isolation) : null };
   });
 ```
 
 (`$21` appears twice, cast at both; `assessIsolationTx` / `recordIsolationAuditTx` / `isolationPayload` imported from `./dialysisReuseService.js`.) **Behaviour on a build without Phase 1:** with `machine_no` present this path now calls the resolver and fails closed with `RPD_ISOLATION_RESOLVER_UNAVAILABLE` — which is why Step 0b gates this step, and why the plan's Task 9 merges nothing until Phase 1 is on `main`.
 
-(b) `startSession` becomes a `setTenantTx` that locks the session with its patient, runs the status transition UPDATE as today, then `await evaluateIsolationForSessionTx(tx, { tenantId, session: row, patientUid: sess.patient_uid, machineNo: body.machine_no ?? row.machine_no, overrideReason: body.isolation_override_reason, requireReasonWhenWarned: true, context })` where `context` is `{ actorUid: body.started_by || null, actorRole: body.actorRole || null }` (the route passes `started_by: req.user?.uid, actorRole: req.user?.role`). The returned row carries `isolation: isolationPayload(isolation)` — never the internal object, which holds `required_class` for the audit only. The same applies to `PATCH /sessions/:id/machine` (§6.1).
+(b) `startSession` becomes a `setTenantTx` that locks the session with its patient, runs the status transition UPDATE as today, then `await evaluateIsolationForSessionTx(tx, { tenantId, session: row, patientUid: sess.patient_uid, machineNo: body.machine_no ?? row.machine_no, overrideReason: body.isolation_override_reason, requireReasonWhenWarned: true, context })` where `context` is `{ actorUid: body.started_by || null, actorRole: body.actorRole || null }` (the route passes `started_by: req.user?.uid, actorRole: req.user?.role`). The returned row carries `isolation: isolationPayload(isolation)` — never the internal object, which additionally holds the `Decision` snapshot and the enforcement mode for the audit. The same applies to `PATCH /sessions/:id/machine` (§6.1).
 
 (c) `validateReuseRegisterInput` (:33) gains an option — the count is required on the legacy path and optional when a dialyser policy exists (the device derives it; every deep call below omits it):
 
@@ -3291,27 +3437,32 @@ test('dialysisReuseService never reads a frozen reuse_screen as a decision input
     expect(reuse.slice(start, reuse.indexOf('\n}\n', start))).toMatch(/isolationDecisionTx\(/);
   }
 });
-// The opt-in class (spec §3.3): exactly two server-side paths ask for it, and
-// nothing user-facing carries it (D11, spec §2). A textual pin, because the
+// The opt-in class (spec §3.3): since D11 = NO, exactly ONE server-side path
+// asks for it and NOTHING anywhere names a class. A textual pin, because the
 // leak this guards is a one-word edit in a file nobody re-reads.
-test('only the routing and post-use paths request isolation_class, and no payload names a class', () => {
+test('only the routing path requests isolation_class, and no payload or audit names a class', () => {
   const reuse = readFileSync(new URL('../../services/clinical/dialysisReuseService.js', import.meta.url), 'utf8');
   const asking = [...reuse.matchAll(/includeIsolationClass:\s*true/g)].length;
-  expect(asking).toBe(2);
-  for (const fnName of ['assessIsolationTx', 'recordDialyserReprocessing']) {
-    const start = reuse.indexOf(`function ${fnName}(`);
-    expect(reuse.slice(start, reuse.indexOf('\n}\n', start))).toMatch(/includeIsolationClass:\s*true/);
+  expect(asking).toBe(1);
+  const start = reuse.indexOf('function assessIsolationTx(');
+  expect(reuse.slice(start, reuse.indexOf('\n}\n', start))).toMatch(/includeIsolationClass:\s*true/);
+  // The post-use path is now on this list: D11 = NO retired its two consumers.
+  for (const fnName of ['captureTx', 'getSessionDialyser', 'recordDialyserReprocessing']) {
+    const at = reuse.indexOf(`function ${fnName}(`);
+    expect(reuse.slice(at, reuse.indexOf('\n}\n', at))).not.toMatch(/includeIsolationClass/);
   }
-  for (const fnName of ['captureTx', 'getSessionDialyser']) {
-    const start = reuse.indexOf(`function ${fnName}(`);
-    expect(reuse.slice(start, reuse.indexOf('\n}\n', start))).not.toMatch(/includeIsolationClass/);
-  }
-  // required_class survives only where it is INTERNAL: computeIsolationWarnings'
-  // verdict, the assess return, and the audit metadata. It is never a key on an
-  // object handed to a route - isolationPayload() is the only serialiser.
+  // required_class exists NOWHERE in the module, and required_group never
+  // reaches the audit metadata under a class name. isolationPayload() is the one
+  // serialiser and it emits the group.
+  expect(reuse).not.toMatch(/required_class/);
+  expect(reuse).not.toMatch(/exposure_isolation_class/);
   const payload = reuse.slice(reuse.indexOf('function isolationPayload('), reuse.indexOf('\n}\n', reuse.indexOf('function isolationPayload(')));
-  expect(payload).not.toMatch(/required_class|required_group/);
+  expect(payload).toMatch(/required_group/);
   expect(payload).toMatch(/isolation_warnings/);
+  // The audit metadata names the group and no class (spec §7.2).
+  const audit = reuse.slice(reuse.indexOf('function recordIsolationAuditTx('), reuse.indexOf('\n}\n', reuse.indexOf('function recordIsolationAuditTx(')));
+  expect(audit).toMatch(/required_group/);
+  expect(audit).not.toMatch(/isolation_class/);
 });
 ```
 
@@ -3385,7 +3536,7 @@ router.patch('/machines/:id', requireRole(...DIALYSIS_MACHINE_ADMIN_ROUTE_ROLES)
     reuse.updateMachine({ tenantId: tenantOf(req), id: req.params.id, ...req.body }, dialyserContext(req))));
 ```
 
-`svc.reassignMachine` is a small new export in `dialysisService.js`: lock the session, refuse unless status ∈ {`scheduled`, `in_progress`}, `UPDATE dialysis_sessions SET machine_no = $3`, then `evaluateIsolationForSessionTx(... requireReasonWhenWarned: true ...)` and return `{ ...row, isolation: isolationPayload(isolation) }` — the internal object, which holds `required_class`, never leaves the service (spec §3.4).
+`svc.reassignMachine` is a small new export in `dialysisService.js`: lock the session, refuse unless status ∈ {`scheduled`, `in_progress`}, `UPDATE dialysis_sessions SET machine_no = $3`, then `evaluateIsolationForSessionTx(... requireReasonWhenWarned: true ...)` and return `{ ...row, isolation: isolationPayload(isolation) }` — the internal object never leaves the service (spec §3.4).
 
 Replace the existing `POST /sessions/:id/reuse-register` route with one that claims a key **after** the guard and forwards it:
 
@@ -3457,10 +3608,12 @@ describeIfPhase1('reprocessable devices - dialysis', () => {
     }
     // Tenants, users (patients + actor), roster rows, sessions. Mirror the fixture
     // shape cath-device-reuse.deep.test.js uses for tenants/users, re-keyed.
-    // PATIENT_A carries NO markers on purpose: under Phase 1's rule a
-    // marker-less patient is `unknown` (Q1 decides what a legacy 'negative'
-    // means; this fixture does not lean on it), so the first reprocess walks
-    // the unknown + warn acknowledgement path.
+    // PATIENT_A carries NO markers on purpose and the fixture neutralises the
+    // three roster columns below, so this patient is `unknown` under Phase 1's
+    // rule whatever enrolment wrote. Q1 is DECIDED (a legacy non-reactive
+    // 'negative' MEANS clear, spec §9) - the neutralisation stays because this
+    // suite pins its own fixture and must not depend on enrolment defaults, not
+    // because the question is open.
     await sql(`INSERT INTO tenants (id, name, slug) VALUES ($1::uuid, 'RPD Dialysis', 'rpd-dialysis'), ($2::uuid, 'RPD Other', 'rpd-other') ON CONFLICT (id) DO NOTHING`, TENANT, OTHER_TENANT);
     for (const [uid, role] of [[PATIENT_A, 'PATIENT'], [PATIENT_B, 'PATIENT'], [ACTOR, 'NURSING_STAFF']]) {
       await sql(`INSERT INTO users (uid, tenant_id, email, role, name, status, is_active) VALUES ($1::uuid, $2::uuid, $3, $4, $3, 'active', true) ON CONFLICT (uid) DO NOTHING`, uid, TENANT, `${uid}@rpd.test`, role);
@@ -3531,20 +3684,23 @@ describeIfPhase1('reprocessable devices - dialysis', () => {
     expect((await usageRow(sessionA2.id)).post_use_disposition).toBe('discarded_tcv_below_threshold');
   });
 
-  test('a restricted patient under discard offers discard only; the register records it and the device names the class marker', async () => {
+  test('a restricted patient under discard offers discard only; the register records it and the device carries the FLAG and no marker name (D11 = NO)', async () => {
     await recordMarkers({ tenantId: TENANT, patientUid: PATIENT_B, actorUid: ACTOR, entries: [{ marker: 'hbsag', result: 'reactive', tested_on: today(), source: 'clinical_declaration' }] });
     const cap = await captureDialyser({ tenantId: TENANT, sessionId: sessionB.id, manufacturer_serial: 'DLZ-B-001' }, ctx);
     expect(cap.reuse_restriction).toMatchObject({ status: 'restricted', evidence: 'marker' });
     expect(cap.reuse_restriction.isolation_class ?? null).toBeNull();              // capture never asks for the class (§3.3)
     const view = await getSessionDialyser({ tenantId: TENANT, sessionId: sessionB.id });
     expect(view.allowed_dispositions.dispositions).toEqual(['discard']);
-    expect(view.isolation).not.toHaveProperty('required_class');                   // interim shape, pending D11 (§3.4)
+    expect(view.isolation).not.toHaveProperty('required_class');                   // retired by D11 = NO (§3.4)
     expect(Object.keys(view.isolation).sort()).toEqual(['codes', 'enforcement_enabled', 'isolation_warnings', 'override', 'warn_only']);
-    expect(JSON.stringify({ i: view.isolation, r: view.reuse_restriction })).not.toMatch(/hbsag|hcv|hiv/);   // no marker name reaches the caller
+    for (const w of view.isolation.isolation_warnings) expect(Object.keys(w).sort()).toEqual(['code', 'machine_id', 'required_group', 'severity']);
+    expect(JSON.stringify({ i: view.isolation, r: view.reuse_restriction })).not.toMatch(/hbsag|hcv|hiv|isolation_mixed/);   // no marker class reaches the caller
     await expect(recordReuseRegister({ tenantId: TENANT, session_id: sessionB.id, processed_by: ACTOR, integrity_test_result: 'pass', status: 'in_use' })).rejects.toMatchObject({ code: 'RPD_DISPOSITION_NOT_ALLOWED' });
     const row = await recordReuseRegister({ tenantId: TENANT, session_id: sessionB.id, processed_by: ACTOR, integrity_test_result: 'not_done', status: 'discarded', discard_reason: 'HBsAg reactive' });
     expect(row.device.discard_reason).toBe('bloodborne_exposure');
-    expect(row.device.exposure_markers).toEqual(['hbsag']);                        // from Decision.isolation_class, not marker detail
+    expect(row.device.exposure_flag).toBe(true);                                   // the FLAG is the truth (D11 = NO)
+    expect(row.device.exposure_markers ?? []).toEqual([]);                         // and nothing on the device names a marker
+    expect(row.device.metadata ?? {}).not.toHaveProperty('exposure_isolation_class');
   });
 
   test('snapshot vs decision: a marker recorded AFTER capture reaches the machine assignment at start and the disposition at the record; the frozen reuse_screen is unchanged', async () => {
@@ -3558,11 +3714,14 @@ describeIfPhase1('reprocessable devices - dialysis', () => {
     // Start re-resolves: unregistered machine + now-restricted patient warns and needs a reason.
     await expect(startSession({ tenantId: TENANT, id: s.id, started_by: ACTOR })).rejects.toMatchObject({ code: 'DIALYSIS_ISOLATION_OVERRIDE_REQUIRED' });
     const started = await startSession({ tenantId: TENANT, id: s.id, started_by: ACTOR, isolation_override_reason: 'isolation bay full; machine cleaned per protocol' });
-    expect(started.isolation).toMatchObject({ codes: ['DIALYSIS_MACHINE_UNREGISTERED'], isolation_warnings: [{ code: 'DIALYSIS_MACHINE_UNREGISTERED', machine_id: null, severity: 'warn' }] });
-    expect(started.isolation).not.toHaveProperty('required_class');                 // routing used the class; the payload does not carry it (§3.4)
-    // ...but the routing decision IS recorded: the audit row names the class.
+    // HD-01 is unregistered, so there is no group to compare and required_group
+    // is the tenant's label for the hcv class - which this tenant has not mapped.
+    expect(started.isolation).toMatchObject({ codes: ['DIALYSIS_MACHINE_UNREGISTERED'], isolation_warnings: [{ code: 'DIALYSIS_MACHINE_UNREGISTERED', machine_id: null, severity: 'warn', required_group: null }] });
+    expect(started.isolation).not.toHaveProperty('required_class');                 // routing used the class in-process; nothing carries it (§3.4)
+    // ...and the audit row names the GROUP, never the class (D11 = NO, §7.2).
     const [audit] = await sql(`SELECT metadata FROM audit_logs WHERE tenant_id = $1::uuid AND resource = 'dialysis_sessions' AND resource_id = $2 AND action = 'dialysis.session.isolation_overridden' ORDER BY id DESC LIMIT 1`, TENANT, String(s.id));
-    expect(audit.metadata.required_class).toBe('hcv');
+    expect(audit.metadata).toHaveProperty('required_group');
+    expect(JSON.stringify(audit.metadata)).not.toMatch(/hbsag|hcv|hiv|isolation_mixed|isolation_class/);
     // The record re-resolves too: A is restricted under discard, so reprocess is not on offer...
     await expect(recordReuseRegister({ tenantId: TENANT, session_id: s.id, processed_by: ACTOR, integrity_test_result: 'pass', status: 'in_use', measured_tcv_ml: 90 })).rejects.toMatchObject({ code: 'RPD_DISPOSITION_NOT_ALLOWED' });
     // ...while the frozen capture snapshot still says what the capturing user saw.
@@ -3572,10 +3731,15 @@ describeIfPhase1('reprocessable devices - dialysis', () => {
   });
 
   test('isolation: mismatch under block refuses at start AND at scheduling with no orphan row; an unknown patient is never blocked and raises no code, even under block on an isolation machine', async () => {
-    await createMachine({ tenantId: TENANT, machine_no: 'HD-10', isolation_class: 'general' }, ctx);
+    // A general machine is one with NO isolation_group (D11 = NO), and the
+    // tenant maps hbsag -> 'Bay 1' so the mismatch has a group to name.
+    await createMachine({ tenantId: TENANT, machine_no: 'HD-10', isolation_group: null }, ctx);
+    await upsertDomainSettings({ tenantId: TENANT, domain: 'dialysis', isolation_groups: { hbsag: 'Bay 1' } }, { ...ctx, actorRole: 'INFECTION_CONTROL_OFFICER' });
     // Schedule B (restricted, hbsag) on the general machine while enforcement is still warn (a mismatch WARNS)...
     const s2 = await scheduleSession({ tenantId: TENANT, dialysis_patient_id: rosterB.id, session_date: today(), machine_no: 'HD-10', actorUid: ACTOR });
     expect(s2.isolation.codes).toEqual(['DIALYSIS_ISOLATION_MACHINE_MISMATCH']);
+    expect(s2.isolation.isolation_warnings[0].required_group).toBe('Bay 1');       // the BAY, never the marker
+    expect(JSON.stringify(s2.isolation)).not.toMatch(/hbsag|hcv|hiv|isolation_mixed/);
     // ...then flip to block: start refuses regardless of reason...
     await upsertDomainSettings({ tenantId: TENANT, domain: 'dialysis', isolation_enforcement: 'block' }, ctx);
     await expect(startSession({ tenantId: TENANT, id: s2.id, started_by: ACTOR, isolation_override_reason: 'x' })).rejects.toMatchObject({ code: 'DIALYSIS_ISOLATION_MACHINE_BLOCKED' });
@@ -3586,7 +3750,7 @@ describeIfPhase1('reprocessable devices - dialysis', () => {
     expect(after.n).toBe(before.n);
     await upsertDomainSettings({ tenantId: TENANT, domain: 'dialysis', isolation_enforcement: 'warn' }, ctx);
     // An UNKNOWN patient is never blocked and raises no unknown code, even under block, on any machine.
-    await createMachine({ tenantId: TENANT, machine_no: 'HD-11', isolation_class: 'hcv' }, ctx);
+    await createMachine({ tenantId: TENANT, machine_no: 'HD-11', isolation_group: 'Bay 2' }, ctx);
     const PATIENT_U = 'd1a10000-0000-4000-8000-00000000000c';
     await sql(`INSERT INTO users (uid, tenant_id, email, role, name, status, is_active) VALUES ($1::uuid, $2::uuid, $3, 'PATIENT', $3, 'active', true) ON CONFLICT (uid) DO NOTHING`, PATIENT_U, TENANT, `${PATIENT_U}@rpd.test`);
     const rosterU = await enrolPatient({ tenantId: TENANT, patient_uid: PATIENT_U, modality: 'hd' });
@@ -3680,7 +3844,7 @@ describeIfPhase1('reprocessable devices - dialysis', () => {
 });
 ```
 
-Run twice on a fresh database with Phase 1 on the checkout: `npm test -- --testPathPatterns reprocessable-devices-dialysis.deep` — Expected: PASS, 14 tests, under 30 s. Without Phase 1: `1 skipped` with the SKIPPED line printed — and the PR body says so. Read the summary's `Suites failed` line separately from `Tests passed` (a hook failure shows as a failed suite with passing tests). The fixture's `tenants` / `users` column lists must match what `cath-device-reuse.deep.test.js` inserts; copy its INSERTs if these differ. The two `UPDATE dialysis_patients SET … 'unknown'` statements are **fixture neutralisation in a test file**, not a lane write — the writers pin scans lane modules, not tests — and they exist so Q1's answer (what enrolment writes) cannot move these assertions.
+Run twice on a fresh database with Phase 1 on the checkout: `npm test -- --testPathPatterns reprocessable-devices-dialysis.deep` — Expected: PASS, 14 tests, under 30 s. Without Phase 1: `1 skipped` with the SKIPPED line printed — and the PR body says so. Read the summary's `Suites failed` line separately from `Tests passed` (a hook failure shows as a failed suite with passing tests). The fixture's `tenants` / `users` column lists must match what `cath-device-reuse.deep.test.js` inserts; copy its INSERTs if these differ. The two `UPDATE dialysis_patients SET … 'unknown'` statements are **fixture neutralisation in a test file**, not a lane write — the writers pin scans lane modules, not tests — and they exist so what enrolment writes cannot move these assertions. (Q1 is decided — a legacy non-reactive `'negative'` MEANS `clear`, spec §9 — which is exactly why a suite that wants an `unknown` patient must say so explicitly rather than rely on a default.)
 
 - [ ] **Step 8: Mutation checks and commit**
 
@@ -4243,6 +4407,14 @@ In `config/routeRolePolicy.js`, directly after `CATH_REPROCESSING_POLICY_ROUTE_R
 // policy own it for every department. An alias, not a copy: two lists would
 // drift, and the canary pins the audience by predicate, not by name.
 export const REPROCESSING_POLICY_ROUTE_ROLES = CATH_REPROCESSING_POLICY_ROUTE_ROLES;
+
+// D11 = NO (spec §4.1): the marker-class -> routing-group mapping on the dialysis
+// settings row is the one field on this mount that INFECTION CONTROL owns.
+// QUALITY_OFFICER reads the settings and may not rewrite the mapping; a
+// technician never reaches the mount at all. An INTERSECTION, so the gate can
+// never be dead, and a strict subset asserted in the wiring test.
+export const ISOLATION_GROUP_ADMIN_CANDIDATES = ['INFECTION_CONTROL_OFFICER', 'ADMIN', 'SUPER_ADMIN'];
+export const ISOLATION_GROUP_ADMIN_ROUTE_ROLES = REPROCESSING_POLICY_ROUTE_ROLES.filter((role) => ISOLATION_GROUP_ADMIN_CANDIDATES.includes(role));
 ```
 
 In `app.js`, immediately after the `/api/v1/cath-reprocessing` mount (≈1220):
@@ -4329,6 +4501,14 @@ Model it on `cathDeviceReuseRouteWiring.test.js` (same mocks for `idempotencyMid
 ```js
 // apps/backend/src/tests/unit/reprocessableDeviceRouteWiring.test.js (assertion section)
 describe('role gates are intersections with their mount (prefix-mount lockout class)', () => {
+  it('ISOLATION_GROUP_ADMIN_ROUTE_ROLES ⊂ REPROCESSING_POLICY_ROUTE_ROLES, and no dialysis role is on it (D11 = NO, spec §4.1)', () => {
+    for (const role of ISOLATION_GROUP_ADMIN_ROUTE_ROLES) expect(REPROCESSING_POLICY_ROUTE_ROLES).toContain(role);
+    expect(ISOLATION_GROUP_ADMIN_ROUTE_ROLES.length).toBeGreaterThan(0);                       // an intersection that empties is a dead gate
+    expect(ISOLATION_GROUP_ADMIN_ROUTE_ROLES.length).toBeLessThan(REPROCESSING_POLICY_ROUTE_ROLES.length);   // QUALITY_OFFICER reads, cannot write
+    expect(ISOLATION_GROUP_ADMIN_ROUTE_ROLES).toContain('INFECTION_CONTROL_OFFICER');
+    expect(ISOLATION_GROUP_ADMIN_ROUTE_ROLES).not.toContain('QUALITY_OFFICER');
+    expect(REPROCESSING_POLICY_ROUTE_ROLES).not.toContain('DIALYSIS_TECHNICIAN');              // the mount itself refuses first
+  });
   it('DIALYSIS_MACHINE_ADMIN_ROUTE_ROLES ⊂ DIALYSIS_ROUTE_ROLES', () => {
     for (const role of DIALYSIS_MACHINE_ADMIN_ROUTE_ROLES) expect(DIALYSIS_ROUTE_ROLES).toContain(role);
     expect(DIALYSIS_MACHINE_ADMIN_ROUTE_ROLES.length).toBeLessThan(DIALYSIS_ROUTE_ROLES.length);
@@ -4397,7 +4577,7 @@ describe('every command claims a key with its scope; every read does not; guards
 
 In `serologyDisclosureCanary.test.js`:
 
-(a) Imports: `dialysisRoutes`, `cssdRoutes`, `reprocessingPolicyRoutes`, and `DIALYSIS_ROUTE_ROLES`, `CSSD_ROUTE_ROLES`, `REPROCESSING_POLICY_ROUTE_ROLES`. Extend the module mocks so the dialysis and CSSD routers can answer: mock `dialysisService.js` (every export → a stub returning the poisoned roster row / session / today rows), `dialysisReuseService.js` (`getSessionDialyser` → `{ usage: null, device: null, link: null, reuse_restriction: POISONED_DECISION, allowed_dispositions: null, isolation: POISONED_ISOLATION, policy_enabled: true }`, `captureDialyser` → the same object, `listMachines` → `[]`; the dialysis mock never touches `dialysisIsolationAdapter.js`, so the canary runs with or without Phase 1 on the checkout), `cssdService.js` (list functions → `[]`, `getCssdBoard` → `{}`), `reprocessableDeviceService.js` (`listDevices` → one device row with **no** patient keys, `getDomainSettings`/`listDomainPolicies` → defaults, `deviceHistory` → `{ device, uses: [{ patient_uid: PATIENT }], transitions: [] }`, `logDeviceHistoryAccess` → `{ logged: 1 }`), `dialysisMachineService.js` (`ingestMachineObservations` → `{}`). `POISONED_RESTRICTION` (the cath/OT shape, used by the theatre read) = `{ status: 'restricted', reasons: [\`HBsAg reactive ${SENTINEL}\`], markers: [{ marker: 'hbsag', result: 'reactive', tested_on: '2026-08-12' }], validity_days: 90, evaluated_at: new Date().toISOString() }`; `POISONED_DECISION` (the Phase 1 shape, used by the dialysis mocks) = `{ status: 'restricted', asOf: new Date().toISOString(), reasons: [\`HBsAg reactive ${SENTINEL}\`], evidence: 'marker', isolation_class: 'hbsag', markers: [{ marker: 'hbsag', result: 'reactive', tested_on: '2026-08-12' }] }` — the `markers` key **and** the `isolation_class` are poisoned on purpose: a route that forwards an unprojected Decision fails on the markers, and one that forwards a class it never asked for fails on the D11 sentinel below. `POISONED_ISOLATION` (the warning envelope) = `{ codes: ['DIALYSIS_ISOLATION_MACHINE_MISMATCH'], isolation_warnings: [{ code: 'DIALYSIS_ISOLATION_MACHINE_MISMATCH', machine_id: 7, severity: 'warn' }], warn_only: true, enforcement_enabled: false, override: null }` — the interim shape of spec §3.4, with **no** `required_class`; the mutation check below is what proves the sentinel would catch one. The poisoned roster row: `{ id: 1, patient_uid: PATIENT, hbsag_status: SENTINEL, hcv_status: 'negative', hiv_status: 'negative', isolation_required: true }`; poisoned serology row `{ test_date: '2026-08-01', hbsag: SENTINEL, anti_hcv: 'negative', hiv: 'negative', is_seroconversion: true }` inside `getPatient`'s `serology`.
+(a) Imports: `dialysisRoutes`, `cssdRoutes`, `reprocessingPolicyRoutes`, and `DIALYSIS_ROUTE_ROLES`, `CSSD_ROUTE_ROLES`, `REPROCESSING_POLICY_ROUTE_ROLES`. Extend the module mocks so the dialysis and CSSD routers can answer: mock `dialysisService.js` (every export → a stub returning the poisoned roster row / session / today rows), `dialysisReuseService.js` (`getSessionDialyser` → `{ usage: null, device: null, link: null, reuse_restriction: POISONED_DECISION, allowed_dispositions: null, isolation: POISONED_ISOLATION, policy_enabled: true }`, `captureDialyser` → the same object, `listMachines` → `[]`; the dialysis mock never touches `dialysisIsolationAdapter.js`, so the canary runs with or without Phase 1 on the checkout), `cssdService.js` (list functions → `[]`, `getCssdBoard` → `{}`), `reprocessableDeviceService.js` (`listDevices` → one device row with **no** patient keys, `getDomainSettings`/`listDomainPolicies` → defaults, `deviceHistory` → `{ device, uses: [{ patient_uid: PATIENT }], transitions: [] }`, `logDeviceHistoryAccess` → `{ logged: 1 }`), `dialysisMachineService.js` (`ingestMachineObservations` → `{}`). `POISONED_RESTRICTION` (the cath/OT shape, used by the theatre read) = `{ status: 'restricted', reasons: [\`HBsAg reactive ${SENTINEL}\`], markers: [{ marker: 'hbsag', result: 'reactive', tested_on: '2026-08-12' }], validity_days: 90, evaluated_at: new Date().toISOString() }`; `POISONED_DECISION` (the Phase 1 shape, used by the dialysis mocks) = `{ status: 'restricted', asOf: new Date().toISOString(), reasons: [\`HBsAg reactive ${SENTINEL}\`], evidence: 'marker', isolation_class: 'hbsag', markers: [{ marker: 'hbsag', result: 'reactive', tested_on: '2026-08-12' }] }` — the `markers` key **and** the `isolation_class` are poisoned on purpose: a route that forwards an unprojected Decision fails on the markers, and one that forwards a class it never asked for fails on the D11 sentinel below. `POISONED_ISOLATION` (the warning envelope) = `{ codes: ['DIALYSIS_ISOLATION_MACHINE_MISMATCH'], isolation_warnings: [{ code: 'DIALYSIS_ISOLATION_MACHINE_MISMATCH', machine_id: 7, severity: 'warn', required_group: 'Bay 1' }], warn_only: true, enforcement_enabled: false, override: null }` — the live shape of spec §3.4 under D11 = NO, carrying the tenant's bay label and **no** `required_class`. The resting `required_group: 'Bay 1'` is itself a standing assertion: it must stay **green** for every reader, because a bay label is not a marker class. The mutation check below is what proves the sentinel would catch a class in the same slot. The poisoned roster row: `{ id: 1, patient_uid: PATIENT, hbsag_status: SENTINEL, hcv_status: 'negative', hiv_status: 'negative', isolation_required: true }`; poisoned serology row `{ test_date: '2026-08-01', hbsag: SENTINEL, anti_hcv: 'negative', hiv: 'negative', is_seroconversion: true }` inside `getPatient`'s `serology`.
 
 (b) `MOUNTS` gains:
 
@@ -4424,13 +4604,21 @@ In `serologyDisclosureCanary.test.js`:
 and, beside `serologyItemLeaks` and mirroring it exactly — a **VALUE** test against a named set, on a node identified by its own shape, which is how `critical_items` is already checked:
 
 ```js
-// D11 (spec §2): a PATIENT's isolation class must not reach a non-entitled role
-// in any shape. The key may be absent or null - only a marker-class STRING
-// fails, which is why this reads values and not keys. `isolation_mixed` counts:
-// it still says a marker isolates this patient. A node carrying `machine_no` is
-// a dialysis_machines row, whose class is a property of EQUIPMENT (GET /machines
-// publishes it, and it is the label D11's NO branch replaces with
-// isolation_group), so machine rows are out of scope.
+// D11 = NO (spec §2): a PATIENT's isolation class must not reach a non-entitled
+// role in any shape - and since the owner decided NO, a hit here is no longer an
+// open question parked in a test but an unambiguous DEFECT: `required_class` is
+// retired, nothing in the lane computes one, so a marker-class value under
+// either key means a regression put it back. The key may be absent or null -
+// only a marker-class STRING fails, which is why this reads values and not keys.
+// `isolation_mixed` counts: it still says a marker isolates this patient.
+// `required_group` is NOT in the set and must never be added: it is a tenant's
+// label for a bay, published to every dialysis role by design.
+// A node carrying `machine_no` is a dialysis_machines row; its own
+// isolation_group is EQUIPMENT data that GET /machines publishes, a bay label
+// and not a marker class, so it is not in the value set and could not trip this
+// even without the guard. The guard STAYS anyway, so that a future machine
+// column - or a fixture that revives isolation_class on a machine row - cannot
+// be read as a patient's class.
 const ISOLATION_CLASS_VALUES = new Set([...SEROLOGY_CODES, 'isolation_mixed']);
 // Population counters for the liveness test below: a VALUE walk over zero
 // matching nodes passes vacuously, so the suite must prove the poisoned
@@ -4456,8 +4644,8 @@ function isolationClassLeaks(node, where) {
 test('the D11 sentinel walk has a population: the poisoned isolation envelope and Decision were visited, and the poison is still armed', async () => {
   // Two SHAPE counters (the walker ran) and one POSITIVE CONTROL (the fixture is
   // still poison). Shape counting cannot tell a poisoned entry from a benign one -
-  // under the interim payload the isolation envelope carries nothing poisonous at
-  // rest - so the positive control reads fixture-distinctive values through a REAL
+  // the isolation envelope carries nothing poisonous at rest, by design (D11 =
+  // NO) - so the positive control reads fixture-distinctive values through a REAL
   // entitled body: the Decision's sentinel-bearing reasons and the envelope's
   // fixture machine_id (7). The message names the class of failure so the next
   // reader does not have to reconstruct it from a bare number.
@@ -4502,13 +4690,13 @@ npm test -- --testPathPatterns serologyDisclosureCanary
 
 Expected: the first run rewrites the fixture and FAILS on purpose; the diff shows only ADDED routes under the three new prefixes (no existing line changed — a changed existing line means a mount role set moved and must be explained); the second run PASSES with the coverage floor met and `CATH_LAB_STAFF` still reading the sentinel. If a dialysis GET leaks for `DIALYSIS_TECHNICIAN` / `BLOOD_BANK_STAFF` / `BLOOD_BANK_TECHNICIAN`, the projection in Task 4 Step 6 is missing on that route — fix the route, never the predicate.
 
-(e) **Mutation check on the new sentinel** (a test that cannot fail proves nothing — the PR #973 lesson). Add `required_class: 'hbsag'` to `POISONED_ISOLATION`'s warning entry (a list payload, the exact regression D11 guards) and re-run:
+(e) **Mutation check on the new sentinel** (a test that cannot fail proves nothing — the PR #973 lesson). Add `required_class: 'hbsag'` to `POISONED_ISOLATION`'s warning entry, **beside** its resting `required_group: 'Bay 1'` (a list payload, the exact regression D11 = NO guards), and re-run:
 
 ```bash
 npm test -- --testPathPatterns serologyDisclosureCanary
 ```
 
-Expected: **RED — one failure per non-entitled reader of every dialysis route that returns the object, three today** (`DIALYSIS_TECHNICIAN`, `BLOOD_BANK_TECHNICIAN`, `BLOOD_BANK_STAFF` — the three §3.5 names in `DIALYSIS_ROUTE_ROLES` and outside `ENTITLED`), each naming `…isolation_warnings[0].required_class = "hbsag"`. Restore. Two notes for whoever runs it: the count is `reachable − ENTITLED` per route, so it rises with every new dialysis GET that carries the object and falls to **zero** if D10 widens the audience to those three roles — a D10 = YES makes this particular mutation vacuous, which is precisely why D10 and D11 are answered separately (spec §3.5); and setting the value to `'general'` must stay **green**, because `general` is a machine label and not a marker class.
+Expected: **RED — one failure per non-entitled reader of every dialysis route that returns the object, three today** (`DIALYSIS_TECHNICIAN`, `BLOOD_BANK_TECHNICIAN`, `BLOOD_BANK_STAFF` — the three §3.5 names in `DIALYSIS_ROUTE_ROLES` and outside `ENTITLED`), each naming `…isolation_warnings[0].required_class = "hbsag"`. Restore — the entry goes back to `required_group: 'Bay 1'` alone, which must be **green** (the un-mutated suite already asserts it, and that is the second half of this check: a bay label in the same slot is not a leak). Two notes for whoever runs it: the count is `reachable − ENTITLED` per route, so it rises with every new dialysis GET that carries the object and falls to **zero** if D10 widens the audience to those three roles — a D10 = YES makes this particular mutation vacuous, which is precisely why D10 and D11 were answered separately (spec §3.5); and `'general'` in that slot is meaningless now that the machine column is `isolation_group` — the green arm of this mutation is the group label, not a retired enum member.
 
 - [ ] **Step 5: OpenAPI overlay**
 
@@ -4523,7 +4711,10 @@ const DEVICE_STATUSES = ['awaiting_reprocessing', 'in_cssd', 'available', 'in_ca
 const CYCLE_TYPES = ['steam', 'eto', 'plasma', 'dry_heat', 'chemical', 'other'];
 const DISCARD_REASONS = ['max_cycles_reached', 'bloodborne_exposure', 'late_reactive_marker', 'function_check_failed', 'sterilization_failed', 'damaged', 'wasted', 'policy_change', 'other', 'tcv_below_threshold', 'integrity_test_failed', 'set_retired'];
 const DISPOSITIONS = ['sent_for_reprocessing', 'quarantined_bloodborne_exposure', 'discarded_bloodborne_exposure', 'discarded_max_cycles', 'discarded_integrity_failed', 'discarded_tcv_below_threshold', 'discarded_other'];
-const ISOLATION_CLASSES = ['general', 'hbsag', 'hcv', 'hiv', 'isolation_mixed'];
+// D11 = NO: the MARKER classes (the Decision's vocabulary and the keys of the
+// tenant's isolation_groups map). A machine's routing key is a free-text group,
+// not a member of this list.
+const ISOLATION_CLASSES = ['hbsag', 'hcv', 'hiv', 'isolation_mixed'];
 const ISOLATION_WARNING_CODES = ['DIALYSIS_MACHINE_UNREGISTERED', 'DIALYSIS_ISOLATION_MACHINE_MISMATCH', 'DIALYSIS_GENERAL_PATIENT_ON_ISOLATION_MACHINE'];
 const AGENTS = ['peracetic_acid', 'formaldehyde', 'glutaraldehyde', 'renalin', 'other'];
 const ns = { type: 'string', nullable: true }; const ni = { type: 'integer', nullable: true }; const nd = { type: 'string', format: 'date-time', nullable: true }; const nn = { type: 'number', nullable: true };
@@ -4540,27 +4731,33 @@ export const schemas = {
     properties: { id: { type: 'integer' }, domain: { type: 'string', enum: DOMAINS }, device_id: { type: 'integer' }, patient_uid: { type: 'string', format: 'uuid' }, dialysis_session_id: ni, ot_schedule_id: ni, set_issue_log_id: ni, sterilization_load_id: ni, reuse_cycle: { type: 'integer' }, captured_at: { type: 'string', format: 'date-time' }, capture_source: { type: 'string', enum: ['staff_app', 'admin_console', 'cssd_issue', 'system'] }, post_use_disposition: { ...ns, enum: [...DISPOSITIONS, null] }, returned_at: nd } },
   ReprocessableDeviceLabel: { type: 'object', additionalProperties: false, required: ['device_id', 'device_tag', 'external_ref', 'domain', 'item_name', 'cycle_count', 'barcode', 'barcode_symbology', 'svg', 'generated_at'],
     properties: { device_id: { type: 'integer' }, device_tag: { type: 'string' }, external_ref: ns, domain: { type: 'string', enum: DOMAINS }, item_name: ns, cycle_count: { type: 'integer' }, barcode: { type: 'string' }, barcode_symbology: { type: 'string', enum: ['code39'] }, svg: { type: 'string' }, generated_at: { type: 'string', format: 'date-time' } } },
-  ReprocessingDomainSettings: { type: 'object', additionalProperties: true, required: ['domain', 'reactive_patient_rule', 'unknown_serology_rule', 'serology_validity_days', 'isolation_enforcement', 'configured'],
-    properties: { domain: { type: 'string', enum: DOMAINS }, reactive_patient_rule: { type: 'string', enum: ['discard', 'quarantine', 'override_allowed'] }, unknown_serology_rule: { type: 'string', enum: ['warn', 'block_return'] }, serology_validity_days: { type: 'integer', minimum: 1, maximum: 365 }, isolation_enforcement: { type: 'string', enum: ['warn', 'block'] }, configured: { type: 'boolean' }, reviewed_at: nd } },
-  ReprocessingDomainSettingsUpdateRequest: { type: 'object', additionalProperties: false, properties: { reactive_patient_rule: { type: 'string', enum: ['discard', 'quarantine', 'override_allowed'] }, unknown_serology_rule: { type: 'string', enum: ['warn', 'block_return'] }, serology_validity_days: { type: 'integer', minimum: 1, maximum: 365 }, isolation_enforcement: { type: 'string', enum: ['warn', 'block'] } } },
+  // isolation_groups (D11 = NO): keys are the four MARKER CLASSES, values the
+  // tenant's bay labels. `warnings` is advisory - a group on no machine is saved
+  // and reported, never refused (spec §4.1).
+  ReprocessingDomainSettings: { type: 'object', additionalProperties: true, required: ['domain', 'reactive_patient_rule', 'unknown_serology_rule', 'serology_validity_days', 'isolation_enforcement', 'isolation_groups', 'configured'],
+    properties: { domain: { type: 'string', enum: DOMAINS }, reactive_patient_rule: { type: 'string', enum: ['discard', 'quarantine', 'override_allowed'] }, unknown_serology_rule: { type: 'string', enum: ['warn', 'block_return'] }, serology_validity_days: { type: 'integer', minimum: 1, maximum: 365 }, isolation_enforcement: { type: 'string', enum: ['warn', 'block'] }, isolation_groups: { type: 'object', additionalProperties: false, properties: Object.fromEntries(ISOLATION_CLASSES.map((c) => [c, { type: 'string', maxLength: 40 }])) }, warnings: { type: 'array', items: { type: 'string' } }, configured: { type: 'boolean' }, reviewed_at: nd } },
+  ReprocessingDomainSettingsUpdateRequest: { type: 'object', additionalProperties: false, properties: { reactive_patient_rule: { type: 'string', enum: ['discard', 'quarantine', 'override_allowed'] }, unknown_serology_rule: { type: 'string', enum: ['warn', 'block_return'] }, serology_validity_days: { type: 'integer', minimum: 1, maximum: 365 }, isolation_enforcement: { type: 'string', enum: ['warn', 'block'] }, isolation_groups: { type: 'object', additionalProperties: false, properties: Object.fromEntries(ISOLATION_CLASSES.map((c) => [c, { ...ns, maxLength: 40 }])) } } },
   ReprocessingDomainPolicy: { type: 'object', additionalProperties: true, required: ['domain', 'category', 'reprocessable', 'max_cycles', 'allowed_cycle_types', 'function_check_required', 'tcv_min_pct'],
     properties: { domain: { type: 'string', enum: DOMAINS }, category: { type: 'string' }, reprocessable: { type: 'boolean' }, max_cycles: ni, allowed_cycle_types: { type: 'array', items: { type: 'string', enum: CYCLE_TYPES } }, function_check_required: { type: 'boolean' }, tcv_min_pct: ni } },
   ReprocessingDomainPoliciesUpdateRequest: { type: 'object', additionalProperties: false, required: ['policies'], properties: { policies: { type: 'array', minItems: 1, maxItems: 5, items: { type: 'object', additionalProperties: false, required: ['category', 'reprocessable'], properties: { category: { type: 'string' }, reprocessable: { type: 'boolean' }, max_cycles: ni, allowed_cycle_types: { type: 'array', items: { type: 'string', enum: CYCLE_TYPES } }, function_check_required: { type: 'boolean' }, tcv_min_pct: ni } } } } },
-  DialysisMachine: { type: 'object', additionalProperties: true, required: ['id', 'machine_no', 'isolation_class', 'status'], properties: { id: { type: 'integer' }, facility_id: ni, machine_no: { type: 'string' }, display_name: ns, biomed_device_id: ni, isolation_class: { type: 'string', enum: ISOLATION_CLASSES }, status: { type: 'string', enum: ['active', 'out_of_service', 'retired'] }, notes: ns } },
-  DialysisMachineRequest: { type: 'object', additionalProperties: false, properties: { machine_no: { type: 'string', maxLength: 40 }, display_name: { type: 'string', maxLength: 120 }, facility_id: ni, biomed_device_id: ni, isolation_class: { type: 'string', enum: ISOLATION_CLASSES }, status: { type: 'string', enum: ['active', 'out_of_service', 'retired'] }, notes: { type: 'string', maxLength: 2000 } } },
+  // D11 = NO: isolation_group is a tenant label, nullable (NULL = a general
+  // machine), with NO enum - the vocabulary is the tenant's and names no marker.
+  DialysisMachine: { type: 'object', additionalProperties: true, required: ['id', 'machine_no', 'isolation_group', 'status'], properties: { id: { type: 'integer' }, facility_id: ni, machine_no: { type: 'string' }, display_name: ns, biomed_device_id: ni, isolation_group: { ...ns, maxLength: 40 }, status: { type: 'string', enum: ['active', 'out_of_service', 'retired'] }, notes: ns } },
+  DialysisMachineRequest: { type: 'object', additionalProperties: false, properties: { machine_no: { type: 'string', maxLength: 40 }, display_name: { type: 'string', maxLength: 120 }, facility_id: ni, biomed_device_id: ni, isolation_group: { ...ns, maxLength: 40 }, status: { type: 'string', enum: ['active', 'out_of_service', 'retired'] }, notes: { type: 'string', maxLength: 2000 } } },
   // Three codes: `unknown` raises nothing per session (spec §3.3 / §3.4).
-  // No class key, by decision: `additionalProperties: false` means a payload
-  // that starts carrying one fails openapi:check before a reviewer sees it
-  // (spec §3.4 interim shape, pending owner decision D11). D11 = YES adds
-  // `required_class` to the warning entry; D11 = NO adds `required_group`.
-  DialysisIsolation: { type: 'object', additionalProperties: false, required: ['codes', 'isolation_warnings', 'warn_only', 'enforcement_enabled', 'override'], properties: { codes: { type: 'array', items: { type: 'string', enum: ISOLATION_WARNING_CODES } }, isolation_warnings: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['code', 'machine_id', 'severity'], properties: { code: { type: 'string', enum: ISOLATION_WARNING_CODES }, machine_id: ni, severity: { type: 'string', enum: ['warn', 'block'] } } } }, warn_only: { type: 'boolean' }, enforcement_enabled: { type: 'boolean' }, override: { type: 'object', nullable: true, additionalProperties: true } } },
+  // D11 = NO: each warning carries the tenant's `required_group` - a bay label -
+  // and NEVER a marker class. `additionalProperties: false` on both the envelope
+  // and the warning item means a payload that starts carrying `required_class`
+  // fails openapi:check before a reviewer sees it (spec §3.4). The shape is
+  // enforced, not merely documented.
+  DialysisIsolation: { type: 'object', additionalProperties: false, required: ['codes', 'isolation_warnings', 'warn_only', 'enforcement_enabled', 'override'], properties: { codes: { type: 'array', items: { type: 'string', enum: ISOLATION_WARNING_CODES } }, isolation_warnings: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['code', 'machine_id', 'severity', 'required_group'], properties: { code: { type: 'string', enum: ISOLATION_WARNING_CODES }, machine_id: ni, severity: { type: 'string', enum: ['warn', 'block'] }, required_group: { ...ns, maxLength: 40 } } } }, warn_only: { type: 'boolean' }, enforcement_enabled: { type: 'boolean' }, override: { type: 'object', nullable: true, additionalProperties: true } } },
   // The Phase 1 resolver's Decision as this lane returns it (spec §3.3): projected by role
   // (reasons emptied for non-audience roles); `markers` is never present on these surfaces.
   // isolation_class is OPTIONAL and, on every surface this overlay describes,
   // always null: the class is opt-in on the resolver (spec §3.3), no read
   // surface asks for it, and the projection blanks it. It stays in `properties`
   // so the key is documented as blanked rather than silently dropped.
-  DialysisIsolationDecision: { type: 'object', additionalProperties: false, required: ['status', 'asOf', 'reasons', 'evidence'], properties: { status: { type: 'string', enum: ['restricted', 'unknown', 'clear'] }, asOf: nd, reasons: { type: 'array', items: { type: 'string' } }, evidence: { type: 'string', enum: ['marker', 'legacy_declaration', 'none'] }, isolation_class: { ...ns, enum: [...ISOLATION_CLASSES.filter((c) => c !== 'general'), null] } } },
+  DialysisIsolationDecision: { type: 'object', additionalProperties: false, required: ['status', 'asOf', 'reasons', 'evidence'], properties: { status: { type: 'string', enum: ['restricted', 'unknown', 'clear'] }, asOf: nd, reasons: { type: 'array', items: { type: 'string' } }, evidence: { type: 'string', enum: ['marker', 'legacy_declaration', 'none'] }, isolation_class: { ...ns, enum: [...ISOLATION_CLASSES, null] } } },
   DispositionOptions: { type: 'object', additionalProperties: false, required: ['dispositions', 'requires_acknowledgement', 'exposure', 'discard_reason', 'quarantine_reason', 'blocked_code', 'reason_codes', 'units_max'], properties: { dispositions: { type: 'array', items: { type: 'string', enum: ['reprocess', 'quarantine', 'discard'] } }, requires_acknowledgement: { type: 'boolean' }, exposure: { type: 'boolean' }, discard_reason: ns, quarantine_reason: ns, blocked_code: ns, reason_codes: { type: 'array', items: { type: 'string' } }, units_max: { type: 'integer' } } },
   DialysisSessionDialyser: { type: 'object', additionalProperties: false, required: ['usage', 'device', 'link', 'reuse_restriction', 'allowed_dispositions', 'isolation', 'policy_enabled'], properties: { usage: { allOf: [{ $ref: '#/components/schemas/ReprocessableDeviceUsage' }], nullable: true }, device: { allOf: [{ $ref: '#/components/schemas/ReprocessableDevice' }], nullable: true }, link: { type: 'object', nullable: true, additionalProperties: true }, reuse_restriction: { $ref: '#/components/schemas/DialysisIsolationDecision' }, allowed_dispositions: { allOf: [{ $ref: '#/components/schemas/DispositionOptions' }], nullable: true }, isolation: { $ref: '#/components/schemas/DialysisIsolation' }, policy_enabled: { type: 'boolean' } } },
   DialyserCaptureRequest: { type: 'object', additionalProperties: false, properties: { manufacturer_serial: { type: 'string', maxLength: 120 }, device_tag: { type: 'string', pattern: '^[Rr][Dd][0-9]{8,19}$' }, model_name: { type: 'string', maxLength: 120 }, manufacturer: { type: 'string', maxLength: 120 }, hospital_asset_id: { type: 'string', maxLength: 120 }, baseline_tcv_ml: nn, initial_cycle_count: { type: 'integer', minimum: 0, maximum: 100 }, exposure_acknowledgement: { type: 'object', additionalProperties: false, required: ['reason'], properties: { reason: { type: 'string', maxLength: 2000 } } } } },
@@ -4608,8 +4805,8 @@ export const operations = {
   'POST /api/v1/dialysis/sessions/{id}/reuse-register': { description: 'The ONE-command reprocessing record on the statutory row: post-use + reprocess/quarantine/discard by status, integrity and TCV verdicts (tcv_below_threshold / integrity_test_failed discard), agent and contact time. Legacy behaviour when no dialyser policy exists. DIALYZER_REUSE_CYCLE_DERIVED, DIALYZER_REUSE_REGISTER_SETTLED, RPD_DISPOSITION_NOT_ALLOWED, RPD_ACKNOWLEDGEMENT_REQUIRED. Requires Idempotency-Key (scope dialysis_reuse_register).', pathParameters: { id: { type: 'integer' } }, parameters: [idem], request: 'DialyserReuseRegisterRequest', response: 'Success' },
   'PATCH /api/v1/dialysis/sessions/{id}/machine': { description: 'Reassigns the machine and re-evaluates the isolation rule (DIALYSIS_ISOLATION_OVERRIDE_REQUIRED, DIALYSIS_ISOLATION_MACHINE_BLOCKED). Requires Idempotency-Key (scope dialysis_session_machine).', pathParameters: { id: { type: 'integer' } }, parameters: [idem], request: 'DialysisSessionMachineRequest', response: 'Success' },
   'GET /api/v1/dialysis/machines': { description: 'Dialysis machine master with isolation class.', parameters: [q('status', { type: 'string', enum: ['active', 'out_of_service', 'retired'] })], response: 'DialysisMachineListResponse' },
-  'POST /api/v1/dialysis/machines': { description: 'Registers a machine (DIALYSIS_MACHINE_ADMIN_ROUTE_ROLES). DIALYSIS_MACHINE_NO_TAKEN. Requires Idempotency-Key (scope dialysis_machine).', parameters: [idem], request: 'DialysisMachineRequest', response: 'DialysisMachineResponse' },
-  'PATCH /api/v1/dialysis/machines/{id}': { description: 'Edits a machine (DIALYSIS_MACHINE_ADMIN_ROUTE_ROLES). Requires Idempotency-Key (scope dialysis_machine).', pathParameters: { id: { type: 'integer' } }, parameters: [idem], request: 'DialysisMachineRequest', response: 'DialysisMachineResponse' },
+  'POST /api/v1/dialysis/machines': { description: 'Registers a machine (DIALYSIS_MACHINE_ADMIN_ROUTE_ROLES). isolation_group is the tenant\u2019s routing label; null or absent registers a general machine (D11 = NO). DIALYSIS_MACHINE_NO_TAKEN. Requires Idempotency-Key (scope dialysis_machine).', parameters: [idem], request: 'DialysisMachineRequest', response: 'DialysisMachineResponse' },
+  'PATCH /api/v1/dialysis/machines/{id}': { description: 'Edits a machine (DIALYSIS_MACHINE_ADMIN_ROUTE_ROLES). isolation_group: null makes it a general machine; an absent key leaves the label alone. Requires Idempotency-Key (scope dialysis_machine).', pathParameters: { id: { type: 'integer' } }, parameters: [idem], request: 'DialysisMachineRequest', response: 'DialysisMachineResponse' },
   'GET /api/v1/theatre/{id}/reprocessable-sets': { description: "The case's set issues with register rows and load evidence, plus the projected restriction (the WHO sign-in strip's data).", pathParameters: { id: { type: 'integer' } }, response: 'TheatreReprocessableSetsResponse' },
 };
 ```
@@ -4752,17 +4949,33 @@ class ReprocessableDevice {
         manufacturerSerial: json['manufacturer_serial']?.toString(), modelName: json['model_name']?.toString(), exposureFlag: json['exposure_flag'] == true);
 }
 
-/// The interim wire shape (spec §3.4) is
-/// `{ codes, isolation_warnings: [{code, machine_id, severity}], warn_only,
-/// enforcement_enabled, override }` — **no class key**. `requiredClass` stays a
-/// tolerant parse that is null today; it is the seam for D11 = YES (spec §2).
+/// The wire shape (spec §3.4, D11 = NO) is
+/// `{ codes, isolation_warnings: [{code, machine_id, severity, required_group}],
+/// warn_only, enforcement_enabled, override }` — a bay label per warning and
+/// **no class key anywhere**. There is deliberately no `requiredClass` field on
+/// this model: the server cannot send one, so parsing for one would only invite
+/// a future widget to render it.
+class IsolationWarning {
+  const IsolationWarning({required this.code, this.machineId, required this.severity, this.requiredGroup});
+  final String code; final int? machineId; final String severity; final String? requiredGroup;
+  bool get isBlocking => severity == 'block';
+  factory IsolationWarning.fromJson(Map<String, dynamic> json) => IsolationWarning(
+        code: (json['code'] ?? '').toString(), machineId: int.tryParse('${json['machine_id']}'),
+        severity: (json['severity'] ?? 'warn').toString(), requiredGroup: json['required_group']?.toString());
+}
+
 class IsolationState {
-  const IsolationState({required this.codes, this.requiredClass, required this.warnOnly, required this.enforcementEnabled, this.overrideReason});
-  final List<String> codes; final String? requiredClass; final bool warnOnly; final bool enforcementEnabled; final String? overrideReason;
+  const IsolationState({required this.codes, required this.warnings, required this.warnOnly, required this.enforcementEnabled, this.overrideReason});
+  final List<String> codes; final List<IsolationWarning> warnings; final bool warnOnly; final bool enforcementEnabled; final String? overrideReason;
   bool get hasWarnings => codes.isNotEmpty;
+  /// The first bay label the server named, or null when it named none.
+  String? get requiredGroup { for (final w in warnings) { if (w.requiredGroup != null) return w.requiredGroup; } return null; }
   factory IsolationState.fromJson(Map<String, dynamic> json) => IsolationState(
         codes: json['codes'] is List ? (json['codes'] as List).map((e) => e.toString()).toList() : const [],
-        requiredClass: json['required_class']?.toString(), warnOnly: json['warn_only'] != false, enforcementEnabled: json['enforcement_enabled'] == true,
+        warnings: json['isolation_warnings'] is List
+            ? (json['isolation_warnings'] as List).whereType<Map>().map((e) => IsolationWarning.fromJson(Map<String, dynamic>.from(e))).toList()
+            : const [],
+        warnOnly: json['warn_only'] != false, enforcementEnabled: json['enforcement_enabled'] == true,
         overrideReason: json['override'] is Map ? (json['override'] as Map)['reason']?.toString() : null);
 }
 
@@ -4903,15 +5116,15 @@ class _DialyserCaptureSheetState extends State<DialyserCaptureSheet> {
 }
 ```
 
-`DialyserReprocessingSheet` renders only the dispositions in `options.dispositions` as a segmented control (`reprocess` → status `in_use`, `quarantine`, `discard`); integrity result dropdown; measured TCV with a live `% of baseline` line when `baselineTcvMl` is known and red text below `tcv_min_pct` is not known client-side — the server decides, the sheet only shows the percentage; agent dropdown (five values); contact minutes; concentration; discard reason (required when `discard`); notes; asks for the acknowledgement reason when `options.requiresAcknowledgement` and the disposition is `reprocess`; submits through `IdempotencyAttemptRegistry` scope `dialysis-reuse-register:<session>`; maps `RPD_DISPOSITION_NOT_ALLOWED`, `DIALYZER_REUSE_REGISTER_SETTLED`, `DIALYZER_REUSE_CYCLE_DERIVED`, `RPD_ACKNOWLEDGEMENT_REQUIRED` to strings. `IsolationWarningStrip` maps each code to `s4.lib.dialysis.isolation.<code lower-cased>`; the start-session confirm dialog carries the override reason field (required when `hasWarnings`). **It appends no class line in the interim** (spec §3.4): the server sends `isolation_warnings: [{ code, machine_id, severity }]` and no class key, so `requiredClass` parses as null and the append never fires. Both string keys exist so that either D11 branch is a one-line widget change and no new locale work: under **D11 = YES** the strip appends `s.format('s4.dynamic.dialysis.isolation.required_class', {'class': requiredClass})`; under **D11 = NO** it appends `s.format('s4.dynamic.dialysis.isolation.required_group', {'group': requiredGroup})` and `required_class` is deleted. `IsolationState.requiredClass` stays a tolerant parse of an absent key — do **not** make it required, and do not add a `requiredGroup` field until the owner answers.
+`DialyserReprocessingSheet` renders only the dispositions in `options.dispositions` as a segmented control (`reprocess` → status `in_use`, `quarantine`, `discard`); integrity result dropdown; measured TCV with a live `% of baseline` line when `baselineTcvMl` is known and red text below `tcv_min_pct` is not known client-side — the server decides, the sheet only shows the percentage; agent dropdown (five values); contact minutes; concentration; discard reason (required when `discard`); notes; asks for the acknowledgement reason when `options.requiresAcknowledgement` and the disposition is `reprocess`; submits through `IdempotencyAttemptRegistry` scope `dialysis-reuse-register:<session>`; maps `RPD_DISPOSITION_NOT_ALLOWED`, `DIALYZER_REUSE_REGISTER_SETTLED`, `DIALYZER_REUSE_CYCLE_DERIVED`, `RPD_ACKNOWLEDGEMENT_REQUIRED` to strings. `IsolationWarningStrip` maps each code to `s4.lib.dialysis.isolation.<code lower-cased>`; the start-session confirm dialog carries the override reason field (required when `hasWarnings`). **It appends the bay line and never a class** (spec §3.4, D11 = NO): for each `IsolationWarning` whose `requiredGroup` is non-null it appends `s.format('s4.dynamic.dialysis.isolation.required_group', {'group': w.requiredGroup})` beneath the code line, and there is no `required_class` string to render because the key is retired on both sides of the wire. `IsolationState` carries no `requiredClass` field: the server cannot send one, so parsing for it would only invite a future widget to render it.
 
 - [ ] **Step 6: Theatre sets panel**
 
 `theatre_api_service.dart` gains `static Future<Map<String, dynamic>> reprocessableSets(int scheduleId) => _get('/theatre/$scheduleId/reprocessable-sets');` and `static Future<Map<String, dynamic>> issueSet({required int scheduleId, required String setCode, String? acknowledgementReason, required String idempotencyKey}) async { final resp = await ApiClient.post('/cssd/issues', body: {'ot_schedule_id': scheduleId, 'set_code': setCode, if (acknowledgementReason != null) 'acknowledgement': {'reason': acknowledgementReason}}, idempotencyKey: idempotencyKey); return _handle(resp); }` (`_handle` is the file's existing response unwrapper; `issueSet` on the backend resolves `set_code` to `instrument_set_id` — add that lookup in `cssdService.issueSet` if it accepts only ids: `set_code` → `loadSetByCode`). `TheatreSetsPanel(scheduleId)` sits inside the schedule card's expansion in `theatre_screen.dart` below the WHO safety row: loads `reprocessableSets`, renders `ReuseRestrictionStrip`, one row per set (set code, `last load: <load_code> · BI <result>`, cycle, exposure badge, issue status), and an **Issue set** action (text field or scanner → `issueSet` through `IdempotencyAttemptRegistry` scope `theatre-issue-set:<schedule>`; on `CSSD_SET_ACKNOWLEDGEMENT_REQUIRED` asks for a reason and retries; on `CSSD_SET_QUARANTINED` / `CSSD_SET_EXPOSURE_BLOCKED` shows the mapped string).
 
-- [ ] **Step 7: Strings (66 keys × 5 locales = 330 lines; 264 non-English)**
+- [ ] **Step 7: Strings (65 keys × 5 locales = 325 lines; 260 non-English)**
 
-Add to every locale map; in `hi`, `ta`, `te`, `ml` precede each block with `// REVIEW: engineering placeholder pending OPEN-21 linguistic review`. This list is authoritative; the spec's §6.8 breakdown (strip 3, today 8, policy banner 1, capture 14, device card 3, isolation 8, reprocessing 18, theatre sets 9, feature/nav 2) must sum to it. The isolation block carries **both** `required_class` and `required_group` — one per D11 branch (spec §2), **neither rendered in the interim** — so that answering D11 is a widget change and not a fresh five-locale round; the i18n guard checks parity across locales, not that every key is referenced. There is no `dialysis_serology_unknown` isolation string: `unknown` raises no per-session code (spec §3.4). Keys (English shown; the four other renderings are the implementer's best rendering, never a copy of the English):
+Add to every locale map; in `hi`, `ta`, `te`, `ml` precede each block with `// REVIEW: engineering placeholder pending OPEN-21 linguistic review`. This list is authoritative; the spec's §6.8 breakdown (strip 3, today 8, policy banner 1, capture 14, device card 3, isolation **7**, reprocessing 18, theatre sets 9, feature/nav 2) must sum to it — **65**. The isolation block carries `required_group` and **no** `required_class`: D11 = NO retired the class key, so the string that would have rendered it is not written in any locale (spec §2, §6.8). The i18n guard checks parity across locales, not that every key is referenced. There is no `dialysis_serology_unknown` isolation string: `unknown` raises no per-session code (spec §3.4). Keys (English shown; the four other renderings are the implementer's best rendering, never a copy of the English):
 
 ```
 role.feature.dialysis: "Dialysis Unit"            role.nav.dialysis: "Dialysis"
@@ -4938,8 +5151,7 @@ s4.lib.dialysis.device.cycle_unbounded: "No cycle limit"   s4.lib.dialysis.devic
 s4.lib.dialysis.isolation.dialysis_machine_unregistered: "Machine is not registered; this patient needs an isolation machine"
 s4.lib.dialysis.isolation.dialysis_isolation_machine_mismatch: "This machine's isolation class does not match the patient"
 s4.lib.dialysis.isolation.dialysis_general_patient_on_isolation_machine: "A non-isolation patient is on an isolation machine"
-s4.dynamic.dialysis.isolation.required_class: "Required machine class: {class}"   // D11 = YES only; unused in the interim
-s4.dynamic.dialysis.isolation.required_group: "Required machine group: {group}"   // D11 = NO only; unused in the interim
+s4.dynamic.dialysis.isolation.required_group: "Required machine group: {group}"   // D11 = NO: the live key, rendered whenever the server sends one
 s4.lib.dialysis.isolation.override_reason: "Override reason"   s4.lib.dialysis.isolation.override_required: "A reason is required to start with isolation warnings"
 s4.lib.dialysis.isolation.blocked: "This unit blocks a mismatched isolation machine"
 s4.lib.dialysis.reprocess.title: "Record reprocessing"   s4.lib.dialysis.reprocess.disposition: "Outcome"
@@ -4962,7 +5174,7 @@ s4.lib.theatre.sets.ack_title: "Acknowledge exposed set"
 
 - [ ] **Step 8: Tests, analyzer, parity, commit**
 
-Tests: models parse every wire shape above (incl. both restriction shapes — the OT one with `validity_days` and the dialysis Decision with `evidence`, a **null** `isolation_class` and no `markers` — and the interim `isolation` envelope, which carries `isolation_warnings` and **no `required_class` key at all**: `IsolationState.requiredClass` must come back null without throwing, and the strip must render the code lines and nothing else); the capture sheet refuses when both or neither identity field is filled, sends `exposure_acknowledgement` on retry after `RPD_ACKNOWLEDGEMENT_REQUIRED`, renders the dedicated-other-patient string verbatim for that code, and reuses one idempotency key across a retry; the reprocessing sheet renders only the dispositions the server allows and requires a discard reason for `discard`; the theatre panel renders the restriction strip and the load line. Then:
+Tests: models parse every wire shape above (incl. both restriction shapes — the OT one with `validity_days` and the dialysis Decision with `evidence`, a **null** `isolation_class` and no `markers` — and the `isolation` envelope, which carries `isolation_warnings: [{ code, machine_id, severity, required_group }]` and **no `required_class` key at all**: `IsolationState.warnings` must parse the four fields, a `null` `required_group` must not throw, the strip must render the code line alone when the group is null and code + bay line when it is not, and a hand-written envelope carrying `required_class` must be ignored because the model has nowhere to put it); the capture sheet refuses when both or neither identity field is filled, sends `exposure_acknowledgement` on retry after `RPD_ACKNOWLEDGEMENT_REQUIRED`, renders the dedicated-other-patient string verbatim for that code, and reuses one idempotency key across a retry; the reprocessing sheet renders only the dispositions the server allows and requires a discard reason for `discard`; the theatre panel renders the restriction strip and the load line. Then:
 
 ```bash
 cd apps/staff
@@ -5024,7 +5236,10 @@ export const RPD_STATUSES = ["awaiting_reprocessing", "in_cssd", "available", "i
 export const RPD_CYCLE_TYPES = ["steam", "eto", "plasma", "dry_heat", "chemical", "other"] as const;
 export const RPD_DISCARD_REASONS = ["max_cycles_reached", "bloodborne_exposure", "late_reactive_marker", "function_check_failed", "sterilization_failed", "damaged", "wasted", "policy_change", "other", "tcv_below_threshold", "integrity_test_failed", "set_retired"] as const;
 export const RPD_CATEGORIES: Record<ReprocessingDomain, readonly string[]> = { dialysis: ["dialyser", "bloodline", "other"], ot: ["instrument_set", "tray", "implant_set", "procedure_pack", "other"] };
-export const ISOLATION_CLASSES = ["general", "hbsag", "hcv", "hiv", "isolation_mixed"] as const;
+// D11 = NO: the MARKER classes are the keys of the tenant's isolation_groups
+// map on the reprocessing settings form. A machine's routing key is a free-text
+// `isolation_group` label, not a member of this list.
+export const ISOLATION_CLASSES = ["hbsag", "hcv", "hiv", "isolation_mixed"] as const;
 export const RPD_LIST_LIMIT = 200;
 
 const keyHeader = (key: string) => ({ "Idempotency-Key": assertIdempotencyKey(key) });
@@ -5067,13 +5282,13 @@ If `core.ts` does not export `requestJSON`, export it (it is the private functio
 
 - [ ] **Step 3: Reprocessing policies page**
 
-`dashboard/quality/reprocessing/page.tsx`: header "Reprocessing policies", a domain switch (`Dialysis | OT`, `aria-label="Reprocessing domain"`), and `DomainPolicyPanel domain={domain}`. The panel: a settings form (`reactive_patient_rule` radio — three values with one line of muted text each: "Discard — the device is retired after a reactive patient", "Quarantine — held for infection control to release or discard", "Override allowed — reprocessed with a recorded acknowledgement"; `unknown_serology_rule`; `serology_validity_days` 1–365 enforced client-side, with muted helper text on the dialysis panel "Not applied to dialysis: the isolation resolver uses no validity window" (spec §4.1); `isolation_enforcement` shown for dialysis only) and the per-category policy rows (`reprocessable`, `max_cycles` optional with placeholder "no limit", `allowed_cycle_types` chips — dialysis shows `chemical` / `other` only, `tcv_min_pct` 50–100 for the dialysis `dialyser` row). Both saves: `useIdempotencyKey("reprocessing-domain-policy")`, and **`setQueryData` before `invalidateQueries`** (the Plan 3 save-revert lesson). Copy the layout and class names of `ReprocessingPolicyTab.tsx`. `navConfig.ts`: add `{ name: "Reprocessing Policies", href: "/dashboard/quality/reprocessing", minRole: "STAFF" }` after the "Cath Lab Quality" entry (the `quality` routePolicy segment already covers the path).
+`dashboard/quality/reprocessing/page.tsx`: header "Reprocessing policies", a domain switch (`Dialysis | OT`, `aria-label="Reprocessing domain"`), and `DomainPolicyPanel domain={domain}`. The panel: a settings form (`reactive_patient_rule` radio — three values with one line of muted text each: "Discard — the device is retired after a reactive patient", "Quarantine — held for infection control to release or discard", "Override allowed — reprocessed with a recorded acknowledgement"; `unknown_serology_rule`; `serology_validity_days` 1–365 enforced client-side, with muted helper text on the dialysis panel "Not applied to dialysis: the isolation resolver uses no validity window" (spec §4.1); `isolation_enforcement` shown for dialysis only; and, for dialysis, the **class → group mapping** — four rows keyed `hbsag` / `hcv` / `hiv` / `isolation_mixed`, each a free-text bay label with a `datalist` of the groups already on registered machines and an empty value meaning "not mapped", rendered **read-only** unless the signed-in role is `INFECTION_CONTROL_OFFICER` / `ADMIN` / `SUPER_ADMIN` (the server refuses anyone else with `RPD_ISOLATION_GROUPS_FORBIDDEN`, spec §4.1), with the save response's `warnings[]` rendered inline as amber text under the mapping and **not** as an error) and the per-category policy rows (`reprocessable`, `max_cycles` optional with placeholder "no limit", `allowed_cycle_types` chips — dialysis shows `chemical` / `other` only, `tcv_min_pct` 50–100 for the dialysis `dialyser` row). Both saves: `useIdempotencyKey("reprocessing-domain-policy")`, and **`setQueryData` before `invalidateQueries`** (the Plan 3 save-revert lesson). Copy the layout and class names of `ReprocessingPolicyTab.tsx`. `navConfig.ts`: add `{ name: "Reprocessing Policies", href: "/dashboard/quality/reprocessing", minRole: "STAFF" }` after the "Cath Lab Quality" entry (the `quality` routePolicy segment already covers the path).
 
 - [ ] **Step 4: Dialysis console**
 
-- `types.ts`: `SessionRow` gains `isolation_warning_codes: string[]`, `isolation_override_reason: string | null`; `DialysisPatient`'s three status fields become `string | null`.
+- `types.ts`: `SessionRow` gains `isolation_warning_codes: string[]`, `isolation_required_group: string | null`, `isolation_override_reason: string | null`; `DialysisPatient`'s three status fields become `string | null`.
 - `SessionTab.tsx`: `ReuseRegisterModal` moves to `recordDialyserReprocessing` (core.ts, `useIdempotencyKey("dialysis-reuse-register")`); when `getSessionDialyser(session.id)` returns a device, the serial and cycle-count fields render read-only from the device and the form adds Outcome (only the server's `allowed_dispositions`), measured TCV (with `% of baseline` when the link carries one), agent, contact minutes, concentration, and an acknowledgement box when `requires_acknowledgement`; `DIALYZER_REUSE_CYCLE_DERIVED` / `DIALYZER_REUSE_REGISTER_SETTLED` / `RPD_DISPOSITION_NOT_ALLOWED` render as inline errors. A new `DialyserPanel` above it: capture by serial (with model and baseline TCV), the dedication refusal verbatim, the restriction strip (`reasons` may be empty for a non-audience role — render the headline only), the isolation warning badge with codes.
-- `MachinesTab.tsx` (new tab "Machines" in `page.tsx`): table of machines with an inline edit of `isolation_class` / `status`, and an add form; `useIdempotencyKey("dialysis-machine")`.
+- `MachinesTab.tsx` (new tab "Machines" in `page.tsx`): table of machines with an inline edit of `isolation_group` / `status`, and an add form; `isolation_group` is a free-text field (max 40) with a `datalist` of the groups already in use and an explicit "General machine" choice that sends `null` — there is no isolation-class select (D11 = NO, spec §4.6); `useIdempotencyKey("dialysis-machine")`.
 - `RosterTab.tsx`: the enrol form is **not** changed by this lane (its serology selects, the `'unknown'` default and any server-side guard are Phase 1's — spec §3.3); the roster's `SerologyChip` renders "—" for `null` (projected) values; the serology-recording form is unchanged.
 - `TodayBoardTab.tsx`: an amber "Isolation warning" badge when the session row's `isolation_warning_codes` is non-empty (the today board query must select the session's codes — extend `todayBoard` in the backend to `LEFT JOIN dialysis_sessions` for `isolation_warning_codes` if the view does not carry them; the spec defers changing the view itself).
 
@@ -5142,7 +5357,7 @@ Expected: analyzer clean, every suite PASS (including the five-locale parity gua
 
 - [ ] **Step 4: Mutation checks, all restored before commit**
 
-Run each, confirm the named test goes red, restore: (1) dedication refusal in `captureTx` → dialysis deep "refused for another patient"; (2) flag/ceiling order in `computeDispositionOptions` → rules "checked BEFORE the ceiling" and the parity test; (3) the live `isolationDecisionTx` in `recordDialyserReprocessing` replaced by `usage.reuse_screen` → dialysis deep "snapshot vs decision" and the fourth `dialysisReuseHookCallSites` test; (4) `codes.push('DIALYSIS_SEROLOGY_UNKNOWN')` for `unknown` in `computeIsolationWarnings` → rules "UNKNOWN never isolates" and dialysis deep "an unknown patient is never blocked"; (5) the `onSessionCancelledTx(` call in `cancelSession` → dialysis deep "a scheduled session releases its captured dialyser" and `dialysisReuseHookCallSites`; (6) `partialUse` forced to `false` in `onSessionCancelledTx` and in `onIssueCancelledTx` → the `RPD_RETURN_REQUIRED` tests in both deep suites; (7) the `onSetReturnedTx` call in `transitionIssue` → the call-site pin; (8) the `onIssueCancelledTx(` call → the cancelled-branch pin and OT deep "an issued set is released"; (9) the `retainOnServerError: true` on the reuse-register claim → the wiring test; (10) `bool_or` → `DISTINCT ON … ORDER BY id DESC` in the census → census deep "older-row positive"; (11) a `UPDATE dialysis_patients SET hbsag_status` added to `dialysisReuseService.js` → `dialysisSerologyWriters`; (12) **`required_class: 'hbsag'` added to `POISONED_ISOLATION`'s warning entry** → the canary goes red for the three non-entitled dialysis readers, naming `isolation_warnings[0].required_class` (Task 6 Step 4(e); D11, spec §2) — and `'general'` in the same slot must stay **green**, because that is a machine label and not a marker class; (13) **`includeIsolationClass: true` added to `getSessionDialyser`'s resolver call** → `dialysisReuseHookCallSites`'s opt-in pin goes red on the count. (14) **`isolation: POISONED_ISOLATION` removed from the `getSessionDialyser` mock (or `isolation_warnings` set to `[]`)** → the canary's population test goes red with `INERT FIXTURE … warningNodes: 0` (Task 6 Step 4(c2)) **and every value-sentinel test stays GREEN**. (14) is satisfied only by that exact pattern — ONE red, the population test. If a value-sentinel test goes red under this mutation, the fixture was carrying a class somewhere it should not and the population check has become decorative; if nothing goes red, the population check is not wired to the walk. Report the failing test NAME, not just "red": the two reds must be distinguishable in the output. (15) **Two arms, each ONE red and it must be the positive control:** (15a) `POISONED_DECISION.reasons` replaced by a benign string (`['HBsAg reactive']`, no sentinel) → the population test goes red with `INERT FIXTURE … did not receive the poisoned reuse_restriction.reasons sentinel`, while both shape counters and every value-sentinel test stay green; (15b) `POISONED_ISOLATION`'s warning entry swapped for a benign one (`machine_id: 1`) → red with `… fixture isolation envelope (machine_id 7) did not reach the entitled body`, shape counters still `> 0` (the benign entry satisfies the shape), value sentinel green. A shape-only population check passes both arms, which is why they exist. (There is still no `isolation` projection to mutate — the payload carries no class to blank, spec §3.4/§3.5 — so no check names one; there is no legacy-column mapper or enrol guard in this lane to mutate either.)
+Run each, confirm the named test goes red, restore: (1) dedication refusal in `captureTx` → dialysis deep "refused for another patient"; (2) flag/ceiling order in `computeDispositionOptions` → rules "checked BEFORE the ceiling" and the parity test; (3) the live `isolationDecisionTx` in `recordDialyserReprocessing` replaced by `usage.reuse_screen` → dialysis deep "snapshot vs decision" and the fourth `dialysisReuseHookCallSites` test; (4) `codes.push('DIALYSIS_SEROLOGY_UNKNOWN')` for `unknown` in `computeIsolationWarnings` → rules "UNKNOWN never isolates" and dialysis deep "an unknown patient is never blocked"; (5) the `onSessionCancelledTx(` call in `cancelSession` → dialysis deep "a scheduled session releases its captured dialyser" and `dialysisReuseHookCallSites`; (6) `partialUse` forced to `false` in `onSessionCancelledTx` and in `onIssueCancelledTx` → the `RPD_RETURN_REQUIRED` tests in both deep suites; (7) the `onSetReturnedTx` call in `transitionIssue` → the call-site pin; (8) the `onIssueCancelledTx(` call → the cancelled-branch pin and OT deep "an issued set is released"; (9) the `retainOnServerError: true` on the reuse-register claim → the wiring test; (10) `bool_or` → `DISTINCT ON … ORDER BY id DESC` in the census → census deep "older-row positive"; (11) a `UPDATE dialysis_patients SET hbsag_status` added to `dialysisReuseService.js` → `dialysisSerologyWriters`; (12) **`required_class: 'hbsag'` added to `POISONED_ISOLATION`'s warning entry, beside its resting `required_group: 'Bay 1'`** → the canary goes red for the three non-entitled dialysis readers, naming `isolation_warnings[0].required_class` (Task 6 Step 4(e); D11 = NO, spec §2) — and the resting `required_group: 'Bay 1'` must stay **green**, because a tenant's bay label is not a marker class; both arms are the check, and reporting only the red one leaves the green half unproven; (13) **`includeIsolationClass: true` added to `getSessionDialyser`'s resolver call** → `dialysisReuseHookCallSites`'s opt-in pin goes red on the count (the expected count is **1** since D11 = NO, not 2); and the same flag added back to `recordDialyserReprocessing` must go red on the same assertion — run both arms, because the second is the one that pins the asker this decision removed. (13b) **`dialysisExposureStamp` replaced by a class → marker map** → the two rules exposure-stamp tests and the dialysis deep suite's `exposure_markers` assertion go red. (14) **`isolation: POISONED_ISOLATION` removed from the `getSessionDialyser` mock (or `isolation_warnings` set to `[]`)** → the canary's population test goes red with `INERT FIXTURE … warningNodes: 0` (Task 6 Step 4(c2)) **and every value-sentinel test stays GREEN**. (14) is satisfied only by that exact pattern — ONE red, the population test. If a value-sentinel test goes red under this mutation, the fixture was carrying a class somewhere it should not and the population check has become decorative; if nothing goes red, the population check is not wired to the walk. Report the failing test NAME, not just "red": the two reds must be distinguishable in the output. (15) **Two arms, each ONE red and it must be the positive control:** (15a) `POISONED_DECISION.reasons` replaced by a benign string (`['HBsAg reactive']`, no sentinel) → the population test goes red with `INERT FIXTURE … did not receive the poisoned reuse_restriction.reasons sentinel`, while both shape counters and every value-sentinel test stay green; (15b) `POISONED_ISOLATION`'s warning entry swapped for a benign one (`machine_id: 1`) → red with `… fixture isolation envelope (machine_id 7) did not reach the entitled body`, shape counters still `> 0` (the benign entry satisfies the shape), value sentinel green. A shape-only population check passes both arms, which is why they exist. (There is still no `isolation` projection to mutate — the payload carries no class to blank, spec §3.4/§3.5 — so no check names one; there is no legacy-column mapper or enrol guard in this lane to mutate either.)
 
 - [ ] **Step 5: Push and open the DRAFT PR**
 
@@ -5158,12 +5373,12 @@ The PR body states, in this order:
 
 1. Spec path and that the owner decisions D1–D9 are honoured (list them in one line each).
 2. Migration `NNN`: the five new tables, `dialysis_machines`, the six backing uniques, the `dialysis_sessions` / `dialyzer_reuse_register` / `surgical_implants` columns; that `dialysis_patients` and `patient_bloodborne_markers` are **not** touched (Phase 1's, migration 767); that `cath_reprocessable_devices` and the 753 plpgsql functions are untouched; that `NNN` is free on `github/main` and no remote branch carries it (re-checked at hand-back); the census manifest unchanged; the deploy note on the six index builds.
-3. **The Phase 1 dependency (spec §3.3):** this lane consumes `resolveDialysisIsolation` for every dialysis decision through one adapter, live, with the frozen `reuse_screen` an evidence snapshot only; whether 767 was on `main` at hand-back and whether the dialysis deep suite RAN or was skipped by its guard; **the contract is now closed** — `isolation_class` is **opt-in** behind `includeIsolationClass`, `null` unless `restricted`, after dev-ea rejected the unconditional fifth field (a value of `'hiv'` is serology whatever the caller calls it); the two server-side paths that pass the flag and the fact that no read surface does; the adapter's fail-closed check keying on the **ask**, not on presence; the Phase 2 census output per tenant.
-4. The decisions taken within the owner's: two policy tables; the `quarantine` rule and per-domain defaults; optional `max_cycles`; nullable `facility_id`; the one-command reprocessing record; the dialysis same-patient exposure exception; `exposure_markers` on a dialysis device derived from the Decision's class; OT set discard retiring the set; `POST /cssd/issues` and `POST .../reuse-register` now claiming keys (behaviour changes) and `DIALYZER_REUSE_CYCLE_DERIVED` / `DIALYZER_REUSE_REGISTER_SETTLED`; `unknown` raising no per-session isolation code; **the interim isolation payload** — `{ codes, isolation_warnings: [{ code, machine_id, severity }], warn_only, enforcement_enabled, override }` with no class key, `DialysisIsolation` pinned `additionalProperties: false` so a regression fails `openapi:check`, and review round 1's Fix-6 ("do not blank `required_class`") **superseded by D11**.
+3. **The Phase 1 dependency (spec §3.3):** this lane consumes `resolveDialysisIsolation` for every dialysis decision through one adapter, live, with the frozen `reuse_screen` an evidence snapshot only; whether 767 was on `main` at hand-back and whether the dialysis deep suite RAN or was skipped by its guard; **the contract is closed** — `isolation_class` is **opt-in** behind `includeIsolationClass`, `null` unless `restricted`, after dev-1b rejected the unconditional fifth field (a value of `'hiv'` is serology whatever the caller calls it); the **one** server-side path that passes the flag (`assessIsolationTx`) and the fact that no read surface and no post-use path does; the adapter's fail-closed check keying on the **ask**, not on presence; that `snapshotOf` has no `keepClass` form; the Phase 2 census output per tenant.
+4. **The owner decisions of 2026-09-06 and the decisions taken within them.** **D11 = NO** (spec §2): `dialysis_machines.isolation_group` (a nullable tenant label; `NULL` = a general machine) replaces `isolation_class` in the migration, the machine service, the OpenAPI schema and both consoles; the class → group map is `reprocessing_domain_settings.isolation_groups`, writable only under `ISOLATION_GROUP_ADMIN_ROUTE_ROLES`; the isolation payload is `{ codes, isolation_warnings: [{ code, machine_id, severity, required_group }], warn_only, enforcement_enabled, override }` with `DialysisIsolation` pinned `additionalProperties: false` so a class fails `openapi:check`; `required_class` is retired from the rules module, the audit metadata, the refusal details, the Staff strings and the wire; the dialysis `exposure_markers` stamp is the **flag alone** and the OT arm is unchanged; and the second asker of `includeIsolationClass` is **dropped**, leaving one. **Q1 = a legacy non-reactive `'negative'` MEANS `clear`** (spec §7.3): no blanket day-one acknowledgement, day-one amber expected low, `serology_validity_days` still inert for dialysis, migration 767 unblocked. Review round 1's Fix-6 ("do not blank `required_class`") is **superseded**. Then the decisions taken within the owner's: two policy tables; the `quarantine` rule and per-domain defaults; optional `max_cycles`; nullable `facility_id`; the one-command reprocessing record; the dialysis same-patient exposure exception; OT set discard retiring the set; `POST /cssd/issues` and `POST .../reuse-register` now claiming keys (behaviour changes) and `DIALYZER_REUSE_CYCLE_DERIVED` / `DIALYZER_REUSE_REGISTER_SETTLED`; `unknown` raising no per-session isolation code.
 5. Verification: every gate above by name with its result; the deep suite counts twice on a fresh database (dialysis: 14 passed, never "skipped"); the seeder twice + `db:contracts:seeded`; the OpenAPI chain; the security stage; the canary's regenerated snapshot with the GROWTH-only diff described; Staff and Admin suite counts; the mutation checks listed.
-6. Follow-ups: the spec's §9 owner decisions (DIALYSIS_TECHNICIAN assignability and the D10 audience widening; **D11 — may a routing role learn WHICH marker isolates a patient, with both branches costed and the resolver contract identical under either**; the implant lane; cath convergence; the statutory form; `facility_id` upstream; the lane pick; Q1–Q3) and its §10 deferred list including the review-round-1 and carve-out follow-ups; whether the `fix(dialysis): scope machine ingest by tenant` commit was needed (Task 4 Step 0); OPEN-21 on the 264 new non-English lines (66 keys × 4 locales, two of which — `required_class` / `required_group` — ship unused pending D11); the census script and that the DROP is a future migration.
+6. Follow-ups: the spec's §9 **still-pending** owner decisions (DIALYSIS_TECHNICIAN assignability and the D10 audience widening; the implant lane; cath convergence; the statutory form; `facility_id` upstream; the lane pick, working assumption carve; Q2 and Q3) — note explicitly that **D11 and Q1 are DECIDED (2026-09-06) and are not follow-ups** — and the spec's §10 deferred list including the review-round-1 and carve-out follow-ups; whether the `fix(dialysis): scope machine ingest by tenant` commit was needed (Task 4 Step 0); OPEN-21 on the 260 new non-English lines (65 keys × 4 locales; the `required_group` string is rendered, and no `required_class` string was written); the census script and that the DROP is a future migration.
 7. `Merge Gate` / `Full Merge Gate` by name with the head SHA once the canonical run lands.
-8. End with: "Draft; merge authority stays with the coordinating session (dev-ea). Not mergeable before the Phase 1 lane (mig 767) is on `main`." and `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
+8. End with: "Draft; merge authority stays with the coordinating session (dev-1b). Not mergeable before the Phase 1 lane (mig 767) is on `main`." and `🤖 Generated with [Claude Code](https://claude.com/claude-code)`.
 
 Do not mark the PR ready. Do not merge. Report the head SHA, the PR number and the gate results to the coordinating session.
 
@@ -5174,12 +5389,12 @@ Do not mark the PR ready. Do not merge. Report the head SHA, the PR number and t
 ## Self-review against the spec
 
 - §2 decisions: D1 typed owner pair + `num_nonnulls` CHECK (Task 1 §5); D1b cath untouched (Task 1 header, no plpgsql re-declared); D2 patient-blind register, dedication on the link row (Task 1 §4/§7, Task 4 `captureTx`); D2b fixed enum, `cath` admitted by no CHECK (Task 1, Task 2 `DOMAINS`); D3 `dialysis_machines` + warn-only with recorded override (Task 1 §8/§9, Task 4 `evaluateIsolationForSessionTx`); D5 sets + implant load FK (Task 1 §12, Task 5); D6 418 keeps its grain and gains `device_id` / `device_usage_id`, cycle derived (Task 1 §11, Task 4 `recordDialyserReprocessing`); D7 load-driven for OT only (Task 5 `onLoadTransitionedTx`, `load_domain_check`); D8 no billing file touched; D9 serial + asset id beside the `RD` tag (Task 1 §4, Task 3 `mintDeviceTx`). Two policy tables, the `quarantine` rule, optional `max_cycles`, nullable `facility_id`: Task 1 + Task 2.
-- §3.1 one resolver per record shape: OT → `screenPatientTx` → `resolveReuseStatus` (Task 3); dialysis → the Phase 1 `Decision` through `dialysisIsolationAdapter.js` only (Task 4 Step 1). §3.2 one handler, two arms, per-device transactions, alert for the settled subset, **no roster write**: Task 3 `quarantineDevicesExposedToPatient`. §3.3 the carve-out: no sync / latch / union read / enrol guard / `recordSerology` change / backfill anywhere in this plan (writers pin, Task 4 Step 5); the adapter's contract (batch-first, `includeMarkers` default off and forwarded by no caller, `includeIsolationClass` default off and forwarded by exactly two server-side paths — `assessIsolationTx` and `recordDialyserReprocessing`, pinned textually in `dialysisReuseHookCallSites` — `snapshotOf`, fail-closed 503, and `RPD_ISOLATION_DECISION_INVALID` keyed on the **ask**; the contract confirmed at Step 0b); snapshot vs decision (capture freezes, `getSessionDialyser` / `assessIsolationTx` / `recordDialyserReprocessing` re-resolve — pinned by the fourth `dialysisReuseHookCallSites` test and the deep "snapshot vs decision" test); `exposure_markers` from `isolation_class` (Task 2 `exposureMarkersForIsolationClass`, Task 3 `returnDeviceTx.exposureMarkers`); the Phase 2 census (Task 4 Step 4) with its `bool_or` and orphan reads; DEPENDS ON Phase 1 marked on Task 4, Step 0b and the deep suite's `describeIfPhase1`. §3.4 the **three** codes, silence for clear-on-unregistered AND for `unknown`, `block`, and the **interim payload with no class key** through the single serialiser `isolationPayload`: Task 2 `computeIsolationWarnings` + Task 4 Step 2 and Step 3(a)/(b). §3.5 projection on every new read, both restriction shapes through one helper with cath's predicate, the `Decision`'s `isolation_class` blanked: Task 3 projection module, Task 4 Step 6, Task 5 theatre read. §3.6 three canary mounts + predicate + snapshot, the Decision poisoned with a `markers` key **and a class**, plus the D11 value sentinel and its mutation check: Task 6 Step 4. **D11** (spec §2, §9.10) is an owner decision this plan neither pre-empts nor is blocked by: both branches are one localised change each (a warning key, or `dialysis_machines.isolation_group` plus a settings mapping), the resolver contract is identical under either, and the interim default ships today.
+- §3.1 one resolver per record shape: OT → `screenPatientTx` → `resolveReuseStatus` (Task 3); dialysis → the Phase 1 `Decision` through `dialysisIsolationAdapter.js` only (Task 4 Step 1). §3.2 one handler, two arms, per-device transactions, alert for the settled subset, **no roster write**: Task 3 `quarantineDevicesExposedToPatient`. §3.3 the carve-out: no sync / latch / union read / enrol guard / `recordSerology` change / backfill anywhere in this plan (writers pin, Task 4 Step 5); the adapter's contract (batch-first, `includeMarkers` default off and forwarded by no caller, `includeIsolationClass` default off and forwarded by exactly **one** server-side path — `assessIsolationTx`, pinned textually in `dialysisReuseHookCallSites`, the post-use asker dropped by D11 = NO — `snapshotOf` with no `keepClass` form, fail-closed 503, and `RPD_ISOLATION_DECISION_INVALID` keyed on the **ask**; the contract confirmed at Step 0b); snapshot vs decision (capture freezes, `getSessionDialyser` / `assessIsolationTx` / `recordDialyserReprocessing` re-resolve — pinned by the fourth `dialysisReuseHookCallSites` test and the deep "snapshot vs decision" test); `exposure_markers` on a dialysis device = the **flag alone** under D11 = NO (Task 2 `dialysisExposureStamp`, Task 3 `returnDeviceTx.exposureMarkers` fed an empty list; the OT arm still derives markers from `resolveReuseStatus`); the Phase 2 census (Task 4 Step 4) with its `bool_or` and orphan reads; DEPENDS ON Phase 1 marked on Task 4, Step 0b and the deep suite's `describeIfPhase1`. §3.4 the **three** codes, silence for clear-on-unregistered AND for `unknown`, `block`, the group-satisfaction rule (a `NULL` group never satisfies; an unmapped class accepts any non-null group) and the payload keyed on **`required_group` with no class key** through the single serialiser `isolationPayload`: Task 2 `computeIsolationWarnings` + Task 4 Step 2 and Step 3(a)/(b), with `dialysis_sessions.isolation_required_group` persisted so the session read re-serialises without asking for a class. §3.5 projection on every new read, both restriction shapes through one helper with cath's predicate, the `Decision`'s `isolation_class` blanked: Task 3 projection module, Task 4 Step 6, Task 5 theatre read. §3.6 three canary mounts + predicate + snapshot, the Decision poisoned with a `markers` key **and a class**, plus the D11 value sentinel and its mutation check: Task 6 Step 4. **D11 is DECIDED — NO** (spec §2, §9): the NO branch is implemented here, not held as an option — `dialysis_machines.isolation_group`, `reprocessing_domain_settings.isolation_groups`, `required_group` on every warning, `required_class` retired everywhere, the exposure stamp reduced to the flag and the second class-asker dropped. The resolver contract (spec §3.3) is untouched, so Phase 1 is unaffected. **Q1 is DECIDED** — a legacy non-reactive `'negative'` MEANS `clear`, which is Phase 1's rule and unblocks 767; this plan's only trace of it is the deep fixture's explicit neutralisation, which no longer depends on an open question.
 - §4 data model: Task 1 SQL column for column, constraint for constraint (15 CHECKs on the register; eight `contype = 'f'` rows on usages — seven named composites plus the table's own `tenant_id` FK; the partial uniques including the cycle unique partial on `cancelled_before_use`; the three-column domain-pinning FKs; the two deferrable patient FKs; composite `SET NULL` column lists); `dialysis_patients` and `patient_bloodborne_markers` untouched (§4.7, §4.10). §4.11 order (13 steps) and the 753/758 assessment: Task 1 header.
 - §4.3 / §4.4 the un-capture (review round 1, G1): `uncapture: in_case → available` keyed on the ACTION in `applyDeviceTransitionTx` (Task 3), `cancelled_before_use` in the disposition CHECK and the partial cycle unique (Task 1), `uncaptureDeviceTx` with its three refusals in order — closed usage / 418 row (`RPD_USAGE_NOT_CANCELLABLE`), then `partialUse` (`RPD_RETURN_REQUIRED`) (Task 3); `onSessionCancelledTx` inside `cancelSession`'s new `setTenantTx` before the status UPDATE (Task 4 Step 3(e)); `onIssueCancelledTx` before the shared `set_issue_log` UPDATE (Task 5 Step 2); the six pinned write paths (Task 4 Step 5 + Task 5 Step 3); cancel tests in both deep suites; no best-effort branch anywhere.
 - §5.1 capture steps 1–6 (step 5 freezing the live `Decision` as the evidence snapshot), the same-patient exposure exception, the one-command record with TCV/integrity verdicts over a re-resolved `Decision`, the optional (derived) cycle count validated inside `legacyWrite` only, settled-row rule, legacy path when dark (no resolver touched), the Cancel flow (no resolver needed): Task 4. §5.2 four hooks (issue, return, cancel, load), quarantine-on-return, forbidden-cycle-type quarantine, ceiling discard on release, a hold (exposure or `sterilization_failed`) survives a passed load, discard retires the set, `affected_devices[]`: Task 5. §5.3 shared disposition rule + parity test: Task 2. §5.4 safety reviews with `review_type = 'reprocessable_device_reuse'`: Task 3 `recordReuseSafetyReview`.
 - §6.1–§6.5 routes, scopes, guard-before-claim, retain flags, the label shape: Tasks 4–6; §6.6 overlay and chain: Task 6 Step 5; §6.7 Admin: Task 8; §6.8 Staff incl. the role-graph feature and contract regeneration: Task 7.
-- §7.1 every code named is thrown by name in Tasks 2–5 (`RPD_*` incl. `RPD_ISOLATION_RESOLVER_UNAVAILABLE` / `RPD_ISOLATION_DECISION_INVALID` in the adapter, `DIALYSER_*`, `DIALYZER_*`, `DIALYSIS_*`, `CSSD_SET_*`; no `DIALYSIS_SEROLOGY_FIELDS_NOT_ALLOWED`); §7.2 audit events emitted by `recordAudit` / `auditTx` under those names, `isolation_evaluated` carrying the Decision's status / evidence / asOf / class and never its reasons, no `dialysis.patient.*` event; §7.3 rollout defaults are the `settingsDefaultsFor` table and the dark-by-default branches, the Phase 1 dependency fail-closed; §7.4 subset assertions: Task 6 Step 3; §7.5 CI trees: each task commits within its owning tree, the contract regeneration with the Staff task; §7.6 the census script: Task 4 Step 4.
+- §7.1 every code named is thrown by name in Tasks 2–5 (`RPD_*` incl. `RPD_ISOLATION_RESOLVER_UNAVAILABLE` / `RPD_ISOLATION_DECISION_INVALID` in the adapter, `DIALYSER_*`, `DIALYZER_*`, `DIALYSIS_*`, `CSSD_SET_*`; no `DIALYSIS_SEROLOGY_FIELDS_NOT_ALLOWED`); §7.2 audit events emitted by `recordAudit` / `auditTx` under those names, `isolation_evaluated` carrying `required_group`, `machine_no`, `enforcement`, the codes and the Decision's status / evidence / asOf — never its reasons, its markers or a marker class (D11 = NO) — no `dialysis.patient.*` event; §7.3 rollout defaults are the `settingsDefaultsFor` table and the dark-by-default branches, the Phase 1 dependency fail-closed; §7.4 subset assertions: Task 6 Step 3; §7.5 CI trees: each task commits within its owning tree, the contract regeneration with the Staff task; §7.6 the census script: Task 4 Step 4.
 - §8 tests: unit (Tasks 2, 3, 4 Steps 1 and 5, 5 Step 3, 6 Steps 3–4), deep (Task 4 Step 7 behind `describeIfPhase1`, Task 4 Step 4 census, Task 5 Step 6), mutation checks (Task 9 Step 4), seeder overrides (Task 1 Step 5), `prismaCoverage` pins (Task 1 Step 4), gates (Task 9 Step 2–3).
-- Type consistency: `computeDispositionOptions({ domain, usage, policy, settings, restriction, device })` is called identically in the unit test, `getSessionDialyser`, `recordDialyserReprocessing` and `onSetReturnedTx` — it reads only `restriction.status`, so the cath/OT object and the dialysis `Decision` both drive it; `computeIsolationWarnings({ decision, machine, enforcement })` reads `decision.status` and `decision.isolation_class` only; `applyDeviceTransitionTx(tx, device, action, patch, context)` is the one signature every transition uses; `captureDeviceTx` / `returnDeviceTx` take the same `{ device, usage, … , context }` shapes in both domains (`returnDeviceTx`'s `exposureMarkers` / `deviceMetadata` are optional and dialysis-only); `projectReuseRestrictionForRole` tells the two shapes apart by `evidence` and is the one projection both domains and the canary predicate rely on; the Staff `ReuseRestriction.fromJson` parses both shapes; the Staff `DialyserCaptureDraft.toJson()` emits exactly the keys `DialyserCaptureRequest` declares and `DialyserReprocessingDraft.toJson()` the keys `DialyserReuseRegisterRequest` declares; the Admin `RPD_STATUSES` / `RPD_DISCARD_REASONS` are `satisfies`-pinned to the generated types.
+- Type consistency: `computeDispositionOptions({ domain, usage, policy, settings, restriction, device })` is called identically in the unit test, `getSessionDialyser`, `recordDialyserReprocessing` and `onSetReturnedTx` — it reads only `restriction.status`, so the cath/OT object and the dialysis `Decision` both drive it; `computeIsolationWarnings({ decision, machine, isolationGroups, enforcement })` reads `decision.status`, `decision.isolation_class` (as an unnamed local, to index `isolationGroups`) and `machine.isolation_group` only, and returns `{ codes, required_group, blocked }`; `applyDeviceTransitionTx(tx, device, action, patch, context)` is the one signature every transition uses; `captureDeviceTx` / `returnDeviceTx` take the same `{ device, usage, … , context }` shapes in both domains (`returnDeviceTx`'s `exposureMarkers` / `deviceMetadata` are optional and dialysis-only); `projectReuseRestrictionForRole` tells the two shapes apart by `evidence` and is the one projection both domains and the canary predicate rely on; the Staff `ReuseRestriction.fromJson` parses both shapes; the Staff `DialyserCaptureDraft.toJson()` emits exactly the keys `DialyserCaptureRequest` declares and `DialyserReprocessingDraft.toJson()` the keys `DialyserReuseRegisterRequest` declares; the Admin `RPD_STATUSES` / `RPD_DISCARD_REASONS` are `satisfies`-pinned to the generated types.
 - Carve-out consistency with the spec: every `767` in this plan refers to the Phase 1 lane's migration; every `NNN` is this lane's; `dialysis_patients` appears only as something read (census, projection, the fixture neutralisation in a test) and never written; the only import of the Phase 1 module is the adapter (pinned).
