@@ -8,6 +8,7 @@ import {
   itemWriteValues,
   orderPriorityForUrgency,
   pendingReasonFor,
+  positiveInt,
   recordExternalLabResult,
   resolveItemState,
 } from '../../services/clinical/cathLabReadinessService.js';
@@ -123,6 +124,48 @@ describe('resolveItemState', () => {
     // falls through to stale rather than passing the gate on a future date.
     expect(resolveItemState({ ...base, results: [future] }))
       .toMatchObject({ state: 'stale', lab_result_id: 30 });
+  });
+
+  // The ORDER-side twin of the test above. cathLabReadinessRules.js's
+  // withinWindow comment claims open orders inherit the same lower bound — "a
+  // future-dated order is dropped and the item reads not_ordered rather than
+  // ordered_awaiting_sample" — and until now only the result half was pinned.
+  // It is the half that matters clinically: a future-dated order that survived
+  // the filter would read ordered_awaiting_sample, which tells the team the
+  // draw is already in flight and suppresses the order-missing action for a
+  // requisition nobody has raised.
+  test('a future-dated order is not an open order: the item reads not_ordered', () => {
+    // Fixed AS_OF, hard-coded epoch twins: no DB clock, so the day this runs
+    // cannot move the answer.
+    const order = (id, offsetDays) => ({
+      id,
+      test_code: 'ELECTROLYTES',
+      status: 'REQUESTED',
+      requested_at: daysAgo(offsetDays),
+      requested_at_epoch_ms: epochAgo(offsetDays),
+      collected_at: null,
+      collected_at_epoch_ms: null,
+    });
+    const future = order(70, -2);
+    expect(resolveItemState({ ...base, orders: [future] }))
+      .toMatchObject({ state: 'not_ordered', investigation_id: null, ordered_at: null });
+
+    // ...and it does not outrank a real one either: the surviving pointer is
+    // the order that was actually raised, not the newest by clock.
+    expect(resolveItemState({ ...base, orders: [future, order(69, 1)] }))
+      .toMatchObject({ state: 'ordered_awaiting_sample', investigation_id: 69 });
+
+    // A future-dated order over a stale result leaves the stale result
+    // standing — the item does not get promoted out of stale by a requisition
+    // dated tomorrow.
+    const staleResult = {
+      id: 71, test_code: 'K', value_text: '4.1', status: 'final',
+      signed_off_at: daysAgo(40), signed_off_at_epoch_ms: epochAgo(40),
+      performed_at: daysAgo(40), performed_at_epoch_ms: epochAgo(40),
+      received_at: daysAgo(40), received_at_epoch_ms: epochAgo(40),
+    };
+    expect(resolveItemState({ ...base, results: [staleResult], orders: [future] }))
+      .toMatchObject({ state: 'stale', lab_result_id: 71, investigation_id: null });
   });
 
   test('exactly windowDays old is fresh; one millisecond older is stale', () => {
@@ -603,5 +646,104 @@ describe('pendingReasonFor', () => {
       { item: 'hb', state: 'not_ordered' },
       { item: 'hiv', state: 'sample_sent_awaiting_result' },
     ])).toBe('hb not ordered; hiv sample sent awaiting result');
+  });
+});
+
+describe('positiveInt bounds', () => {
+  test('the third positional argument is the upper bound', () => {
+    expect(positiveInt('40', 'slot', 64)).toBe(40);
+    expect(() => positiveInt('65', 'slot', 64))
+      .toThrow(expect.objectContaining({ code: 'CATH_LAB_BAD_ID' }));
+  });
+
+  // A bound that is not a finite number would be LOST, not applied: `n > max`
+  // is false for every n when max is an object, so the guard keeps answering
+  // "valid" for exactly the values it was called to refuse. The failure mode
+  // is real — the device-reuse service's near-identical copy takes its bound
+  // as `{ max }`, one import away — so it has to be loud.
+  test.each([
+    ['an options object, the device service’s shape', { max: 64 }],
+    ['a numeric string', '64'],
+    ['null', null],
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+  ])('a %s bound throws TypeError instead of silently dropping the bound', (_label, max) => {
+    expect(() => positiveInt('65', 'slot', max)).toThrow(TypeError);
+    // Not an AppError: this is our bug, not the caller's input, so it must not
+    // reach a client as a 400 blaming them.
+    expect(() => positiveInt('65', 'slot', max))
+      .toThrow(/max must be a finite number/);
+    // ...and it throws BEFORE the value is judged, so a value that would have
+    // been accepted under the intended bound is refused too — no request slips
+    // through on a bound that was never applied.
+    expect(() => positiveInt('1', 'slot', max)).toThrow(TypeError);
+  });
+
+  test('an omitted bound is still the safe-integer default', () => {
+    expect(positiveInt('9007199254740991', 'id')).toBe(Number.MAX_SAFE_INTEGER);
+    expect(() => positiveInt('9007199254740992', 'id'))
+      .toThrow(expect.objectContaining({ code: 'CATH_LAB_BAD_ID' }));
+    expect(() => positiveInt('9007199254740991', 'id', undefined))
+      .not.toThrow();
+  });
+});
+
+/**
+ * m7 — the facade is the contract.
+ *
+ * cathLabReadinessService.js re-exports every name from the three modules the
+ * split created, using explicit name lists rather than `export *`, so that a
+ * name added to a sibling reaches the public surface as a reviewed line. The
+ * cost of that choice is that a new export can be FORGOTTEN, and the only
+ * symptom is an importer of the facade that cannot see it. This compares the
+ * real module namespaces rather than a transcribed list.
+ */
+describe('cathLabReadinessService facade', () => {
+  const siblings = async () => ({
+    'cathLabReadinessRules.js': await import('../../services/clinical/cathLabReadinessRules.js'),
+    'cathLabReadinessActions.js': await import('../../services/clinical/cathLabReadinessActions.js'),
+    'cathParamGuards.js': await import('../../services/clinical/cathParamGuards.js'),
+  });
+
+  test('every export of every sibling module is re-exported by the facade', async () => {
+    const facade = await import('../../services/clinical/cathLabReadinessService.js');
+    const facadeNames = new Set(Object.keys(facade));
+    const missing = [];
+    for (const [file, mod] of Object.entries(await siblings())) {
+      for (const name of Object.keys(mod)) {
+        if (name === 'default') continue;
+        if (!facadeNames.has(name)) missing.push(`${file}#${name}`);
+      }
+    }
+    expect(missing).toEqual([]);
+  });
+
+  test('a re-exported name is the SAME binding, not a same-named copy', async () => {
+    const facade = await import('../../services/clinical/cathLabReadinessService.js');
+    for (const mod of Object.values(await siblings())) {
+      for (const [name, value] of Object.entries(mod)) {
+        if (name === 'default') continue;
+        expect({ name, same: facade[name] === value }).toEqual({ name, same: true });
+      }
+    }
+  });
+
+  test('the facade publishes more than any one sibling — the split really is behind it', async () => {
+    const facade = await import('../../services/clinical/cathLabReadinessService.js');
+    const rules = await import('../../services/clinical/cathLabReadinessRules.js');
+    // Guards against the whole comparison passing because an import resolved to
+    // an empty namespace.
+    expect(Object.keys(rules).length).toBeGreaterThan(10);
+    expect(Object.keys(facade).length).toBeGreaterThan(Object.keys(rules).length);
+    // The names the routes and cathLabService import by name, spot-checked so a
+    // rename cannot pass by removing a name from BOTH sides at once.
+    for (const name of [
+      'ITEM_CODES', 'resolveItemState', 'computeCheckDecision',
+      'waiveLabItem', 'unwaiveLabItem', 'orderMissingLabs', 'recordExternalLabResult',
+      'refreshCaseLabReadiness', 'refreshOpenCasesForPatient',
+      'positiveInt', 'requireUuid', 'cleanText', 'withTenant',
+    ]) {
+      expect({ name, published: facade[name] !== undefined }).toEqual({ name, published: true });
+    }
   });
 });

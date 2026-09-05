@@ -764,7 +764,22 @@ router.post(
   requireCathWorkflow,
   guardCathCaseById,
   requireReadinessItemParam,
-  requireIdempotencyKey({ required: true, scope: 'cath_lab_readiness_unwaive' }),
+  requireIdempotencyKey({
+    required: true,
+    scope: 'cath_lab_readiness_unwaive',
+    // NOT_WAIVED is a RECOVERABLE conflict, not a deterministic outcome: the
+    // item carries no waiver *right now*, and the very next thing that can
+    // happen to it is being waived again — after which this same logical
+    // command (lift the waiver on this item) becomes valid. The Staff panel
+    // keeps one attempt key per item until the write succeeds, so a cached 409
+    // under that key would refuse every later lift forever and the only exit
+    // would be a client reload. Releasing the claim lets the identical request
+    // resume once the obligation goes terminal.
+    //
+    // CASE_STARTED is deliberately NOT here: a started case never un-starts,
+    // so that 409 IS deterministic and belongs in the cache.
+    releaseOnResponseCodes: ['CATH_LAB_READINESS_NOT_WAIVED'],
+  }),
   async (req, res) => {
     try {
       const result = await unwaiveLabItem(

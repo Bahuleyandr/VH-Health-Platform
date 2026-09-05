@@ -1012,10 +1012,19 @@ class CathLabApiService {
   /// POST `.../readiness/labs/:item/unwaive` — withdraws a waiver and answers
   /// the refreshed readiness block itself, exactly as waive does.
   ///
-  /// A key is REQUIRED, under its OWN scope (`cath_lab_readiness_unwaive`).
-  /// Sharing the waive scope would make a lift under a key the waive already
-  /// used replay the waive's recorded response instead of running — the waiver
-  /// would look removed and still be there.
+  /// A key is REQUIRED. What keeps a lift from replaying the waive's recorded
+  /// response is the DISTINCT REQUEST PATH, not the scope: the server's claim
+  /// register is unique on (tenant, actor, request key, request path), so
+  /// `.../waive` and `.../unwaive` are separate claims even under one key. The
+  /// scopes (`cath_lab_readiness_waive` / `cath_lab_readiness_unwaive`) differ
+  /// so a refusal and a log line say which write produced them — they are
+  /// triage, not identity.
+  ///
+  /// The consequence for this client: keep the two paths distinct. Mounting
+  /// either behind an alias that pins one stable public path would collapse
+  /// them into a single claim, and a lift under a key the waive already used
+  /// would replay the waive's 200 — the waiver would look removed and still be
+  /// there.
   static Future<CathLabReadiness> unwaiveLabItem(
     int caseId,
     String item, {

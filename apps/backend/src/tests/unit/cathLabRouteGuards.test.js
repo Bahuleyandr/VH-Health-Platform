@@ -312,6 +312,12 @@ describe('lab readiness route chains', () => {
     expect(/idempotency/i.test(stack[layers - 2].handle.name)).toBe(true);
   });
 
+  // Filled by the probe below — the scope each readiness write ACTUALLY
+  // claims, read back off the mounted middleware one route at a time. The
+  // distinctness test that follows compares these, not a list retyped from the
+  // router.
+  const probedScopes = [];
+
   it.each([
     ['/cases/:id/readiness/labs/order-missing', 4, 'cath_lab_readiness_order'],
     ['/cases/:id/readiness/labs/:item/external-result', 5, 'cath_lab_readiness_external'],
@@ -323,11 +329,20 @@ describe('lab readiness route chains', () => {
     // claimed under. That the refusal happens at all is the `required: true`
     // half; the name is the other half.
     //
-    // It matters that waive and un-waive claim DIFFERENT scopes. The claim
-    // register keys on (tenant, actor, scope, key), and the Staff panel reuses
-    // one attempt key per item: sharing a scope would make lifting a waiver
-    // replay the waive's recorded 200 instead of running, so the waiver would
-    // appear to be removed and would still be there.
+    // What actually separates waive from un-waive is NOT the scope. The claim
+    // register's unique key is (tenant_id, user_uid, request_key, request_path)
+    // — see claimIdempotencyKey in services/idempotency/idempotencyService.js
+    // and migration 130's constraint. The scope never reaches a column; it is
+    // error metadata and a log field, which is exactly what makes it readable
+    // here. Waive and un-waive are separated because they are DIFFERENT REQUEST
+    // PATHS, so the Staff panel reusing one attempt key per item cannot make a
+    // lift replay the waive's recorded 200. The distinct scopes are kept for
+    // triage — a refusal, a warn line and a register row that say which of the
+    // two wrote them.
+    //
+    // The corollary is the thing to guard: mounting either of these behind an
+    // alias with `requestPathForIdempotency` pinned to one stable public path
+    // would COLLAPSE that separation, and no scope difference would restore it.
     const claim = layerOf('post', path)[layers - 2].handle;
     const res = {
       statusCode: null,
@@ -341,16 +356,107 @@ describe('lab readiness route chains', () => {
     expect({ path, passed }).toEqual({ path, passed: false });
     expect({ path, status: res.statusCode }).toEqual({ path, status: 400 });
     expect({ path, scope: res.payload.details?.scope }).toEqual({ path, scope });
+    probedScopes.push(res.payload.details?.scope);
   });
 
   it('every readiness write claims a scope no other one claims', () => {
-    const scopes = [
-      'cath_lab_readiness_order',
+    // The four scopes the probe above READ OFF the mounted middleware, not a
+    // literal retyped here: a list compared against itself is unique by
+    // construction and would survive two routes being given the same scope.
+    // The length check is the ordering guard — if this ever runs before the
+    // probe it fails loudly rather than passing on an empty set.
+    expect(probedScopes).toHaveLength(4);
+    expect(new Set(probedScopes).size).toBe(probedScopes.length);
+    expect([...probedScopes].sort()).toEqual([
       'cath_lab_readiness_external',
-      'cath_lab_readiness_waive',
+      'cath_lab_readiness_order',
       'cath_lab_readiness_unwaive',
-    ];
-    expect(new Set(scopes).size).toBe(scopes.length);
+      'cath_lab_readiness_waive',
+    ]);
+  });
+
+  /**
+   * Which application error codes RELEASE the claim instead of caching it.
+   *
+   * `releaseOnResponseCodes` is a closure variable on the middleware, so it is
+   * probed exactly as the scope is — by running the mounted layer for real
+   * against the mocked register and reading which statement the response
+   * produced. A released claim DELETEs its register row (the same logical
+   * command may resume); a cached one UPDATEs it to pin the response under the
+   * key.
+   */
+  async function statementsAfterResponse(path, layers, { status, code }) {
+    const claim = layerOf('post', path)[layers - 2].handle;
+    // 1: claimIdempotencyKey's INSERT ... ON CONFLICT DO NOTHING RETURNING.
+    queryRawUnsafeMock.mockResolvedValueOnce([{ id: 'claim-row-1', status: 'in_flight' }]);
+    // 2: whichever of DELETE / UPDATE the response drives.
+    queryRawUnsafeMock.mockResolvedValueOnce([{ id: 'claim-row-1' }]);
+    const res = {
+      statusCode: 200,
+      payload: null,
+      req: {},
+      status(next) { this.statusCode = next; return this; },
+      json(body) { this.payload = body; return this; },
+    };
+    let passed = false;
+    await claim(
+      {
+        get: (header) => (String(header).toLowerCase() === 'idempotency-key'
+          ? 'cath-lab-unwaive-42-hcv-1'
+          : undefined),
+        method: 'POST',
+        body: {},
+        originalUrl: `/api/v1/cath-lab${path}`,
+        tenantId: TENANT,
+        user: { uid: PATIENT_UID },
+      },
+      res,
+      () => { passed = true; },
+    );
+    // The claim was taken, so what follows is the response half of the same
+    // middleware and not a refusal that never got there.
+    expect({ path, passed }).toEqual({ path, passed: true });
+    expect(String(queryRawUnsafeMock.mock.calls[0][0])).toMatch(/INSERT INTO idempotency_keys/);
+    res.status(status).json({ code });
+    // The release/finalise is fired without await from inside res.json; let the
+    // promise chain it queued run before reading the statements back.
+    await new Promise((resolve) => { setImmediate(resolve); });
+    return queryRawUnsafeMock.mock.calls.slice(1).map(([sql]) => String(sql));
+  }
+
+  it('POST unwaive RELEASES the claim on CATH_LAB_READINESS_NOT_WAIVED', async () => {
+    // NOT_WAIVED is recoverable: the item can be waived again, after which the
+    // identical command becomes valid. The Staff panel holds one attempt key
+    // per item until the write succeeds, so a cached 409 here would refuse
+    // every later lift under that key forever.
+    const statements = await statementsAfterResponse(
+      '/cases/:id/readiness/labs/:item/unwaive', 5,
+      { status: 409, code: 'CATH_LAB_READINESS_NOT_WAIVED' },
+    );
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).toMatch(/DELETE FROM idempotency_keys/);
+  });
+
+  it('POST unwaive CACHES a started-case 409 — only the named code is released', async () => {
+    // A started case never un-starts, so CATH_LAB_READINESS_CASE_STARTED IS
+    // deterministic and belongs in the cache. This is what stops the release
+    // list being read as "un-waive never caches a 4xx".
+    const statements = await statementsAfterResponse(
+      '/cases/:id/readiness/labs/:item/unwaive', 5,
+      { status: 409, code: 'CATH_LAB_READINESS_CASE_STARTED' },
+    );
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).toMatch(/UPDATE idempotency_keys/);
+    expect(statements[0]).not.toMatch(/DELETE FROM idempotency_keys/);
+  });
+
+  it('POST waive carries no release list — the option is on the un-waive mount', async () => {
+    const statements = await statementsAfterResponse(
+      '/cases/:id/readiness/labs/:item/waive', 5,
+      { status: 409, code: 'CATH_LAB_READINESS_NOT_WAIVED' },
+    );
+    expect(statements).toHaveLength(1);
+    expect(statements[0]).toMatch(/UPDATE idempotency_keys/);
   });
 
   it.each([

@@ -1245,6 +1245,107 @@ void main() {
     expect(unwaiveKey, isNotEmpty);
   });
 
+  // --- G4: the un-waive key has the same lifecycle as order-missing ---------
+  //
+  // The pair above it (order-missing) pins retained-on-failure and rotated-on-
+  // success. Un-waive is the write where that lifecycle is load-bearing in BOTH
+  // directions: the panel holds one attempt key per item, and the backend
+  // releases the claim on CATH_LAB_READINESS_NOT_WAIVED precisely so a retry
+  // under the retained key can run rather than replay a cached 409.
+
+  testWidgets(
+    'a failed un-waive keeps its idempotency key for the retry (G4)',
+    (tester) async {
+      final keys = <String>[];
+      await tester.pumpWidget(
+        _wrap(
+          CathReadinessDependencies(
+            loadReadiness: (_) async => _readiness(
+              labsStatus: 'pass',
+              items: [
+                {
+                  'item_code': 'hcv',
+                  'required': true,
+                  'state': 'waived',
+                  'is_critical': false,
+                  'source': 'waiver',
+                  'waive_reason': 'Emergency PCI',
+                },
+              ],
+            ),
+            unwaiveItem: (caseId, item, {required idempotencyKey}) async {
+              keys.add(idempotencyKey);
+              if (keys.length == 1) {
+                throw Exception('Network unreachable');
+              }
+              return _readiness(labsStatus: 'pending').labs!;
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      for (var attempt = 0; attempt < 2; attempt++) {
+        await tester.tap(find.byKey(const ValueKey('cath-lab-unwaive-hcv')));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey('cath-lab-unwaive-confirm')),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      expect(keys, hasLength(2));
+      // The first attempt may have reached the server and been lost on the way
+      // back. The retry must be the SAME logical command under the SAME key, so
+      // a waiver that was already lifted is not lifted twice into two audit
+      // rows — the key is only reset on success.
+      expect(keys[0], keys[1]);
+    },
+  );
+
+  testWidgets('two successful un-waives send different keys (G4)', (
+    tester,
+  ) async {
+    final keys = <String>[];
+    await tester.pumpWidget(
+      _wrap(
+        CathReadinessDependencies(
+          loadReadiness: (_) async => _readiness(
+            labsStatus: 'pass',
+            items: [
+              {
+                'item_code': 'hcv',
+                'required': true,
+                'state': 'waived',
+                'is_critical': false,
+                'source': 'waiver',
+                'waive_reason': 'Emergency PCI',
+              },
+            ],
+          ),
+          unwaiveItem: (caseId, item, {required idempotencyKey}) async {
+            keys.add(idempotencyKey);
+            return _readiness(labsStatus: 'pending').labs!;
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    for (var attempt = 0; attempt < 2; attempt++) {
+      await tester.tap(find.byKey(const ValueKey('cath-lab-unwaive-hcv')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('cath-lab-unwaive-confirm')));
+      await tester.pumpAndSettle();
+    }
+
+    expect(keys, hasLength(2));
+    // A waiver re-applied and lifted again is a SECOND withdrawal, not a replay
+    // of the first: sharing the key would hand back the first lift's response
+    // and the second waiver would still stand.
+    expect(keys[0], isNot(keys[1]));
+  });
+
   testWidgets('a started case offers no way to remove a waiver either', (
     tester,
   ) async {

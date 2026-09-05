@@ -31,7 +31,21 @@ export function requireUuid(value, label) {
   return text.toLowerCase();
 }
 
+// `max` is the THIRD POSITIONAL argument here. The near-identical copy in the
+// device-reuse service takes its bound as an options object (`{ max }`), and
+// the two sit one import away from each other — so a caller that reaches for
+// the wrong shape passes an object where a number is expected. `n > {max: 40}`
+// is false for every n, which silently drops the bound rather than tightening
+// it: the guard would keep answering "valid" for values it was called to
+// refuse. That is a programming error in OUR code, not bad input from a
+// client, so it throws TypeError (a crash the tests and the logs name) rather
+// than AppError.badRequest (a 400 the caller would read as the user's fault).
 export function positiveInt(value, label, max = Number.MAX_SAFE_INTEGER) {
+  if (!Number.isFinite(max)) {
+    throw new TypeError(
+      `positiveInt(${label}) max must be a finite number, got ${typeof max}`,
+    );
+  }
   const text = String(value ?? '').trim();
   if (!/^[0-9]+$/.test(text)) {
     throw AppError.badRequest(`${label} must be a positive integer`, 'CATH_LAB_BAD_ID');

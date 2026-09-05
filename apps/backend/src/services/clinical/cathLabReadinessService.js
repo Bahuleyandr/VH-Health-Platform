@@ -249,8 +249,15 @@ async function serologyValidityDays(tenantId, db) {
 // Refresh: resolve the seven items, persist them, apply the check-level rule
 // ---------------------------------------------------------------------------
 
-// `lock`: false, 'update' or 'no key update'. Identifier-free — the clause is
-// chosen from this closed map, never interpolated from an argument.
+// `lock`: false, true, 'update' or 'no key update'. Identifier-free — the
+// clause is chosen from this closed map, never interpolated from an argument.
+//
+// `true` is the accepted shorthand for 'update', and it is what waiveLabItem
+// and unwaiveLabItem actually pass: any truthy value that is not a key of the
+// map falls through the `??` below to FOR UPDATE, which is the RESTRICTIVE
+// default. Documented rather than tightened — the fallback is what makes a
+// typo'd lock name take the strongest lock instead of silently taking none,
+// and the two waiver writes rely on `true` meaning exactly FOR UPDATE.
 const CASE_LOCK_CLAUSES = Object.freeze({
   update: 'FOR UPDATE',
   // The refresh's lock. It still conflicts with the FOR UPDATE every other cath
