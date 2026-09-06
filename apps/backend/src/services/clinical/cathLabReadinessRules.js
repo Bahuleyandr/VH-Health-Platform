@@ -79,12 +79,34 @@ export function instantMs(row, field) {
 
 // lab_results.external_reported_on is the day the OUTSIDE laboratory reported
 // the value; performed_at on such a row is only when somebody keyed it in here,
-// which can be months later. A DATE carries no time zone, so a string form is
-// read as IST midnight — the ward's day, the convention clinicalDate() uses.
+// which can be months later. A DATE carries no time zone, so it is read as IST
+// midnight — the ward's day, the convention clinicalDate() uses.
+//
+// Both shapes this column can arrive in mean the SAME thing — a calendar date —
+// so both go down one rail. A DATE read back through the driver materialises as
+// a Date pinned to UTC midnight of that day (`SELECT '2026-09-06'::date` hands
+// back 2026-09-06T00:00:00.000Z on a UTC session), which is NOT when that day
+// begins on the ward: it is 05:30 IST. Reading that Date as an instant made a
+// report dated today look FUTURE to rankResult between 18:30Z and 24:00Z, so an
+// older outside value outranked it. Taking its UTC Y-M-D and rebuilding through
+// the string path below keeps one meaning of "date"; stored rows always take
+// this branch, so it is the branch production runs.
+//
+// The +05:30 here is a hardcoded facility zone. Seen, and deliberately left
+// alone: it is a separate multi-region defect owned by the clock-fix lane, and
+// widening this fix to cover it would change every existing outside-report
+// instant. This function only stops the two branches disagreeing.
 function externalReportedMs(value) {
   if (value === null || value === undefined) return NaN;
-  if (value instanceof Date) return toMs(value);
-  const text = String(value).trim();
+  let text;
+  if (value instanceof Date) {
+    // An Invalid Date would throw out of toISOString(); it was NaN here before
+    // and stays NaN.
+    if (!Number.isFinite(value.getTime())) return NaN;
+    text = value.toISOString().slice(0, 10);
+  } else {
+    text = String(value).trim();
+  }
   return ISO_DATE.test(text) ? toMs(`${text}T00:00:00+05:30`) : NaN;
 }
 

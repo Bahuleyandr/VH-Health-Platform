@@ -1,4 +1,7 @@
 // apps/backend/src/tests/unit/cathLabReadinessService.test.js
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, relative, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   ITEM_CODES,
   SETTINGS_DEFAULTS,
@@ -195,6 +198,46 @@ describe('resolveItemState', () => {
     // external_recorded — the patient's value is 200 days old either way.
     expect(out).toMatchObject({ state: 'stale', source: 'external', lab_result_id: 32 });
     expect(out.observed_at).toBe(new Date(`${reportedOn}T00:00:00+05:30`).toISOString());
+  });
+
+  // ---- a DATE column reaches the resolver as a Date, and a Date is a DAY -----
+  // The fixture above hands the resolver an ISO STRING, which no stored row ever
+  // does: `SELECT '2026-09-06'::date` materialises through the driver as
+  // 2026-09-06T00:00:00.000Z on a UTC session, so production always arrives as a
+  // Date instance. Read as an instant, that Date is 05:30 IST — not when the day
+  // begins on the ward — so between 18:30Z and 24:00Z a report dated today looked
+  // FUTURE and ranked behind an older one. Both pins below are fixed-clock: they
+  // fail all day on a resolver that reads the Date as an instant, not only during
+  // the 5.5 hours the live bug is reachable.
+  const EXTERNAL_ASOF = new Date('2026-09-05T20:05:00.000Z'); // 01:35 IST on the 6th
+  const externalRow = (id, reportedOn, valueText) => ({
+    id, test_code: 'K', value_text: valueText, status: 'preliminary',
+    signed_off_at: null, signed_off_at_epoch_ms: null,
+    // Keyed in long before either report date, so data entry can never be what
+    // the item ends up dated from and these stay assertions about the REPORT.
+    performed_at: daysAgo(30), performed_at_epoch_ms: epochAgo(30),
+    received_at: daysAgo(30), received_at_epoch_ms: epochAgo(30),
+    result_origin: 'external_lab', external_reported_on: reportedOn,
+  });
+
+  test('a date-only outside report is one instant whether it arrives as a Date or a string', () => {
+    const fromDriverDate = resolveItemState({ ...base, asOf: EXTERNAL_ASOF, results: [externalRow(50, new Date('2026-09-06T00:00:00.000Z'), '1.2')] });
+    const fromIsoString = resolveItemState({ ...base, asOf: EXTERNAL_ASOF, results: [externalRow(50, '2026-09-06', '1.2')] });
+    // IST midnight of 2026-09-06 — the ward's day — not UTC midnight of it.
+    expect(fromDriverDate.observed_at).toBe('2026-09-05T18:30:00.000Z');
+    expect(fromDriverDate.observed_at).toBe(fromIsoString.observed_at);
+  });
+
+  test('an outside report dated today outranks an older one while UTC is still on yesterday', () => {
+    const out = resolveItemState({ ...base,
+      asOf: EXTERNAL_ASOF,
+      results: [
+        externalRow(51, new Date('2026-09-05T00:00:00.000Z'), '1.2'),
+        externalRow(52, new Date('2026-09-06T00:00:00.000Z'), '2.4'),
+      ],
+    });
+    expect(out).toMatchObject({ state: 'external_recorded', source: 'external', lab_result_id: 52, value_text: '2.4' });
+    expect(out.observed_at).toBe('2026-09-05T18:30:00.000Z');
   });
 
   test('an epoch-ms twin is preferred over the driver-materialised Date beside it', () => {
@@ -745,5 +788,52 @@ describe('cathLabReadinessService facade', () => {
     ]) {
       expect({ name, published: facade[name] !== undefined }).toEqual({ name, published: true });
     }
+  });
+});
+
+/**
+ * SOURCE PIN for the module split, aimed at the class of bug a MERGE creates.
+ *
+ * externalReportedMs is where a DATE column's two shapes — the driver Date and
+ * the ISO string — are collapsed onto one meaning. The split moved it out of
+ * cathLabReadinessService.js and into cathLabReadinessRules.js. Anything that
+ * lands on main against the OLD home merges into a tree that still compiles and
+ * still passes every runtime assertion, because the failure mode is not a
+ * missing function: it is a SECOND one, live in neither or live in only one
+ * place, with the fix sitting in the copy nothing calls.
+ *
+ * Textual on purpose, like labExternalResultCallSites.test.js. A runtime
+ * assertion on the module object cannot see a copy that is never imported, and
+ * that is exactly the copy this is here to catch.
+ */
+describe('externalReportedMs has exactly one home', () => {
+  const SRC_ROOT = fileURLToPath(new URL('../../', import.meta.url));
+  const SKIP_DIRS = new Set(['node_modules', '.git', 'coverage', 'dist', 'build', 'generated']);
+  // Assembled rather than written out, so this file is not itself a match and
+  // the scan can cover the whole tree, tests included.
+  const NEEDLE = ['function', 'externalReportedMs'].join(' ');
+
+  const sourceFiles = (dir, out = []) => {
+    for (const name of readdirSync(dir)) {
+      if (SKIP_DIRS.has(name)) continue;
+      const full = join(dir, name);
+      if (statSync(full).isDirectory()) sourceFiles(full, out);
+      else if (/\.(js|mjs|cjs)$/.test(name)) out.push(full);
+    }
+    return out;
+  };
+
+  test('exactly one definition in the whole backend, and it is in the rules module', () => {
+    const definers = sourceFiles(SRC_ROOT)
+      .filter((file) => readFileSync(file, 'utf8').includes(NEEDLE))
+      .map((file) => relative(SRC_ROOT, file).split(sep).join('/'));
+    expect(definers).toEqual(['services/clinical/cathLabReadinessRules.js']);
+  });
+
+  test('the persistence half does not so much as name it', () => {
+    const service = readFileSync(join(SRC_ROOT, 'services', 'clinical', 'cathLabReadinessService.js'), 'utf8');
+    // Not a call, not an import, not a re-export: the facade reaches this rule
+    // only through resolveItemState, which lives with it.
+    expect(service).not.toMatch(/externalReportedMs/);
   });
 });
