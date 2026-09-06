@@ -154,6 +154,46 @@ describe('resolveItemState', () => {
     expect(out.observed_at).toBe(new Date(`${reportedOn}T00:00:00+05:30`).toISOString());
   });
 
+  // ---- a DATE column reaches the resolver as a Date, and a Date is a DAY -----
+  // The fixture above hands the resolver an ISO STRING, which no stored row ever
+  // does: `SELECT '2026-09-06'::date` materialises through the driver as
+  // 2026-09-06T00:00:00.000Z on a UTC session, so production always arrives as a
+  // Date instance. Read as an instant, that Date is 05:30 IST — not when the day
+  // begins on the ward — so between 18:30Z and 24:00Z a report dated today looked
+  // FUTURE and ranked behind an older one. Both pins below are fixed-clock: they
+  // fail all day on a resolver that reads the Date as an instant, not only during
+  // the 5.5 hours the live bug is reachable.
+  const EXTERNAL_ASOF = new Date('2026-09-05T20:05:00.000Z'); // 01:35 IST on the 6th
+  const externalRow = (id, reportedOn, valueText) => ({
+    id, test_code: 'K', value_text: valueText, status: 'preliminary',
+    signed_off_at: null, signed_off_at_epoch_ms: null,
+    // Keyed in long before either report date, so data entry can never be what
+    // the item ends up dated from and these stay assertions about the REPORT.
+    performed_at: daysAgo(30), performed_at_epoch_ms: epochAgo(30),
+    received_at: daysAgo(30), received_at_epoch_ms: epochAgo(30),
+    result_origin: 'external_lab', external_reported_on: reportedOn,
+  });
+
+  test('a date-only outside report is one instant whether it arrives as a Date or a string', () => {
+    const fromDriverDate = resolveItemState({ ...base, asOf: EXTERNAL_ASOF, results: [externalRow(50, new Date('2026-09-06T00:00:00.000Z'), '1.2')] });
+    const fromIsoString = resolveItemState({ ...base, asOf: EXTERNAL_ASOF, results: [externalRow(50, '2026-09-06', '1.2')] });
+    // IST midnight of 2026-09-06 — the ward's day — not UTC midnight of it.
+    expect(fromDriverDate.observed_at).toBe('2026-09-05T18:30:00.000Z');
+    expect(fromDriverDate.observed_at).toBe(fromIsoString.observed_at);
+  });
+
+  test('an outside report dated today outranks an older one while UTC is still on yesterday', () => {
+    const out = resolveItemState({ ...base,
+      asOf: EXTERNAL_ASOF,
+      results: [
+        externalRow(51, new Date('2026-09-05T00:00:00.000Z'), '1.2'),
+        externalRow(52, new Date('2026-09-06T00:00:00.000Z'), '2.4'),
+      ],
+    });
+    expect(out).toMatchObject({ state: 'external_recorded', source: 'external', lab_result_id: 52, value_text: '2.4' });
+    expect(out.observed_at).toBe('2026-09-05T18:30:00.000Z');
+  });
+
   test('an epoch-ms twin is preferred over the driver-materialised Date beside it', () => {
     const ms = AS_OF.getTime() - 200 * 86_400_000;
     const out = resolveItemState({ ...base, results: [{
