@@ -1,14 +1,17 @@
 // apps/backend/scripts/openapi/schemas/cathLabReadiness.mjs
 //
 // Pre-procedure LAB readiness for a cath case: the seven items the checklist
-// resolves from the patient's own lab rows, the three actions that can move
-// them (order the missing, record an outside value, waive), and the tenant
-// policy that decides what "ready" means.
+// resolves from the patient's own lab rows, the four actions that can move
+// them (order the missing, record an outside value, waive, un-waive), and the
+// tenant policy that decides what "ready" means.
 // Spec: docs/superpowers/plans/2026-09-04-cath-lab-readiness.md
 //
-// Every shape here mirrors cathLabReadinessService.js exactly, and is PINNED to
-// it by src/tests/unit/cathLabReadinessOpenApiSource.test.js, which drives the
-// real resolver and the real refresh (with a stub db) and compares key sets —
+// Every shape here mirrors the readiness service exactly — which since the
+// rules / persistence / actions split is three modules behind one facade
+// (cathLabReadinessRules, cathLabReadinessService, cathLabReadinessActions) —
+// and is PINNED to them by src/tests/unit/cathLabReadinessOpenApiSource.test.js,
+// which drives the real resolver and the real refresh (with a stub db) and
+// compares key sets —
 // the schemas are additionalProperties:false, so a key the service adds and
 // this file does not declare is a response that violates its own contract.
 //
@@ -60,7 +63,8 @@ const ERROR_CODES = [
   'CATH_LAB_READINESS_VALUE_INVALID',
   'CATH_LAB_READINESS_ORDER_FAILED',
   'CATH_LAB_READINESS_CASE_STARTED',
-  'CATH_LAB_READINESS_ITEMS_EMPTY'
+  'CATH_LAB_READINESS_ITEMS_EMPTY',
+  'CATH_LAB_READINESS_NOT_WAIVED'
 ];
 
 /** Exported for the source-pin test, which compares them against the service. */
@@ -116,7 +120,7 @@ const item = {
   required: [
     'item_code', 'required', 'state', 'value_text', 'value_numeric', 'unit', 'abnormal_flag',
     'is_critical', 'observed_at', 'source', 'lab_result_id', 'investigation_id', 'specimen_id',
-    'ordered_at', 'waived_by', 'waived_at', 'waive_reason'
+    'ordered_at', 'waived_by', 'waived_at', 'waive_reason', 'recorded_after_start'
   ],
   properties: {
     item_code: { type: 'string', enum: ITEMS },
@@ -155,7 +159,24 @@ const item = {
     ordered_at: nullableDateTime,
     waived_by: nullableUuid,
     waived_at: nullableDateTime,
-    waive_reason: nullableString
+    waive_reason: nullableString,
+    recorded_after_start: {
+      type: 'boolean',
+      description:
+        'True when this item\'s waiver was recorded AFTER the case\'s actual_start_at — the '
+        + 'decision to proceed without the item was documented while the patient was already on '
+        + 'the table. RECORDING a waiver is never refused for being late (owner decision, '
+        + '2026-09-06): a team that has to proceed without a report still has to be able to '
+        + 'record that it did. LIFTING one after the start is refused — see the unwaive route. '
+        + 'DERIVED on every read from waived_at against actual_start_at, not a stored column, so '
+        + 'it cannot go stale against either. False on every non-waived item, on a waiver that '
+        + 'predates the start, and on a case that has not started. Both instants are Postgres '
+        + 'NOW() = transaction_timestamp(), taken at the START of their transaction and '
+        + 'constant within it, so this is TRANSACTION-START ordering and reads false for a '
+        + 'waiver whose transaction opened before the start transaction committed — a '
+        + 'documentation boundary only, since what refuses a lift on a running case is the '
+        + 'unwaive route\'s locked state check, not this comparison.'
+    }
   }
 };
 
@@ -241,7 +262,13 @@ const readiness = {
     },
     case_started: {
       type: 'boolean',
-      description: 'True once the procedure has an actual start; the three actions are refused after it.'
+      description:
+        'True once the procedure has an actual start. The write actions on this surface then '
+        + 'split three ways (owner decision, 2026-09-06): ordering the missing labs and '
+        + 'recording an outside result are refused; RECORDING a waiver stays open and is marked '
+        + '`recorded_after_start` instead; LIFTING a waiver is refused, because a lift regresses '
+        + 'the item and the labs check while a running case\'s status does not move, so the '
+        + 'regression would be invisible.'
     }
   }
 };
@@ -359,6 +386,17 @@ export const schemas = {
     properties: { reason: { type: 'string', minLength: 1, maxLength: 500 } }
   },
 
+  CathLabReadinessUnwaiveRequest: {
+    type: 'object',
+    additionalProperties: false,
+    description:
+      'Lifting a waiver. `reason` is OPTIONAL and says why the waiver is being withdrawn — '
+      + 'unlike the waiver itself, which must state why a gate was cleared. Withdrawing one '
+      + 'restores the gate, which is the restrictive direction, so it is not held up for prose; '
+      + 'the waiver\'s OWN reason is carried onto the audit row either way.',
+    properties: { reason: { type: 'string', minLength: 1, maxLength: 500 } }
+  },
+
   CathLabReadinessSettings: {
     type: 'object',
     additionalProperties: false,
@@ -423,6 +461,24 @@ export const operations = {
         ['CATH_LAB_READINESS_VALUE_INVALID']
       )
     }
+  },
+  'GET /api/v1/cath-lab/cases': {
+    summary: 'The cath day list, with each case\'s stored lab-readiness summary',
+    description:
+      'Every case carries `lab_readiness_summary`: `check_status`, `critical_warning`, '
+      + '`auto_managed`, `missing_count`, `missing_items` (item codes) and '
+      + '`live_evidence_refreshed_at` — or null for a case whose readiness has never been '
+      + 'resolved, which is NOT the same as nothing being missing. It is the STORED snapshot: '
+      + 'the list never runs the read-through refresh (that would be a lock and a write cycle '
+      + 'per card on a screen that is open all day), so it is as fresh as the last time '
+      + 'somebody opened the case, and the refresh\'s own stamp — rewritten at most every 60 '
+      + 'seconds while a case is read — is published beside it so the age is visible rather '
+      + 'than assumed. Deliberately NOT included: `critical_items`, the per-item values and '
+      + 'the per-item `is_critical`. This route is cath report-read, which admits RECEPTIONIST '
+      + 'and TECHNICIAN, and naming a serology item as critical says it came back reactive; '
+      + 'omitting the list is a stronger guarantee than projecting it. Typed here in prose '
+      + 'only, like the evidence refresh below: the day list predates this overlay and still '
+      + 'answers the generic Success envelope.'
   },
   'POST /api/v1/cath-lab/cases/{id}/readiness/evidence/refresh': {
     summary: 'Re-evidence every readiness check on a cath case',
@@ -494,7 +550,11 @@ export const operations = {
     description:
       'Records a clinical decision to proceed without one item, with who/when/why. The waiver '
       + 'decides the state only — any value already on the item stays, so a waived critical result '
-      + 'still raises the warning. Requires Idempotency-Key (scope cath_lab_readiness_waive).',
+      + 'still raises the warning. NOT refused once the procedure has started: proceeding without '
+      + 'an item is a decision the team may still have to record, and a waiver recorded after '
+      + '`actual_start_at` carries `recorded_after_start: true` so the record shows it was '
+      + 'documented late (owner decision, 2026-09-06). Requires Idempotency-Key (scope '
+      + 'cath_lab_readiness_waive).',
     pathParameters: { id: BIGINT_WIRE, item: { type: 'string', enum: ITEMS } },
     parameters: [idempotencyHeaderParameter],
     request: 'CathLabReadinessWaiveRequest',
@@ -502,10 +562,43 @@ export const operations = {
     additionalResponses: {
       400: errorResponse(
         'The item code is not one of the seven (refused at the route, before the '
-        + 'Idempotency-Key is claimed), or no reason was given. A waiver is NOT refused after '
-        + 'the procedure starts — proceeding without an item is a decision the team may still '
-        + 'have to record.',
+        + 'Idempotency-Key is claimed), or no reason was given.',
         ['CATH_LAB_READINESS_ITEM_UNKNOWN', 'CATH_LAB_READINESS_VALUE_INVALID']
+      )
+    }
+  },
+  'POST /api/v1/cath-lab/cases/{id}/readiness/labs/{item}/unwaive': {
+    summary: 'Remove the waiver on one pre-cath lab item',
+    description:
+      'Withdraws a waiver, so the item is resolved from the patient\'s lab evidence again — '
+      + 'which may leave it missing and take the labs check back off pass. It is a SECOND '
+      + 'decision recorded over the first, not an undo: the waiver and its audit row stand, and '
+      + 'this writes its own row carrying the withdrawn waiver\'s reason. REFUSED once the '
+      + 'procedure has started, which is the opposite of the sibling waive route and deliberate '
+      + '(owner decision, 2026-09-06: a waiver may be recorded after the start but not lifted). '
+      + 'A late RECORD is the less-restrictive direction and is merely marked; a late LIFT is '
+      + 'the more-restrictive one — it takes the item back to missing and the labs check back '
+      + 'to pending, while the case status of a running case does not move, so nothing on the '
+      + 'board shows the regression and a mis-tap with the patient on the table would silently '
+      + 'flip a running case\'s checklist. Also refused when the item is not waived. Requires '
+      + 'Idempotency-Key (scope cath_lab_readiness_unwaive).',
+    pathParameters: { id: BIGINT_WIRE, item: { type: 'string', enum: ITEMS } },
+    parameters: [idempotencyHeaderParameter],
+    request: 'CathLabReadinessUnwaiveRequest',
+    response: 'CathLabReadinessResponse',
+    additionalResponses: {
+      400: errorResponse(
+        'The item code is not one of the seven (refused at the route, before the '
+        + 'Idempotency-Key is claimed).',
+        ['CATH_LAB_READINESS_ITEM_UNKNOWN']
+      ),
+      409: errorResponse(
+        'The procedure has already started, so the waiver stands (a waiver may be RECORDED '
+        + 'after the start but not LIFTED: the lift regresses the item and the labs check under '
+        + 'a case status that does not move, hiding the regression) — or the item carries no '
+        + 'waiver to remove, decided from the stored row under the case lock so a second tap is '
+        + 'told so rather than writing an audit row about a waiver that was already gone.',
+        ['CATH_LAB_READINESS_CASE_STARTED', 'CATH_LAB_READINESS_NOT_WAIVED']
       )
     }
   },

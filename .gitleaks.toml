@@ -118,6 +118,13 @@ regexes = [
   # Keep the exact value allowlisted because PR range scans inspect the commit
   # that introduced it even after the working-tree fixture is rewritten.
   '''owner_acceptance_test\.v1''',
+  # Cath-lab un-waive route test in cathLabRoutesAppErrorPropagation.test.js
+  # (PR #1018): the `.set('Idempotency-Key', 'cath-unwaive-key-1')` fixture
+  # trips generic-api-key on entropy alone (its shorter siblings do not).
+  # The working-tree value was shortened below the rule's floor, but the
+  # PR range scan inspects the introducing commit (127f0e8f1), so the exact
+  # historical value stays allowlisted. An opaque test token, not a credential.
+  '''cath-unwaive-key-1''',
   # Documentation phrase describing PostgreSQL application-role and sequence
   # privileges. The generic-api-key rule classified the historical slash form
   # as a credential, so retain an exact history-only exception.

@@ -26,6 +26,7 @@ import {
   orderMissingLabs,
   recordExternalLabResult,
   refreshCaseLabReadiness,
+  unwaiveLabItem,
   waiveLabItem
 } from '../../services/clinical/cathLabReadinessService.js';
 import {
@@ -420,6 +421,18 @@ router.post('/reports/:id/addenda', requireReportSign, guardCathReport, async (r
   }
 });
 
+// The day list. Every case carries `lab_readiness_summary` — the STORED
+// readiness snapshot, never a refresh (see cathLabService.labReadinessSummaries
+// for why, and for how stale it can be).
+//
+// NO serology projection is applied here, and that is a property of the payload
+// rather than an omission: the summary publishes `check_status`,
+// `critical_warning`, `auto_managed`, a count, a list of item CODES and a
+// timestamp. It carries no value, no abnormal flag, no per-item `is_critical`
+// and no `critical_items` — the four things cathLabReadinessProjection exists to
+// withhold from the RECEPTIONIST and TECHNICIAN this report-read gate admits.
+// Adding any of them to the summary means adding the projection here too; the
+// serology canary walks this route as all 87 roles and will say so.
 router.get('/cases', requireReportRead, async (req, res) => {
   try {
     const cases = await listCases({
@@ -737,6 +750,47 @@ router.post(
       return success(res, result, 'Lab readiness item waived');
     } catch (err) {
       return handleFailure(res, err, 'waive lab item');
+    }
+  }
+);
+
+// Lifting a waiver is a second clinical decision over the first, not an undo:
+// the item goes back to being resolved from lab evidence and the check can come
+// off pass because of it. Same chain, same order, same claim discipline as the
+// waive above — the guard before the claim so a request that can never succeed
+// (an unknown item, a case the caller may not read) does not burn a key.
+router.post(
+  '/cases/:id/readiness/labs/:item/unwaive',
+  requireCathWorkflow,
+  guardCathCaseById,
+  requireReadinessItemParam,
+  requireIdempotencyKey({
+    required: true,
+    scope: 'cath_lab_readiness_unwaive',
+    // NOT_WAIVED is a RECOVERABLE conflict, not a deterministic outcome: the
+    // item carries no waiver *right now*, and the very next thing that can
+    // happen to it is being waived again — after which this same logical
+    // command (lift the waiver on this item) becomes valid. The Staff panel
+    // keeps one attempt key per item until the write succeeds, so a cached 409
+    // under that key would refuse every later lift forever and the only exit
+    // would be a client reload. Releasing the claim lets the identical request
+    // resume once the obligation goes terminal.
+    //
+    // CASE_STARTED is deliberately NOT here: a started case never un-starts,
+    // so that 409 IS deterministic and belongs in the cache.
+    releaseOnResponseCodes: ['CATH_LAB_READINESS_NOT_WAIVED'],
+  }),
+  async (req, res) => {
+    try {
+      const result = await unwaiveLabItem(
+        req.params.id,
+        req.params.item,
+        { ...req.body, tenantId: tenantOf(req) },
+        contextOf(req)
+      );
+      return success(res, result, 'Lab readiness waiver removed');
+    } catch (err) {
+      return handleFailure(res, err, 'remove lab item waiver');
     }
   }
 );

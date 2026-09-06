@@ -1110,8 +1110,8 @@ void main() {
     },
   );
 
-  testWidgets('a started case shows the waive reason but offers no write '
-      'actions', (tester) async {
+  testWidgets('a started case still offers the waiver, and keeps the lift, the '
+      'order and the outside-result actions closed', (tester) async {
     await tester.pumpWidget(
       _wrap(
         CathReadinessDependencies(
@@ -1147,9 +1147,304 @@ void main() {
     expect(find.text('Waived: Emergency PCI'), findsOneWidget);
     // M1: a waiver is dated by its waiver, not labelled "As of".
     expect(find.text('Waived 2026-09-04'), findsOneWidget);
+    // Still closed: both of these reach outside the checklist — into the order
+    // rail and the lab rail — and the backend still answers
+    // CATH_LAB_READINESS_CASE_STARTED for them.
     expect(find.byKey(const ValueKey('cath-lab-order-missing')), findsNothing);
     expect(find.byKey(const ValueKey('cath-lab-external-hb')), findsNothing);
-    expect(find.byKey(const ValueKey('cath-lab-waive-hb')), findsNothing);
+    // OPEN, and this is the inversion of what this test used to assert. Owner
+    // decision, 2026-09-06: the pre-cath checklist is not restrictive. A team
+    // already at the table that has to proceed without hb must be able to
+    // RECORD that, and the backend accepts the write; hiding the button would
+    // only lose the record, not the decision.
+    expect(find.byKey(const ValueKey('cath-lab-waive-hb')), findsOneWidget);
+    // ...and CLOSED on the same panel, in the same render: the way out of the
+    // hcv waiver. Record-yes / lift-no is one screen's worth of asymmetry, so
+    // one test asserts both halves of it. The sibling test below carries the
+    // reasoning.
+    expect(find.byKey(const ValueKey('cath-lab-unwaive-hcv')), findsNothing);
+  });
+
+  testWidgets('a waived row offers the exit, and a plain row does not', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        CathReadinessDependencies(
+          loadReadiness: (_) async => _readiness(
+            labsStatus: 'pass',
+            items: [
+              {
+                'item_code': 'hcv',
+                'required': true,
+                'state': 'waived',
+                'is_critical': false,
+                'source': 'waiver',
+                'waive_reason': 'Emergency PCI',
+              },
+              {
+                'item_code': 'hb',
+                'required': true,
+                'state': 'result_final',
+                'is_critical': false,
+              },
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('cath-lab-unwaive-hcv')), findsOneWidget);
+    // Not offered where there is no waiver to lift — the action is driven by
+    // the item's own state, not by the server's missing[] (a waived item is
+    // never missing, which is what makes that list the wrong gate here).
+    expect(find.byKey(const ValueKey('cath-lab-unwaive-hb')), findsNothing);
+    // ...and the waive action is not offered on a row that already carries one.
+    expect(find.byKey(const ValueKey('cath-lab-waive-hcv')), findsNothing);
+  });
+
+  testWidgets('removing a waiver confirms first, then calls the dependency '
+      'with an idempotency key', (tester) async {
+    String? unwaivedItem;
+    String? unwaiveKey;
+    var calls = 0;
+    await tester.pumpWidget(
+      _wrap(
+        CathReadinessDependencies(
+          loadReadiness: (_) async => _readiness(
+            labsStatus: 'pass',
+            items: [
+              {
+                'item_code': 'hcv',
+                'required': true,
+                'state': 'waived',
+                'is_critical': false,
+                'source': 'waiver',
+                'waive_reason': 'Emergency PCI',
+              },
+            ],
+          ),
+          unwaiveItem: (caseId, item, {required idempotencyKey}) async {
+            calls += 1;
+            unwaivedItem = item;
+            unwaiveKey = idempotencyKey;
+            return _readiness(labsStatus: 'pending').labs!;
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('cath-lab-unwaive-hcv')));
+    await tester.pumpAndSettle();
+    // The confirmation is not decoration: lifting a waiver moves the start gate
+    // in the RESTRICTIVE direction, so a mis-tap must not do it.
+    expect(
+      find.byKey(const ValueKey('cath-lab-unwaive-dialog')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('cath-lab-unwaive-cancel')));
+    await tester.pumpAndSettle();
+    expect(calls, 0);
+
+    await tester.tap(find.byKey(const ValueKey('cath-lab-unwaive-hcv')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('cath-lab-unwaive-confirm')));
+    await tester.pumpAndSettle();
+
+    expect(calls, 1);
+    expect(unwaivedItem, 'hcv');
+    expect(unwaiveKey, isNotEmpty);
+  });
+
+  // --- G4: the un-waive key has the same lifecycle as order-missing ---------
+  //
+  // The pair above it (order-missing) pins retained-on-failure and rotated-on-
+  // success. Un-waive is the write where that lifecycle is load-bearing in BOTH
+  // directions: the panel holds one attempt key per item, and the backend
+  // releases the claim on CATH_LAB_READINESS_NOT_WAIVED precisely so a retry
+  // under the retained key can run rather than replay a cached 409.
+
+  testWidgets(
+    'a failed un-waive keeps its idempotency key for the retry (G4)',
+    (tester) async {
+      final keys = <String>[];
+      await tester.pumpWidget(
+        _wrap(
+          CathReadinessDependencies(
+            loadReadiness: (_) async => _readiness(
+              labsStatus: 'pass',
+              items: [
+                {
+                  'item_code': 'hcv',
+                  'required': true,
+                  'state': 'waived',
+                  'is_critical': false,
+                  'source': 'waiver',
+                  'waive_reason': 'Emergency PCI',
+                },
+              ],
+            ),
+            unwaiveItem: (caseId, item, {required idempotencyKey}) async {
+              keys.add(idempotencyKey);
+              if (keys.length == 1) {
+                throw Exception('Network unreachable');
+              }
+              return _readiness(labsStatus: 'pending').labs!;
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      for (var attempt = 0; attempt < 2; attempt++) {
+        await tester.tap(find.byKey(const ValueKey('cath-lab-unwaive-hcv')));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey('cath-lab-unwaive-confirm')),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      expect(keys, hasLength(2));
+      // The first attempt may have reached the server and been lost on the way
+      // back. The retry must be the SAME logical command under the SAME key, so
+      // a waiver that was already lifted is not lifted twice into two audit
+      // rows — the key is only reset on success.
+      expect(keys[0], keys[1]);
+    },
+  );
+
+  testWidgets('two successful un-waives send different keys (G4)', (
+    tester,
+  ) async {
+    final keys = <String>[];
+    await tester.pumpWidget(
+      _wrap(
+        CathReadinessDependencies(
+          loadReadiness: (_) async => _readiness(
+            labsStatus: 'pass',
+            items: [
+              {
+                'item_code': 'hcv',
+                'required': true,
+                'state': 'waived',
+                'is_critical': false,
+                'source': 'waiver',
+                'waive_reason': 'Emergency PCI',
+              },
+            ],
+          ),
+          unwaiveItem: (caseId, item, {required idempotencyKey}) async {
+            keys.add(idempotencyKey);
+            return _readiness(labsStatus: 'pending').labs!;
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    for (var attempt = 0; attempt < 2; attempt++) {
+      await tester.tap(find.byKey(const ValueKey('cath-lab-unwaive-hcv')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('cath-lab-unwaive-confirm')));
+      await tester.pumpAndSettle();
+    }
+
+    expect(keys, hasLength(2));
+    // A waiver re-applied and lifted again is a SECOND withdrawal, not a replay
+    // of the first: sharing the key would hand back the first lift's response
+    // and the second waiver would still stand.
+    expect(keys[0], isNot(keys[1]));
+  });
+
+  testWidgets('a started case offers no way to remove a waiver', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        CathReadinessDependencies(
+          loadReadiness: (_) async => _readiness(
+            labsStatus: 'pass',
+            caseStarted: true,
+            items: [
+              {
+                'item_code': 'hcv',
+                'required': true,
+                'state': 'waived',
+                'is_critical': false,
+                'source': 'waiver',
+                'waive_reason': 'Emergency PCI',
+              },
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The two waiver actions move the start gate in OPPOSITE directions, and
+    // this test is the panel's pin on the refusing half (owner decision,
+    // 2026-09-06: record-yes / lift-no). A lift takes the item back to missing
+    // and the labs check back to pending while a running case's status does not
+    // move, so the regression would be invisible on the board; the backend
+    // answers 409 CATH_LAB_READINESS_CASE_STARTED and the panel must not offer
+    // the tap that earns it.
+    expect(find.text('Waived: Emergency PCI'), findsOneWidget);
+    expect(find.byKey(const ValueKey('cath-lab-unwaive-hcv')), findsNothing);
+  });
+
+  testWidgets('a waiver recorded after the case started is chipped as late', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        CathReadinessDependencies(
+          loadReadiness: (_) async => _readiness(
+            labsStatus: 'pass',
+            caseStarted: true,
+            items: [
+              {
+                'item_code': 'hcv',
+                'required': true,
+                'state': 'waived',
+                'is_critical': false,
+                'source': 'waiver',
+                'waived_at': '2026-09-04T05:00:00.000Z',
+                'waive_reason': 'Primary PCI under way',
+                'recorded_after_start': true,
+              },
+              {
+                // Waived before the patient was on the table: an ordinary
+                // pre-procedure waiver, and it must NOT carry the chip.
+                'item_code': 'hiv',
+                'required': true,
+                'state': 'waived',
+                'is_critical': false,
+                'source': 'waiver',
+                'waived_at': '2026-09-03T05:00:00.000Z',
+                'waive_reason': 'On file elsewhere',
+                'recorded_after_start': false,
+              },
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The panel does not hide the action, so the row has to date the record:
+    // this chip is the whole of what the removed refusal used to say.
+    expect(
+      find.byKey(const ValueKey('cath-lab-waived-after-start-hcv')),
+      findsOneWidget,
+    );
+    expect(find.text('Recorded after start'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('cath-lab-waived-after-start-hiv')),
+      findsNothing,
+    );
   });
 
   testWidgets('nothing renders when the case carries no readiness block', (
@@ -1229,7 +1524,7 @@ void main() {
       backendCodes,
       reason:
           'cathReadinessItemCodes in cath_readiness_models.dart must match '
-          'LAB_ANALYTE_ITEMS (which is cathLabReadinessService.ITEM_CODES) '
+          'LAB_ANALYTE_ITEMS (which is cathLabReadinessRules.ITEM_CODES) '
           'in the same order — the checklist renders one row per code and '
           'localises each by name.',
     );
@@ -1237,14 +1532,14 @@ void main() {
 
   test(
     'cathReadinessItemStates is pinned against the backend ITEM_STATES source '
-    '(apps/backend/src/services/clinical/cathLabReadinessService.js)',
+    '(apps/backend/src/services/clinical/cathLabReadinessRules.js)',
     () {
       final repoRoot = _findRepoRoot(Directory.current);
       final backendFile = repoRoot == null
           ? null
           : File(
               '${repoRoot.path}/apps/backend/src/services/clinical/'
-              'cathLabReadinessService.js',
+              'cathLabReadinessRules.js',
             );
       if (backendFile == null || !backendFile.existsSync()) {
         markTestSkipped(
@@ -1262,8 +1557,10 @@ void main() {
         match,
         isNotNull,
         reason:
-            'ITEM_STATES not found in cathLabReadinessService.js — has it been '
-            'renamed or restructured?',
+            'ITEM_STATES not found in cathLabReadinessRules.js — has it been '
+            'renamed or restructured? It moved there from '
+            'cathLabReadinessService.js when the readiness service was split '
+            'into rules / persistence / actions.',
       );
       final backendStates = RegExp(r"'([^']+)'")
           .allMatches(match!.group(1)!)
@@ -1276,7 +1573,7 @@ void main() {
         backendStates,
         reason:
             'cathReadinessItemStates in cath_readiness_models.dart must match '
-            'ITEM_STATES in cathLabReadinessService.js, in the same order — a '
+            'ITEM_STATES in cathLabReadinessRules.js, in the same order — a '
             'state with no entry here renders as a humanised code with no '
             'colour, which is how "critical, not ordered" comes to look calm.',
       );

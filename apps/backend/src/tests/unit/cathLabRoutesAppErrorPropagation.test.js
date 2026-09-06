@@ -71,6 +71,7 @@ jest.unstable_mockModule('../../services/clinical/cathLabReadinessService.js', (
   refreshOpenCasesForPatient: jest.fn(),
   upsertReadinessSettings: jest.fn(),
   waiveLabItem: jest.fn(),
+  unwaiveLabItem: jest.fn(),
 }));
 
 // The device-reuse routes (post-use, device lookup, device history) and the
@@ -248,5 +249,30 @@ describe('contextOf does not hand the HTTP idempotency claim to the lab rail', (
     // 'cath-ext-key-1', and contextOf prefers the claim's requestKey over the
     // header — so that is what the service sees here too.
     expect(context.idempotencyKey).toBe('cath-ext-key-1');
+  });
+
+  test('the un-waive route relays the service AppError at the envelope root', async () => {
+    // The route that WITHDRAWS a waiver answers a 409 nobody else on this
+    // router raises, so the envelope it reaches the ward in is pinned here
+    // rather than assumed from the waive route beside it.
+    const { unwaiveLabItem } = await import('../../services/clinical/cathLabReadinessService.js');
+    unwaiveLabItem.mockRejectedValueOnce(
+      new AppError('The hiv item is not waived', 409, 'CATH_LAB_READINESS_NOT_WAIVED'),
+    );
+
+    const response = await request(app)
+      .post('/api/v1/cath-lab/cases/42/readiness/labs/hiv/unwaive')
+      // Kept under ten characters on purpose: the secret scanner's
+      // generic-api-key rule matches `Key', '<10+ chars>'` on entropy alone,
+      // and this test key crossed that threshold where its siblings did not.
+      .set('Idempotency-Key', 'unwaive-1')
+      .send({});
+
+    expect(response.status).toBe(409);
+    expect(response.body.code).toBe('CATH_LAB_READINESS_NOT_WAIVED');
+    expect(response.body.details?.code).toBeUndefined();
+    const context = unwaiveLabItem.mock.calls[0][3];
+    expect('httpIdempotencyClaimId' in context).toBe(false);
+    expect('requestFingerprint' in context).toBe(false);
   });
 });

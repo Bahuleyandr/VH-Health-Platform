@@ -21,7 +21,11 @@ final _noReadiness = CathReadinessDependencies(
       CathCaseReadiness.fromJson(const <String, dynamic>{}),
 );
 
-CathLabCaseSummary _case(int id, {String patientName = 'Asha Rao'}) {
+CathLabCaseSummary _case(
+  int id, {
+  String patientName = 'Asha Rao',
+  Map<String, dynamic>? readinessSummary,
+}) {
   return CathLabCaseSummary(
     id: id,
     patientUid: '11111111-1111-4111-8111-111111111111',
@@ -37,6 +41,34 @@ CathLabCaseSummary _case(int id, {String patientName = 'Asha Rao'}) {
     doseRecordCount: 1,
     activePostOrderCount: 2,
     deviceLinkCount: 1,
+    labReadinessSummary: readinessSummary == null
+        ? null
+        : CathLabReadinessSummary.fromJson(readinessSummary),
+  );
+}
+
+/// One `lab_readiness_summary` as `GET /cath-lab/cases` sends it.
+Map<String, dynamic> _summary({
+  List<String> missing = const [],
+  bool critical = false,
+  String checkStatus = 'pending',
+}) {
+  return {
+    'check_status': checkStatus,
+    'critical_warning': critical,
+    'auto_managed': true,
+    'missing_count': missing.length,
+    'missing_items': missing,
+    'live_evidence_refreshed_at': '2026-09-04T06:00:00.000Z',
+  };
+}
+
+/// A readiness dependency whose load NEVER answers, so the card is stuck in the
+/// state it is in for the first round trip after it appears — which is exactly
+/// the window the list summary exists to cover.
+CathReadinessDependencies _inertReadiness() {
+  return CathReadinessDependencies(
+    loadReadiness: (_) => Completer<CathCaseReadiness>().future,
   );
 }
 
@@ -606,6 +638,100 @@ void main() {
       expect(
         find.byKey(const ValueKey('cath-readiness-header-critical')),
         findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets(
+    'the card header carries the LIST summary before the checklist has loaded '
+    '(F3)',
+    (tester) async {
+      await tester.pumpWidget(
+        _screen(
+          cases: [
+            _case(
+              42,
+              readinessSummary: _summary(missing: ['hcv'], critical: true),
+            ),
+          ],
+          // Never answers: the strip below is therefore the LIST payload's,
+          // not a checklist that quietly loaded in the background.
+          readiness: _inertReadiness(),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.text('Readiness'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('cath-readiness-header-missing')),
+        findsOneWidget,
+      );
+      expect(find.text('Labs incomplete: HCV'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('cath-readiness-header-critical')),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets(
+    'a case with no stored readiness snapshot shows no header signals from the '
+    'list (F3)',
+    (tester) async {
+      await tester.pumpWidget(
+        _screen(cases: [_case(42)], readiness: _inertReadiness()),
+      );
+      await tester.pump();
+
+      await tester.tap(find.text('Readiness'));
+      await tester.pumpAndSettle();
+
+      // `lab_readiness_summary` is null here, which means NOT KNOWN — and not
+      // known must never be rendered as "nothing missing" OR as a warning.
+      expect(
+        find.byKey(const ValueKey('cath-readiness-header-missing')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('cath-readiness-header-critical')),
+        findsNothing,
+      );
+    },
+  );
+
+  testWidgets(
+    'the loaded checklist overrides the list summary, including when it '
+    'clears it (F3)',
+    (tester) async {
+      await tester.pumpWidget(
+        _screen(
+          cases: [
+            _case(
+              42,
+              readinessSummary: _summary(missing: ['hcv'], critical: true),
+            ),
+          ],
+          // The stored summary can be a day old; this answer is a
+          // read-through refresh, so it wins even when it says LESS.
+          readiness: CathReadinessDependencies(
+            loadReadiness: (_) async => _readinessPayload(),
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.text('Readiness'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('cath-readiness-header-missing')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('cath-readiness-header-critical')),
+        findsNothing,
       );
     },
   );

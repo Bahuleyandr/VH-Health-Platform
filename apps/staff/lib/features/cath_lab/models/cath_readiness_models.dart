@@ -21,7 +21,7 @@
 library;
 
 /// The seven readiness item codes, in the order
-/// `cathLabReadinessService.ITEM_CODES` (which is
+/// `cathLabReadinessRules.ITEM_CODES` (which is
 /// `labAnalyteCodes.LAB_ANALYTE_ITEM_CODES`) spells them. Pinned against that
 /// source by `cath_readiness_checklist_test.dart`.
 const cathReadinessItemCodes = <String>[
@@ -34,7 +34,7 @@ const cathReadinessItemCodes = <String>[
   'hcv',
 ];
 
-/// The item-state vocabulary, in `cathLabReadinessService.ITEM_STATES` order.
+/// The item-state vocabulary, in `cathLabReadinessRules.ITEM_STATES` order.
 /// Pinned against that source by `cath_readiness_checklist_test.dart`.
 const cathReadinessItemStates = <String>[
   'result_final',
@@ -165,6 +165,7 @@ class CathLabReadinessItem {
     this.source = '',
     this.waivedAt,
     this.waiveReason = '',
+    this.recordedAfterStart = false,
   });
 
   final String itemCode;
@@ -182,6 +183,17 @@ class CathLabReadinessItem {
   final String source;
   final DateTime? waivedAt;
   final String waiveReason;
+
+  /// True when this item's waiver was recorded AFTER the case's actual start —
+  /// the team decided to proceed without the item while the patient was
+  /// already on the table.
+  ///
+  /// The backend does not refuse a late waiver (owner decision, 2026-09-06: an
+  /// emergency proceeds with whatever reports exist), so the panel's job is to
+  /// SHOW the timing rather than to prevent it. Derived server-side from
+  /// `waived_at` against `actual_start_at`, so it is false on every non-waived
+  /// row and on a waiver that predates the start.
+  final bool recordedAfterStart;
 
   /// Whether the item no longer needs an action from the team.
   ///
@@ -218,6 +230,7 @@ class CathLabReadinessItem {
       source: _text(json['source']),
       waivedAt: _date(json['waived_at']),
       waiveReason: _text(json['waive_reason']),
+      recordedAfterStart: json['recorded_after_start'] == true,
     );
   }
 }
@@ -226,7 +239,7 @@ class CathLabReadinessItem {
 /// count as available, with the state it is stuck in.
 ///
 /// The server is the only authority on this list and the client cannot
-/// recompute it. `cathLabReadinessService.isAvailable` counts an
+/// recompute it. `cathLabReadinessRules.isItemAvailable` counts an
 /// `external_recorded` item only where the tenant has `external_results_count`
 /// on, and that setting is not projected into this payload — so a client-side
 /// "what is missing" would call an externally-recorded item done on a tenant
@@ -308,6 +321,66 @@ class CathLabReadiness {
           .toList(growable: false),
       orderableNow: _strings(json['orderable_now']),
       caseStarted: json['case_started'] == true,
+    );
+  }
+}
+
+/// The `lab_readiness_summary` every row of `GET /cath-lab/cases` carries.
+///
+/// It is NOT a small [CathLabReadiness]. The list reads the STORED readiness
+/// snapshot without running the read-through refresh the per-case endpoints
+/// run, so it is as fresh as the last time somebody opened that case —
+/// [liveEvidenceRefreshedAt] is the server's own stamp for exactly that, and
+/// the backend rewrites it at most once a minute while a case is being read.
+///
+/// It also carries no VALUES, no `critical_items` and no per-item criticality:
+/// the day list is cath report-read, which admits the front desk, and naming a
+/// serology item as critical says it came back reactive. [criticalWarning] says
+/// a critical value exists on the case without naming it, which is the advisory
+/// that audience is admitted for.
+///
+/// Null on a case whose readiness has never been resolved. That is "not known",
+/// which the header must never render as "nothing missing".
+class CathLabReadinessSummary {
+  const CathLabReadinessSummary({
+    required this.checkStatus,
+    required this.criticalWarning,
+    required this.autoManaged,
+    required this.missingCount,
+    required this.missingItems,
+    this.liveEvidenceRefreshedAt,
+  });
+
+  /// The stored `labs` check status: `pending | pass | fail | waived |
+  /// not_applicable`.
+  final String checkStatus;
+  final bool criticalWarning;
+  final bool autoManaged;
+
+  /// The server's count of still-missing REQUIRED items. Read from its own key
+  /// rather than from [missingItems].length: the count is what the server
+  /// asserts, and a client that recomputed it would disagree the moment the
+  /// list is ever abridged.
+  final int missingCount;
+
+  /// The missing item codes, in the backend's item order.
+  final List<String> missingItems;
+
+  /// When the snapshot behind this summary was last re-evidenced, or null when
+  /// the check row carries no stamp.
+  final DateTime? liveEvidenceRefreshedAt;
+
+  bool get hasSignal => missingCount > 0 || criticalWarning;
+
+  factory CathLabReadinessSummary.fromJson(Map<String, dynamic> json) {
+    final items = _strings(json['missing_items']);
+    return CathLabReadinessSummary(
+      checkStatus: _text(json['check_status'], fallback: 'pending'),
+      criticalWarning: json['critical_warning'] == true,
+      autoManaged: json['auto_managed'] == true,
+      missingCount: _int(json['missing_count']) ?? items.length,
+      missingItems: items,
+      liveEvidenceRefreshedAt: _date(json['live_evidence_refreshed_at']),
     );
   }
 }

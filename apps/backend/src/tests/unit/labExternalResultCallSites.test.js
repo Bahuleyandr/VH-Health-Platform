@@ -37,8 +37,15 @@ const RETIRED_FLAG = 'allowUnlinkedExternal';
 // the module that DEFINES it, and the one permitted caller. Deliberately a
 // literal list, not a prefix or a glob — a second clinical service that "also
 // needs" an outside result has to be added here by hand.
+//
+// The caller MOVED, it did not multiply: the cath readiness service was split
+// into a rules module, a persistence module and an actions module, and
+// recordExternalLabResult — the only thing on that side that reaches this entry
+// point — went to the actions module with it. The count below is still two, and
+// that is the assertion; this list was changed deliberately, in the same commit
+// as the move, and a THIRD name appearing here still has to be argued for.
 const ALLOWED_SHIPPING = Object.freeze([
-  'services/clinical/cathLabReadinessService.js',
+  'services/clinical/cathLabReadinessActions.js',
   'services/lab/labResultsService.js',
 ]);
 

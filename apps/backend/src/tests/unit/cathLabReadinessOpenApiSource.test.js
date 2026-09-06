@@ -24,9 +24,9 @@
  *     but not required.
  *
  * The two action payloads (order-missing, external-result) build their return
- * outside any injectable seam, so they are pinned against the service's return
- * statements as source text instead — still a real pin: editing either return
- * without editing the schema fails here.
+ * outside any injectable seam, so they are pinned against the ACTIONS module's
+ * return statements as source text instead — still a real pin: editing either
+ * return without editing the schema fails here.
  */
 
 import { readFileSync } from 'node:fs';
@@ -77,10 +77,23 @@ const { ENUMS, operations, schemas } = await import(
 );
 const { buildOpenApiDocument } = await import('../../../scripts/openapi/buildSpec.mjs');
 
-const SERVICE_SOURCE = readFileSync(
-  new URL('../../services/clinical/cathLabReadinessService.js', import.meta.url),
+// The readiness service is three modules now (rules / persistence / actions)
+// behind a facade. Each pin below reads the module that actually HOLDS the text
+// it pins — the two action payload literals and the qualitative token list
+// moved to the actions module with the functions that build them — and the
+// error-code scan reads all three, because a code raised anywhere in the
+// feature has to be a documented one.
+const readSource = (name) => readFileSync(
+  new URL(`../../services/clinical/${name}.js`, import.meta.url),
   'utf8',
 );
+const RULES_SOURCE = readSource('cathLabReadinessRules');
+const ACTIONS_SOURCE = readSource('cathLabReadinessActions');
+const READINESS_SOURCE = [
+  readSource('cathLabReadinessService'),
+  RULES_SOURCE,
+  ACTIONS_SOURCE,
+].join('\n');
 const MIGRATION_482 = readFileSync(
   new URL('../../migrations/482_cath_lab_cases_readiness.sql', import.meta.url),
   'utf8',
@@ -186,7 +199,7 @@ describe('cathLabReadiness overlay enums are the service vocabulary', () => {
 
   it('QUALITATIVE_VALUES is the token list recordExternalLabResult accepts', () => {
     const literal = ENUMS.QUALITATIVE_VALUES.map((token) => `'${token}'`).join(', ');
-    expect(SERVICE_SOURCE.replace(/\s*\n\s*/g, ' ')).toContain(literal);
+    expect(ACTIONS_SOURCE.replace(/\s*\n\s*/g, ' ')).toContain(literal);
   });
 
   it('every enum in the overlay schemas draws from those lists', () => {
@@ -295,7 +308,9 @@ describe('the published shapes cover every key the service returns', () => {
 
   it('the two action payloads match the service\'s return statements', () => {
     // No injectable seam on either function, so the return literal is the pin.
-    expect(SERVICE_SOURCE).toContain('return { created, skipped, readiness: after };');
+    // Both returns live in the actions module since the split; what is asserted
+    // about them is unchanged.
+    expect(ACTIONS_SOURCE).toContain('return { created, skipped, readiness: after };');
     expect(schemas.CathLabReadinessOrderMissingData.required)
       .toEqual(['created', 'skipped', 'readiness']);
     expect(schemas.CathLabReadinessOrderMissingData.properties.readiness)
@@ -306,11 +321,11 @@ describe('the published shapes cover every key the service returns', () => {
       .toEqual(['code', 'reason']);
     // `skipped` is only ever built from orderable_now, so its codes are the
     // same closed set the created ones are.
-    expect(SERVICE_SOURCE).toContain(".map((code) => ({ code, reason: 'already_ordered' }))");
+    expect(ACTIONS_SOURCE).toContain(".map((code) => ({ code, reason: 'already_ordered' }))");
     expect(schemas.CathLabReadinessOrderMissingData.properties.skipped.items.properties.code.enum)
       .toEqual(ENUMS.ORDER_CODES);
 
-    expect(SERVICE_SOURCE)
+    expect(ACTIONS_SOURCE)
       .toContain('return { lab_result_id: Number(labResult.id), item, readiness };');
     expect(schemas.CathLabReadinessExternalResultData.required)
       .toEqual(['lab_result_id', 'item', 'readiness']);
@@ -338,20 +353,35 @@ describe('the published shapes cover every key the service returns', () => {
     expect(request.properties.value_numeric.minimum).toBe(0);
     expect(schemas.CathLabReadinessWaiveRequest.required).toEqual(['reason']);
     expect(schemas.CathLabReadinessWaiveRequest.properties.reason.maxLength).toBe(500);
+    // Un-waive takes the SAME reason field and does NOT require it: the service
+    // reads `input.reason` through the same cleanText(…, 500) and throws
+    // nothing when it is absent. A contract that required it would refuse a
+    // request the handler accepts.
+    const unwaive = schemas.CathLabReadinessUnwaiveRequest;
+    expect(unwaive.additionalProperties).toBe(false);
+    expect(unwaive.required).toBeUndefined();
+    expect(Object.keys(unwaive.properties)).toEqual(['reason']);
+    expect(unwaive.properties.reason.maxLength).toBe(500);
   });
 });
 
 describe('the seven operations describe the routes that exist', () => {
   const CATH = '/api/v1/cath-lab/cases/{id}/readiness/labs';
   const SETTINGS = '/api/v1/cath-reprocessing/lab-readiness-settings';
-  // Documented in prose only: it predates this overlay and still answers the
-  // generic Success envelope, so it carries a description and nothing else.
+  // Documented in prose only: they predate this overlay and still answer the
+  // generic Success envelope, so each carries a description and nothing else.
   const EVIDENCE = 'POST /api/v1/cath-lab/cases/{id}/readiness/evidence/refresh';
+  // The day list. It is here because it now publishes a READINESS key
+  // (lab_readiness_summary) and this is the file that owns that vocabulary —
+  // not because the overlay claims the case list's shape, which it does not.
+  const DAY_LIST = 'GET /api/v1/cath-lab/cases';
+  const PROSE_ONLY = [EVIDENCE, DAY_LIST];
 
   const COMMANDS = [
     [`POST ${CATH}/order-missing`, 'CathLabReadinessOrderMissingResponse', '201'],
     [`POST ${CATH}/{item}/external-result`, 'CathLabReadinessExternalResultResponse', '201'],
     [`POST ${CATH}/{item}/waive`, 'CathLabReadinessResponse', '200'],
+    [`POST ${CATH}/{item}/unwaive`, 'CathLabReadinessResponse', '200'],
     [`PUT ${SETTINGS}`, 'CathLabReadinessSettingsResponse', '200'],
   ];
   const READS = [
@@ -373,13 +403,13 @@ describe('the seven operations describe the routes that exist', () => {
     return document.paths[path][method.toLowerCase()];
   }
 
-  it('covers exactly the four cath routes, evidence-refresh and the two governance routes', () => {
+  it('covers exactly the five cath routes, the two prose-only ones and the two governance routes', () => {
     expect(Object.keys(operations).sort()).toEqual(
-      [...COMMANDS.map(([key]) => key), ...READS.map(([key]) => key), EVIDENCE].sort(),
+      [...COMMANDS.map(([key]) => key), ...READS.map(([key]) => key), ...PROSE_ONLY].sort(),
     );
   });
 
-  it.each([...COMMANDS.map(([key]) => key), ...READS.map(([key]) => key), EVIDENCE])(
+  it.each([...COMMANDS.map(([key]) => key), ...READS.map(([key]) => key), ...PROSE_ONLY])(
     '%s carries a description',
     (key) => {
       expect(operations[key].description).toEqual(expect.any(String));
@@ -387,16 +417,30 @@ describe('the seven operations describe the routes that exist', () => {
     },
   );
 
-  it('the evidence refresh is documented but still generically typed', () => {
-    // Honesty rather than a shape it does not have: the handler answers
-    // { ...evidence refresh result, labs: CathLabReadiness | null }, and only
-    // the `labs` half has a schema here — so the description says so and the
-    // response stays the generic Success envelope.
-    expect(operations[EVIDENCE]).not.toHaveProperty('response');
-    expect(operations[EVIDENCE]).not.toHaveProperty('request');
-    expect(operations[EVIDENCE].description).toMatch(/labs: null/);
-    expect(generated(EVIDENCE).responses['200'].content['application/json'].schema)
+  it.each(PROSE_ONLY)('%s is documented but still generically typed', (key) => {
+    // Honesty rather than a shape it does not have. The evidence refresh
+    // answers { ...evidence refresh result, labs: CathLabReadiness | null } and
+    // only the `labs` half has a schema here; the day list answers full case
+    // rows this overlay does not describe. Both therefore keep the generic
+    // Success envelope and say what they carry in prose.
+    expect(operations[key]).not.toHaveProperty('response');
+    expect(operations[key]).not.toHaveProperty('request');
+    expect(generated(key).responses['200'].content['application/json'].schema)
       .toEqual({ $ref: '#/components/schemas/Success' });
+  });
+
+  it('the two prose-only operations each name what they actually carry', () => {
+    expect(operations[EVIDENCE].description).toMatch(/labs: null/);
+    // The day list's summary is a documented KEY SET, and the description is
+    // the only place a client can read it — so the keys are pinned here.
+    for (const key of [
+      'lab_readiness_summary', 'check_status', 'critical_warning', 'auto_managed',
+      'missing_count', 'missing_items', 'live_evidence_refreshed_at',
+    ]) {
+      expect(operations[DAY_LIST].description).toContain(key);
+    }
+    // ...and so is the one it deliberately does NOT carry.
+    expect(operations[DAY_LIST].description).toMatch(/NOT included: `critical_items`/);
   });
 
   it.each(COMMANDS)('%s claims an Idempotency-Key and answers %s at %s', (key, response, status) => {
@@ -432,6 +476,7 @@ describe('the seven operations describe the routes that exist', () => {
     for (const key of [
       `POST ${CATH}/{item}/external-result`,
       `POST ${CATH}/{item}/waive`,
+      `POST ${CATH}/{item}/unwaive`,
     ]) {
       expect(operations[key].pathParameters.item).toEqual({ type: 'string', enum: ENUMS.ITEMS });
       expect(operations[key].pathParameters.id.oneOf).toEqual(expect.arrayContaining([
@@ -442,19 +487,19 @@ describe('the seven operations describe the routes that exist', () => {
 
   it('the documented §11 codes are the ones the readiness service and route raise', () => {
     // The overlay's ERROR_CODES enum against the throw sites themselves: a code
-    // added to the readiness service/route and not documented, or documented
-    // and never raised, fails here rather than being discovered by a client.
-    // Scope is deliberately narrow — SERVICE_SOURCE is
-    // services/clinical/cathLabReadinessService.js only. cathLabService.js
-    // (case management/scheduling) raises its own CATH_LAB_READINESS_BLOCKED
-    // and CATH_LAB_READINESS_REVIEW_FAILED for operations this overlay does
-    // not type, so this test does not and should not see them.
+    // added to the readiness modules or the route and not documented, or
+    // documented and never raised, fails here rather than being discovered by a
+    // client. Scope is deliberately narrow — the THREE readiness modules and
+    // the cath router, nothing else. cathLabService.js (case
+    // management/scheduling) raises its own CATH_LAB_READINESS_BLOCKED and
+    // CATH_LAB_READINESS_REVIEW_FAILED for operations this overlay does not
+    // type, so this test does not and should not see them.
     const ROUTE_SOURCE = readFileSync(
       new URL('../../routes/clinical/cathLabRoutes.js', import.meta.url),
       'utf8',
     );
     const raised = new Set(
-      [...`${SERVICE_SOURCE}${ROUTE_SOURCE}`.matchAll(/'(CATH_LAB_READINESS_[A-Z_]+)'/g)]
+      [...`${READINESS_SOURCE}${ROUTE_SOURCE}`.matchAll(/'(CATH_LAB_READINESS_[A-Z_]+)'/g)]
         .map((match) => match[1])
         // Not a failure: the audit action name for a settings write.
         .filter((code) => code !== 'CATH_LAB_READINESS_SETTINGS_UPDATED'),
