@@ -40,6 +40,7 @@
 import { setTenant, setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 import { BLOODBORNE_MARKER_ITEM_CODES, orderCodesCovering } from '../lab/labAnalyteCodes.js';
 import {
   DEFAULT_SEROLOGY_VALIDITY_DAYS,
@@ -459,6 +460,49 @@ const RESULTABLE_BOOKING_STATUSES = Object.freeze([
   'BOOKED', 'CONFIRMED', 'DISPATCHED', 'COLLECTED', 'PROCESSING',
 ]);
 
+// THE FRESHNESS CLOCK, AND WHOSE IT IS.
+//
+// Every instant this feature ranks — a result's performed_at, an order's
+// requested_at, a booking's created_at — is a Postgres stamp taken off the
+// DATABASE's clock. `new Date()` is the node process's, which in dev, in CI and
+// on the rig is a different clock on a different container, running a
+// millisecond or two apart. Reading rows stamped by one clock against the other
+// is not a rounding error: `withinWindow` and `rankResult` both have a LOWER
+// bound of `age >= 0`, so a row written a moment ago reads as FUTURE-dated and
+// is DROPPED — the item falls back to `not_ordered` with a null
+// investigation_id, and the checklist tells the ward to order a draw already in
+// flight. So the clock comes from the database, on the same transaction as the
+// rows.
+//
+// clock_timestamp() AND NOT now(). Postgres `now()` is transaction_timestamp():
+// one instant per transaction, taken when it STARTED and constant inside it. A
+// refresh that runs on a transaction which has already written — createCase
+// inserts the case and refreshes on that same tx, and the sign-off hook does the
+// same — would then evaluate freshness at an instant BEFORE the rows it exists
+// to see, and drop them by the very bound described above. clock_timestamp()
+// advances inside the transaction, so it is always after them.
+//
+// ONE CALL, not two. clock_timestamp() is volatile, so a second call in the same
+// SELECT is a second instant; selecting the column and an epoch twin of it side
+// by side would silently hand back two different milliseconds. The epoch twin is
+// therefore the ONLY thing selected — the house rule for an instant that will be
+// compared in JS (src/utils/dbInstant.js) — and the Date is rebuilt from it, so
+// the instant the refresh compares against, the one it persists and the one it
+// reports are one number.
+async function dbClockAsOf(tx) {
+  const rows = await tx.$queryRawUnsafe(
+    'SELECT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint AS as_of_epoch_ms',
+  );
+  const ms = epochMsOrNull(rows[0]?.as_of_epoch_ms);
+  // Fail loud. A missing clock must never fall back to `new Date()`: that is
+  // precisely the substitution this function exists to remove, and a fallback
+  // would restore it exactly when the database is the thing misbehaving.
+  if (ms == null) {
+    throw new Error('cath lab readiness: the database returned no clock instant for asOf');
+  }
+  return new Date(ms);
+}
+
 // How long the `labs` check row's live_evidence stamp may go unrefreshed before
 // the refresh writes it again even though nothing about the evidence changed.
 // A read-driven refresh runs on every GET of the case; without this the row
@@ -474,7 +518,7 @@ export async function refreshCaseLabReadiness({
     const cathCase = await caseRowTx(tx, tid, caseId, { lock: 'no key update' });
     const settings = await getReadinessSettings({ tenantId: tid, db: tx });
     const serologyDays = await serologyValidityDays(tid, tx);
-    const asOf = new Date();
+    const asOf = await dbClockAsOf(tx);
     // Serology carries the reuse programme's window; everything else the
     // tenant's lab validity. One function, so the item resolution, the
     // open-order set and the orderable set cannot drift apart.
@@ -749,6 +793,11 @@ export async function refreshCaseLabReadiness({
     }
     return {
       case_id: cathCase.id,
+      // The instant this evaluation used, exposed so it can be pinned: it is
+      // the database's clock_timestamp() on this transaction, to the
+      // millisecond, and it is the SAME value written into the check row's
+      // metadata.live_evidence_refreshed_at below.
+      evaluated_at: asOf.toISOString(),
       check_status: checkStatus,
       auto_managed: autoManaged,
       critical_warning: decision.criticalWarning,

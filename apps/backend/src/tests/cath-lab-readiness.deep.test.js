@@ -7,7 +7,7 @@
 // The fixture is its own tenant so teardown can purge by tenant_id; the case
 // starts `scheduled` with the seven other readiness checks already cleared, so
 // the `labs` check is the only thing between the case and `ready`.
-import prisma, { ensureTenantRlsRuntimeRoleGrants } from '../lib/prisma.js';
+import prisma, { ensureTenantRlsRuntimeRoleGrants, setTenantTx } from '../lib/prisma.js';
 import {
   createCase,
   getCase,
@@ -627,17 +627,19 @@ d('cath lab readiness (deep)', () => {
     // Reading it as IST instead would not fail loudly — it would silently
     // backdate every open order by 5h30m — so the drift is asserted below
     // rather than left to a state that happens to survive either reading.
-    // A MINUTE ago, not NOW(). `withinWindow` requires age >= 0 against the
-    // resolver's own `asOf = new Date()`, and the database clock here runs a
-    // millisecond or two ahead of the node process — so an order stamped with
-    // the database's NOW() reads as FUTURE-dated whenever the round trip back
-    // is faster than that skew, and the resolver correctly drops it. That made
-    // this assertion flake about once in three runs on a machine where the two
-    // clocks are not the same clock. The backdate is the fixture being honest
-    // about what it means (an order placed a moment ago), not a widened rule.
+    // The database's own NOW(), un-backdated. It used to be NOW() - INTERVAL
+    // '1 minute': the resolver took `asOf = new Date()` off the node clock,
+    // which runs a millisecond or two behind the database's, so an order
+    // stamped with the database's NOW() read as FUTURE-dated against
+    // `withinWindow`'s `age >= 0` bound and was dropped — about one run in
+    // three. The fix was to take asOf from the DATABASE (clock_timestamp() on
+    // the refresh's own transaction), so the two instants are now readings of
+    // ONE clock and an order placed a moment ago is simply in the past. The
+    // backdate was compensating for the defect and is gone with it; leaving it
+    // would have hidden a relapse.
     const repeat = await prisma.$queryRawUnsafe(
       `UPDATE investigations
-          SET status = 'REQUESTED', requested_at = NOW() - INTERVAL '1 minute'
+          SET status = 'REQUESTED', requested_at = NOW()
         WHERE tenant_id = $1::uuid
           AND patient_uid = $2::uuid
           AND test_code = 'ELECTROLYTES'
@@ -912,18 +914,19 @@ d('cath lab readiness (deep)', () => {
       `SELECT id, phone FROM users WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
       TENANT, PATIENT,
     );
-    // created_at is written explicitly and BACKDATED a minute rather than left
-    // to the column default: the default is the database's NOW(), whose clock
-    // runs a millisecond or two ahead of the node process, so the booking could
-    // read as future-dated to the resolver's `asOf` and be dropped by
-    // `withinWindow`'s age >= 0 bound. Same flake, same fix, as the repeat
-    // order above.
+    // created_at is the database's NOW(), un-backdated — the same instant the
+    // column default would have written. It used to be NOW() - INTERVAL
+    // '1 minute' for the same reason the repeat order above was backdated: the
+    // resolver's `asOf` came off the node clock, so a booking stamped by the
+    // database read as future-dated and `withinWindow`'s `age >= 0` bound
+    // dropped it. asOf is the database's clock_timestamp() now, so there is one
+    // clock and nothing to compensate for.
     await prisma.$executeRawUnsafe(
       `INSERT INTO investigation_bookings
          (tenant_id, patient_id, patient_name, patient_phone, selected_tests,
           status, investigation_id, created_at)
        VALUES ($1::uuid, $2::int, 'Cath Readiness Patient', $3, ARRAY[$4::int],
-               'BOOKED', NULL, NOW() - INTERVAL '1 minute')`,
+               'BOOKED', NULL, NOW())`,
       TENANT, Number(patient[0].id), patient[0].phone, Number(catalogue[0].id),
     );
 
@@ -1305,5 +1308,71 @@ d('cath lab readiness (deep)', () => {
       TENANT, unreadId,
     );
     expect(written[0].n).toBe(0);
+  }, 60000);
+
+  // ---- the freshness clock is the DATABASE's ------------------------------
+
+  test('the freshness clock is the database clock, read on the refresh transaction', async () => {
+    // WHY THIS IS A SPY AND NOT A TOLERANCE. The property is "the instant the
+    // refresh evaluated freshness at came from Postgres", and a bracket —
+    // clock_timestamp() before, clock_timestamp() after, assert the reported
+    // instant sits between — cannot prove it: the node clock sits between those
+    // two readings almost every run, so the assertion would pass on the very
+    // defect it exists to catch, and fail only on the runs where the skew
+    // happened to fall the other way. That is the shape of the flake this lane
+    // came from, and it is not a pin.
+    //
+    // refreshCaseLabReadiness already takes an injected `db` (the caller's
+    // transaction client). So this hands it a PASS-THROUGH recorder over a real
+    // tenant-scoped transaction: every statement runs unchanged against
+    // Postgres, and the clock read is captured on the way back. The assertion
+    // is then an EQUALITY against the row the database returned — not a window
+    // — plus the count of clock reads, which is what makes it deterministic.
+    // Restore `asOf = new Date()` and the refresh asks the database for nothing:
+    // clockReads is empty and this is red on every run, not one in three.
+    const clockReads = [];
+    const out = await setTenantTx(TENANT, async (tx) => {
+      const recorder = {
+        $queryRawUnsafe: async (sql, ...params) => {
+          const rows = await tx.$queryRawUnsafe(sql, ...params);
+          if (/clock_timestamp\s*\(/i.test(String(sql))) clockReads.push(rows);
+          return rows;
+        },
+        $executeRawUnsafe: (sql, ...params) => tx.$executeRawUnsafe(sql, ...params),
+      };
+      // Drop the stamp so the metadata write below is unconditional: the
+      // refresh only rewrites the check row when something changed or the
+      // stamp has aged past EVIDENCE_STAMP_MAX_AGE_MS, and this test is about
+      // the VALUE that gets written, not about when it does.
+      await tx.$executeRawUnsafe(
+        `UPDATE cath_lab_readiness_checks
+            SET metadata = COALESCE(metadata, '{}'::jsonb) - 'live_evidence_refreshed_at'
+          WHERE tenant_id = $1::uuid AND case_id = $2::bigint AND check_type = 'labs'`,
+        TENANT, CASE_ID,
+      );
+      return refreshCaseLabReadiness({
+        tenantId: TENANT, caseId: CASE_ID, db: recorder, context: ctx(),
+      });
+    });
+
+    // Exactly one reading, from Postgres. One because clock_timestamp() is
+    // volatile: two calls are two instants, and a refresh that ranked against
+    // one and stamped with another would be back to comparing two clocks.
+    expect(clockReads).toHaveLength(1);
+    const dbMs = Number(clockReads[0][0].as_of_epoch_ms);
+    expect(Number.isInteger(dbMs)).toBe(true);
+    // EQUALITY, to the millisecond, against the value the database handed back.
+    expect(Date.parse(out.evaluated_at)).toBe(dbMs);
+
+    // ...and the stamp the refresh PERSISTED is that same number, so the
+    // instant the ward reads off the check row is the instant the decision was
+    // actually made on.
+    const stored = await prisma.$queryRawUnsafe(
+      `SELECT metadata->>'live_evidence_refreshed_at' AS stamp
+         FROM cath_lab_readiness_checks
+        WHERE tenant_id = $1::uuid AND case_id = $2::bigint AND check_type = 'labs'`,
+      TENANT, CASE_ID,
+    );
+    expect(Date.parse(stored[0].stamp)).toBe(dbMs);
   }, 60000);
 });

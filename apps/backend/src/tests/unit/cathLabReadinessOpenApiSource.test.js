@@ -36,6 +36,8 @@ import { jest } from '@jest/globals';
 const TENANT = '11111111-2222-4333-8444-555555555555';
 const PATIENT = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
 const CASE_ID = 42;
+// What the stub database's clock_timestamp() answers: 2026-09-04T06:00:00Z.
+const STUB_CLOCK_MS = Date.parse('2026-09-04T06:00:00.000Z');
 
 const prismaMock = {
   $queryRawUnsafe: jest.fn(),
@@ -118,6 +120,12 @@ const CASE_ROW = {
 function stubDb({ settingsRow = null, caseRow = CASE_ROW } = {}) {
   return {
     $queryRawUnsafe: async (sql) => {
+      // The refresh reads its `asOf` from the DATABASE (clock_timestamp() on
+      // the transaction it was handed), so a stub client has to answer it. A
+      // FIXED instant, not Date.now(): the pin below is a key-set assertion,
+      // and a stub that quietly re-introduced the process clock would be the
+      // one place in this suite the defect could hide.
+      if (/clock_timestamp\s*\(/i.test(sql)) return [{ as_of_epoch_ms: BigInt(STUB_CLOCK_MS) }];
       if (/FROM cath_lab_cases/.test(sql)) return [caseRow];
       if (/FROM cath_lab_readiness_settings/.test(sql)) return settingsRow ? [settingsRow] : [];
       if (/FROM cath_reprocessing_settings/.test(sql)) return [];

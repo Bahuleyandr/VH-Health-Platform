@@ -188,11 +188,22 @@ const readiness = {
     + 'produced it. `check_status` is the labs readiness check; automation may only move it '
     + 'between pending and pass, and only while it owns the row (`auto_managed`).',
   required: [
-    'case_id', 'check_status', 'auto_managed', 'critical_warning', 'critical_items',
-    'items', 'missing', 'orderable_now', 'open_order_codes', 'settings', 'case_started'
+    'case_id', 'evaluated_at', 'check_status', 'auto_managed', 'critical_warning',
+    'critical_items', 'items', 'missing', 'orderable_now', 'open_order_codes',
+    'settings', 'case_started'
   ],
   properties: {
     case_id: { type: 'integer', minimum: 1 },
+    evaluated_at: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'The instant freshness was judged at: the DATABASE clock (clock_timestamp()) read on '
+        + 'the same transaction that read the rows, never the API process clock. Every stamp '
+        + 'this block ranks is a Postgres one, and the two clocks run apart — comparing them '
+        + 'dropped rows written moments earlier as "future-dated". It is the same value written '
+        + 'into metadata.live_evidence_refreshed_at on the labs check row.'
+    },
     check_status: { type: 'string', enum: CHECK_STATUSES },
     auto_managed: { type: 'boolean' },
     critical_warning: {
