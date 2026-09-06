@@ -1,5 +1,6 @@
 // controllers/investigation/bulkController.js
 import { HTTP_STATUS } from '../../config/responseCodes.js';
+import { calendarDateMs, calendarDayStartMs } from '../../utils/calendarDate.js';
 import logger from '../../logging/logger.js';
 import * as bulkService from '../../services/investigation/bulkService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
@@ -195,12 +196,19 @@ export const scheduleInvestigations = async (req, res) => {
       return error(res, 'Scheduled date is required', 400);
     }
 
-    // Validate scheduled date is not in past
-    const scheduledDateObj = new Date(scheduled_date);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Validate scheduled date is not in past.
+    //
+    // scheduled_date is a calendar day (investigation_bookings.scheduled_date /
+    // investigations.scheduled_date are DATE), so "in the past" means before the
+    // WARD's today — not before local midnight in whatever zone this process
+    // runs in, which is what `today.setHours(0,0,0,0)` produced. A day that
+    // names no date is refused rather than allowed through the comparison.
+    const scheduledMs = calendarDateMs(scheduled_date);
+    if (!Number.isFinite(scheduledMs)) {
+      return error(res, 'Scheduled date is not a valid date', 400);
+    }
 
-    if (scheduledDateObj < today) {
+    if (scheduledMs < calendarDayStartMs(new Date())) {
       return error(res, 'Scheduled date cannot be in the past', 400);
     }
     

@@ -13,6 +13,7 @@
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { calendarDateMs, calendarDayStartMs } from '../../utils/calendarDate.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
 
 export const TRANSFUSION_REQUIRE_BEDSIDE_VERIFICATION =
@@ -184,7 +185,18 @@ export async function crossmatchUnit(requestId, {
   if (!['available', 'reserved'].includes(unit.status)) {
     throw AppError.conflict(`Unit ${unit.unit_number} is ${unit.status}`, 'BLOOD_UNIT_UNAVAILABLE');
   }
-  if (new Date(unit.expiry_date) < new Date(new Date().toDateString())) {
+  // blood_units.expiry_date is a DATE — a calendar day, never an instant. Both
+  // sides go through the calendar-date rail (src/utils/calendarDate.js) so this
+  // is a day compared with a day, in the FACILITY zone.
+  //
+  // It used to read `new Date(unit.expiry_date) < new Date(new Date().toDateString())`:
+  // the driver materialises the DATE at UTC midnight, while toDateString()
+  // rebuilds local midnight in whatever zone the PROCESS happens to run in. The
+  // two agree only on UTC, and the error is the offset — right by luck on
+  // Asia/Kolkata, and a whole day fail-CLOSED on any negative offset. Fail
+  // closed on an unusable date is kept deliberately: this gate issues blood.
+  const unitExpiryMs = calendarDateMs(unit.expiry_date);
+  if (!Number.isFinite(unitExpiryMs) || unitExpiryMs < calendarDayStartMs(new Date())) {
     throw AppError.conflict(`Unit ${unit.unit_number} expired on ${unit.expiry_date}`, 'BLOOD_UNIT_EXPIRED');
   }
 
@@ -280,7 +292,11 @@ export async function recordBedsideVerification(requestId, {
   const unitMatch = (scannedUnitNumber || '').trim().toUpperCase() === unit.unit_number.toUpperCase();
   const patientMatch = String(scannedPatientUid || '').toLowerCase() === String(request.patient_uid).toLowerCase();
   const compat = checkUnitCompatibility(unit.blood_group, request.blood_group, request.component);
-  const expiryOk = new Date(unit.expiry_date) >= new Date(new Date().toDateString());
+  // Same calendar-date rail as the issue gate above, and the same fail-closed
+  // sense: a date that names no day is not an expiry that has been checked.
+  const scannedUnitExpiryMs = calendarDateMs(unit.expiry_date);
+  const expiryOk = Number.isFinite(scannedUnitExpiryMs)
+    && scannedUnitExpiryMs >= calendarDayStartMs(new Date());
   const allPassed = unitMatch && patientMatch && compat.compatible && expiryOk;
   const trimmedOverride = (overrideReason || '').trim() || null;
 

@@ -77,6 +77,12 @@ function stubClient() {
       // users FIRST: orderMissingLabs resolves the patient with
       // `FROM users u JOIN cath_lab_cases c`, which the cath_lab_cases pattern
       // below would otherwise never see.
+      // The refresh reads its `asOf` from the DATABASE, not from new Date().
+      // There is no database here, so the stub plays that role: it answers
+      // with the SAME clock the fixtures above are dated from (daysAgo() is
+      // Date.now()-relative), which is the whole point of the fix — one clock
+      // stamps the rows and judges them, whichever clock that is.
+      if (/clock_timestamp/i.test(sql)) return [{ as_of_epoch_ms: BigInt(Date.now()) }];
       if (/FROM users/.test(sql)) return stubRows.patient;
       if (/FROM cath_lab_cases/.test(sql)) return stubRows.cathCase;
       if (/FROM cath_lab_readiness_settings/.test(sql)) return [];
