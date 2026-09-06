@@ -4,13 +4,13 @@
 
 **Goal:** Make the pre-cath readiness checklist inform and record instead of restrict: any `scheduled` / `readiness_pending` / `ready` case may start with checks pending (consent is the one hard block), the checklist keeps living after start with lateness marked, and a monthly report of starts-with-pending exists — per the owner decisions of 2026-09-06.
 
-**Architecture:** One start function (`startCaseTx`) behind the two existing start paths, asserting consent and writing an at-start snapshot to `cath_lab_cases.metadata` plus an `audit_logs` row; the pure rules module gains a post-start regime (staleness suppressed, new evidence applied) and two derived lateness markers; the three post-start refusals are lifted; one report handler over the audit rows is registered on the cath mount and the governance mount; Staff gains the start affordance and the lateness picture; Admin gains a report tab. No migration.
+**Architecture:** One start function (`startCaseTx`) behind the two existing start paths, asserting consent and writing an at-start snapshot to `cath_lab_cases.metadata` plus an `audit_logs` row; a second, deliberately separate function (`reopenCaseTx`) that moves a `cancelled` case back to `readiness_pending` with a mandatory reason and its own audit row, so a cancelled case has an in-app door and `startCaseTx` stays the only writer of `in_progress` / `actual_start_at`; the pure rules module gains a post-start regime (staleness suppressed, new evidence applied) and two derived lateness markers; the three post-start refusals are lifted; one report handler over the audit rows is registered on the cath mount and the governance mount; Staff gains the start affordance, the reopen affordance and the lateness picture; Admin gains a report tab. No migration.
 
 **Tech Stack:** Node 26 ESM backend (Express 5, Prisma raw SQL on Postgres 17, jest with `--experimental-vm-modules`), Flutter Staff app, Next.js Admin console, OpenAPI overlay scripts.
 
 **Spec:** `docs/superpowers/specs/2026-09-06-cath-readiness-never-restricts-design.md` (read it first; section numbers below are its).
 
-**One thing is open, and it gates Task 2:** spec **§10.2**, what a procedure log does to a **cancelled** case. `cancelled` is terminal, so the proposed refusal closes the only existing door and needs a companion the owner must choose. Task 0 Step 6 holds the gate and the code for both companions.
+**Nothing is open; no task is gated.** The last open question — what a procedure log does to a **cancelled** case — was answered by the owner on 2026-09-06: *refuse, but give it a door*. It is spec **decision 13** (§3, §4.8, §10.1 item 4) and it lands in **Task 2** as one pair of changes that ship together — the 409 refusal in `recordProcedureLog` and the audited `reopenCaseTx` door it names. Task 0 Step 6 is now a verification step, not a gate.
 
 ---
 
@@ -33,29 +33,29 @@ All of Plan 3's conventions apply (tenant transactions, raw SQL, `AppError`, npm
 | File | Responsibility |
 |---|---|
 | Modify `apps/backend/src/services/clinical/cathLabReadinessRules.js` | Regime-scoped `computeCheckDecision`; `afterCaseStartMs`; `ordered_after_start` / `resulted_after_start`; start-snapshot helpers (`START_SNAPSHOT_KEYS`, `buildStartSnapshot`, `normalizeStartSnapshot`, `startedWithReadinessPending`, `missingLabItemCodes`). |
-| Modify `apps/backend/src/services/clinical/cathLabService.js` | `CASE_TRANSITIONS` + `START_ELIGIBLE_STATUSES`; `assertReadinessComplete` → consent-only; `startCaseTx`; both callers rewired; `createCase` reserved-key strip; day-list summary flag. |
+| Modify `apps/backend/src/services/clinical/cathLabService.js` | `CASE_TRANSITIONS` (incl. `cancelled: ['readiness_pending']`) + `START_ELIGIBLE_STATUSES` + `REOPENABLE_STATUSES` / `REOPEN_TARGET_STATUS`; `assertReadinessComplete` → consent-only; `startCaseTx`; `reopenCaseTx` and its exported `reopenCase`; both start callers rewired; the cancelled refusal in `recordProcedureLog`; `createCase` reserved-key strip; day-list summary flag. |
 | Modify `apps/backend/src/services/clinical/cathLabReadinessService.js` | `caseRowTx` selects the snapshot path + epoch twin; refresh passes the twin, returns the two new keys, audits `passed_after_start`; `refreshOpenCasesForPatient` predicate; facade re-exports. |
 | Modify `apps/backend/src/services/clinical/cathLabReadinessActions.js` | Lift the two refusals; STAT after start; audit keys. |
 | Modify `apps/backend/src/services/clinical/cathLabReadinessProjection.js` | Blank `readiness_at_start.reason` for non-entitled roles; export `projectStartReasonForRole`. |
 | Create `apps/backend/src/services/clinical/cathStartsWithPendingReportService.js` | Month validation, query, per-facility fold, CSV, projection. |
 | Create `apps/backend/src/routes/clinical/cathStartsWithPendingReportHandler.js` | One handler, registered on both mounts. |
-| Modify `apps/backend/src/routes/clinical/cathLabRoutes.js`, `cathReprocessingPolicyRoutes.js` | Register the report route (before `/reports/:id` on the cath router). |
+| Modify `apps/backend/src/routes/clinical/cathLabRoutes.js`, `cathReprocessingPolicyRoutes.js` | Register the report route (before `/reports/:id` on the cath router) and, on the cath router only, `POST /cases/:id/reopen` (`requireCathWorkflow`, `guardCathCaseById`, `requireIdempotencyKey({ required: true, scope: 'cath_lab_case_reopen' })`). |
 | Modify `apps/backend/src/utils/roleHelpers.js` | `CATH_READINESS_REPORT_ROLES`, `canReadCathReadinessReport`. |
-| Modify `apps/backend/scripts/openapi/schemas/cathLabReadiness.mjs` | Item + readiness keys; report schemas and operations; prose-only status / procedure-log operations. |
-| Create `apps/backend/src/tests/unit/cathLabStartPathPin.test.js` | The one-start-path source pin. |
+| Modify `apps/backend/scripts/openapi/schemas/cathLabReadiness.mjs` | Item + readiness keys; report schemas and operations; prose-only status / procedure-log / reopen operations. |
+| Create `apps/backend/src/tests/unit/cathLabStartPathPin.test.js` | The one-start-path source pin, plus the one-door pins on `cancelled` (spec §4.3, §4.8). |
 | Create `apps/backend/src/tests/unit/cathStartsWithPendingReportService.test.js` | Report unit tests. |
 | Modify unit tests: `cathLabService.test.js`, `cathLabReadinessService.test.js`, `cathLabReadinessServiceOrders.test.js`, `cathLabReadinessOpenApiSource.test.js`, `cathLabReadinessProjection.test.js`, `cathLabRouteGuards.test.js` (decision 9 only), `serologyDisclosureCanary.test.js` (+ `fixtures/serologyDisclosureCanary.reachable.json`) | Per task. |
 | Modify `apps/backend/src/tests/cath-lab-readiness.deep.test.js` | Deep coverage. |
-| Staff: modify `features/cath_lab/models/cath_readiness_models.dart`, `services/cath_lab_api_service.dart`, `widgets/cath_readiness_checklist.dart`, `widgets/cath_lab_readiness_panel.dart`, `screens/cath_lab_screen.dart`, `l10n/app_strings.dart`; tests `test/features/cath_lab/cath_readiness_checklist_test.dart`, `cath_lab_screen_test.dart`, `test/i18n_guard_test.dart` | Start affordance, banners, chips, gates. |
+| Staff: modify `features/cath_lab/models/cath_readiness_models.dart`, `services/cath_lab_api_service.dart`, `widgets/cath_readiness_checklist.dart`, `widgets/cath_lab_readiness_panel.dart`, `screens/cath_lab_screen.dart`, `l10n/app_strings.dart`; tests `test/features/cath_lab/cath_readiness_checklist_test.dart`, `cath_lab_screen_test.dart`, `test/i18n_guard_test.dart` | Start affordance, reopen affordance, banners, chips, gates. |
 | Admin: create `dashboard/quality/cath/components/StartsWithPendingTab.tsx`, `__tests__/dashboard/quality/cath-starts-with-pending.test.tsx`; modify `lib/api/cathDevices.ts`, `dashboard/quality/cath/page.tsx` | Report tab. |
 
 ---
 
-## Task 0: Branch, worktree, #1018 shape, ledger, the owner gate
+## Task 0: Branch, worktree, #1018 shape, ledger, the cancelled-case survey
 
 **Files:** none (verification only).
 
-> **GATE — do not start Task 2 until owner item spec §10.2 is answered.** What a procedure log does to a **cancelled** case is open, not decided. The refusal Task 2 Step 5 ships is a placeholder behind `REFUSE_PROCEDURE_LOG_ON_CANCELLED`; it must not be handed back as the design. If the owner answers **(i)**, add the transition + reason + audit in **Task 2**. If the owner answers **(ii)**, add the record path in **Task 3**. Both branches are written out in full in **Step 6** below — code, consequent edits and the tests each needs — so the executor implements rather than designs. Tasks 1, 3–8 may proceed while the answer is outstanding; Task 2 may not.
+> **No gate. The cancelled-case question is answered** (owner, 2026-09-06: *refuse, but give it a door*; spec decision 13 / §4.8). Task 2 is not blocked and there is no `REFUSE_PROCEDURE_LOG_ON_CANCELLED` flag to ship. What Step 6 does now is the survey the decision creates work for: **`cancelled` stops being terminal**, so every reader that treats it as "this row will never change again" has to be looked at before Task 2 writes the door. Steps 1–5 are unchanged.
 
 - [ ] **Step 1: Cut the branch in a scratchpad worktree**
 
@@ -115,117 +115,45 @@ cd "$SCRATCH/wt/rr-impl/apps/backend"
 DATABASE_URL="postgresql://…@127.0.0.1:55432/vh_crr_<initials>" npm run test:db:setup
 ```
 
-- [ ] **Step 6: The owner gate — spec §10.2, the procedure record on a cancelled case**
+- [ ] **Step 6: The cancelled-case survey — `cancelled` stops being terminal (spec decision 13, §4.8)**
 
-Confirm with dev-1b that the owner has answered spec §10.2 before starting Task 2. Record the answer here. Verify the dead end still holds before asking:
+The owner answered on 2026-09-06: **refuse, but give it a door.** A procedure log on a cancelled case is refused (409, naming the route); the door is an audited `cancelled → readiness_pending` transition with a mandatory reason. There is nothing to ask and nothing to gate. What there is, is a survey — the decision changes an invariant (`CASE_TRANSITIONS.cancelled` was `[]`), and Task 2 must not write the door before someone has looked at who was relying on that.
+
+First confirm the dead end this replaces is still there, so the diff reads the way the spec says it does:
 
 ```bash
-grep -n "cancelled: \[\]" src/services/clinical/cathLabService.js     # terminal today
-grep -n "cathCase.status !== 'in_progress'" -A 12 src/services/clinical/cathLabService.js | head -16   # today's silent un-cancel
+grep -n "cancelled: \[\]" src/services/clinical/cathLabService.js     # terminal today -> becomes ['readiness_pending']
+grep -n "cathCase.status !== 'in_progress'" -A 12 src/services/clinical/cathLabService.js | head -16   # today's silent un-cancel, deleted in Task 2
 ```
 
-**If the answer is "refuse, no companion yet" — STOP and report to dev-1b.** That is a refusal with no in-app alternative and the spec (§1, §10.2) says it is not shippable. Do not proceed on the placeholder.
+Then survey the readers. Record each hit and its verdict in the task notes — this list is the evidence the invariant change was considered, not skipped:
 
-**If the answer is (i) — reopen through the same start path. Lands in Task 2.**
-
-```js
-// cathLabService.js — CASE_TRANSITIONS. §10.2 companion (i): cancelled stops
-// being terminal. It is NOT a general un-cancel — the only target is
-// in_progress, it is reachable only through startCaseTx, and only with a
-// reason. Consent still blocks, because it is the same door.
-  cancelled: ['in_progress'],
-
-// START_ELIGIBLE_STATUSES is DERIVED from the table, so `cancelled` becomes
-// start-eligible automatically — including on the procedure-log path, which is
-// exempt from the pending-gate reason. It must NOT be exempt here: reopening a
-// cancelled case is itself the exceptional act, so the reason is mandatory on
-// both paths.
-const REOPEN_ELIGIBLE_STATUSES = Object.freeze(['cancelled']);
-
-// in startCaseTx, beside the existing CATH_LAB_START_REASON_REQUIRED guard:
-const reopening = REOPEN_ELIGIBLE_STATUSES.includes(cathCase.status);
-if (reopening && !cleanReason) {
-  throw AppError.badRequest(
-    'A reason is required to record a procedure on a cancelled case',
-    'CATH_LAB_REOPEN_REASON_REQUIRED',
-    { case_status: cathCase.status, via }
-  );
-}
-
-// in startCaseTx's UPDATE — cancelling STAMPS actual_end_at (transitionCaseStatus's
-// `actual_end_at = CASE … IN ('completed','cancelled') …`), and migration 482's
-// cath_lab_cases_actual_time_check is `actual_end_at >= actual_start_at`. Without
-// this line the reopen sets actual_start_at = NOW() after actual_end_at and
-// Postgres raises 23514. Bind `reopening` as $5.
-            actual_end_at = CASE WHEN $5::boolean THEN NULL ELSE actual_end_at END,
-
-// after the UPDATE, beside the started_with_readiness_pending audit — its own
-// action, so the monthly report can tell a reopen from an ordinary start:
-if (reopening) {
-  await recordReadinessAudit(tx, {
-    tenantId: tenantOr(tenantId),
-    action: 'cath_lab.case.reopened_for_procedure_record',
-    resource: 'cath_lab_cases',
-    resourceId: updated.id,
-    context,
-    metadata: {
-      case_id: normalizeDbValue(updated.id),
-      facility_id: updated.facility_id ?? null,
-      reopened_from: 'cancelled',
-      ...snapshot
-    }
-  });
-}
+```bash
+cd "$SCRATCH/wt/rr-impl"
+grep -rn "'cancelled'" apps/backend/src/services/clinical/ apps/backend/src/routes/clinical/ | grep -v "/tests/"
+grep -rn "cancelled" apps/staff/lib/features/cath_lab/ apps/admin/src --include=*.dart --include=*.ts --include=*.tsx
 ```
 
-Consequent edits (i) — do all of them or the suites disagree: `buildStartSnapshot` gains `reopened_from` (null on an ordinary start) and `START_SNAPSHOT_KEYS` grows by one, which moves `cathLabReadinessOpenApiSource.test.js`'s `readiness_at_start` key-set assertion, the overlay schema, the Staff `CathReadinessStartSnapshot` model and its parse test; spec §4.1's table and §3 decision 3's "`cancelled` … stay impossible" clause; Task 2 Step 1's `START_ELIGIBLE_STATUSES` test (now four statuses) and its cancelled unit test (now a reopen, not a refusal); the deep test "a log on a `cancelled` case writes nothing" is replaced by "a log on a cancelled case with a reason reopens it, with the reopen audit row and `actual_end_at` cleared"; a Staff affordance on a cancelled case (§4.4 gains a fourth state). The start-path pin is **unchanged** — the reopen goes through `startCaseTx`, which is the whole point of (i).
+Known at the time of writing, with the verdict each one gets:
 
-**If the answer is (ii) — a record path that leaves the case cancelled. Lands in Task 3.**
+| Reader | Verdict |
+|---|---|
+| `refreshOpenCasesForPatient` — `status NOT IN ('completed','cancelled')` (after Task 3) | **Correct by construction.** A reopened case leaves `cancelled`, so the checklist starts living again with no extra code. Nothing to do. |
+| `recomputeCaseStatusTx` / `updateReadinessCheck` — `WHEN status IN ('scheduled','readiness_pending','ready')` | **Correct and wanted.** A reopened case is `readiness_pending`, so the recompute may move it to `ready` when the gate is clear. That is the design (spec §4.8), not a surprise. |
+| `CATH_CONSUMABLE_WASTAGE_STATUSES` (`ready`, `in_progress`, `completed`, `cancelled`) | **Unaffected.** Wastage is allowed in all four; a reopen only changes which of them the case is in. |
+| `cancelWorkflowSla` on the cancel transition | **Accepted, not fixed** (spec §14). The reopen does not restart the SLA instance: the original booking's clock genuinely ended. Do not add a resurrect. |
+| Anything that renders `cancelled` as a final state in Staff / Admin | **Check and report.** A label is fine; a cache that never refetches a cancelled case is not. Report anything in the second class to dev-1b rather than fixing it inside this lane. |
 
-```js
-// cathLabService.js. §10.2 companion (ii). The case STAYS cancelled: no status
-// write, no actual_start_at, no snapshot, no startCaseTx — and therefore no
-// consent block, which is why the audit row carries the consent status as it
-// stood rather than asserting it.
-const CANCELLED_RECORD_ACTION = 'cath_lab.case.procedure_performed_after_cancellation';
+If the survey turns up a reader that would be *wrong* after the change and is not in the table above, stop and report it to dev-1b before Task 2. The door is a decided design; a reader it breaks is a new finding.
 
-// in recordProcedureLog, replacing the REFUSE_PROCEDURE_LOG_ON_CANCELLED guard.
-// The reason guard runs BEFORE the insert so a refusal writes nothing:
-const cancelledRecord = cathCase.status === 'cancelled';
-const cancelledReason = cleanText(input.start_reason, 500);
-if (cancelledRecord && !cancelledReason) {
-  throw AppError.badRequest(
-    'A reason is required to record a procedure performed on a cancelled case',
-    'CATH_LAB_CANCELLED_RECORD_REASON_REQUIRED',
-    { case_status: 'cancelled' }
-  );
-}
-… insert the log exactly as for any other status, then …
-if (cancelledRecord) {
-  const checks = await readinessForCase(tx, tenantId, cathCase.id);
-  const consent = checks.find((check) => check.check_type === 'consent');
-  await recordReadinessAudit(tx, {
-    tenantId: tenantOr(tenantId),
-    action: CANCELLED_RECORD_ACTION,
-    resource: 'cath_lab_cases',
-    resourceId: cathCase.id,
-    context,
-    metadata: {
-      case_id: normalizeDbValue(cathCase.id),
-      facility_id: cathCase.facility_id ?? null,
-      procedure_log_id: normalizeDbValue(procedure.id),
-      urgency: cathCase.urgency ?? null,
-      reason: cancelledReason,
-      consent_status: consent?.status ?? 'missing'
-    }
-  });
-  // The case is NOT touched: it stays cancelled, actual_start_at stays NULL.
-} else if (START_ELIGIBLE_STATUSES.includes(cathCase.status)) {
-  await startCaseTx(tx, { … });    // unchanged
-}
+Also confirm the two facts §4.8 leans on, because both are "not a column" claims and both are easy to get wrong:
+
+```bash
+grep -n "cancelled_at\|cancel_reason" apps/backend/prisma/schema.prisma | grep -i cath   # expect: NOTHING on cath_lab_cases
+grep -n "cath_lab_cases_actual_time_check" -A 1 apps/backend/src/migrations/482_cath_lab_cases_readiness.sql
 ```
 
-Consequent edits (ii): the transition table, `START_ELIGIBLE_STATUSES` and the start-path pin are **all unchanged** (nothing new writes `status` or `actual_start_at`) — that is (ii)'s cheapness. What grows is the number of shapes a performed procedure can have: the day list, the timeline and Staff must not read "has a procedure log" as "started", the deep test "a log on a `cancelled` case writes nothing" becomes "writes the log and the audit row and leaves the case cancelled", and `CATH_LAB_CANCELLED_RECORD_REASON_REQUIRED` joins spec §9 and the overlay's prose-only procedure-log operation. **Sub-question for the owner if (ii) is chosen:** the monthly report (§7) is *starts* with checks pending, and a cancelled-case record is not a start — keep Task 5's query on the single action and leave the new action out of the report unless the owner asks for it.
+Expected: no `cancelled_at` / `cancel_reason` column on `cath_lab_cases` (so the reopen audit takes `cancelled_at` from `actual_end_at` before clearing it, and `cancel_reason` from the canonical `cath_lab.case_cancelled` event's `payload.reason`, `null` when absent); and the CHECK reading `actual_end_at IS NULL OR actual_start_at IS NULL OR actual_end_at >= actual_start_at` — which is why the reopen clears `actual_end_at` (spec §4.8: the 23514 lands on the *next* start, not on the reopen).
 
 ---
 
@@ -589,14 +517,15 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
 ---
-## Task 2: One start path, consent as the one hard block, the source pin (TDD)
+## Task 2: One start path, consent as the one hard block, the reopen door, the source pin (TDD)
 
 **Files:**
-- Modify: `apps/backend/src/services/clinical/cathLabService.js` (`CASE_TRANSITIONS`, `START_ELIGIBLE_STATUSES`, `assertReadinessComplete`, new `startCaseTx`, `labsSnapshotForStartTx`, `transitionCaseStatus`, `recordProcedureLog`, `createCase`)
+- Modify: `apps/backend/src/services/clinical/cathLabService.js` (`CASE_TRANSITIONS`, `START_ELIGIBLE_STATUSES`, `REOPENABLE_STATUSES` / `REOPEN_TARGET_STATUS`, `assertReadinessComplete`, new `startCaseTx`, new `reopenCaseTx` + exported `reopenCase`, `labsSnapshotForStartTx`, `transitionCaseStatus`, `recordProcedureLog`, `createCase`)
+- Modify: `apps/backend/src/routes/clinical/cathLabRoutes.js` (`POST /cases/:id/reopen`)
 - Create: `apps/backend/src/tests/unit/cathLabStartPathPin.test.js`
 - Test: `apps/backend/src/tests/unit/cathLabService.test.js`
 
-> **Blocked by the Task 0 gate.** Spec §10.2 (the procedure record on a cancelled case) must be answered before this task starts. If the answer is (i), fold Task 0 Step 6's branch-(i) code into Steps 3–5 and its consequent edits into Step 1's tests.
+> **Not blocked.** The cancelled-case question is answered (spec decision 13 / §4.8). Two changes ship together in this task and neither is shippable alone: the **refusal** — a procedure log on a `cancelled` case answers 409 `CATH_LAB_CASE_CANCELLED_REOPEN_REQUIRED` before the insert (Step 6) — and the **door** it names, `reopenCaseTx` + `POST /cases/:id/reopen` (Step 5). Land the door first so the refusal never points at a route that does not exist. There is no `REFUSE_PROCEDURE_LOG_ON_CANCELLED` flag; do not introduce one.
 
 - [ ] **Step 1: Write the failing unit tests**
 
@@ -726,7 +655,7 @@ describe('startCaseTx — the one start path (spec §4)', () => {
     expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE cath_lab_cases/.test(sql))).toBe(false);
   });
 
-  test('a log on an in_progress or completed case never touches the case; on a cancelled case nothing is written', async () => {
+  test('a log on an in_progress or completed case never touches the case', async () => {
     for (const status of ['in_progress', 'completed']) {
       queryUnsafeMock.mockReset();
       queryUnsafeMock
@@ -737,16 +666,23 @@ describe('startCaseTx — the one start path (spec §4)', () => {
       await recordProcedureLog(42, { tenantId: TENANT, procedure_type: 'Primary PCI', status: 'amended' }, { actorUid: ACTOR });
       expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE cath_lab_cases/.test(sql))).toBe(false);
     }
-    // OPEN OWNER ITEM (spec §10.2): the cancelled half is the PROPOSED
-    // behaviour behind REFUSE_PROCEDURE_LOG_ON_CANCELLED, not a decided
-    // default. Companion (i) replaces this with a reopen assertion; companion
-    // (ii) replaces it with "the log and the audit row are written and the
-    // case stays cancelled". Do not treat a green here as the design settled.
+  });
+
+  test('a log on a cancelled case is refused before the insert, and the refusal names the door', async () => {
+    // Spec decision 13 / §4.8. The refusal is only half of the answer: the
+    // other half is that CATH_LAB_CASE_CANCELLED_REOPEN_REQUIRED tells the
+    // caller where to go. Assert the pointer, not just the rejection — a
+    // refusal without a door is the thing the owner's principle forbids.
     queryUnsafeMock.mockReset();
     queryUnsafeMock.mockResolvedValueOnce([{ ...cathCase('cancelled'), urgency: 'routine', facility_id: 4 }]);
     await expect(recordProcedureLog(42, { tenantId: TENANT, procedure_type: 'Primary PCI' }, { actorUid: ACTOR }))
-      .rejects.toMatchObject({ code: 'INVALID_STATE_TRANSITION' });
+      .rejects.toMatchObject({
+        code: 'CATH_LAB_CASE_CANCELLED_REOPEN_REQUIRED',
+        statusCode: 409,
+        details: { case_status: 'cancelled', reopen_path: '/api/v1/cath-lab/cases/:id/reopen' },
+      });
     expect(queryUnsafeMock.mock.calls.some(([sql]) => /INSERT INTO cath_procedure_logs/.test(sql))).toBe(false);
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE cath_lab_cases/.test(sql))).toBe(false);
   });
 
   test('createCase strips a client-minted readiness_at_start', async () => {
@@ -757,14 +693,89 @@ describe('startCaseTx — the one start path (spec §4)', () => {
     // 'readiness_at_start' while other caller keys survive.
   });
 });
+
+describe('reopenCaseTx — the door out of cancelled (spec §4.8, decision 13)', () => {
+  test('cancelled has exactly one way out, and it is a pre-start status', () => {
+    expect(CASE_TRANSITIONS.cancelled).toEqual(['readiness_pending']);
+    expect(REOPENABLE_STATUSES).toEqual(['cancelled']);
+    expect(REOPEN_TARGET_STATUS).toBe('readiness_pending');
+    // The door does NOT make a cancelled case startable: startCaseTx's
+    // eligibility list is derived from the same table and must not have grown.
+    expect(START_ELIGIBLE_STATUSES).not.toContain('cancelled');
+    expect(() => validateCaseTransition('cancelled', 'in_progress')).toThrow('Invalid state transition');
+  });
+
+  test('no reason, no reopen, and nothing written', async () => {
+    queryUnsafeMock.mockResolvedValueOnce([{ ...cathCase('cancelled'), urgency: 'emergency', facility_id: 4, actual_end_at: '2026-09-06T03:58:11.004Z' }]);
+    await expect(reopenCase(42, { tenantId: TENANT, reason: '   ' }, { actorUid: ACTOR }))
+      .rejects.toMatchObject({ code: 'CATH_LAB_REOPEN_REASON_REQUIRED', statusCode: 400, details: { case_status: 'cancelled' } });
+    expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE cath_lab_cases/.test(sql))).toBe(false);
+    expect(recordReadinessAuditMock).not.toHaveBeenCalled();
+  });
+
+  test('a reason reopens to readiness_pending, clears actual_end_at, keeps actual_start_at, and audits', async () => {
+    const cancelledAt = '2026-09-06T03:58:11.004Z';
+    const startedAt = '2026-09-06T03:10:00.000Z';
+    queryUnsafeMock
+      .mockResolvedValueOnce([{ ...cathCase('cancelled'), urgency: 'emergency', facility_id: 4, actual_start_at: startedAt, actual_end_at: cancelledAt }])
+      .mockResolvedValueOnce([{ payload: { reason: 'List overran, patient returned to ward' } }]) // latest cath_lab.case_cancelled event
+      .mockResolvedValueOnce([{ ...cathCase('readiness_pending'), urgency: 'emergency', facility_id: 4, actual_start_at: startedAt, actual_end_at: null }])
+      .mockResolvedValueOnce([]); // updateCaseCanonicalRefs
+    const result = await reopenCase(42, { tenantId: TENANT, reason: 'Patient crashed, taken to the lab' }, { actorUid: ACTOR, actorRole: 'CONSULTANT' });
+    expect(result.status).toBe('readiness_pending');
+    const update = queryUnsafeMock.mock.calls.find(([sql]) => /UPDATE cath_lab_cases/.test(sql));
+    expect(update[0]).toMatch(/status = 'readiness_pending'/);
+    expect(update[0]).toMatch(/actual_end_at = NULL/);
+    // The door does not start anything, and it does not rewrite the first start.
+    expect(update[0]).not.toMatch(/actual_start_at/);
+    expect(update[0]).not.toMatch(/in_progress/);
+    expect(recordReadinessAuditMock).toHaveBeenCalledTimes(1);
+    expect(recordReadinessAuditMock).toHaveBeenCalledWith(__prismaDefaultMock, expect.objectContaining({
+      action: 'cath_lab.case.reopened', resource: 'cath_lab_cases', resourceId: 42,
+      metadata: expect.objectContaining({
+        case_id: 42, facility_id: 4, urgency: 'emergency',
+        reason: 'Patient crashed, taken to the lab',
+        previous_status: 'cancelled', cancelled_at: cancelledAt,
+        cancel_reason: 'List overran, patient returned to ward',
+      }),
+    }));
+    expect(recordCanonicalClinicalEventMock).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'cath_lab.case_reopened',
+      payload: expect.objectContaining({ status: 'readiness_pending', previous_status: 'cancelled' }),
+    }), expect.anything());
+  });
+
+  test('a case with no cancel event records cancel_reason null rather than guessing', async () => {
+    queryUnsafeMock
+      .mockResolvedValueOnce([{ ...cathCase('cancelled'), urgency: 'routine', facility_id: 4, actual_start_at: null, actual_end_at: null }])
+      .mockResolvedValueOnce([])                                   // no cath_lab.case_cancelled event
+      .mockResolvedValueOnce([{ ...cathCase('readiness_pending'), facility_id: 4 }])
+      .mockResolvedValueOnce([]);
+    await reopenCase(42, { tenantId: TENANT, reason: 'Slot freed' }, { actorUid: ACTOR });
+    expect(recordReadinessAuditMock).toHaveBeenCalledWith(__prismaDefaultMock, expect.objectContaining({
+      metadata: expect.objectContaining({ cancelled_at: null, cancel_reason: null }),
+    }));
+  });
+
+  test('a case that is not cancelled cannot be reopened', async () => {
+    for (const status of ['scheduled', 'in_progress', 'completed']) {
+      queryUnsafeMock.mockReset();
+      recordReadinessAuditMock.mockClear();
+      queryUnsafeMock.mockResolvedValueOnce([{ ...cathCase(status), facility_id: 4 }]);
+      await expect(reopenCase(42, { tenantId: TENANT, reason: 'x' }, { actorUid: ACTOR }))
+        .rejects.toMatchObject({ code: 'INVALID_STATE_TRANSITION' });
+      expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE cath_lab_cases/.test(sql))).toBe(false);
+    }
+  });
+});
 ```
 
-Import `START_ELIGIBLE_STATUSES` from the service in the destructured import. Fill the `createCase` test body from the suite's existing createCase fixture pattern (search the file for `INSERT INTO cath_lab_cases`), asserting the last bound argument's parsed JSON lacks `readiness_at_start` and keeps a sibling key such as `source`.
+Import `START_ELIGIBLE_STATUSES`, `REOPENABLE_STATUSES`, `REOPEN_TARGET_STATUS`, `CASE_TRANSITIONS` and `reopenCase` from the service in the destructured import. Fill the `createCase` test body from the suite's existing createCase fixture pattern (search the file for `INSERT INTO cath_lab_cases`), asserting the last bound argument's parsed JSON lacks `readiness_at_start` and keeps a sibling key such as `source`.
 
 - [ ] **Step 2: Run to verify they fail**
 
 Run: `npm test -- --testPathPatterns unit/cathLabService.test`
-Expected: FAIL — `START_ELIGIBLE_STATUSES` undefined; consent tests get `CATH_LAB_READINESS_BLOCKED`.
+Expected: FAIL — `START_ELIGIBLE_STATUSES`, `REOPENABLE_STATUSES`, `REOPEN_TARGET_STATUS` and `reopenCase` undefined; `CASE_TRANSITIONS.cancelled` is still `[]`; consent tests get `CATH_LAB_READINESS_BLOCKED`; the cancelled procedure-log test gets today's silent force-start instead of the 409.
 
 - [ ] **Step 3: Implement — transitions and the consent block**
 
@@ -782,14 +793,26 @@ export const CASE_TRANSITIONS = Object.freeze({
   ready: ['in_progress', 'cancelled'],
   in_progress: ['completed', 'cancelled'],
   completed: [],
-  cancelled: []
+  // Owner decision 2026-09-06 (spec decision 13, §4.8): "refuse, but give it a
+  // door". `cancelled` stops being terminal, with EXACTLY ONE outbound target,
+  // and it is a PRE-START status — a cancelled case is never started directly,
+  // it is reopened (audited, with a reason) and then started by the ordinary
+  // flow. Keeping `in_progress` out of this list is what keeps startCaseTx the
+  // only writer of in_progress / actual_start_at.
+  cancelled: ['readiness_pending']
 });
-// Derived from the table so the two cannot disagree.
+// Derived from the table so the two cannot disagree. `cancelled` is deliberately
+// NOT start-eligible: its only target is readiness_pending.
 export const START_ELIGIBLE_STATUSES = Object.freeze(
   Object.entries(CASE_TRANSITIONS)
     .filter(([, targets]) => targets.includes('in_progress'))
     .map(([from]) => from)
 );
+// The one status the reopen door opens from, and the one it opens onto. A
+// literal pair, not a derivation: the door is a named act. The unit test asserts
+// CASE_TRANSITIONS.cancelled === [REOPEN_TARGET_STATUS] so the two cannot drift.
+export const REOPENABLE_STATUSES = Object.freeze(['cancelled']);
+export const REOPEN_TARGET_STATUS = 'readiness_pending';
 ```
 
 Replace `assertReadinessComplete` with the spec §4.3 body (consent `pass` only, `CATH_LAB_CONSENT_REQUIRED`, `details: { consent_status, blocking }`, returns the gate).
@@ -908,7 +931,128 @@ async function startCaseTx(tx, { tenantId, cathCase, reason = null, via, procedu
 
 Note: `assertReadinessComplete` reads the checks once; `startCaseTx` reads them again for the labs stamp. To keep it at one read, have `assertReadinessComplete` return `{ gate, checks }` and adjust the two lines — the unit mock sequence above assumes ONE `readinessForCase` read per start, so make that change and keep the tests' mock order.
 
-- [ ] **Step 5: Implement — rewire both callers**
+- [ ] **Step 5: Implement — `reopenCaseTx`, `reopenCase` and the route (the door)**
+
+Build the door **before** the refusal that names it (Step 6), so the route the error message points at already exists.
+
+In `cathLabService.js`, after `startCaseTx`:
+
+```js
+// THE DOOR OUT OF CANCELLATION (spec §4.8, owner decision 2026-09-06:
+// "deliberate, auditable, and nothing stranded"). Deliberately NOT a start:
+// it writes readiness_pending, an EXISTING pre-start status, so there is no
+// migration and no status-vocabulary change, and startCaseTx stays the only
+// writer of in_progress / actual_start_at. After this the case is an ordinary
+// pre-start case: recomputeCaseStatusTx may move it on to `ready`, and
+// starting it goes through the consent block like any other case.
+async function reopenCaseTx(tx, { tenantId, cathCase, reason, context = {} }) {
+  validateCaseTransition(cathCase.status, REOPEN_TARGET_STATUS);   // throws INVALID_STATE_TRANSITION with the real `allowed`
+  const cleanReason = cleanText(reason, 500);
+  // Mandatory, with NO exemption on any path. Unlike the start reason (which
+  // the procedure-log path skips because the procedure is already under way),
+  // a reopen is never incidental — it IS the exceptional act.
+  if (!cleanReason) {
+    throw AppError.badRequest(
+      'A reason is required to reopen a cancelled case',
+      'CATH_LAB_REOPEN_REASON_REQUIRED',
+      { case_status: cathCase.status }
+    );
+  }
+  // Read BEFORE the UPDATE clears it. There is no cancelled_at column on
+  // cath_lab_cases — actual_end_at is what cancelling stamps.
+  const cancelledAt = cathCase.actual_end_at ?? null;
+  // There is no cancel_reason column either: transitionCaseStatus puts the
+  // cancel reason on the canonical cath_lab.case_cancelled event's payload.
+  // Read it if it is there; record null if it is not, rather than guessing.
+  const cancelReason = await latestCancelReasonTx(tx, tenantId, cathCase.id);
+  const rows = await tx.$queryRawUnsafe(
+    `UPDATE cath_lab_cases
+        SET status = 'readiness_pending',
+            actual_end_at = NULL,
+            updated_by = $3::uuid,
+            updated_at = NOW()
+      WHERE tenant_id = $1::uuid
+        AND id = $2::bigint
+      RETURNING *`,
+    tenantOr(tenantId),
+    cathCase.id,
+    maybeUuid(context.actorUid, 'actorUid')
+  );
+  const updated = unwrap(rows);
+  const event = await writeCanonicalEvent(tx, {
+    tenantId,
+    patientUid: updated.patient_uid,
+    encounterId: updated.encounter_id,
+    eventType: 'cath_lab.case_reopened',
+    eventStatus: REOPEN_TARGET_STATUS,
+    sourceTable: 'cath_lab_cases',
+    sourceId: updated.id,
+    actorUid: context.actorUid,
+    actorRole: context.actorRole,
+    summary: `Cath-lab case reopened: ${updated.requested_procedure}`,
+    payload: { status: REOPEN_TARGET_STATUS, reason: cleanReason, previous_status: 'cancelled' },
+    beforeState: { status: cathCase.status },
+    afterState: { status: REOPEN_TARGET_STATUS }
+  });
+  await updateCaseCanonicalRefs(tx, { tenantId, caseId: updated.id, event });
+  // ALWAYS, not conditionally: the audit row IS the decision.
+  await recordReadinessAudit(tx, {
+    tenantId: tenantOr(tenantId),
+    action: 'cath_lab.case.reopened',
+    resource: 'cath_lab_cases',
+    resourceId: updated.id,
+    context,
+    metadata: {
+      case_id: normalizeDbValue(updated.id),
+      facility_id: updated.facility_id ?? null,
+      reason: cleanReason,
+      previous_status: 'cancelled',
+      cancelled_at: cancelledAt,
+      cancel_reason: cancelReason,
+      urgency: updated.urgency ?? null
+    }
+  });
+  return { updated: normalizeDbValue(updated) };
+}
+
+export async function reopenCase(caseId, input = {}, context = {}) {
+  const tenantId = tenantOr(input.tenantId);
+  return setTenantTx(tenantId, async tx => {
+    const cathCase = await caseById(tx, tenantId, caseId, { lock: true });
+    const { updated } = await reopenCaseTx(tx, { tenantId, cathCase, reason: input.reason, context });
+    return updated;
+  });
+}
+```
+
+`latestCancelReasonTx` is three lines beside it — the most recent canonical `cath_lab.case_cancelled` event for the case, `payload->>'reason'`, `LIMIT 1`, returning `null` when there is none. Read the canonical-event table's real name and columns off `writeCanonicalEvent`'s writer rather than assuming them, and keep the query inside the same tenant transaction so RLS applies.
+
+The route, in `cathLabRoutes.js`, registered beside the other guarded idempotent cath writes:
+
+```js
+// The reopen carries EXACTLY the cancel path's guard chain and no more
+// (spec §4.8): whoever may end a case may reopen one, and the reason plus the
+// audit row are the controls. Cancelling is POST /cases/:id/status with
+// { status: 'cancelled' } behind requireCathWorkflow + guardCathCaseById.
+router.post(
+  '/cases/:id/reopen',
+  requireCathWorkflow,
+  guardCathCaseById,
+  requireIdempotencyKey({ required: true, scope: 'cath_lab_case_reopen' }),
+  async (req, res) => {
+    try {
+      const cathCase = await reopenCase(req.params.id, { reason: req.body?.reason, tenantId: tenantOf(req) }, contextOf(req));
+      return success(res, { case: cathCase }, 'Cath-lab case reopened');
+    } catch (err) {
+      return handleFailure(res, err, 'reopen case');
+    }
+  }
+);
+```
+
+`Idempotency-Key` is **required**: a replayed reopen must answer the original response, not the transition error the case would now raise from `readiness_pending` (or from `in_progress`, if the team has since started it). Register it on the **cath mount only** — a reopen is a clinical workflow act, not a governance read, so there is no `cath-reprocessing` twin.
+
+- [ ] **Step 6: Implement — rewire both callers**
 
 `transitionCaseStatus`, inside the transaction after `validateCaseTransition`:
 
@@ -924,22 +1068,18 @@ Note: `assertReadinessComplete` reads the checks once; `startCaseTx` reads them 
 and delete the `actual_start_at = CASE … END` branch from the generic UPDATE (it is dead for every remaining target). `recordProcedureLog`, inside the transaction:
 
 ```js
-// OPEN OWNER ITEM — spec §10.2. NOT a decided default. `cancelled` is terminal
-// in CASE_TRANSITIONS, so refusing here means a procedure that was actually
-// performed on a cancelled case cannot be recorded in-app by any route; today's
-// silent un-cancel (the force-start UPDATE this task deletes) is the only
-// existing path. The refusal ships behind this flag so the owner's answer is a
-// one-line change plus the branch's own code, not a rewrite of recordProcedureLog.
-// TODO(owner, spec §10.2): remove this flag when the companion lands —
-//   (i) cancelled gains a reason-gated transition through startCaseTx  → Task 0 Step 6, into this task
-//   (ii) a performed-after-cancellation record path that leaves the case cancelled → Task 0 Step 6, into Task 3
-// Do not flip it silently and do not hand the PR back as complete while it stands.
-const REFUSE_PROCEDURE_LOG_ON_CANCELLED = true;
-
     const cathCase = await caseById(tx, tenantId, caseId, { lock: true });
-    if (REFUSE_PROCEDURE_LOG_ON_CANCELLED && cathCase.status === 'cancelled') {
-      // The transition table's own error, before anything is written.
-      validateCaseTransition('cancelled', 'in_progress');
+    // Spec decision 13 / §4.8, owner 2026-09-06: recording a procedure must not
+    // silently resurrect a cancelled case — so this refuses — and the refusal
+    // must not be a dead end — so it NAMES THE DOOR. Today's silent un-cancel
+    // (the force-start UPDATE this task deletes) is what this replaces. Raised
+    // BEFORE the log insert, so a refused request writes nothing.
+    if (cathCase.status === 'cancelled') {
+      throw AppError.conflict(
+        'This case was cancelled. Reopen the case (POST /cath-lab/cases/:id/reopen) with a reason before recording the procedure.',
+        'CATH_LAB_CASE_CANCELLED_REOPEN_REQUIRED',
+        { case_status: 'cancelled', reopen_path: '/api/v1/cath-lab/cases/:id/reopen' }
+      );
     }
     // (the assertReadinessComplete line that was here is deleted)
     … insert the log exactly as today …
@@ -957,7 +1097,7 @@ const REFUSE_PROCEDURE_LOG_ON_CANCELLED = true;
 
 Delete the inline `if (cathCase.status !== 'in_progress') { UPDATE … }` block.
 
-- [ ] **Step 6: Implement — `createCase` reserved key**
+- [ ] **Step 7: Implement — `createCase` reserved key**
 
 ```js
 const CASE_START_METADATA_KEYS = Object.freeze(['readiness_at_start']);
@@ -968,12 +1108,12 @@ const metadata = Object.fromEntries(
 );
 ```
 
-- [ ] **Step 7: Run the unit suite**
+- [ ] **Step 8: Run the unit suite**
 
 Run: `npm test -- --testPathPatterns unit/cathLabService.test`
 Expected: PASS. If the SLA tests broke, the generic UPDATE's parameter numbering shifted — re-read `transitionCaseStatus` and keep `$3`/`$4` positions.
 
-- [ ] **Step 8: Write the source pin**
+- [ ] **Step 9: Write the source pin**
 
 Create `apps/backend/src/tests/unit/cathLabStartPathPin.test.js`:
 
@@ -996,6 +1136,13 @@ Create `apps/backend/src/tests/unit/cathLabStartPathPin.test.js`:
  * SOURCE TEXT of the SQL: every backtick literal that names cath_lab_cases,
  * matched for the shapes that start a case, and every hit must be in
  * startCaseTx. That is the only assertion here that a new raw UPDATE reddens.
+ *
+ * Two more pins here guard the DOOR rather than the start path (spec §4.8,
+ * decision 13): `cancelled` has exactly one outbound transition and it is a
+ * pre-start status, and only reopenCaseTx writes that status as a literal on a
+ * cath_lab_cases statement. They live in this file because they are the other
+ * half of the same claim — the door leads to a startable state, it does not do
+ * the starting — and because the line count above is what proves it.
  *
  * Textual, comments stripped, shipping modules only (tests excluded), in the
  * style of labExternalResultCallSites.test.js.
@@ -1061,8 +1208,15 @@ function sqlLiterals(file) {
 // which no literal-text match can see; this closes that hole the way
 // labExternalResultCallSites.test.js closes its own — a literal list, never a
 // prefix or a glob, so a fifth writer has to be argued for in a diff.
+// reopenCaseTx (spec §4.8, decision 13) is the ONE entry this lane adds. It is
+// on the list because it writes cath_lab_cases.status — and it is safe to be on
+// it because the SQL-shape test below proves what it writes: readiness_pending,
+// never in_progress, never actual_start_at. Adding a name here is the cost of a
+// new status writer, and it is meant to be paid in a diff, not avoided by
+// loosening the pin.
 const STATUS_WRITERS = Object.freeze([
   'services/clinical/cathLabReadinessService.js:recomputeCaseStatusTx',
+  'services/clinical/cathLabService.js:reopenCaseTx',
   'services/clinical/cathLabService.js:startCaseTx',
   'services/clinical/cathLabService.js:transitionCaseStatus',
   'services/clinical/cathLabService.js:updateReadinessCheck',
@@ -1124,11 +1278,40 @@ describe('the cath case has exactly one start path', () => {
     expect([...writers].sort()).toEqual([...STATUS_WRITERS]);
   });
 
+  // ---- THE DOOR OUT OF CANCELLED (spec §4.8, decision 13) ----
+  // The owner's answer was "refuse, but give it a door". These two say the door
+  // is ONE door and has ONE keeper. Without them, "cancelled is no longer
+  // terminal" is an invariant that anyone can widen by adding a target.
+
+  test('cancelled has exactly one outbound transition, and it is a pre-start status', () => {
+    expect(CASE_TRANSITIONS.cancelled).toEqual(['readiness_pending']);
+    expect(START_ELIGIBLE_STATUSES).not.toContain('cancelled');
+  });
+
+  test('only reopenCaseTx writes readiness_pending as a literal on a cath_lab_cases statement', () => {
+    // recomputeCaseStatusTx and updateReadinessCheck also produce
+    // readiness_pending, but they BIND it (`THEN $3`) and never write it as a
+    // literal, so they do not collide with this shape — the SET status
+    // allow-list above is what covers them.
+    const sites = [];
+    for (const file of FILES) {
+      for (const literal of sqlLiterals(file)) {
+        const fn = enclosingFunction(file.text, literal.index);
+        for (const line of literal.body.split('\n')) {
+          if (/status\s*=\s*'readiness_pending'/.test(line)) sites.push(`${file.path}:${fn}`);
+        }
+      }
+    }
+    expect(sites).toEqual([`${SERVICE}:reopenCaseTx`]);
+  });
+
   test('the full-gate code is gone from shipping code', () => {
     expect(FILES.filter((file) => file.text.includes('CATH_LAB_READINESS_BLOCKED')).map((file) => file.path)).toEqual([]);
   });
 });
 ```
+
+The first of the two door tests needs `CASE_TRANSITIONS` and `START_ELIGIBLE_STATUSES` as **values**, not source text, so this file also imports those two names from `../../services/clinical/cathLabService.js` at the top. That is the one non-textual import in an otherwise textual pin — keep it to exactly those two. The second door test stays textual like the rest.
 
 Three notes for whoever runs this.
 
@@ -1136,22 +1319,23 @@ Three notes for whoever runs this.
 
 **Scope**: `FILES` is all of `apps/backend/src` with `tests/` excluded — services, routes and controllers alike, not `services/` alone. A route or controller that starts a case is exactly the fourth path this pins against, and the table scoping keeps `housekeepingController.js`'s own `SET status = 'in_progress'` (on housekeeping requests) out of it.
 
-**The expected values were measured on the pre-lane tree**, so the failure you should see BEFORE Task 2's implementation lands is informative rather than confusing. Run this probe on the base commit and it reports three sites in two functions — `recordProcedureLog` (`SET status = 'in_progress',` + `actual_start_at = COALESCE(…)`, the force-start this task deletes) and `transitionCaseStatus` (`actual_start_at = CASE`, the dead branch this task deletes) — and `STATUS_WRITERS` with `recordProcedureLog` where the list has `startCaseTx`. Both collapse to the two pinned lines in `startCaseTx` once Step 4 and Step 5 land. If they do not, one of the two deletions was missed.
+**The expected values were measured on the pre-lane tree**, so the failure you should see BEFORE Task 2's implementation lands is informative rather than confusing. Run this probe on the base commit and it reports three sites in two functions — `recordProcedureLog` (`SET status = 'in_progress',` + `actual_start_at = COALESCE(…)`, the force-start this task deletes) and `transitionCaseStatus` (`actual_start_at = CASE`, the dead branch this task deletes) — and `STATUS_WRITERS` with `recordProcedureLog` where the list has `startCaseTx` and `reopenCaseTx`. Both collapse to the two pinned lines in `startCaseTx` once Steps 4–6 land. If they do not, one of the two deletions was missed. On the base commit the two door tests fail too, and informatively: `CASE_TRANSITIONS.cancelled` is `[]`, and the `readiness_pending` literal test finds no sites at all.
 
-- [ ] **Step 9: Run the pin**
+- [ ] **Step 10: Run the pin**
 
 Run: `npm test -- --testPathPatterns unit/cathLabStartPathPin`
 Expected: PASS. If `only startCaseTx writes …` lists a second site, that site is a start path this plan did not know about: stop, read it, and either route it through `startCaseTx` or report it.
 
-- [ ] **Step 10: Mutation check for hazard (ii)**
+- [ ] **Step 11: Mutation checks for hazard (ii) and for the door**
 
-Temporarily move the `assertReadinessComplete` call from `startCaseTx` into `transitionCaseStatus` (before `startCaseTx`). Run the pin and the service suite: expected the pin's caller test red and `'the procedure log is refused by the consent block too'` red. Revert.
+1. Temporarily move the `assertReadinessComplete` call from `startCaseTx` into `transitionCaseStatus` (before `startCaseTx`). Run the pin and the service suite: expected the pin's caller test red and `'the procedure log is refused by the consent block too'` red. Revert.
+2. Temporarily make `reopenCaseTx` write `status = 'in_progress', actual_start_at = COALESCE(actual_start_at, NOW())` instead of `readiness_pending`. Expected: the pin's **start-path** SQL test red (three matching lines across two functions, not two in `startCaseTx`) **and** the `readiness_pending` literal test red. This is the mutation that proves the door leads to a startable state rather than doing the starting. Revert. (The full mutation list runs again in Task 8 Step 4; this is the early one because it is cheap here and the pin is fresh.)
 
-- [ ] **Step 11: Commit**
+- [ ] **Step 12: Commit**
 
 ```bash
-git add apps/backend/src/services/clinical/cathLabService.js apps/backend/src/tests/unit/cathLabService.test.js apps/backend/src/tests/unit/cathLabStartPathPin.test.js
-git commit -m "feat(cath): one start path — scheduled/readiness_pending may start, consent is the one hard block, at-start snapshot + audit
+git add apps/backend/src/services/clinical/cathLabService.js apps/backend/src/routes/clinical/cathLabRoutes.js apps/backend/src/tests/unit/cathLabService.test.js apps/backend/src/tests/unit/cathLabStartPathPin.test.js
+git commit -m "feat(cath): one start path plus an audited reopen door — scheduled/readiness_pending may start, consent is the one hard block, a cancelled case is reopened rather than resurrected
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
@@ -1270,7 +1454,7 @@ const startAudits = (id) => prisma.$queryRawUnsafe(
 );
 ```
 
-Tests (import `transitionCaseStatus`, `recordProcedureLog` from `cathLabService.js`):
+Tests (import `transitionCaseStatus`, `recordProcedureLog` and `reopenCase` from `cathLabService.js`). The reopen tests also need a `setCheck(id, checkType, status)` helper — the suite already has one for driving a human readiness status; reuse it rather than writing a second.
 
 ```js
   test('consent pending refuses both start paths; consent waived is not consent; nothing is written', async () => {
@@ -1328,17 +1512,95 @@ Tests (import `transitionCaseStatus`, `recordProcedureLog` from `cathLabService.
     expect(await startAudits(id)).toHaveLength(0);
   }, 60000);
 
-  test('a log on a completed case leaves it completed; on a cancelled case nothing is written', async () => {
+  test('a log on a completed case leaves it completed', async () => {
     const done = await seedCase({ status: 'ready', labs: 'pass' });
     await transitionCaseStatus(done, { tenantId: TENANT, status: 'in_progress' }, ctx());
     await transitionCaseStatus(done, { tenantId: TENANT, status: 'completed' }, ctx());
     await recordProcedureLog(done, { tenantId: TENANT, procedure_type: 'PTCA', status: 'amended' }, ctx());
     expect((await caseRow(done)).status).toBe('completed');
+  }, 60000);
+
+  // ---- THE REOPEN DOOR, END TO END (spec §4.8, decision 13) ----
+  // Refuse, but give it a door: the refusal writes nothing and names the route;
+  // the route needs a reason; and what comes out the other side is an ordinary
+  // pre-start case that the consent block still guards. Run the whole arc in
+  // one test so a green cannot mean "the refusal works and the door is a stub".
+
+  test('a log on a cancelled case is refused, writes nothing, and names the reopen route', async () => {
     const gone = await seedCase({ status: 'scheduled' });
-    await transitionCaseStatus(gone, { tenantId: TENANT, status: 'cancelled', reason: 'x' }, ctx());
-    await expect(recordProcedureLog(gone, { tenantId: TENANT, procedure_type: 'PTCA' }, ctx())).rejects.toMatchObject({ code: 'INVALID_STATE_TRANSITION' });
+    await transitionCaseStatus(gone, { tenantId: TENANT, status: 'cancelled', reason: 'List overran' }, ctx());
+    await expect(recordProcedureLog(gone, { tenantId: TENANT, procedure_type: 'PTCA' }, ctx()))
+      .rejects.toMatchObject({
+        code: 'CATH_LAB_CASE_CANCELLED_REOPEN_REQUIRED',
+        statusCode: 409,
+        details: { reopen_path: '/api/v1/cath-lab/cases/:id/reopen' },
+      });
     const logs = await prisma.$queryRawUnsafe(`SELECT COUNT(*)::int AS n FROM cath_procedure_logs WHERE tenant_id = $1::uuid AND case_id = $2::bigint`, TENANT, gone);
     expect(logs[0].n).toBe(0);
+    expect((await caseRow(gone)).status).toBe('cancelled');
+  }, 60000);
+
+  test('reopen: no reason is refused; a reason returns the case to readiness_pending with actual_end_at cleared and an audit row', async () => {
+    const id = await seedCase({ status: 'scheduled', labs: 'pending' });
+    await transitionCaseStatus(id, { tenantId: TENANT, status: 'cancelled', reason: 'Patient unstable' }, ctx());
+    const cancelled = await caseRow(id);
+    expect(cancelled.actual_end_at).not.toBeNull();          // cancelling stamps it
+    expect(cancelled.actual_start_at).toBeNull();            // never started
+
+    await expect(reopenCase(id, { tenantId: TENANT, reason: '  ' }, ctx()))
+      .rejects.toMatchObject({ code: 'CATH_LAB_REOPEN_REASON_REQUIRED' });
+    expect((await caseRow(id)).status).toBe('cancelled');
+
+    await reopenCase(id, { tenantId: TENANT, reason: 'Patient crashed, taken to the lab' }, ctx());
+    const reopened = await caseRow(id);
+    expect(reopened.status).toBe('readiness_pending');
+    expect(reopened.actual_end_at).toBeNull();               // MUTATION 15 lands here
+    expect(reopened.actual_start_at).toBeNull();             // the door starts nothing
+    const audit = await prisma.$queryRawUnsafe(`SELECT metadata FROM audit_logs WHERE tenant_id = $1::uuid AND action = 'cath_lab.case.reopened' AND resource_id = $2::text ORDER BY id DESC LIMIT 1`, TENANT, String(id));
+    expect(audit).toHaveLength(1);
+    expect(audit[0].metadata).toMatchObject({ reason: 'Patient crashed, taken to the lab', previous_status: 'cancelled' });
+    expect(audit[0].metadata.cancelled_at).not.toBeNull();
+  }, 60000);
+
+  test('reopen keeps the true first start when the case had already started', async () => {
+    const id = await seedCase({ status: 'ready', labs: 'pass' });
+    await transitionCaseStatus(id, { tenantId: TENANT, status: 'in_progress' }, ctx());
+    const firstStart = (await caseRow(id)).actual_start_at;
+    expect(firstStart).not.toBeNull();
+    await transitionCaseStatus(id, { tenantId: TENANT, status: 'cancelled', reason: 'Abandoned mid-case' }, ctx());
+    await reopenCase(id, { tenantId: TENANT, reason: 'Resuming' }, ctx());
+    const reopened = await caseRow(id);
+    expect(reopened.status).toBe('readiness_pending');
+    expect(reopened.actual_end_at).toBeNull();
+    // KEPT, not rewritten: the record still says when the patient first went on
+    // the table, and startCaseTx's COALESCE preserves it on the next start.
+    expect(new Date(reopened.actual_start_at).getTime()).toBe(new Date(firstStart).getTime());
+    await transitionCaseStatus(id, { tenantId: TENANT, status: 'in_progress' }, ctx());
+    expect(new Date((await caseRow(id)).actual_start_at).getTime()).toBe(new Date(firstStart).getTime());
+  }, 60000);
+
+  test('after a reopen the consent gate still stands, and a consented start carries the pending snapshot', async () => {
+    const id = await seedCase({ status: 'scheduled', labs: 'pending', consent: 'pending' });
+    await transitionCaseStatus(id, { tenantId: TENANT, status: 'cancelled', reason: 'Deferred' }, ctx());
+    await reopenCase(id, { tenantId: TENANT, reason: 'Back on the list' }, ctx());
+    // The door leads to a startable state — it does not skip the one hard block.
+    await expect(transitionCaseStatus(id, { tenantId: TENANT, status: 'in_progress', reason: 'go' }, ctx()))
+      .rejects.toMatchObject({ code: 'CATH_LAB_CONSENT_REQUIRED' });
+    expect((await caseRow(id)).actual_start_at).toBeNull();
+    await setCheck(id, 'consent', 'pass');
+    await transitionCaseStatus(id, { tenantId: TENANT, status: 'in_progress', reason: 'Primary PCI, reports awaited' }, ctx());
+    const started = await caseRow(id);
+    expect(started.status).toBe('in_progress');
+    expect(started.snapshot.blocking.map((row) => row.check_type)).toContain('labs');
+    expect(await startAudits(id)).toHaveLength(1);
+  }, 60000);
+
+  test('a replayed reopen under the same Idempotency-Key writes one audit row', async () => {
+    // Drive this one through the ROUTE (supertest), not the service: the replay
+    // behaviour is the middleware's, and the service call would simply raise the
+    // transition error the second time. Assert the second response equals the
+    // first and that exactly one 'cath_lab.case.reopened' row exists.
+    …(follow the suite's existing idempotent-replay test for the waive route)…
   }, 60000);
 
   test('after start: a real sign-off reaches the item through the hook, the check passes late, the case stays in_progress', async () => {
@@ -1491,10 +1753,13 @@ In `cathLabReadiness.mjs`:
 - `item.required` gains `'ordered_after_start', 'resulted_after_start'`; properties: both `{ type: 'boolean', description: … }` (order placed after `actual_start_at`; deciding result received here after `actual_start_at`; "after" is transaction-start ordering).
 - `readiness.required` gains `'started_with_readiness_pending', 'readiness_at_start'`; properties: `started_with_readiness_pending: { type: 'boolean' }`, `readiness_at_start: { type: 'object', nullable: true, additionalProperties: false, required: [...START_SNAPSHOT_KEYS], properties: { recorded_at: {type:'string',format:'date-time'}, via: {type:'string', enum:['status','procedure_log']}, procedure_log_id: {type:'integer', nullable:true}, urgency: {type:'string', nullable:true}, reason: {type:'string', nullable:true, description:'Projected: null for roles outside the serology audience.'}, blocking: {type:'array', items:{type:'object', additionalProperties:false, required:['check_type','reason'], properties:{check_type:{type:'string', enum: CHECK_TYPES}, reason:{type:'string'}}}}, missing_lab_items: {type:'array', items:{type:'string', enum: ITEMS}}, lab_snapshot_as_of: {type:'string', format:'date-time', nullable:true} } }` — import `START_SNAPSHOT_KEYS` from the rules module the way the file already imports `ITEMS` etc., and define `CHECK_TYPES` as the eight names (the source pin compares them to migration 482's CHECK).
 - `case_started` description per Task 3 Step 6.
-- `operations` gains two prose-only entries: `'POST /api/v1/cath-lab/cases/{id}/status'` (describes `in_progress` from `scheduled|readiness_pending|ready`, `reason` required when the gate is not clear → 400 `CATH_LAB_START_REASON_REQUIRED` with `details.blocking`, consent not `pass` → 400 `CATH_LAB_CONSENT_REQUIRED`, the snapshot on the returned case's `metadata.readiness_at_start`) and `'POST /api/v1/cath-lab/cases/{id}/procedure-logs'` (a log on a start-eligible case starts it through the same path with `start_reason` optional; the same consent block; a log on `in_progress` / `completed` leaves the case alone; `cancelled` is refused). Both with `pathParameters: { id: BIGINT_WIRE }` and no `request` / `response`.
+- `operations` gains **three** prose-only entries, all with `pathParameters: { id: BIGINT_WIRE }` and no `request` / `response`:
+  - `'POST /api/v1/cath-lab/cases/{id}/status'` — `in_progress` from `scheduled|readiness_pending|ready`, `reason` required when the gate is not clear → 400 `CATH_LAB_START_REASON_REQUIRED` with `details.blocking`, consent not `pass` → 400 `CATH_LAB_CONSENT_REQUIRED`, the snapshot on the returned case's `metadata.readiness_at_start`.
+  - `'POST /api/v1/cath-lab/cases/{id}/procedure-logs'` — a log on a start-eligible case starts it through the same path with `start_reason` optional; the same consent block; a log on `in_progress` / `completed` leaves the case alone; a log on a **`cancelled`** case is refused with **409 `CATH_LAB_CASE_CANCELLED_REOPEN_REQUIRED`**, whose `details.reopen_path` names the reopen operation below.
+  - `'POST /api/v1/cath-lab/cases/{id}/reopen'` — returns a `cancelled` case to `readiness_pending`; `reason` is **required** (400 `CATH_LAB_REOPEN_REASON_REQUIRED`); any other status is refused with `INVALID_STATE_TRANSITION`; `Idempotency-Key` is **required** (scope `cath_lab_case_reopen`); the reopen clears `actual_end_at` and **keeps** `actual_start_at`; it writes no `actual_start_at` and does not start the case — starting it afterwards is the ordinary status call above, consent block included. Say in the prose that this is the in-app alternative the 409 above points at, so a reader of either operation finds the other.
 - The day-list description names `started_with_readiness_pending` as the seventh summary key.
 
-In `cathLabReadinessOpenApiSource.test.js`: `PROSE_ONLY` gains the two keys (`STATUS`, `PROCEDURE_LOGS`); the readiness key-set assertion gains the two keys; add `it('readiness_at_start declares exactly START_SNAPSHOT_KEYS and its check_type enum is migration 482\'s')`; the item key set is derived by driving the resolver so it picks the two booleans up by construction — confirm the `required` list edit matches.
+In `cathLabReadinessOpenApiSource.test.js`: `PROSE_ONLY` gains the three keys (`STATUS`, `PROCEDURE_LOGS`, `REOPEN`); the readiness key-set assertion gains the two keys; add `it('readiness_at_start declares exactly START_SNAPSHOT_KEYS and its check_type enum is migration 482\'s')`; the item key set is derived by driving the resolver so it picks the two booleans up by construction — confirm the `required` list edit matches.
 
 Run: `npm test -- --testPathPatterns unit/cathLabReadinessOpenApiSource` → PASS; then `npm run openapi:generate && npm run openapi:check` → clean, and commit the regenerated `src/docs/openapi.json` and `packages/vhhealth_core/swagger/openapi.json`.
 
@@ -1965,9 +2230,27 @@ Run the model test → PASS.
       throw Exception(response['message']?.toString() ?? 'Could not start the procedure');
     }
   }
+
+  /// POST /cath-lab/cases/:id/reopen — the door out of a cancelled case
+  /// (spec §4.8). `reason` is MANDATORY server-side
+  /// (CATH_LAB_REOPEN_REASON_REQUIRED) and the dialog enforces it too, so a
+  /// user never posts a refusal. Unlike startCase this route REQUIRES an
+  /// Idempotency-Key: a replay must answer the original response rather than
+  /// the transition error the case would now raise. Mint one per user
+  /// confirmation, not per retry, the way the waive action already does.
+  static Future<void> reopenCase(int caseId, {required String reason}) async {
+    final response = await ApiClient.post(
+      '/cath-lab/cases/$caseId/reopen',
+      {'reason': reason.trim()},
+      idempotencyKey: newIdempotencyKey(),
+    );
+    if (response['success'] != true) {
+      throw Exception(response['message']?.toString() ?? 'Could not reopen the case');
+    }
+  }
 ```
 
-(Mirror the error-handling shape the neighbouring `refreshReadinessEvidence` uses.)
+(Mirror the error-handling shape the neighbouring `refreshReadinessEvidence` uses, and the idempotency-key plumbing the existing `waiveLabItem` call uses — read that one rather than inventing a second convention.)
 
 - [ ] **Step 4: Checklist — failing widget tests**
 
@@ -1981,6 +2264,8 @@ Add to `cath_readiness_checklist_test.dart`, using the suite's `_readiness(...)`
   testWidgets('a started case with a critical warning shows the red banner', (tester) async { … 'cath-readiness-critical-banner' findsOneWidget; });
   testWidgets('a clean start shows no banner; an unstarted case shows no start row after start', …);
   testWidgets('passing the consent check offers the consent-type chooser and sends metadata.consent_type', (tester) async { … choose 'Verbal (emergency)' → expect(updates.single.metadata?['consent_type'], 'verbal_emergency'); });
+  testWidgets('a cancelled case offers "Reopen case" and no start row, and refuses an empty reason', (tester) async { … _readiness(caseStatus: 'cancelled') → expect(find.byKey(const ValueKey('cath-readiness-reopen')), findsOneWidget); expect(find.byKey(const ValueKey('cath-readiness-start')), findsNothing); tap reopen → tap confirm-ok with empty notes → expect(find.text(reasonRequiredLabel), findsOneWidget); expect(reopened, isEmpty); enter 'Patient crashed' → ok → expect(reopened.single.reason, 'Patient crashed'); });
+  testWidgets('a non-cancelled case offers no reopen row', (tester) async { … for each of scheduled/readiness_pending/in_progress: expect(find.byKey(const ValueKey('cath-readiness-reopen')), findsNothing); });
 ```
 
 Invert #1018's `'a started case still offers the waiver, and keeps the order and outside-result actions closed'` second half: order and outside-result are now offered; un-waive stays closed after start per #1018.
@@ -1990,8 +2275,10 @@ Run → FAIL.
 - [ ] **Step 5: Checklist — implement**
 
 `cath_readiness_checklist.dart`:
-- `CathReadinessDependencies` gains `this.startCase` (`typedef CathReadinessStarter = Future<void> Function(int caseId, {String? reason});`), defaulting to `CathLabApiService.startCase`. `CathReadinessCheckUpdater` gains an optional `Map<String, dynamic>? metadata` parameter, threaded to `CathLabApiService.updateReadinessCheck` (add the parameter there if absent).
+- `CathReadinessDependencies` gains `this.startCase` (`typedef CathReadinessStarter = Future<void> Function(int caseId, {String? reason});`), defaulting to `CathLabApiService.startCase`, and `this.reopenCase` (`typedef CathReadinessReopener = Future<void> Function(int caseId, {required String reason});`), defaulting to `CathLabApiService.reopenCase`. `CathReadinessCheckUpdater` gains an optional `Map<String, dynamic>? metadata` parameter, threaded to `CathLabApiService.updateReadinessCheck` (add the parameter there if absent).
 - Above the eight check rows, when `readiness.startable`: a `_StartRow` widget — `FilledButton` key `cath-readiness-start`, label `s4.lib.cath_lab.readiness.start_procedure` when `readiness.blocking.isEmpty` else `s4.lib.cath_lab.readiness.start_anyway`; `onPressed: readiness.consentPassed ? () => _start(readiness) : null`; under it, when `!readiness.consentPassed`, a `Text` key `cath-readiness-start-consent-blocked` with `s4.lib.cath_lab.readiness.start_consent_blocked`.
+- **The reopen row**, in the same slot, when `readiness.caseStatus == 'cancelled'` (and therefore `!readiness.startable`, so the two are never both on screen): a `FilledButton` key `cath-readiness-reopen`, label `s4.lib.cath_lab.readiness.reopen_case`, always enabled — consent is not consulted here, because the reopen does not start anything; the consent gate is met later, on the start row that appears after the reload.
+- `_reopen(readiness)`: capture `caseId`; `_CathReadinessConfirmDialog(title: reopen_title, body: reopen_body, reasonRequired: true, notesLabel: reopen_reason)`; on confirm (still mounted, same case): `await _reopenCase(caseId, reason: result.notes!); await _reload();`. The dialog body says in one line what happens: the case returns to the pre-procedure checklist and can then be started. Same rebound-card rule as `_setStatus` — drop the write silently if the card was rebound.
 - `_start(readiness)`: capture `caseId`; if blocking is empty, show `_CathReadinessConfirmDialog(title: start_title, body: start_body, criticalLine: null, automationNote: null, reasonRequired: false, notesLabel: confirm_notes, …)`; else body = `s.format('…start_anyway_body', {'checks': _blockingLine(s, readiness)})` where `_blockingLine` maps each blocking check through `cathReadinessCheckLabel` and appends `(hcv, hb)` from `labs?.missing` under the Labs entry, `reasonRequired: true`, `notesLabel: start_reason`. On confirm (and still mounted, same case): `await _startCase(caseId, reason: result.notes); await _reload();`. Errors go to the existing error/snackbar path.
 - Banner `cath-readiness-started-pending-banner` when `labs?.startedWithReadinessPending == true`: amber container, `s.format('…started_pending_banner', {'checks': …})` from `labs.readinessAtStart!.blocking` + missing items; a second line `s.format('…started_pending_reason', {'reason': …})` only when `reason` is non-null.
 - Banner `cath-readiness-critical-banner` when `labs?.caseStarted == true && labs.criticalWarning`: red, `critical_banner` with `{items}` or `critical_banner_unnamed`.
@@ -2004,14 +2291,14 @@ Run → FAIL.
 
 - [ ] **Step 6: Strings (five locales, four with the REVIEW marker)**
 
-Keys under `s4.lib.cath_lab.readiness.`: `start_procedure`, `start_anyway`, `start_title`, `start_body`, `start_anyway_body` (`{checks}`), `start_reason`, `start_consent_blocked`, `started_pending_banner` (`{checks}`), `started_pending_reason` (`{reason}`), `critical_banner` (`{items}`), `critical_banner_unnamed`, `recorded_after_start`, `after_start`, `header.started_pending`, `consent_type_label`, `consent_type.written`, `consent_type.verbal_emergency`, `consent_type.relative`, `consent_type.telephone`. English first; hi/ta/te/ml with `// REVIEW: AI first-pass cath readiness never-restricts - confirm wording before production.` above each block. `i18n_guard_test.dart`: add the keys to the cath list and the three placeholder-bearing keys to the dynamic-placeholder check.
+Keys under `s4.lib.cath_lab.readiness.` — **23 in all**, matching spec §11: `start_procedure`, `start_anyway`, `start_title`, `start_body`, `start_anyway_body` (`{checks}`), `start_reason`, `start_consent_blocked`, `started_pending_banner` (`{checks}`), `started_pending_reason` (`{reason}`), `critical_banner` (`{items}`), `critical_banner_unnamed`, `recorded_after_start`, `after_start`, `header.started_pending`, `consent_type_label`, `consent_type.written`, `consent_type.verbal_emergency`, `consent_type.relative`, `consent_type.telephone` (19 for the start/lateness picture) plus `reopen_case`, `reopen_title`, `reopen_body`, `reopen_reason` (4 for the reopen door). English first; hi/ta/te/ml with `// REVIEW: AI first-pass cath readiness never-restricts - confirm wording before production.` above each block. `i18n_guard_test.dart`: add the keys to the cath list and the three placeholder-bearing keys to the dynamic-placeholder check.
 
 - [ ] **Step 7: Run and commit**
 
 ```bash
 cd apps/staff && flutter analyze && flutter test test/features/cath_lab test/i18n_guard_test.dart
 git add apps/staff/lib/features/cath_lab apps/staff/lib/l10n/app_strings.dart apps/staff/test/features/cath_lab apps/staff/test/i18n_guard_test.dart
-git commit -m "feat(staff): cath start-with-checks-pending affordance (consent-gated), lateness banners and chips, order/outside result open after start
+git commit -m "feat(staff): cath start-with-checks-pending affordance (consent-gated), reopen action on a cancelled case, lateness banners and chips, order/outside result open after start
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
@@ -2193,6 +2480,9 @@ Both runs green with identical counts; record the counts for the PR body.
 10. Delete `CASE_START_METADATA_KEYS` stripping → the reserved-key unit test red.
 11. Move the cath-router report registration below `router.get('/reports/:id', …)` → the ADMIN route probe red.
 12. Add a stray `UPDATE cath_lab_cases SET actual_start_at = NOW()` in another service — e.g. a two-line helper in `cathSchedulingRegistryService.js` that calls nothing this lane wrote → `cathLabStartPathPin.test.js`'s `'only startCaseTx writes in_progress or actual_start_at on a cath_lab_cases statement'` red (three sites, not two). **Both caller-count tests stay green**, which is the point: this is the only pin that would have caught a fourth start path. Revert.
+13. **Delete the `cancelled` refusal in `recordProcedureLog`** (let the log fall through to the insert) → `'a log on a cancelled case is refused before the insert, and the refusal names the door'` red (unit) **and** `'a log on a cancelled case is refused, writes nothing, and names the reopen route'` red (deep). This proves the refusal half of decision 13 is real: without it, a procedure log silently lands on a cancelled case again. Revert.
+14. **Make `reopenCaseTx` write `status = 'in_progress'` with `actual_start_at = COALESCE(actual_start_at, NOW())`** instead of `readiness_pending` → the pin's start-path SQL test red (three matching lines across two functions, not two in `startCaseTx`) and its `readiness_pending` literal test red. The door must lead to a startable state, not do the starting. Revert.
+15. **Drop `actual_end_at = NULL` from the reopen UPDATE** → `'reopen: no reason is refused; a reason returns the case to readiness_pending with actual_end_at cleared…'` red on the cleared-column assertion, and `'reopen keeps the true first start…'` red with Postgres **23514** (`cath_lab_cases_actual_time_check`) on its second start. Note where the 23514 fires: for a case cancelled *before* it ever started, the reopen itself passes the CHECK (`actual_start_at IS NULL`) and the violation lands on the **next** `startCaseTx`. A test that only reopened and asserted the status would have stayed green — which is why the deep tests reopen *and then start*. Revert.
 
 - [ ] **Step 5: Staff and Admin gates**
 
@@ -2217,7 +2507,7 @@ gh pr create --repo Bahuleyandr/VH-Health-Platform --draft --base main --head fe
   --body-file "$SCRATCH/rr-pr-body.md"
 ```
 
-The PR body states: the spec path; the owner principle verbatim and the five decisions; **no migration** (the columns relied on, 767 unclaimed); that consent is the one hard block enforced in `assertReadinessComplete` reached only through `startCaseTx`, with the pin; the regime rule in one sentence each for pre- and post-start and the mutation that proves the scope; the two lifted refusals and decision 9's branch as resolved in Task 0; the report on both mounts and why; the named default `requested` is not start-eligible; **an "Open owner item: procedure record on a cancelled case" section carrying spec §10.2's dead-end sentence verbatim and the two companions (i)/(ii), with the answer the owner gave and which companion shipped — or, if it is still unanswered, a bold line that the PR is NOT complete**; the deep counts from both fresh-DB runs; the canary snapshot diff (two entries); OpenAPI regeneration; Staff strings pending OPEN-21; `Merge Gate` / `Full Merge Gate` by name with the head SHA **from the tier-verifying poller** once the canonical run lands (not `gh run watch`). End with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`. Hand back to dev-1b.
+The PR body states: the spec path; the owner principle verbatim and the owner decisions; **no migration** (the columns relied on, the reopen's reuse of an existing status, 767 unclaimed); that consent is the one hard block enforced in `assertReadinessComplete` reached only through `startCaseTx`, with the pin; the regime rule in one sentence each for pre- and post-start and the mutation that proves the scope; the two lifted refusals and decision 9's branch as resolved in Task 0; the report on both mounts and why; the named default `requested` is not start-eligible; **a "Decided: reopen door" section** — the owner's answer of 2026-09-06 (*refuse, but give it a door*; "deliberate, auditable, and nothing stranded"), the 409 `CATH_LAB_CASE_CANCELLED_REOPEN_REQUIRED` refusal, the audited `cancelled → readiness_pending` door with its mandatory reason and `cath_lab.case.reopened` audit row, why the parallel record path was rejected, and that `cancelled` is no longer terminal with the reader survey from Task 0 Step 6 summarised in a line; the deep counts from both fresh-DB runs; the canary snapshot diff (two entries — the reopen is a POST and adds none); OpenAPI regeneration; Staff strings pending OPEN-21; `Merge Gate` / `Full Merge Gate` by name with the head SHA **from the tier-verifying poller** once the canonical run lands (not `gh run watch`). **There is no open-items section: nothing is open.** End with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`. Hand back to dev-1b.
 
 - [ ] **Step 8: Drop the scratch DBs** — `dropdb -h 127.0.0.1 -p 55432 vh_crr_<initials>` (and `_1`, `_2`).
 
@@ -2225,7 +2515,7 @@ The PR body states: the spec path; the owner principle verbatim and the five dec
 
 ## Self-review against the spec
 
-- §3.1 / §4.3 consent as the one hard block, weakened `assertReadinessComplete`, `CATH_LAB_CONSENT_REQUIRED`, `pass` only, `required` ignored, both paths, hazards (i)/(ii), the pin — two caller counts, the SQL-shape count inside `cath_lab_cases` literals, the four-pair `SET status =` allow-list, the absent `CATH_LAB_READINESS_BLOCKED`: Task 2 Steps 3–4, 8–10; the stray-UPDATE mutation: Task 8 Step 4 item 12; deep trio per path: Task 3 Step 7.
+- §3.1 / §4.3 consent as the one hard block, weakened `assertReadinessComplete`, `CATH_LAB_CONSENT_REQUIRED`, `pass` only, `required` ignored, both paths, hazards (i)/(ii), the pin — two caller counts, the SQL-shape count inside `cath_lab_cases` literals, the **five**-pair `SET status =` allow-list, the two door pins, the absent `CATH_LAB_READINESS_BLOCKED`: Task 2 Steps 3–4, 9–11; the stray-UPDATE mutation: Task 8 Step 4 item 12; deep trio per path: Task 3 Step 7.
 - §3.2 / §4.2 one start path, snapshot, canonical event, audit row with `urgency` + `facility_id`: Task 2 Step 4.
 - §3.3 / §4.1 transitions `scheduled|readiness_pending|ready`, derived `START_ELIGIBLE_STATUSES`, `requested` excluded: Task 2 Step 3.
 - §3.4 reason on the explicit start only: Task 2 Step 4 (the `via === 'status'` guard) and the procedure-log unit/deep tests.
@@ -2234,10 +2524,11 @@ The PR body states: the spec path; the owner principle verbatim and the five dec
 - §3.9 / §5.3 refusals lifted, STAT, audit keys, decision 9: Task 3 Steps 3, 6.
 - §3.10 / §6.4 reason projection + canary: Task 4 Steps 3, 7; report projection: Task 5 Step 3.
 - §3.11 / §7 report on both mounts, role constant, IST month, CSV, OpenAPI, canary snapshot (+2), Admin tab: Task 5; Task 7.
-- §4.2 procedure log on `completed` / `in_progress` (an amendment, the case untouched): Task 2 Step 5, unit + deep. §10.2 the `cancelled` case is the **open owner item**, gated in Task 0 Step 6, placeholder refusal behind `REFUSE_PROCEDURE_LOG_ON_CANCELLED` in Task 2 Step 5, both companions' code in Task 0 Step 6.
+- §4.2 procedure log on `completed` / `in_progress` (an amendment, the case untouched): Task 2 Step 6, unit + deep.
+- §3.13 / §4.8 the reopen door — `CASE_TRANSITIONS.cancelled = ['readiness_pending']`, `REOPENABLE_STATUSES` / `REOPEN_TARGET_STATUS`, `reopenCaseTx` (mandatory reason, `actual_end_at` cleared, `actual_start_at` kept, `cath_lab.case.reopened` audit row, `cath_lab.case_reopened` canonical event), the route with `cath_lab_case_reopen` idempotency and the cancel path's guard chain, and the 409 `CATH_LAB_CASE_CANCELLED_REOPEN_REQUIRED` refusal that names it: Task 2 Steps 3, 5, 6 and their unit tests in Step 1; the two door pins in Step 9; deep arc (refusal → reason → reopen → consent gate → start, plus the preserved first start and the idempotent replay) in Task 3 Step 7; OpenAPI prose-only operation in Task 4 Step 6; Staff affordance in Task 6; mutations 13–15 in Task 8 Step 4; the `cancelled`-is-no-longer-terminal reader survey in Task 0 Step 6.
 - §5.1 refresh predicate: Task 3 Step 4; §5.5 case status untouched: the sign-off deep test.
 - §6.1 contract keys; §6.2 day-list flag; §6.3 Staff banners/chips/gates/start row/consent chooser: Task 4 Steps 5–6; Task 6.
-- §8 no migration, reserved key at create, `caseRowTx` reads the JSON path: Task 0 Step 4; Task 2 Step 6; Task 3 Step 4.
-- §9 codes: `CATH_LAB_CONSENT_REQUIRED`, `CATH_LAB_START_REASON_REQUIRED`, `CATH_LAB_REPORT_MONTH_INVALID`, `CATH_LAB_START_VIA_INVALID` (internal, from `buildStartSnapshot`), none `CATH_LAB_READINESS_`-prefixed.
+- §8 no migration, reserved key at create, `caseRowTx` reads the JSON path: Task 0 Step 4; Task 2 Step 7; Task 3 Step 4. The reopen adds none either — `readiness_pending` is already in migration 482's status CHECK and `actual_end_at` is already nullable (Task 0 Step 6 confirms both).
+- §9 codes: `CATH_LAB_CONSENT_REQUIRED`, `CATH_LAB_START_REASON_REQUIRED`, `CATH_LAB_CASE_CANCELLED_REOPEN_REQUIRED` (409), `CATH_LAB_REOPEN_REASON_REQUIRED`, `CATH_LAB_REPORT_MONTH_INVALID`, `CATH_LAB_START_VIA_INVALID` (internal, from `buildStartSnapshot`), none `CATH_LAB_READINESS_`-prefixed.
 - §12 gates and hand-back: Task 8.
-- Type consistency: `startCaseTx(tx, { tenantId, cathCase, reason, via, procedureLogId, context })` returns `{ updated, snapshot }` in Task 2 and is called that way from both callers; `computeCheckDecision({ items, settings, check, caseRow })` keeps its signature; `resolveItemState({ …, caseStartedAt })` keeps #1018's; `buildStartSnapshot` / `START_SNAPSHOT_KEYS` are the same names in the rules module, `cathLabService`, the overlay and the unit tests; `startsWithPendingReport({ tenantId, month })`, `projectReportForRole(report, role)`, `reportToCsv(report)` are used identically by the handler, the unit test and the deep test; the Staff `CathReadinessDependencies.startCase` matches `CathLabApiService.startCase(int, {String? reason})`.
+- Type consistency: `startCaseTx(tx, { tenantId, cathCase, reason, via, procedureLogId, context })` returns `{ updated, snapshot }` in Task 2 and is called that way from both callers; `reopenCaseTx(tx, { tenantId, cathCase, reason, context })` returns `{ updated }` and has exactly one caller, the exported `reopenCase(caseId, { tenantId, reason }, context)`, which the route calls and the deep tests import; `computeCheckDecision({ items, settings, check, caseRow })` keeps its signature; `resolveItemState({ …, caseStartedAt })` keeps #1018's; `buildStartSnapshot` / `START_SNAPSHOT_KEYS` are the same names in the rules module, `cathLabService`, the overlay and the unit tests; `startsWithPendingReport({ tenantId, month })`, `projectReportForRole(report, role)`, `reportToCsv(report)` are used identically by the handler, the unit test and the deep test; the Staff `CathReadinessDependencies.startCase` matches `CathLabApiService.startCase(int, {String? reason})` and `.reopenCase` matches `CathLabApiService.reopenCase(int, {required String reason})`.
