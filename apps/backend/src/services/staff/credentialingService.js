@@ -11,6 +11,11 @@ import { normalizeUploadMimeType } from '../../middleware/uploadMiddleware.js';
 import { screenUploadBuffer } from '../security/fileScanService.js';
 import { uploadFileToR2 } from '../../utils/r2Storage.js';
 import { AppError } from '../../utils/AppError.js';
+import {
+  calendarDateMs,
+  calendarDayStartMs,
+  calendarDaysUntil,
+} from '../../utils/calendarDate.js';
 import { notificationOutbox } from '../../utils/notifications/notificationOutbox.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
@@ -637,9 +642,12 @@ export async function scanCredentialExpiryAlerts({ tenantId = null, days = 60 } 
     if (row.valid_until) targets.push({ kind: 'credential_expiry', date: row.valid_until });
     if (row.renewal_due_at) targets.push({ kind: 'renewal_due', date: row.renewal_due_at });
     for (const target of targets) {
-      const due = new Date(target.date);
-      const today = new Date(new Date().toDateString());
-      const daysRemaining = Math.ceil((due.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+      // valid_until and renewal_due_at are DATE columns: whole ward days from
+      // today to the due day, counted on the calendar-date rail. The old
+      // subtraction mixed the driver's UTC-midnight Date with local midnight
+      // from the PROCESS zone, so on Asia/Kolkata every alert was rounded up by
+      // a day and the severity band came a day early.
+      const daysRemaining = calendarDaysUntil(target.date, new Date());
       const severity = severityForDaysRemaining(daysRemaining);
       const inserted = await prisma.$queryRawUnsafe(
         `INSERT INTO credential_expiry_alerts
@@ -758,7 +766,17 @@ export async function hasActivePrivilege(staffUid, privilegeName, { tenantId = n
     tenantOr(tenantId), maybeUuid(staffUid, 'staff_uid'), key, String(privilegeName).trim(),
   );
   if (!rows.length) return { allowed: false, reason: 'privilege_not_held', privilege_key: key };
-  if (rows[0].valid_until && new Date(rows[0].valid_until) < new Date(new Date().toDateString())) {
+  // staff_credentials.valid_until is a DATE, so this is a day compared with the
+  // ward's today through the calendar-date rail, not a Date compared with the
+  // process clock's local midnight.
+  //
+  // PERMISSIVE on absence, faithfully: the line this replaces carried an
+  // explicit `rows[0].valid_until &&` guard, which means a credential with NO
+  // valid_until is one that does not expire — so `Number.isFinite(...) &&` is
+  // the honest conversion here and `== null ||` would be a new denial. That
+  // choice is the one PR #881/#882 turned on, in the other direction.
+  const validUntilMs = calendarDateMs(rows[0].valid_until);
+  if (Number.isFinite(validUntilMs) && validUntilMs < calendarDayStartMs(new Date())) {
     return { allowed: false, reason: 'privilege_expired', privilege_key: key };
   }
   return { allowed: true, reason: null, privilege_key: rows[0].privilege_key || key };

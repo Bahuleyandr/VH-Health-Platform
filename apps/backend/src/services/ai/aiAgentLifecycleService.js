@@ -19,6 +19,7 @@ import crypto from 'crypto';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { calendarDaysUntil } from '../../utils/calendarDate.js';
 import { publishEvent } from '../events/eventOutboxService.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { getClinicalAiModule } from './clinicalAiModuleService.js';
@@ -916,14 +917,17 @@ export async function recordAgentHealth({
   const lastSeenDate = lastSeenAt
     ? new Date(lastSeenAt)
     : (registryRow?.last_seen_at ? new Date(registryRow.last_seen_at) : null);
-  const expiryDate = registryRow?.expiry_date ? new Date(registryRow.expiry_date) : null;
+  // clinical_ai_agent_registry.expiry_date is a DATE. It is NOT turned into an
+  // instant here: daysToExpiry below counts whole ward days on the
+  // calendar-date rail, because the band it feeds (EXPIRED / EXPIRY_IMMINENT ->
+  // quarantine) is a statement about days, and reading the driver's UTC-midnight
+  // Date as an instant moved that band by up to a day on a +05:30 facility.
 
   const daysSinceLastSeen = lastSeenDate && !Number.isNaN(lastSeenDate.getTime())
     ? daysBetween(lastSeenDate, todayDate)
     : null;
-  const daysToExpiry = expiryDate && !Number.isNaN(expiryDate.getTime())
-    ? daysBetween(todayDate, expiryDate)
-    : null;
+  const daysToExpiryRaw = calendarDaysUntil(registryRow?.expiry_date ?? null, todayDate);
+  const daysToExpiry = Number.isFinite(daysToExpiryRaw) ? daysToExpiryRaw : null;
 
   const successRatePct = computeSuccessRate({ successCount: sucCount, invocationCount: invCount });
   const errorRatePct = computeErrorRate({ errorCount: errCount, invocationCount: invCount });
