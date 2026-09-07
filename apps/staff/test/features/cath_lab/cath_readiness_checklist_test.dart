@@ -338,7 +338,7 @@ void main() {
       // "critical": the backend files this as a safety review whose override
       // reason is whatever is typed below.
       expect(
-        find.textContaining('Critical value present: Potassium'),
+        find.textContaining('Critical values present: Potassium'),
         findsOneWidget,
       );
 
@@ -397,12 +397,13 @@ void main() {
       await _chooseStatus(tester, 'labs', 'Pass');
       expect(
         find.text(
-          'A critical value is present. Give a reason for passing this check.',
+          'A critical value is present. Give a reason for marking this '
+          'check as "Pass" despite the critical result.',
         ),
         findsOneWidget,
       );
       // Never the named line with an empty slot in it.
-      expect(find.textContaining('Critical value present:'), findsNothing);
+      expect(find.textContaining('Critical values present:'), findsNothing);
 
       // The gate is the same gate: an unnamed critical value still cannot be
       // passed without a reason.
@@ -445,11 +446,12 @@ void main() {
       await _chooseStatus(tester, 'labs', 'Pass');
       expect(
         find.text(
-          'A critical value is present. Give a reason for passing this check.',
+          'A critical value is present. Give a reason for marking this '
+          'check as "Pass" despite the critical result.',
         ),
         findsOneWidget,
       );
-      expect(find.textContaining('Critical value present:'), findsNothing);
+      expect(find.textContaining('Critical values present:'), findsNothing);
       expect(find.text('Reason'), findsOneWidget);
     },
   );
@@ -666,7 +668,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(sent, isNull);
-      expect(find.text('Choose a result'), findsOneWidget);
+      expect(find.text('A result is required'), findsOneWidget);
       expect(find.byKey(const ValueKey('cath-external-save')), findsOneWidget);
     },
   );
@@ -717,7 +719,7 @@ void main() {
     // The report date drives the freshness rule behind auto-pass, so a blank
     // one must not be silently read as "today".
     expect(sent, isNull);
-    expect(find.text('Choose the report date'), findsOneWidget);
+    expect(find.text('Report date is required'), findsOneWidget);
   });
 
   testWidgets('a quantitative outside result sends the number twice with a '
@@ -759,10 +761,20 @@ void main() {
       'City Path Lab',
     );
     await _pickReportDate(tester);
+    // The sheet scrolls, and the report-reference field carries a help line,
+    // so the button can sit below the fold: scroll to it rather than tapping
+    // an offset that may miss. A missed tap would leave `sent` null and make
+    // the refusal below pass without the sheet ever refusing anything.
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('cath-external-save')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('cath-external-save')));
     await tester.pumpAndSettle();
     expect(sent, isNull);
     expect(find.byKey(const ValueKey('cath-external-save')), findsOneWidget);
+    // The validator ran and said why, which is what proves the tap landed.
+    expect(find.text('Enter a number of 0 or more'), findsOneWidget);
 
     // `9.40` is the same haemoglobin as `9.4`: the display value is rendered
     // from the parsed number, not from the keystrokes.
@@ -770,6 +782,10 @@ void main() {
       find.byKey(const ValueKey('cath-external-value')),
       '9.40',
     );
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('cath-external-save')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('cath-external-save')));
     await tester.pumpAndSettle();
 

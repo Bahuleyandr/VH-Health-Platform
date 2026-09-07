@@ -523,18 +523,38 @@ class _UsageCard extends StatelessWidget {
                       color: AppTheme.textSecondary,
                     ),
                   if (usage.deviceExposureFlag)
-                    _UsageChip(
+                    // "Exposure" alone is short enough for a chip but not
+                    // self-explanatory; a screen reader gets the whole fact
+                    // instead of the abbreviation, and the line below the
+                    // chips carries it for everyone else.
+                    Semantics(
+                      container: true,
+                      excludeSemantics: true,
                       label: s.lookup(
-                        's4.lib.cath_lab.consumables.exposure_badge',
+                        's4.lib.cath_lab.consumables.exposure_badge_detail',
                       ),
-                      color: AppTheme.errorRed,
-                      // The brand red is tuned for a filled surface; body text
-                      // on the 12%-alpha chip needs the on-surface token to
-                      // clear WCAG AA in both themes.
-                      textColor: AppTheme.errorOnSurface,
+                      child: _UsageChip(
+                        label: s.lookup(
+                          's4.lib.cath_lab.consumables.exposure_badge',
+                        ),
+                        color: AppTheme.errorRed,
+                        // The brand red is tuned for a filled surface; body
+                        // text on the 12%-alpha chip needs the on-surface
+                        // token to clear WCAG AA in both themes.
+                        textColor: AppTheme.errorOnSurface,
+                      ),
                     ),
                 ],
               ),
+              if (usage.deviceExposureFlag) ...[
+                const SizedBox(height: 4),
+                Text(
+                  s.lookup('s4.lib.cath_lab.consumables.exposure_badge_detail'),
+                  key: ValueKey('cath-usage-exposure-detail-${usage.id}'),
+                  style: Theme.of(context).textTheme.bodySmall
+                      ?.copyWith(color: AppTheme.errorOnSurface),
+                ),
+              ],
             ],
             // The server recomputes what it will accept on every post-use
             // call; these buttons only mirror the last listing it sent.
@@ -718,9 +738,28 @@ class _PostUseSheetState extends State<_PostUseSheet> {
             widget.usage.itemName,
             style: Theme.of(context).textTheme.bodyMedium,
           ),
+          if (!_isReprocess) ...[
+            const SizedBox(height: 6),
+            // A "Discard" button is not a claim that disposal has happened:
+            // the sheet says what the confirmation actually does before the
+            // operator presses it.
+            Text(
+              s.lookup(
+                's4.lib.cath_lab.consumables.post_use_discard_explainer',
+              ),
+              key: const ValueKey('cath-post-use-discard-explainer'),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
           if (widget.restriction != null && !widget.restriction!.isClear) ...[
             const SizedBox(height: 12),
-            CathReuseRestrictionStrip(restriction: widget.restriction!),
+            // This is the one surface that holds BOTH the case-level
+            // restriction and the server's per-row `allowed_post_use`, so it
+            // is the only one that may state what the policy does about it.
+            CathReuseRestrictionStrip(
+              restriction: widget.restriction!,
+              postUseOptions: widget.options,
+            ),
           ],
           if (_isReprocess && _unitsMax > 1) ...[
             const SizedBox(height: 12),
