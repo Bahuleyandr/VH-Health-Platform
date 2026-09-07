@@ -550,7 +550,6 @@ device_vitals_control_ids.interface_message_id
 dialysis_intra_obs.session_id
 dialysis_machine_qa_logs.session_id
 dialysis_prescriptions.dialysis_patient_id
-dialysis_serology.dialysis_patient_id
 dialysis_session_events.session_id
 dialysis_sessions.dialysis_patient_id
 dialysis_sessions.prescription_id
