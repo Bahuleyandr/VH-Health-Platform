@@ -1164,8 +1164,8 @@ void main() {
           'A reactive blood-borne marker is on record; review the recorded '
           'reasons.',
       'policy':
-          'The current policy allows reprocessing only with an '
-          'acknowledgement.',
+          'Under the current policy, acknowledge the recorded reactive '
+          'marker and document a reason before requesting reprocessing.',
     },
     {
       // The DEVICE's own flag, not this patient's status: it also lands on

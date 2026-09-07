@@ -41,6 +41,23 @@ Reviewers should focus on high-risk wording first:
 - `apps/patient/lib/l10n/intl_te.arb`
 - `apps/patient/lib/l10n/intl_ml.arb`
 
+## Follow-ups
+
+Work items surfaced by a review but deliberately not done in the batch that surfaced them. Not a
+priority queue (those are review queues); this is a queue of engineering/process work a review
+identified as needed later.
+
+- **Shared localised device-status formatter used by device cards and messages** — added 2026-09-06
+  (Batch 1.1 owner decision, §3). The Staff app has no localised device-status label: the only place
+  a CSSD device status reaches the screen is `cathHumanize(_lookup!.device.status)` in
+  `cath_consumable_capture_sheet.dart`, which renders the raw backend enum as English (e.g.
+  "Discarded") in every locale. The ta/te/ml `post_use_device_already_discarded` messages quote the
+  recorded status in the target language even though the on-screen device-card label stays English —
+  accepted 2026-09-06 as a TEMPORARY EXCEPTION, not closed. This item is to build one shared
+  formatter that both the device cards and the post-use messages call, so the quoted status always
+  matches the on-screen label in every locale. Not scheduled; no owner sign-off yet on scope or
+  timing.
+
 ## Priority queue — added 2026-08-25 (re-audit lane L)
 
 The ABHA self-enrolment wizard
@@ -457,13 +474,18 @@ the per-usage-row `allowed_post_use`, which `computePostUseOptions`
 | Acknowledgement permitted by policy | `serology_unknown` (`unknown_serology_rule = 'warn'`) | Acknowledge this unresolved status before requesting reprocessing. |
 | Reprocessing blocked by policy | `serology_required` (`unknown_serology_rule = 'block_return'`) | Reprocessing is blocked under the current policy. |
 | Discard-only policy | `bloodborne_restricted` (`reactive_patient_rule = 'discard'`) | Devices used in this procedure must be marked for discard; do not send them for reprocessing. |
-| **PROPOSED** — override allowed | `bloodborne_restricted_override` (`reactive_patient_rule = 'override_allowed'`) | The current policy allows reprocessing only with an acknowledgement. |
+| Override allowed — owner-approved 2026-09-06 | `bloodborne_restricted_override` (`reactive_patient_rule = 'override_allowed'`) | Under the current policy, acknowledge the recorded reactive marker and document a reason before requesting reprocessing. |
 
 The owner's review offers a choice: restrict the discard sentence to the discard-only policy, **or**
 provide a separate policy-aware message. Both are taken. The discard sentence is now attached to the
 discard-only branch only, and the fourth policy the backend can reach (`override_allowed`) gets its
-own line — carried as PROPOSED English with the `// REVIEW:` flag in all five locale blocks, so a
-veto is a revert of five rows rather than a re-translation.
+own line — carried as PROPOSED English with the `// REVIEW:` flag in all five locale blocks pending
+owner decision, so a veto would be a revert of five rows rather than a re-translation. **Owner
+decision, 2026-09-06:** the reworded English above (and its four locale renderings) is APPROVED;
+applied via `apps/staff/scripts/i18n-review-apply.mjs` from `scratchpad/open21/b1_2/apply.jsonl`, and
+the `// REVIEW:` flag is removed from all five locale blocks. This reword documents behaviour the
+backend's `reactive_patient_rule = 'override_allowed'` branch already implements — it does not
+introduce or expand the `override_allowed` policy itself.
 
 **Selection is by `reason_codes`, not by the shape of `dispositions`.** Three different branches of
 `computePostUseOptions` collapse to `dispositions: ['discard']`: the patient's reactive marker under
@@ -520,6 +542,16 @@ confirmation whenever the disposition is `discard`.
 > The glossary's te Discarded form is aligned to the status form the message quotes
 > (`పారవేయబడింది`, replacing `పారవేసినట్లు`).
 
+> **Owner decision, 2026-09-06 — EXPLICITLY ACCEPTED TEMPORARY EXCEPTION.** The ta/te/ml
+> `post_use_device_already_discarded` wording above is accepted as-is: the quoted terms are
+> descriptions of the recorded status, not exact references to the current device-card label (the
+> device card has no localised status label to reference — see the finding above). The original
+> instruction to "quote the app's exact approved Discarded status label" is **NOT** marked satisfied
+> by this batch; it is held open as a temporary exception, not closed. Linked follow-up: "shared
+> localised device-status formatter used by device cards and messages" (tracked in
+> [Follow-ups](#follow-ups) below) — once that formatter exists, these three messages should quote
+> its output instead of an independently-worded description.
+
 ### §4 — retained, plus the two refinements
 
 Nothing on the retain list is reopened: final/preliminary head nouns, Telugu `క్రిటికల్`, lab
@@ -548,9 +580,9 @@ waived-state wording are all untouched by this batch. Two refinements are applie
   text.
 - **Proposed en #3 ("Observed {date}") is endorsed** and is already applied on this branch
   (`readiness.observed_line`, en + four locales, Batch 1). Proposed en #1 (`date_required` →
-  "Report date is required") and #2 (`result_required` → "A result is required") are **assumed
-  accepted**: the owner's review does not veto them, and this batch changes neither. A later veto on
-  either is a revert of that key's rows, not a re-translation.
+  "Report date is required") and #2 (`result_required` → "A result is required") are **EXPLICITLY
+  APPROVED by the owner 2026-09-06**: the owner's review does not veto them, and this batch changes
+  neither. A later veto on either is a revert of that key's rows, not a re-translation.
 - Glossary rationales are re-framed as CONSISTENCY / REGISTER decisions rather than corrections of
   intrinsic errors (a new "How to read the reason column" note in `docs/i18n/GLOSSARY.md`, plus the
   `जाँच → जांच` and `அலகு → யூனிட்` rows above). The Hindi `को` claim is
@@ -594,11 +626,11 @@ sentence, and the exposure badge's accessibility description.
 | `s4.lib.cath_lab.consumables.restriction_discard_only` | ta | _(new key)_ | இந்தச் செயல்முறையில் பயன்படுத்தப்பட்ட சாதனங்களை அப்புறப்படுத்துவதற்குக் குறிக்க வேண்டும்; அவற்றை மறுசெயலாக்கத்திற்கு அனுப்ப வேண்டாம். | §1 discard-only policy (`bloodborne_restricted`, `reactive_patient_rule = 'discard'`) — a required disposition, not a claim that disposal has happened |
 | `s4.lib.cath_lab.consumables.restriction_discard_only` | te | _(new key)_ | ఈ ప్రక్రియలో వాడిన పరికరాలను పారవేయడానికి గుర్తించాలి; వాటిని పునఃప్రాసెసింగ్‌కు పంపవద్దు. | §1 discard-only policy (`bloodborne_restricted`, `reactive_patient_rule = 'discard'`) — a required disposition, not a claim that disposal has happened |
 | `s4.lib.cath_lab.consumables.restriction_discard_only` | ml | _(new key)_ | ഈ പ്രൊസീജ്യറിൽ ഉപയോഗിച്ച ഉപകരണങ്ങൾ ഉപേക്ഷിക്കാൻ അടയാളപ്പെടുത്തണം; അവ പുനഃസംസ്കരണത്തിന് അയയ്ക്കരുത്. | §1 discard-only policy (`bloodborne_restricted`, `reactive_patient_rule = 'discard'`) — a required disposition, not a claim that disposal has happened |
-| `s4.lib.cath_lab.consumables.restriction_override_allowed` | en | _(new key)_ | The current policy allows reprocessing only with an acknowledgement. _(carries the `// REVIEW:` flag)_ | §1 PROPOSED English for `bloodborne_restricted_override` (`reactive_patient_rule = 'override_allowed'`) — awaiting owner decision |
-| `s4.lib.cath_lab.consumables.restriction_override_allowed` | hi | _(new key)_ | मौजूदा नीति के तहत पुनःसंसाधन केवल पुष्टि के साथ ही अनुमत है। _(carries the `// REVIEW:` flag)_ | §1 PROPOSED English for `bloodborne_restricted_override` (`reactive_patient_rule = 'override_allowed'`) — awaiting owner decision |
-| `s4.lib.cath_lab.consumables.restriction_override_allowed` | ta | _(new key)_ | தற்போதைய கொள்கையின்படி, உறுதிப்படுத்தலுடன் மட்டுமே மறுசெயலாக்கம் அனுமதிக்கப்படுகிறது. _(carries the `// REVIEW:` flag)_ | §1 PROPOSED English for `bloodborne_restricted_override` (`reactive_patient_rule = 'override_allowed'`) — awaiting owner decision |
-| `s4.lib.cath_lab.consumables.restriction_override_allowed` | te | _(new key)_ | ప్రస్తుత విధానం ప్రకారం, ధృవీకరణతో మాత్రమే పునఃప్రాసెసింగ్ అనుమతించబడుతుంది. _(carries the `// REVIEW:` flag)_ | §1 PROPOSED English for `bloodborne_restricted_override` (`reactive_patient_rule = 'override_allowed'`) — awaiting owner decision |
-| `s4.lib.cath_lab.consumables.restriction_override_allowed` | ml | _(new key)_ | നിലവിലെ നയപ്രകാരം, സ്ഥിരീകരണത്തോടെ മാത്രമേ പുനഃസംസ്കരണം അനുവദിക്കൂ. _(carries the `// REVIEW:` flag)_ | §1 PROPOSED English for `bloodborne_restricted_override` (`reactive_patient_rule = 'override_allowed'`) — awaiting owner decision |
+| `s4.lib.cath_lab.consumables.restriction_override_allowed` | en | _(new key)_ | Under the current policy, acknowledge the recorded reactive marker and document a reason before requesting reprocessing. _(owner-approved 2026-09-06; `// REVIEW:` flag removed)_ | §1 reworded English for `bloodborne_restricted_override` (`reactive_patient_rule = 'override_allowed'`) — owner-approved 2026-09-06 |
+| `s4.lib.cath_lab.consumables.restriction_override_allowed` | hi | _(new key)_ | मौजूदा नीति के तहत पुनःसंसाधन का अनुरोध करने से पहले, दर्ज रिएक्टिव मार्कर की जानकारी होने की पुष्टि करें और कारण दर्ज करें। _(owner-approved 2026-09-06; `// REVIEW:` flag removed)_ | §1 reworded English for `bloodborne_restricted_override` (`reactive_patient_rule = 'override_allowed'`) — owner-approved 2026-09-06 |
+| `s4.lib.cath_lab.consumables.restriction_override_allowed` | ta | _(new key)_ | தற்போதைய கொள்கையின்படி, மறுசெயலாக்கம் கோருவதற்கு முன், ரியாக்டிவ் மார்க்கர் பதிவாகியுள்ளதை அறிந்திருப்பதாக உறுதிப்படுத்தி, காரணத்தைப் பதிவு செய்யவும். _(owner-approved 2026-09-06; `// REVIEW:` flag removed)_ | §1 reworded English for `bloodborne_restricted_override` (`reactive_patient_rule = 'override_allowed'`) — owner-approved 2026-09-06 |
+| `s4.lib.cath_lab.consumables.restriction_override_allowed` | te | _(new key)_ | ప్రస్తుత విధానం ప్రకారం, పునఃప్రాసెసింగ్‌ను అభ్యర్థించే ముందు, నమోదైన రియాక్టివ్ మార్కర్ గురించి మీకు తెలిసినట్లు ధృవీకరించి, కారణాన్ని నమోదు చేయండి. _(owner-approved 2026-09-06; `// REVIEW:` flag removed)_ | §1 reworded English for `bloodborne_restricted_override` (`reactive_patient_rule = 'override_allowed'`) — owner-approved 2026-09-06 |
+| `s4.lib.cath_lab.consumables.restriction_override_allowed` | ml | _(new key)_ | നിലവിലെ നയപ്രകാരം, പുനഃസംസ്കരണം ആവശ്യപ്പെടുന്നതിന് മുമ്പ്, റിയാക്ടീവ് മാർക്കർ രേഖപ്പെടുത്തിയിട്ടുണ്ടെന്ന വിവരം അറിഞ്ഞതായി സ്ഥിരീകരിക്കുകയും കാരണം രേഖപ്പെടുത്തുകയും ചെയ്യുക. _(owner-approved 2026-09-06; `// REVIEW:` flag removed)_ | §1 reworded English for `bloodborne_restricted_override` (`reactive_patient_rule = 'override_allowed'`) — owner-approved 2026-09-06 |
 | `s4.lib.cath_lab.consumables.device_blocked` | ml | ഈ ഉപകരണത്തിൽ രക്തത്തിലൂടെ പകരുന്ന അണുബാധയുമായുള്ള സമ്പർക്കം സൂചിപ്പിക്കുന്ന മുന്നറിയിപ്പ് രേഖപ്പെടുത്തിയിട്ടുണ്ട്; ഇത് പുനരുപയോഗിക്കാനാവില്ല. | ഈ ഉപകരണത്തിന് രക്തജന്യ എക്സ്പോഷർ ഫ്ലാഗ് രേഖപ്പെടുത്തിയിട്ടുണ്ട്; പുനരുപയോഗം അനുവദനീയമല്ല | §2 ml replacement supplied verbatim by the owner: reports the recorded exposure flag, not contact with an infection |
 | `s4.lib.cath_lab.consumables.exposure_badge_detail` | en | _(new key)_ | A blood-borne exposure flag is recorded for this device. | §2 the full "blood-borne exposure flag" wording, rendered next to the badge and as the accessibility description — not a tooltip |
 | `s4.lib.cath_lab.consumables.exposure_badge_detail` | hi | _(new key)_ | इस उपकरण पर रक्तजनित एक्सपोज़र का चिह्न दर्ज है। | §2 the full "blood-borne exposure flag" wording, rendered next to the badge and as the accessibility description — not a tooltip |
@@ -644,11 +676,15 @@ sentence, and the exposure badge's accessibility description.
 
 Rows: 72 (en 13, hi 14, ta 16, te 14, ml 15).
 
-**Owner approval: pending, and this batch stays DRAFT and OWNER-GATED.** New in the approval packet
-for Batch 1.1: (A) the PROPOSED English `restriction_override_allowed` and its four renderings;
-(B) the assumption that proposed en #1 (`date_required`) and #2 (`result_required`) stand, since the
-review endorses #3 and vetoes neither; (C) the verification finding in §3 — the app has no localised
-Discarded status label to quote.
+**Owner approval: the three items new to Batch 1.1's approval packet were decided by the owner
+2026-09-06; PR #1013 stays DRAFT and OWNER-GATED regardless.** (A) `restriction_override_allowed` —
+APPROVED, reworded in all five locales (see §1 and the Changed/new keys table above), `// REVIEW:`
+flag removed; (B) proposed en #1 (`date_required`) and #2 (`result_required`) — EXPLICITLY APPROVED,
+no longer merely assumed (see §5); (C) the verification finding in §3 — recorded as an EXPLICITLY
+ACCEPTED TEMPORARY EXCEPTION, not as satisfying the original "quote the exact approved app label"
+requirement, with a linked follow-up tracked below. Batch 1's own base approval (the 96-key review
+noted above) remains separately pending. This 2026-09-06 approval does not introduce or expand the
+`override_allowed` policy: it approves wording for a backend behaviour that already exists.
 
 ---
 

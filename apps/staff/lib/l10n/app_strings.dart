@@ -8162,8 +8162,7 @@ class AppStrings {
       's4.lib.cath_lab.consumables.restriction_blocked':
           'Reprocessing is blocked under the current policy.',
       's4.lib.cath_lab.consumables.restriction_discard_only': 'Devices used in this procedure must be marked for discard; do not send them for reprocessing.',
-      // REVIEW: Batch 1.1 PROPOSED English (restricted + override_allowed) — awaiting owner decision; a veto reverts all five.
-      's4.lib.cath_lab.consumables.restriction_override_allowed': 'The current policy allows reprocessing only with an acknowledgement.',
+      's4.lib.cath_lab.consumables.restriction_override_allowed': 'Under the current policy, acknowledge the recorded reactive marker and document a reason before requesting reprocessing.',
       's4.lib.cath_lab.consumables.post_use_send': "Send to CSSD",
       's4.lib.cath_lab.consumables.post_use_discard': "Discard",
       's4.lib.cath_lab.consumables.post_use_units': "Units going to CSSD",
@@ -15736,9 +15735,7 @@ class AppStrings {
       's4.lib.cath_lab.consumables.restriction_blocked':
           'मौजूदा नीति के तहत पुनःसंसाधन अवरुद्ध है।',
       's4.lib.cath_lab.consumables.restriction_discard_only': 'इस प्रक्रिया में उपयोग किए गए उपकरणों को डिस्कार्ड के लिए चिह्नित करना होगा; उन्हें पुनःसंसाधन के लिए न भेजें।',
-      // REVIEW: Batch 1.1 PROPOSED English (restricted + override_allowed) — awaiting owner decision; a veto reverts all five.
-      's4.lib.cath_lab.consumables.restriction_override_allowed':
-          'मौजूदा नीति के तहत पुनःसंसाधन केवल पुष्टि के साथ ही अनुमत है।',
+      's4.lib.cath_lab.consumables.restriction_override_allowed': 'मौजूदा नीति के तहत पुनःसंसाधन का अनुरोध करने से पहले, दर्ज रिएक्टिव मार्कर की जानकारी होने की पुष्टि करें और कारण दर्ज करें।',
       's4.lib.cath_lab.consumables.post_use_send': "CSSD को भेजें",
       's4.lib.cath_lab.consumables.post_use_discard': "डिस्कार्ड करें",
       's4.lib.cath_lab.consumables.post_use_units': "CSSD को जाने वाली इकाइयां",
@@ -24649,8 +24646,7 @@ class AppStrings {
       's4.lib.cath_lab.consumables.restriction_blocked':
           'தற்போதைய கொள்கையின்படி மறுசெயலாக்கம் தடுக்கப்பட்டுள்ளது.',
       's4.lib.cath_lab.consumables.restriction_discard_only': 'இந்தச் செயல்முறையில் பயன்படுத்தப்பட்ட சாதனங்களை அப்புறப்படுத்துவதற்குக் குறிக்க வேண்டும்; அவற்றை மறுசெயலாக்கத்திற்கு அனுப்ப வேண்டாம்.',
-      // REVIEW: Batch 1.1 PROPOSED English (restricted + override_allowed) — awaiting owner decision; a veto reverts all five.
-      's4.lib.cath_lab.consumables.restriction_override_allowed': 'தற்போதைய கொள்கையின்படி, உறுதிப்படுத்தலுடன் மட்டுமே மறுசெயலாக்கம் அனுமதிக்கப்படுகிறது.',
+      's4.lib.cath_lab.consumables.restriction_override_allowed': 'தற்போதைய கொள்கையின்படி, மறுசெயலாக்கம் கோருவதற்கு முன், ரியாக்டிவ் மார்க்கர் பதிவாகியுள்ளதை அறிந்திருப்பதாக உறுதிப்படுத்தி, காரணத்தைப் பதிவு செய்யவும்.',
       's4.lib.cath_lab.consumables.post_use_send': "CSSD-க்கு அனுப்பு",
       's4.lib.cath_lab.consumables.post_use_discard': "அப்புறப்படுத்து",
       's4.lib.cath_lab.consumables.post_use_units':
@@ -33630,8 +33626,7 @@ class AppStrings {
       's4.lib.cath_lab.consumables.restriction_blocked':
           'ప్రస్తుత విధానం ప్రకారం పునఃప్రాసెసింగ్ నిరోధించబడింది.',
       's4.lib.cath_lab.consumables.restriction_discard_only': 'ఈ ప్రక్రియలో వాడిన పరికరాలను పారవేయడానికి గుర్తించాలి; వాటిని పునఃప్రాసెసింగ్‌కు పంపవద్దు.',
-      // REVIEW: Batch 1.1 PROPOSED English (restricted + override_allowed) — awaiting owner decision; a veto reverts all five.
-      's4.lib.cath_lab.consumables.restriction_override_allowed': 'ప్రస్తుత విధానం ప్రకారం, ధృవీకరణతో మాత్రమే పునఃప్రాసెసింగ్ అనుమతించబడుతుంది.',
+      's4.lib.cath_lab.consumables.restriction_override_allowed': 'ప్రస్తుత విధానం ప్రకారం, పునఃప్రాసెసింగ్‌ను అభ్యర్థించే ముందు, నమోదైన రియాక్టివ్ మార్కర్ గురించి మీకు తెలిసినట్లు ధృవీకరించి, కారణాన్ని నమోదు చేయండి.',
       's4.lib.cath_lab.consumables.post_use_send': "CSSDకి పంపండి",
       's4.lib.cath_lab.consumables.post_use_discard': "పారవేయండి",
       's4.lib.cath_lab.consumables.post_use_units': "CSSDకి వెళ్లే యూనిట్లు",
@@ -39472,9 +39467,7 @@ class AppStrings {
       's4.lib.cath_lab.consumables.restriction_blocked':
           'നിലവിലെ നയപ്രകാരം പുനഃസംസ്കരണം തടഞ്ഞിരിക്കുന്നു.',
       's4.lib.cath_lab.consumables.restriction_discard_only': 'ഈ പ്രൊസീജ്യറിൽ ഉപയോഗിച്ച ഉപകരണങ്ങൾ ഉപേക്ഷിക്കാൻ അടയാളപ്പെടുത്തണം; അവ പുനഃസംസ്കരണത്തിന് അയയ്ക്കരുത്.',
-      // REVIEW: Batch 1.1 PROPOSED English (restricted + override_allowed) — awaiting owner decision; a veto reverts all five.
-      's4.lib.cath_lab.consumables.restriction_override_allowed':
-          'നിലവിലെ നയപ്രകാരം, സ്ഥിരീകരണത്തോടെ മാത്രമേ പുനഃസംസ്കരണം അനുവദിക്കൂ.',
+      's4.lib.cath_lab.consumables.restriction_override_allowed': 'നിലവിലെ നയപ്രകാരം, പുനഃസംസ്കരണം ആവശ്യപ്പെടുന്നതിന് മുമ്പ്, റിയാക്ടീവ് മാർക്കർ രേഖപ്പെടുത്തിയിട്ടുണ്ടെന്ന വിവരം അറിഞ്ഞതായി സ്ഥിരീകരിക്കുകയും കാരണം രേഖപ്പെടുത്തുകയും ചെയ്യുക.',
       's4.lib.cath_lab.consumables.post_use_send': 'CSSD-ലേക്ക് അയയ്ക്കുക',
       's4.lib.cath_lab.consumables.post_use_discard': 'ഉപേക്ഷിക്കുക',
       's4.lib.cath_lab.consumables.post_use_units':
