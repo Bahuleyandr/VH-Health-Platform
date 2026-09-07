@@ -198,6 +198,13 @@ class _CathExternalResultSheetState extends State<CathExternalResultSheet> {
                   labelText: s.lookup(
                     's4.lib.cath_lab.readiness.external_report_ref',
                   ),
+                  // The column is free text: a reference like `LAB/2026/0041`
+                  // is as valid as a bare number, and the ta label (`அறிக்கை
+                  // எண்`) would otherwise read as digits-only.
+                  helperText: s.lookup(
+                    's4.lib.cath_lab.readiness.external_report_ref_help',
+                  ),
+                  helperMaxLines: 2,
                 ),
               ),
               const SizedBox(height: 12),

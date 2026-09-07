@@ -562,6 +562,13 @@ class _CathConsumableCaptureSheetState
                   hintText: s.lookup(
                     's4.lib.cath_lab.consumables.device_tag_hint',
                   ),
+                  // The field takes the identifier already printed on the
+                  // device (a wedge scanner types it here); it does not mint
+                  // a tag, so the help text says enter or scan.
+                  helperText: s.lookup(
+                    's4.lib.cath_lab.consumables.device_tag_help',
+                  ),
+                  helperMaxLines: 2,
                   suffixIcon: IconButton(
                     key: const ValueKey('cath-consumable-device-check'),
                     tooltip: s.lookup(
@@ -597,7 +604,7 @@ class _CathConsumableCaptureSheetState
                             'max': _lookup!.device.maxCycles + 1,
                           },
                         ),
-                        cathHumanize(_lookup!.device.status),
+                        cathDeviceStatusLabel(s, _lookup!.device.status),
                         // The tag is what the save actually sends, so it is
                         // stated on the card rather than left to the field
                         // above it.
@@ -607,6 +614,15 @@ class _CathConsumableCaptureSheetState
                         if (_lookup!.blocked)
                           s.lookup(
                             's4.lib.cath_lab.consumables.device_blocked',
+                          ),
+                        // The chip beside this card says only "Exposure".
+                        // When the block text is not there to explain it (an
+                        // override-allowed tenant), the card still spells the
+                        // flag out rather than leaving the badge to a colour.
+                        if (_lookup!.device.exposureFlag && !_lookup!.blocked)
+                          s.lookup(
+                            's4.lib.cath_lab.consumables'
+                            '.exposure_badge_detail',
                           ),
                         // Colour alone would leave an unusable-but-unblocked
                         // device looking merely decorated; say why it cannot
@@ -618,29 +634,38 @@ class _CathConsumableCaptureSheetState
                       ].join(' - '),
                     ),
                     trailing: _lookup!.device.exposureFlag
-                        ? Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.warning_amber_outlined,
-                                size: 18,
-                                color: AppTheme.errorOnSurface,
-                                semanticLabel: s.lookup(
-                                  's4.lib.cath_lab.consumables.exposure_badge',
-                                ),
-                              ),
-                              const SizedBox(width: 4),
-                              Text(
-                                s.lookup(
-                                  's4.lib.cath_lab.consumables.exposure_badge',
-                                ),
-                                style: TextStyle(
+                        ? Semantics(
+                            container: true,
+                            excludeSemantics: true,
+                            // A screen reader gets the flag spelled out; the
+                            // sighted operator gets the short badge plus the
+                            // subtitle line above.
+                            label: s.lookup(
+                              's4.lib.cath_lab.consumables'
+                              '.exposure_badge_detail',
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.warning_amber_outlined,
+                                  size: 18,
                                   color: AppTheme.errorOnSurface,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w700,
                                 ),
-                              ),
-                            ],
+                                const SizedBox(width: 4),
+                                Text(
+                                  s.lookup(
+                                    's4.lib.cath_lab.consumables'
+                                    '.exposure_badge',
+                                  ),
+                                  style: TextStyle(
+                                    color: AppTheme.errorOnSurface,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
                           )
                         : null,
                   ),

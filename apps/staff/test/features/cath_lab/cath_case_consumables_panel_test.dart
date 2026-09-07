@@ -1,11 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_staff/features/cath_lab/models/cath_consumable_models.dart';
 import 'package:vhhealth_staff/features/cath_lab/services/cath_lab_api_service.dart';
 import 'package:vhhealth_staff/features/cath_lab/widgets/cath_case_consumables_panel.dart';
+import 'package:vhhealth_staff/features/cath_lab/widgets/cath_consumable_formatting.dart';
 import 'package:vhhealth_staff/features/cath_lab/widgets/cath_reuse_restriction_strip.dart';
+import 'package:vhhealth_staff/l10n/app_strings.dart';
 
 const _cathCase = CathLabCaseSummary(
   id: 42,
@@ -59,8 +62,16 @@ const _batch = CathInventoryBatch(
 Widget _wrap(
   CathConsumableDependencies dependencies, {
   CathLabCaseSummary cathCase = _cathCase,
+  Locale locale = const Locale('en'),
 }) {
   return MaterialApp(
+    locale: locale,
+    localizationsDelegates: const [
+      GlobalMaterialLocalizations.delegate,
+      GlobalWidgetsLocalizations.delegate,
+      GlobalCupertinoLocalizations.delegate,
+    ],
+    supportedLocales: AppStrings.supportedLocales,
     home: Scaffold(
       body: SingleChildScrollView(
         child: CathCaseConsumablesPanel(
@@ -110,6 +121,16 @@ Future<List<CathConsumableCatalogItem>> _trackedSearch({
 }
 
 void main() {
+  test('unknown device statuses fall back to humanized backend values', () {
+    expect(
+      cathDeviceStatusLabel(
+        AppStrings.forLocale(const Locale('ta')),
+        'quality_hold',
+      ),
+      'Quality Hold',
+    );
+  });
+
   testWidgets('ready cases open capture in locked wastage-only mode', (
     tester,
   ) async {
@@ -916,58 +937,141 @@ void main() {
     expect(keys.first, startsWith('cath-post-use-21:'));
   });
 
-  testWidgets('a device CSSD already discarded is reported as such', (
-    tester,
-  ) async {
-    final deps = CathConsumableDependencies(
-      loadConsumables: (_) async => CathCaseConsumablesPayload(
-        usage: [
-          CathCaseConsumableUsage.fromJson({
-            'id': 22,
-            'case_id': 42,
-            'catalog_item_id': 10,
-            'item_name': 'Diagnostic catheter',
-            'quantity': 1,
-            'allowed_post_use': {
-              'dispositions': ['reprocess'],
-              'requires_acknowledgement': false,
-              'exposure': false,
-              'reason_codes': <String>[],
-              'units_max': 1,
-            },
-          }),
-        ],
-        restriction: const CathReuseRestriction(
-          status: 'clear',
-          reasons: [],
-          validityDays: 90,
-        ),
-        reprocessableCategories: const {'catheter'},
-      ),
-      recordPostUse:
-          (caseId, usageId, draft, {required idempotencyKey}) async =>
-              const CathPostUseResult(
-                usageId: 22,
-                disposition: 'discarded',
-                deviceTags: ['RP00000022'],
-                deviceAlreadyDiscarded: true,
-              ),
-      scanCode: () async => null,
-    );
+  for (final locale in AppStrings.supportedLocales) {
+    testWidgets(
+      'device card and quoted status stay aligned in ${locale.languageCode}',
+      (tester) async {
+        final strings = AppStrings.forLocale(locale);
+        final discardedLabel = strings.lookup(
+          's4.lib.cath_lab.device_status.discarded',
+        );
+        final cardDependencies = CathConsumableDependencies(
+          loadConsumables: (_) async => const CathCaseConsumablesPayload(
+            usage: [],
+            restriction: CathReuseRestriction(
+              status: 'clear',
+              reasons: [],
+              validityDays: 90,
+            ),
+            reprocessableCategories: {'catheter'},
+          ),
+          searchCatalog: ({required caseId, query, scan}) async => const [
+            _untrackedItem,
+          ],
+          loadBatches: (_, {required caseId}) async => const [],
+          lookupDevice: (_, tag) async => CathDeviceLookup(
+            device: CathReprocessableDevice(
+              id: 9,
+              deviceTag: tag,
+              itemName: 'Diagnostic catheter',
+              category: 'catheter',
+              status: 'discarded',
+              cycleCount: 1,
+              maxCycles: 3,
+              exposureFlag: false,
+              exposureMarkers: const [],
+            ),
+            reprocessable: true,
+            cyclesRemaining: 2,
+            requiresAcknowledgement: false,
+            blocked: false,
+          ),
+          scanCode: () async => null,
+        );
 
-    await tester.pumpWidget(_wrap(deps));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('cath-post-use-reprocess-22')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('cath-post-use-confirm')));
-    await tester.pumpAndSettle();
+        await tester.pumpWidget(_wrap(cardDependencies, locale: locale));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('cath-consumables-add-42')));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const ValueKey('cath-consumable-search')),
+          'cath',
+        );
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey('cath-consumable-option-10')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.text(strings.lookup('s4.lib.cath_lab.consumables.mode_reused')),
+        );
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const ValueKey('cath-consumable-device-tag')),
+          'RP00000042',
+        );
+        await tester.tap(
+          find.byKey(const ValueKey('cath-consumable-device-check')),
+        );
+        await tester.pumpAndSettle();
 
-    expect(
-      find.textContaining('Device was already discarded by CSSD'),
-      findsOneWidget,
+        final card = find.byKey(const ValueKey('cath-consumable-device-card'));
+        expect(card, findsOneWidget);
+        expect(
+          find.descendant(
+            of: card,
+            matching: find.textContaining(discardedLabel),
+          ),
+          findsOneWidget,
+        );
+
+        final messageDependencies = CathConsumableDependencies(
+          loadConsumables: (_) async => CathCaseConsumablesPayload(
+            usage: [
+              CathCaseConsumableUsage.fromJson({
+                'id': 22,
+                'case_id': 42,
+                'catalog_item_id': 10,
+                'item_name': 'Diagnostic catheter',
+                'quantity': 1,
+                'allowed_post_use': {
+                  'dispositions': ['reprocess'],
+                  'requires_acknowledgement': false,
+                  'exposure': false,
+                  'reason_codes': <String>[],
+                  'units_max': 1,
+                },
+              }),
+            ],
+            restriction: const CathReuseRestriction(
+              status: 'clear',
+              reasons: [],
+              validityDays: 90,
+            ),
+            reprocessableCategories: const {'catheter'},
+          ),
+          recordPostUse:
+              (caseId, usageId, draft, {required idempotencyKey}) async =>
+                  const CathPostUseResult(
+                    usageId: 22,
+                    disposition: 'discarded',
+                    deviceTags: ['RP00000022'],
+                    deviceAlreadyDiscarded: true,
+                  ),
+          scanCode: () async => null,
+        );
+
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+        await tester.pumpWidget(_wrap(messageDependencies, locale: locale));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey('cath-post-use-reprocess-22')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('cath-post-use-confirm')));
+        await tester.pumpAndSettle();
+
+        final expectedMessage = strings.format(
+          's4.lib.cath_lab.consumables.post_use_device_already_discarded',
+          {'status': discardedLabel},
+        );
+        expect(expectedMessage, contains('"$discardedLabel"'));
+        expect(find.textContaining(expectedMessage), findsOneWidget);
+      },
     );
-    expect(find.textContaining('Post-use recorded'), findsNothing);
-  });
+  }
 
   testWidgets('discard needs no acknowledgement even when reprocess would', (
     tester,
@@ -1109,5 +1213,296 @@ void main() {
     expect(find.text('Syphilis reactive'), findsOneWidget);
     expect(find.text('HTLV reactive'), findsNothing);
     expect(find.text('+2 more'), findsOneWidget);
+  });
+  // The policy sentence is chosen from `reason_codes`, which name the BRANCH
+  // of `computePostUseOptions`
+  // (apps/backend/src/services/clinical/cathDeviceReuseService.js:86) that
+  // produced the row. Every branch that can reach a non-clear patient is
+  // covered here, including the two that must stay SILENT: three branches
+  // collapse to `dispositions: ['discard']`, and only one of them is a claim
+  // about "devices used in this procedure".
+  for (final probe in const <Map<String, Object?>>[
+    {
+      'name': 'unknown + warn asks for an acknowledgement',
+      'status': 'unknown',
+      'codes': ['serology_unknown'],
+      'dispositions': ['reprocess', 'discard'],
+      'ack': true,
+      'blocked': null,
+      'headline': 'Serology status is unresolved; review the recorded reasons.',
+      'policy':
+          'Acknowledge this unresolved status before requesting reprocessing.',
+    },
+    {
+      'name': 'unknown + block_return blocks the return',
+      'status': 'unknown',
+      'codes': ['serology_required'],
+      'dispositions': ['discard'],
+      'ack': false,
+      'blocked': 'CATH_REPROCESSING_SEROLOGY_REQUIRED',
+      'headline': 'Serology status is unresolved; review the recorded reasons.',
+      'policy': 'Reprocessing is blocked under the current policy.',
+    },
+    {
+      'name': 'restricted + discard is discard-only',
+      'status': 'restricted',
+      'codes': ['bloodborne_restricted'],
+      'dispositions': ['discard'],
+      'ack': false,
+      'blocked': null,
+      'headline':
+          'A reactive blood-borne marker is on record; review the recorded '
+          'reasons.',
+      'policy':
+          'Devices used in this procedure must be marked for discard; do not '
+          'send them for reprocessing.',
+    },
+    {
+      'name': 'restricted + override_allowed offers reprocessing',
+      'status': 'restricted',
+      'codes': ['bloodborne_restricted_override'],
+      'dispositions': ['reprocess', 'discard'],
+      'ack': true,
+      'blocked': null,
+      'headline':
+          'A reactive blood-borne marker is on record; review the recorded '
+          'reasons.',
+      'policy':
+          'Under the current policy, acknowledge the recorded reactive '
+          'marker and document a reason before requesting reprocessing.',
+    },
+    {
+      // The DEVICE's own flag, not this patient's status: it also lands on
+      // `dispositions: ['discard']`, but it is a fact about one device and a
+      // case-wide "devices used in this procedure" sentence would overclaim.
+      'name': 'the device exposure branch says nothing about the case',
+      'status': 'restricted',
+      'codes': ['device_exposure_flagged'],
+      'dispositions': ['discard'],
+      'ack': false,
+      'blocked': null,
+      'headline':
+          'A reactive blood-borne marker is on record; review the recorded '
+          'reasons.',
+      'policy': null,
+    },
+    {
+      'name': 'the cycle-ceiling branch says nothing about the case',
+      'status': 'unknown',
+      'codes': ['max_cycles_reached'],
+      'dispositions': ['discard'],
+      'ack': false,
+      'blocked': null,
+      'headline': 'Serology status is unresolved; review the recorded reasons.',
+      'policy': null,
+    },
+    {
+      'name': 'a non-reprocessable row says nothing about the case',
+      'status': 'unknown',
+      'codes': ['not_reprocessable'],
+      'dispositions': <String>[],
+      'ack': false,
+      'blocked': null,
+      'headline': 'Serology status is unresolved; review the recorded reasons.',
+      'policy': null,
+    },
+  ]) {
+    testWidgets('restriction strip: ${probe['name']}', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: CathReuseRestrictionStrip(
+              restriction: CathReuseRestriction(
+                status: probe['status']! as String,
+                reasons: const ['HCV not on record'],
+                validityDays: 90,
+              ),
+              postUseOptions: CathPostUseOptions(
+                dispositions: probe['dispositions']! as List<String>,
+                requiresAcknowledgement: probe['ack']! as bool,
+                exposure: false,
+                reasonCodes: probe['codes']! as List<String>,
+                unitsMax: 1,
+                blockedCode: probe['blocked'] as String?,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // The headline is what `reuse_restriction` itself guarantees, and it
+      // shows whatever the policy turns out to be.
+      expect(find.text(probe['headline']! as String), findsOneWidget);
+
+      final policy = probe['policy'] as String?;
+      final line = find.byKey(const ValueKey('cath-reuse-restriction-policy'));
+      if (policy == null) {
+        expect(line, findsNothing);
+      } else {
+        expect(line, findsOneWidget);
+        expect(find.text(policy), findsOneWidget);
+      }
+    });
+  }
+
+  testWidgets('a strip with no post-use row states no policy at all', (
+    tester,
+  ) async {
+    // The case header, the panel header and the capture sheet have no
+    // `allowed_post_use` to read, and the reprocessing decision has not been
+    // reached there anyway: the strip never guesses.
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: CathReuseRestrictionStrip(
+            restriction: CathReuseRestriction(
+              status: 'restricted',
+              reasons: ['HBsAg reactive'],
+              validityDays: 90,
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+        'A reactive blood-borne marker is on record; review the recorded '
+        'reasons.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('cath-reuse-restriction-policy')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('the post-use sheet is where the policy sentence renders', (
+    tester,
+  ) async {
+    final deps = CathConsumableDependencies(
+      loadConsumables: (_) async => CathCaseConsumablesPayload(
+        usage: [
+          CathCaseConsumableUsage.fromJson({
+            'id': 31,
+            'case_id': 42,
+            'catalog_item_id': 10,
+            'item_name': 'Diagnostic catheter',
+            'quantity': 1,
+            'allowed_post_use': {
+              'dispositions': ['discard'],
+              'requires_acknowledgement': false,
+              'exposure': false,
+              'discard_reason': 'bloodborne_exposure',
+              'reason_codes': ['bloodborne_restricted'],
+              'units_max': 1,
+            },
+          }),
+        ],
+        restriction: const CathReuseRestriction(
+          status: 'restricted',
+          reasons: ['HBsAg reactive'],
+          validityDays: 90,
+        ),
+        reprocessableCategories: const {'catheter'},
+      ),
+      scanCode: () async => null,
+    );
+
+    await tester.pumpWidget(_wrap(deps));
+    await tester.pumpAndSettle();
+
+    // Nothing on the panel itself may claim a policy: only the sheet holds
+    // both the restriction and the server's per-row `allowed_post_use`.
+    expect(
+      find.byKey(const ValueKey('cath-reuse-restriction-policy')),
+      findsNothing,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('cath-post-use-discard-31')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey('cath-reuse-restriction-policy')),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'Devices used in this procedure must be marked for discard; do not '
+        'send them for reprocessing.',
+      ),
+      findsOneWidget,
+    );
+    // A "Discard" button is not a claim that disposal has happened.
+    expect(
+      find.byKey(const ValueKey('cath-post-use-discard-explainer')),
+      findsOneWidget,
+    );
+    expect(
+      find.text(
+        'This takes the device out of reuse circulation and records the '
+        'disposition on the case.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('the exposure badge spells the flag out for a screen reader', (
+    tester,
+  ) async {
+    const detail = 'A blood-borne exposure flag is recorded for this device.';
+    final handle = tester.ensureSemantics();
+    final deps = CathConsumableDependencies(
+      loadConsumables: (_) async => CathCaseConsumablesPayload(
+        usage: [
+          CathCaseConsumableUsage.fromJson({
+            'id': 32,
+            'case_id': 42,
+            'catalog_item_id': 10,
+            'item_name': 'Diagnostic catheter',
+            'quantity': 1,
+            'reuse_cycle': 2,
+            'device_tag': 'RP00000032',
+            'device_exposure_flag': true,
+            'allowed_post_use': {
+              'dispositions': <String>[],
+              'requires_acknowledgement': false,
+              'exposure': false,
+              'reason_codes': ['already_recorded'],
+              'units_max': 0,
+            },
+          }),
+        ],
+        restriction: const CathReuseRestriction(
+          status: 'clear',
+          reasons: [],
+          validityDays: 90,
+        ),
+        reprocessableCategories: const {'catheter'},
+      ),
+      scanCode: () async => null,
+    );
+
+    await tester.pumpWidget(_wrap(deps));
+    await tester.pumpAndSettle();
+
+    // The chip stays short; the accessibility description carries the whole
+    // fact, and so does the line under the chips — neither is a tooltip.
+    expect(find.text('Exposure'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('cath-usage-exposure-detail-32')),
+      findsOneWidget,
+    );
+    expect(find.text(detail), findsOneWidget);
+    expect(
+      find.bySemanticsLabel(detail),
+      findsWidgets,
+      reason: 'the badge must not leave "Exposure" to a colour and a tooltip',
+    );
+
+    handle.dispose();
   });
 }

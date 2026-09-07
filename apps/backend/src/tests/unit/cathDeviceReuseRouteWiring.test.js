@@ -124,6 +124,7 @@ const readinessService = {
   refreshOpenCasesForPatient: jest.fn(),
   upsertReadinessSettings: jest.fn(async () => ({ tenant_id: TENANT, configured: true })),
   waiveLabItem: jest.fn(),
+  unwaiveLabItem: jest.fn(),
 };
 jest.unstable_mockModule('../../services/clinical/cathLabReadinessService.js', () => readinessService);
 

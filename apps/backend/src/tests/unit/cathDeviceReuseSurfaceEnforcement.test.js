@@ -113,6 +113,7 @@ jest.unstable_mockModule('../../services/clinical/cathLabReadinessService.js', (
   refreshOpenCasesForPatient: jest.fn(),
   upsertReadinessSettings: jest.fn(),
   waiveLabItem: jest.fn(),
+  unwaiveLabItem: jest.fn(),
 }));
 jest.unstable_mockModule('../../services/clinical/cathSchedulingRegistryService.js', () => ({
   addRegistryEntry: jest.fn(), cancelCaseSchedule: jest.fn(), getCaseSchedule: jest.fn(),
