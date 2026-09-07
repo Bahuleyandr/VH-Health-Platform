@@ -13,10 +13,10 @@ queue before production rollout in Tamil, Telugu, Malayalam, or Hindi.
 
 | App | Locale | Structural coverage | Human clinical review |
 |---|---:|---:|---:|
-| Staff | Hindi | 100% | Partial — B1 cath (96 keys) reviewed 2026-09-05, owner approval pending |
-| Staff | Tamil | 100% | Partial — B1 cath (96 keys) reviewed 2026-09-05, owner approval pending |
-| Staff | Telugu | 100% | Partial — B1 cath (96 keys) reviewed 2026-09-05, owner approval pending |
-| Staff | Malayalam | 100% technical parity (4,008 English-source placeholders) | Partial — B1 cath (96 keys) reviewed 2026-09-05, owner approval pending |
+| Staff | Hindi | 100% | Partial — B1 cath (96 keys) reviewed 2026-09-05 + B1.1 owner review applied 2026-09-06, owner approval pending |
+| Staff | Tamil | 100% | Partial — B1 cath (96 keys) reviewed 2026-09-05 + B1.1 owner review applied 2026-09-06, owner approval pending |
+| Staff | Telugu | 100% | Partial — B1 cath (96 keys) reviewed 2026-09-05 + B1.1 owner review applied 2026-09-06, owner approval pending |
+| Staff | Malayalam | 100% technical parity (4,008 English-source placeholders) | Partial — B1 cath (96 keys) reviewed 2026-09-05 + B1.1 owner review applied 2026-09-06, owner approval pending |
 | Patient | Hindi | 100% | Pending |
 | Patient | Tamil | 100% | Pending |
 | Patient | Telugu | 100% | Pending |
@@ -253,7 +253,7 @@ spend review budget on them and do not delete them in a linguistic batch.
 | `s4.lib.cath_lab.consumables.exposure_badge` | ta | தொற்று ஆபத்து | எக்ஸ்போஷர் | [human review §3A] தொற்று ஆபத்து = infection risk. Exposure is the established infection-control term; native வெளிப்பாடு alone reads as expression/manifestation on a chip. |
 | `s4.lib.cath_lab.consumables.exposure_badge` | te | సంక్రమణ ప్రమాదం | ఎక్స్‌పోజర్ | [human review §3A] సంక్రమణ ప్రమాదం = infection risk. Same exposure term as the other locales. |
 | `s4.lib.cath_lab.consumables.exposure_badge` | ml | അണുബാധ സാധ്യത | എക്സ്പോഷർ | [human review §3A] അണുബാധ സാധ്യത = infection possibility. Same exposure term as the other locales; the block text uses the human review's native gloss. |
-| `s4.lib.cath_lab.consumables.mode_new` | ta | புதிய அலகு | புதிய யூனிட் | [ta reviewer] GLOSSARY: stock/device unit → யூனிட் (spoken TN ward usage). அலகு reads as a measurement unit and is reserved for readiness.unit. |
+| `s4.lib.cath_lab.consumables.mode_new` | ta | புதிய அலகு | புதிய யூனிட் | [ta reviewer] GLOSSARY: stock/device unit → யூனிட் (spoken TN ward usage). REGISTER decision, not a correction: அலகு is good Tamil but reads as a measurement unit, and this corpus reserves it for readiness.unit. |
 | `s4.lib.cath_lab.consumables.post_use_device_already_discarded` | hi | डिवाइस पहले ही CSSD द्वारा नष्ट किया जा चुका है; निपटान दर्ज किया गया | CSSD ने इस उपकरण को पहले ही डिस्कार्ड के रूप में चिह्नित कर दिया है; उपयोग-पश्चात निर्णय दर्ज किया गया | [en source change, required] Human review §3B. Verified: cathDeviceReuseService.js sets cath_reprocessable_devices.status = 'discarded' (terminal lifecycle status, discard_reason required), not verified physical destruction. Every locale says "marked as discarded" and uses the batch discard term (never destroy/delete). |
 | `s4.lib.cath_lab.consumables.post_use_device_already_discarded` | ta | சாதனம் ஏற்கனவே CSSD ஆல் அகற்றப்பட்டது; அகற்றல் பதிவு செய்யப்பட்டது | CSSD இந்தச் சாதனத்தை ஏற்கனவே அப்புறப்படுத்தப்பட்டதாகக் குறித்துள்ளது; பயன்பாட்டிற்குப் பிந்தைய நடவடிக்கை பதிவு செய்யப்பட்டது | [en source change, required] Human review §3B. Verified: cathDeviceReuseService.js sets cath_reprocessable_devices.status = 'discarded' (terminal lifecycle status, discard_reason required), not verified physical destruction. Every locale says "marked as discarded" and uses the batch discard term (never destroy/delete). |
 | `s4.lib.cath_lab.consumables.post_use_device_already_discarded` | te | పరికరాన్ని CSSD ఇప్పటికే పారవేసింది; పారవేత నమోదైంది | CSSD ఈ పరికరాన్ని ఇప్పటికే పారవేసినట్లు గుర్తించింది; వినియోగానంతర నిర్ణయం నమోదైంది | [en source change, required] Human review §3B. Verified: cathDeviceReuseService.js sets cath_reprocessable_devices.status = 'discarded' (terminal lifecycle status, discard_reason required), not verified physical destruction. Every locale says "marked as discarded" and uses the batch discard term (never destroy/delete). |
@@ -264,7 +264,7 @@ spend review budget on them and do not delete them in a linguistic batch.
 | `s4.lib.cath_lab.consumables.post_use_discard_reason` | hi | नष्ट करने का कारण | डिस्कार्ड का कारण | [human review §3B] Follows post_use_discard. |
 | `s4.lib.cath_lab.consumables.post_use_discard_reason` | ta | அகற்றுவதற்கான காரணம் | அப்புறப்படுத்துவதற்கான காரணம் | [human review §3B] Follows post_use_discard. |
 | `s4.lib.cath_lab.consumables.post_use_discard_reason` | ml | നീക്കം ചെയ്യാനുള്ള കാരണം | ഉപേക്ഷിക്കാനുള്ള കാരണം | [ml reviewer] GLOSSARY discard → ഉപേക്ഷിക്കുക; follows post_use_discard. |
-| `s4.lib.cath_lab.consumables.post_use_units` | ta | CSSD-க்கு செல்லும் அலகுகள் | CSSD-க்கு செல்லும் யூனிட்டுகள் | [ta reviewer] GLOSSARY: stock/device unit → யூனிட்; அலகு here read as measurement units, colliding with readiness.unit. |
+| `s4.lib.cath_lab.consumables.post_use_units` | ta | CSSD-க்கு செல்லும் அலகுகள் | CSSD-க்கு செல்லும் யூனிட்டுகள் | [ta reviewer] GLOSSARY: stock/device unit → யூனிட். REGISTER decision, not a correction: அலகு here reads as measurement units, colliding with readiness.unit on the same screen. |
 | `s4.lib.cath_lab.consumables.restriction_restricted` | hi | इस केस में उपयोग किए गए उपकरण नष्ट किए जाएंगे, पुनःसंसाधित नहीं | इस केस में उपयोग किए गए उपकरण डिस्कार्ड किए जाएंगे, पुनःसंसाधित नहीं | [human review §3B] नष्ट किए जाएंगे (will be destroyed) -> डिस्कार्ड किए जाएंगे; discard/reprocess contrast kept. |
 | `s4.lib.cath_lab.consumables.restriction_restricted` | ta | இந்த வழக்கில் பயன்படுத்தப்படும் சாதனங்கள் அகற்றப்படும்; மறுசெயலாக்கப்படாது | இந்தச் செயல்முறையில் பயன்படுத்தப்படும் சாதனங்கள் அப்புறப்படுத்தப்படும்; மறுசெயலாக்கப்படாது | [ta reviewer + human review §3B] வழக்கு (court case) -> செயல்முறை per the reviewer; அகற்றப்படும் -> அப்புறப்படுத்தப்படும் per the discard decision. |
 | `s4.lib.cath_lab.consumables.restriction_restricted` | ml | ഈ കേസിൽ ഉപയോഗിക്കുന്ന ഉപകരണങ്ങൾ നീക്കം ചെയ്യപ്പെടും; പുനഃസംസ്കരിക്കില്ല | ഈ കേസിൽ ഉപയോഗിക്കുന്ന ഉപകരണങ്ങൾ ഉപേക്ഷിക്കപ്പെടും; പുനഃസംസ്കരിക്കില്ല | [ml reviewer] GLOSSARY discard → ഉപേക്ഷിക്കുക: the restriction strip must say the devices are thrown away, not merely 'removed'. |
@@ -272,7 +272,7 @@ spend review budget on them and do not delete them in a linguistic batch.
 | `s4.lib.cath_lab.consumables.restriction_unknown` | ta | சீராலஜி பதிவில் இல்லை; மறுசெயலாக்கத்திற்கு ஒப்புதல் தேவை | சீராலஜி முடிவுகள் பதிவில் இல்லை; மறுசெயலாக்கத்திற்கு முன் இதை அறிந்ததற்கான உறுதிப்படுத்தல் தேவை | [human review §3A] Review's Tamil candidate (final stop dropped to match en and the sibling strip string). ஒப்புதல் is the consent term; this is staff acknowledgement. |
 | `s4.lib.cath_lab.consumables.restriction_unknown` | te | సెరాలజీ నమోదులో లేదు; పునఃప్రాసెసింగ్‌కు ధృవీకరణ అవసరం | సెరాలజీ ఫలితాలు నమోదులో లేవు; పునఃప్రాసెసింగ్‌కు ముందు ఇది తెలిసినట్లు ధృవీకరించాలి | [blind check + human review §3A] Reviewer's అంగీకారం back-translated as "consent is required" - the exact confusion the review names. Acknowledgement frame: it must be confirmed that this is known; the object of confirmation is the awareness, so ధృవీకరించు no longer reads as "verify the serology". |
 | `s4.lib.cath_lab.consumables.restriction_unknown` | ml | സെറോളജി രേഖയിലില്ല; പുനഃസംസ്കരണത്തിന് സ്ഥിരീകരണം ആവശ്യം | സെറോളജി ഫലങ്ങൾ രേഖപ്പെടുത്തിയിട്ടില്ല; പുനഃസംസ്കരണത്തിന് മുമ്പ് ഈ വിവരം അറിഞ്ഞതായി സ്ഥിരീകരിക്കണം | [human review §3A] Review's Malayalam candidate (final stop dropped to match en and the sibling strip string). |
-| `s4.lib.cath_lab.readiness.auto_managed_note` | hi | यह जाँच स्वचालित रूप से प्रबंधित है; अगला रिफ्रेश इसे वापस बदल सकता है। | यह जांच स्वचालित रूप से प्रबंधित है; अगला रिफ्रेश इसे वापस बदल सकता है। | [hi reviewer] GLOSSARY: check → जांच. Only key spelling it जाँच; every other key in the batch uses जांच. |
+| `s4.lib.cath_lab.readiness.auto_managed_note` | hi | यह जाँच स्वचालित रूप से प्रबंधित है; अगला रिफ्रेश इसे वापस बदल सकता है। | यह जांच स्वचालित रूप से प्रबंधित है; अगला रिफ्रेश इसे वापस बदल सकता है। | [hi reviewer] GLOSSARY: check → जांच. CONSISTENCY decision, not a spelling correction: both जाँच and जांच are correct Hindi, and this was the only key in the batch spelling it जाँच. |
 | `s4.lib.cath_lab.readiness.auto_managed_note` | ta | இந்தச் சரிபார்ப்பை தானியங்கி நிர்வகிக்கிறது; அடுத்த புதுப்பிப்பு இதை மாற்றக்கூடும். | இந்தச் சரிபார்ப்பை தானியங்கி நிர்வகிக்கிறது; அடுத்த புதுப்பிப்பு இதைப் பழைய நிலைக்கு மாற்றக்கூடும். | [ta reviewer] set it back means revert; மாற்றக்கூடும் alone lost that, so staff could not tell their edit may be undone. |
 | `s4.lib.cath_lab.readiness.check.anticoagulation` | hi | थक्कारोधी | एंटीकोआग्यूलेशन | [human review §3D] थक्कारोधी is the adjective/agent (anticoagulant). एंटीकोआग्यूलेशन is the corpus rendering already used in s4.calculators.hasBled.subtitle and what Hindi-belt cardiology staff say. |
 | `s4.lib.cath_lab.readiness.check.anticoagulation` | te | రక్తం గడ్డకట్టే నిరోధకం | ప్రతిస్కందక చికిత్స | [human review §3D] రక్తం గడ్డకట్టే నిరోధకం names an inhibitor substance. ప్రతిస్కందక is the corpus root (hasBled.subtitle: ప్రతిస్కందకం); with చికిత్స it names anticoagulant therapy, which is what the check reviews. |
@@ -293,7 +293,7 @@ spend review budget on them and do not delete them in a linguistic batch.
 | `s4.lib.cath_lab.readiness.confirm_critical_unnamed` | te | క్లిష్ట విలువ ఉంది. ఈ తనిఖీని ఆమోదించడానికి కారణం తెలియజేయండి. | ఒక క్రిటికల్ విలువ ఉంది. క్రిటికల్ ఫలితం ఉన్నప్పటికీ ఈ తనిఖీని ఉత్తీర్ణం అని గుర్తించడానికి కారణం తెలియజేయండి. | [en source change, required] Same as confirm_critical, unnamed variant (backend blanks critical_items for roles outside the result audience). |
 | `s4.lib.cath_lab.readiness.confirm_critical_unnamed` | ml | ഗുരുതര മൂല്യം ഉണ്ട്. ഈ പരിശോധന പാസാക്കുന്നതിന്റെ കാരണം നൽകുക. | ഒരു ഗുരുതര മൂല്യം ഉണ്ട്. ഗുരുതര ഫലം ഉണ്ടായിട്ടും ഈ പരിശോധന വിജയം എന്ന് അടയാളപ്പെടുത്തുന്നതിനുള്ള കാരണം നൽകുക. | [en source change, required] Same as confirm_critical, unnamed variant (backend blanks critical_items for roles outside the result audience). |
 | `s4.lib.cath_lab.readiness.critical` | te | క్లిష్టం | క్రిటికల్ | [te reviewer] GLOSSARY: critical = క్రిటికల్. క్లిష్టం = 'complicated'; badge must read as an alarm flag. Matches resus.trigger.critical_vital. |
-| `s4.lib.cath_lab.readiness.critical_value` | hi | गंभीर मान | गंभीर जांच मान | [human review §3C] Review candidate गंभीर जाँच मान with the batch spelling जांच (the hi reviewer normalised जाँच->जांच across the batch). Chip on the Labs check row: names a critical TEST value. |
+| `s4.lib.cath_lab.readiness.critical_value` | hi | गंभीर मान | गंभीर जांच मान | [human review §3C] Review candidate गंभीर जाँच मान with the batch spelling जांच (the hi reviewer normalised जाँच->जांच across the batch as a consistency choice, not because either spelling is wrong). Chip on the Labs check row: names a critical TEST value. |
 | `s4.lib.cath_lab.readiness.critical_value` | ta | ஆபத்தான மதிப்பு | ஆபத்தான பரிசோதனை மதிப்பு | [human review §3C] Review candidate. 16 clusters vs 22.4 budget. |
 | `s4.lib.cath_lab.readiness.critical_value` | te | క్లిష్ట విలువ | క్రిటికల్ పరీక్ష విలువ | [human review §3C] Review candidate; reviewer had క్రిటికల్ విలువ (also correct on the critical term). క్లిష్ట = complicated is out. |
 | `s4.lib.cath_lab.readiness.critical_value` | ml | ഗുരുതര മൂല്യം | ഗുരുതര പരിശോധനാ മൂല്യം | [human review §3C] Review candidate. |
@@ -327,7 +327,7 @@ spend review budget on them and do not delete them in a linguistic batch.
 | `s4.lib.cath_lab.readiness.state.result_preliminary` | ta | ஆரம்ப | முதற்கட்ட முடிவு | [human review §3D] Review candidate; reviewer's ஆரம்ப முடிவு back-translated as "initial/first result". |
 | `s4.lib.cath_lab.readiness.state.result_preliminary` | te | ప్రాథమిక | ప్రాథమిక ఫలితం | [te reviewer] Bare ప్రాథమిక most commonly reads 'primary/basic' (ప్రాథమిక చికిత్స = first aid) and is an incomplete adjective; adding ఫలితం pins it to 'preliminary result' against state.result_final. |
 | `s4.lib.cath_lab.readiness.state.result_preliminary` | ml | പ്രാഥമികം | പ്രാഥമിക ഫലം | [reconciler] Same: അന്തിമ ഫലം / പ്രാഥമിക ഫലം. |
-| `s4.lib.cath_lab.readiness.state.sample_sent_awaiting_result` | hi | प्रयोगशाला भेजा गया, परिणाम प्रतीक्षित | प्रयोगशाला को भेजा गया, परिणाम प्रतीक्षित | [hi reviewer] Missing postposition: भेजना requires को for the destination (cf. CSSD को भेजें). Meaning unchanged. |
+| `s4.lib.cath_lab.readiness.state.sample_sent_awaiting_result` | hi | प्रयोगशाला भेजा गया, परिणाम प्रतीक्षित | प्रयोगशाला को भेजा गया, परिणाम प्रतीक्षित | [hi reviewer] को added for the destination, matching the batch’s other send string (CSSD को भेजें). Scoped to this string: terse UI Hindi does drop the postposition, so this is a CONSISTENCY choice within the batch, not a general rule that भेजना always requires को. Meaning unchanged. |
 | `s4.lib.cath_lab.readiness.state.sample_sent_awaiting_result` | te | ల్యాబ్‌కు పంపారు; ఫలితం వేచి ఉంది | ల్యాబ్‌కు పంపారు; ఫలితం రావాల్సి ఉంది | [te reviewer] వేచి ఉంది takes an animate subject; an awaited result is రావాల్సి ఉంది. Sent-to-lab half unchanged. |
 | `s4.lib.cath_lab.readiness.waive` | te | మినహాయించు | మినహాయించండి | [te reviewer] GLOSSARY: waive = మినహాయించు stem; button was familiar imperative beside polite ఆర్డర్ చేయండి in the same row. |
 | `s4.lib.cath_lab.readiness.waive_reason_line` | ta | விலக்கு: {reason} | விலக்கப்பட்டது: {reason} | [ta reviewer] The bare noun விலக்கு duplicated the Waive button label; this line reports a recorded state, so it takes the waived form. Placeholder intact. |
@@ -428,6 +428,227 @@ All button and chip renderings in the batch are within budget (e.g. Discard 7 �
 The human review states that its localisation review does not approve the reuse policy itself, that standard precautions apply regardless of infection status, that serology is not a general guarantee of reprocessing safety, and that a stricter institutional discard rule should be identified as that rule. Recorded here for the owner; no key in this batch is changed on that basis.
 
 **Owner approval: pending** — the approval packet is this section plus the escalations list in the PR body (`scratchpad/open21/b1/escalations.md`): (A) the three proposed English source changes, (B) the reconciler decisions taken against an agent reviewer or between two defensible renderings, (C) the human-review items that are not string decisions. A reply naming the batch turns the Coverage rows below from `reviewed … owner approval pending` into `approved <date> (owner)`.
+
+## Batch 1.1 — owner review 2026-09-06 (applied on top of Batch 1)
+
+**Authority:** the owner's review of PR #1013, applied in the order it sets: (1) the English source
+contract, (2) policy-aware selection in the Staff restriction strip, (3) all four locales together.
+No incorrect English contract is solved differently per language.
+**Applied on:** `cf2c176fc` (Batch 1 head). **Artefacts:** `scratchpad/open21/b1_1/{new-keys.json,
+changed.jsonl, apply.jsonl, spec.json, table.mjs}`; `apply.jsonl` = 40 new-key confirm rows (8 keys ×
+5 locales) + 32 changed rows, so every value in this batch — new or changed — passes
+`i18n-review-apply.mjs`'s placeholder-parity and `en_old` guards, not only the ones that edit an
+existing entry.
+
+### §1 — the source meaning of the restriction messages, then the four locales
+
+The headline and the policy sentence are now two different strings, because they are two different
+facts and only one of them is in the payload the strip is given.
+
+`reuse_restriction` carries `status` / `reasons` / `markers` / `validity_days` / `evaluated_at`,
+projected by role. It does **not** carry the tenant's reprocessing policy. The policy outcome is in
+the per-usage-row `allowed_post_use`, which `computePostUseOptions`
+(`apps/backend/src/services/clinical/cathDeviceReuseService.js:86`) recomputes on every listing.
+
+| Situation | Backend branch (`reason_codes`) | English |
+|---|---|---|
+| Generic unknown-status headline | any, `status = 'unknown'` | Serology status is unresolved; review the recorded reasons. |
+| Generic restricted headline | any, `status = 'restricted'` | A reactive blood-borne marker is on record; review the recorded reasons. |
+| Acknowledgement permitted by policy | `serology_unknown` (`unknown_serology_rule = 'warn'`) | Acknowledge this unresolved status before requesting reprocessing. |
+| Reprocessing blocked by policy | `serology_required` (`unknown_serology_rule = 'block_return'`) | Reprocessing is blocked under the current policy. |
+| Discard-only policy | `bloodborne_restricted` (`reactive_patient_rule = 'discard'`) | Devices used in this procedure must be marked for discard; do not send them for reprocessing. |
+| **PROPOSED** — override allowed | `bloodborne_restricted_override` (`reactive_patient_rule = 'override_allowed'`) | The current policy allows reprocessing only with an acknowledgement. |
+
+The owner's review offers a choice: restrict the discard sentence to the discard-only policy, **or**
+provide a separate policy-aware message. Both are taken. The discard sentence is now attached to the
+discard-only branch only, and the fourth policy the backend can reach (`override_allowed`) gets its
+own line — carried as PROPOSED English with the `// REVIEW:` flag in all five locale blocks, so a
+veto is a revert of five rows rather than a re-translation.
+
+**Selection is by `reason_codes`, not by the shape of `dispositions`.** Three different branches of
+`computePostUseOptions` collapse to `dispositions: ['discard']`: the patient's reactive marker under
+the `discard` rule, the DEVICE's own exposure flag (`device_exposure_flagged`, which the service
+evaluates *before* the patient's status precisely so an infection-control lookback reads the right
+retirement reason), and a device at its cycle ceiling (`max_cycles_reached`). Only the first is a
+statement about "devices used in this procedure"; the other two are facts about one device, and the
+strip stays silent on both. `restriction_blocked` is selected on `blocked_code` **or**
+`serology_required` — the two coincide today, and the widget does not depend on that staying true.
+
+**Where it renders — option (b), no backend change.** The strip takes an optional
+`postUseOptions`; null means no policy sentence, and the strip never guesses a policy it was not
+told. Only one of the four call sites has an `allowed_post_use` row on screen: the post-use sheet in
+`cath_case_consumables_panel.dart`. The case header (`cath_lab_screen.dart`), the panel header and
+the capture sheet pass nothing and show the headline alone. That is also where the policy actually
+binds — nothing in `captureReusedDeviceTx` consults the patient's status, so a case-level claim
+about reprocessing would be a claim about a decision the operator has not reached yet. **Option (a)
+— adding a `policy` block to `reuse_restriction` — was not needed and was not taken: no backend file
+is touched by this batch.**
+
+### §2 — Malayalam `device_blocked`, and the exposure badge
+
+`device_blocked` (ml) takes the owner's replacement verbatim: it reports the recorded blood-borne
+exposure flag rather than "contact with an infection", which is stronger than the flag warrants (the
+late-reactive sweep can stamp it from a *previous* patient's reactive marker). hi/ta/te already
+preserve the distinction and are unchanged.
+
+Removing "infection risk" from the badge is kept, and bare "Exposure" is no longer left to carry the
+meaning alone: a new `exposure_badge_detail` ("A blood-borne exposure flag is recorded for this
+device.") renders (a) as a line under the chips on every reused-device usage card, (b) as the
+`Semantics` label on the badge itself in both the usage card and the device-lookup card, and (c) in
+the lookup card's subtitle when the device is flagged but *not* blocked (an `override_allowed`
+tenant, where the block text is absent). No tooltip is relied on.
+
+### §3 — "already discarded", and the Discard button
+
+`post_use_device_already_discarded` (ta/te/ml) takes the owner's replacements verbatim: they name
+the recorded register status inside quotation marks instead of reading as physical disposal. The
+Tamil success half now reports a DECISION — `பயன்பாட்டிற்குப் பிந்தைய முடிவு`, not
+`நடவடிக்கை` — and the glossary row for post-use disposition is corrected to match. en/hi
+were already explicit and are unchanged.
+
+No button is renamed. Instead the discard sheet gains `post_use_discard_explainer` ("This takes the
+device out of reuse circulation and records the disposition on the case."), shown above the
+confirmation whenever the disposition is `discard`.
+
+> **Verification finding (standing rule).** The owner's instruction is to quote "the app's exact
+> approved Discarded status label". The Staff app has no localised device-status label: the only
+> place a CSSD device status reaches the screen is `cathHumanize(_lookup!.device.status)` in
+> `cath_consumable_capture_sheet.dart`, which renders the raw backend enum as English **"Discarded"**
+> in every locale. The quoted ta/te/ml terms are therefore descriptions of the recorded status, not
+> cross-references a reader can match against the device card. The owner's wording is applied as
+> given; localising the device-status vocabulary is a separate change and is **not** in this batch.
+> The glossary's te Discarded form is aligned to the status form the message quotes
+> (`పారవేయబడింది`, replacing `పారవేసినట్లు`).
+
+### §4 — retained, plus the two refinements
+
+Nothing on the retain list is reopened: final/preliminary head nouns, Telugu `క్రిటికల్`, lab
+tests vs laboratories, the procedure-safety time-out qualifier, the Telugu placeholder grammar and
+polite button forms, the Tamil revert wording, the recorded external-result labels and the
+waived-state wording are all untouched by this batch. Two refinements are applied:
+
+- `external_unverified_hint` (all five) → "Recorded as an outside-lab result; not verified in this
+  system by a pathologist." — local verification, not a judgment on the originating lab.
+- `confirm_critical` / `confirm_critical_unnamed` (all five) now quote the Pass-state label.
+  **Verified against the code:** the quoted term in each locale is byte-identical to
+  `s4.lib.cath_lab.readiness.check_status.pass` (en "Pass", hi `उत्तीर्ण`, ta `தேர்ச்சி`,
+  te `ఉత్తీర్ణం`, ml `വിജയം`), which is what `cathReadinessCheckStatusLabel` renders into the
+  same dialog's `confirm_body`.
+
+### §5 — targeted refinements
+
+- hi `readiness.header.missing` → `लैब जांचें अधूरी हैं: {items}`.
+- ta `consumables.device_tag_label` → `சாதனக் குறிச்சீட்டு`, plus a new five-locale
+  `device_tag_help` on the field: the staff member enters or scans the identifier printed on the
+  device (e.g. RP00000042) and does not create a physical label. **Verified:** the backend validates
+  that shape — `DEVICE_TAG_PATTERN` in `cathDeviceReuseService.js`.
+- ta `readiness.auto_managed_note` → the owner's wording.
+- ta `readiness.external_report_ref` keeps `அறிக்கை எண்`; the new five-locale
+  `external_report_ref_help` says letters and numbers are both accepted, because the column is free
+  text.
+- **Proposed en #3 ("Observed {date}") is endorsed** and is already applied on this branch
+  (`readiness.observed_line`, en + four locales, Batch 1). Proposed en #1 (`date_required` →
+  "Report date is required") and #2 (`result_required` → "A result is required") are **assumed
+  accepted**: the owner's review does not veto them, and this batch changes neither. A later veto on
+  either is a revert of that key's rows, not a re-translation.
+- Glossary rationales are re-framed as CONSISTENCY / REGISTER decisions rather than corrections of
+  intrinsic errors (a new "How to read the reason column" note in `docs/i18n/GLOSSARY.md`, plus the
+  `जाँच → जांच` and `அலகு → யூனிட்` rows above). The Hindi `को` claim is
+  scoped to the string it was made about instead of asserting that `भेजना` universally requires
+  it.
+
+### §6 — parity and gates
+
+`node apps/staff/scripts/i18n-verify.mjs --check` is the parity gate; the eight new keys exist in all
+five locale blocks and no `ml` placeholder is introduced. Widget tests cover the selection itself:
+every branch of `computePostUseOptions` that can reach a non-clear patient, both branches that must
+stay silent, the strip with no post-use row, the sheet as the only surface that renders the policy
+sentence, and the exposure badge's accessibility description.
+
+### Changed and new keys
+
+| Key | Locale | Old | New | Owner point |
+|---|---|---|---|---|
+| `s4.lib.cath_lab.consumables.restriction_unknown` | en | Serology not on record; reprocessing needs acknowledgement | Serology status is unresolved; review the recorded reasons. | §1 generic unknown-status headline — `unknown` also covers pending / indeterminate / too old / future-dated / unreadable date, so "results are not recorded" was not always true, and the acknowledgement is no longer attached unconditionally |
+| `s4.lib.cath_lab.consumables.restriction_unknown` | hi | सीरोलॉजी परिणाम दर्ज नहीं हैं; पुनःसंसाधन से पहले इसकी जानकारी होने की पुष्टि आवश्यक है | सीरोलॉजी की स्थिति स्पष्ट नहीं है; दर्ज किए गए कारण देखें। | §1 generic unknown-status headline — `unknown` also covers pending / indeterminate / too old / future-dated / unreadable date, so "results are not recorded" was not always true, and the acknowledgement is no longer attached unconditionally |
+| `s4.lib.cath_lab.consumables.restriction_unknown` | ta | சீராலஜி முடிவுகள் பதிவில் இல்லை; மறுசெயலாக்கத்திற்கு முன் இதை அறிந்ததற்கான உறுதிப்படுத்தல் தேவை | சீராலஜி நிலை தெளிவாகவில்லை; பதிவு செய்யப்பட்ட காரணங்களைப் பரிசீலிக்கவும். | §1 generic unknown-status headline — `unknown` also covers pending / indeterminate / too old / future-dated / unreadable date, so "results are not recorded" was not always true, and the acknowledgement is no longer attached unconditionally |
+| `s4.lib.cath_lab.consumables.restriction_unknown` | te | సెరాలజీ ఫలితాలు నమోదులో లేవు; పునఃప్రాసెసింగ్‌కు ముందు ఇది తెలిసినట్లు ధృవీకరించాలి | సెరాలజీ స్థితి స్పష్టంగా లేదు; నమోదైన కారణాలను చూడండి. | §1 generic unknown-status headline — `unknown` also covers pending / indeterminate / too old / future-dated / unreadable date, so "results are not recorded" was not always true, and the acknowledgement is no longer attached unconditionally |
+| `s4.lib.cath_lab.consumables.restriction_unknown` | ml | സെറോളജി ഫലങ്ങൾ രേഖപ്പെടുത്തിയിട്ടില്ല; പുനഃസംസ്കരണത്തിന് മുമ്പ് ഈ വിവരം അറിഞ്ഞതായി സ്ഥിരീകരിക്കണം | സെറോളജി നില വ്യക്തമല്ല; രേഖപ്പെടുത്തിയ കാരണങ്ങൾ പരിശോധിക്കുക. | §1 generic unknown-status headline — `unknown` also covers pending / indeterminate / too old / future-dated / unreadable date, so "results are not recorded" was not always true, and the acknowledgement is no longer attached unconditionally |
+| `s4.lib.cath_lab.consumables.restriction_ack_required` | en | _(new key)_ | Acknowledge this unresolved status before requesting reprocessing. | §1 acknowledgement permitted by policy (`serology_unknown`, `unknown_serology_rule = 'warn'`) |
+| `s4.lib.cath_lab.consumables.restriction_ack_required` | hi | _(new key)_ | पुनःसंसाधन के लिए भेजने से पहले इस अस्पष्ट स्थिति की जानकारी होने की पुष्टि करें। | §1 acknowledgement permitted by policy (`serology_unknown`, `unknown_serology_rule = 'warn'`) |
+| `s4.lib.cath_lab.consumables.restriction_ack_required` | ta | _(new key)_ | மறுசெயலாக்கம் கோருவதற்கு முன், இந்தத் தெளிவற்ற நிலையை அறிந்ததற்கான உறுதிப்படுத்தலை அளிக்கவும். | §1 acknowledgement permitted by policy (`serology_unknown`, `unknown_serology_rule = 'warn'`) |
+| `s4.lib.cath_lab.consumables.restriction_ack_required` | te | _(new key)_ | పునఃప్రాసెసింగ్‌ను అభ్యర్థించే ముందు, ఈ స్పష్టంగా లేని స్థితి తెలిసినట్లు ధృవీకరించండి. | §1 acknowledgement permitted by policy (`serology_unknown`, `unknown_serology_rule = 'warn'`) |
+| `s4.lib.cath_lab.consumables.restriction_ack_required` | ml | _(new key)_ | പുനഃസംസ്കരണം ആവശ്യപ്പെടുന്നതിന് മുമ്പ്, ഈ വ്യക്തമല്ലാത്ത നില അറിഞ്ഞതായി സ്ഥിരീകരിക്കുക. | §1 acknowledgement permitted by policy (`serology_unknown`, `unknown_serology_rule = 'warn'`) |
+| `s4.lib.cath_lab.consumables.restriction_blocked` | en | _(new key)_ | Reprocessing is blocked under the current policy. | §1 reprocessing blocked by policy (`serology_required`, `unknown_serology_rule = 'block_return'`) |
+| `s4.lib.cath_lab.consumables.restriction_blocked` | hi | _(new key)_ | मौजूदा नीति के तहत पुनःसंसाधन अवरुद्ध है। | §1 reprocessing blocked by policy (`serology_required`, `unknown_serology_rule = 'block_return'`) |
+| `s4.lib.cath_lab.consumables.restriction_blocked` | ta | _(new key)_ | தற்போதைய கொள்கையின்படி மறுசெயலாக்கம் தடுக்கப்பட்டுள்ளது. | §1 reprocessing blocked by policy (`serology_required`, `unknown_serology_rule = 'block_return'`) |
+| `s4.lib.cath_lab.consumables.restriction_blocked` | te | _(new key)_ | ప్రస్తుత విధానం ప్రకారం పునఃప్రాసెసింగ్ నిరోధించబడింది. | §1 reprocessing blocked by policy (`serology_required`, `unknown_serology_rule = 'block_return'`) |
+| `s4.lib.cath_lab.consumables.restriction_blocked` | ml | _(new key)_ | നിലവിലെ നയപ്രകാരം പുനഃസംസ്കരണം തടഞ്ഞിരിക്കുന്നു. | §1 reprocessing blocked by policy (`serology_required`, `unknown_serology_rule = 'block_return'`) |
+| `s4.lib.cath_lab.consumables.restriction_restricted` | en | Devices used in this case will be discarded, not reprocessed | A reactive blood-borne marker is on record; review the recorded reasons. | §1 the restricted headline no longer asserts a disposal outcome; it states the fact `reuse_restriction` carries |
+| `s4.lib.cath_lab.consumables.restriction_restricted` | hi | इस केस में उपयोग किए गए उपकरण डिस्कार्ड किए जाएंगे, पुनःसंसाधित नहीं | रक्तजनित रिएक्टिव मार्कर दर्ज है; दर्ज किए गए कारण देखें। | §1 the restricted headline no longer asserts a disposal outcome; it states the fact `reuse_restriction` carries |
+| `s4.lib.cath_lab.consumables.restriction_restricted` | ta | இந்தச் செயல்முறையில் பயன்படுத்தப்படும் சாதனங்கள் அப்புறப்படுத்தப்படும்; மறுசெயலாக்கப்படாது | இரத்தவழி ரியாக்டிவ் மார்க்கர் பதிவாகியுள்ளது; பதிவு செய்யப்பட்ட காரணங்களைப் பரிசீலிக்கவும். | §1 the restricted headline no longer asserts a disposal outcome; it states the fact `reuse_restriction` carries |
+| `s4.lib.cath_lab.consumables.restriction_restricted` | te | ఈ కేసులో వాడిన పరికరాలు పారవేయబడతాయి; పునఃప్రాసెస్ చేయబడవు | రక్తజనిత రియాక్టివ్ మార్కర్ నమోదై ఉంది; నమోదైన కారణాలను చూడండి. | §1 the restricted headline no longer asserts a disposal outcome; it states the fact `reuse_restriction` carries |
+| `s4.lib.cath_lab.consumables.restriction_restricted` | ml | ഈ കേസിൽ ഉപയോഗിക്കുന്ന ഉപകരണങ്ങൾ ഉപേക്ഷിക്കപ്പെടും; പുനഃസംസ്കരിക്കില്ല | രക്തജന്യ റിയാക്ടീവ് മാർക്കർ രേഖപ്പെടുത്തിയിട്ടുണ്ട്; രേഖപ്പെടുത്തിയ കാരണങ്ങൾ പരിശോധിക്കുക. | §1 the restricted headline no longer asserts a disposal outcome; it states the fact `reuse_restriction` carries |
+| `s4.lib.cath_lab.consumables.restriction_discard_only` | en | _(new key)_ | Devices used in this procedure must be marked for discard; do not send them for reprocessing. | §1 discard-only policy (`bloodborne_restricted`, `reactive_patient_rule = 'discard'`) — a required disposition, not a claim that disposal has happened |
+| `s4.lib.cath_lab.consumables.restriction_discard_only` | hi | _(new key)_ | इस प्रक्रिया में उपयोग किए गए उपकरणों को डिस्कार्ड के लिए चिह्नित करना होगा; उन्हें पुनःसंसाधन के लिए न भेजें। | §1 discard-only policy (`bloodborne_restricted`, `reactive_patient_rule = 'discard'`) — a required disposition, not a claim that disposal has happened |
+| `s4.lib.cath_lab.consumables.restriction_discard_only` | ta | _(new key)_ | இந்தச் செயல்முறையில் பயன்படுத்தப்பட்ட சாதனங்களை அப்புறப்படுத்துவதற்குக் குறிக்க வேண்டும்; அவற்றை மறுசெயலாக்கத்திற்கு அனுப்ப வேண்டாம். | §1 discard-only policy (`bloodborne_restricted`, `reactive_patient_rule = 'discard'`) — a required disposition, not a claim that disposal has happened |
+| `s4.lib.cath_lab.consumables.restriction_discard_only` | te | _(new key)_ | ఈ ప్రక్రియలో వాడిన పరికరాలను పారవేయడానికి గుర్తించాలి; వాటిని పునఃప్రాసెసింగ్‌కు పంపవద్దు. | §1 discard-only policy (`bloodborne_restricted`, `reactive_patient_rule = 'discard'`) — a required disposition, not a claim that disposal has happened |
+| `s4.lib.cath_lab.consumables.restriction_discard_only` | ml | _(new key)_ | ഈ പ്രൊസീജ്യറിൽ ഉപയോഗിച്ച ഉപകരണങ്ങൾ ഉപേക്ഷിക്കാൻ അടയാളപ്പെടുത്തണം; അവ പുനഃസംസ്കരണത്തിന് അയയ്ക്കരുത്. | §1 discard-only policy (`bloodborne_restricted`, `reactive_patient_rule = 'discard'`) — a required disposition, not a claim that disposal has happened |
+| `s4.lib.cath_lab.consumables.restriction_override_allowed` | en | _(new key)_ | The current policy allows reprocessing only with an acknowledgement. _(carries the `// REVIEW:` flag)_ | §1 PROPOSED English for `bloodborne_restricted_override` (`reactive_patient_rule = 'override_allowed'`) — awaiting owner decision |
+| `s4.lib.cath_lab.consumables.restriction_override_allowed` | hi | _(new key)_ | मौजूदा नीति के तहत पुनःसंसाधन केवल पुष्टि के साथ ही अनुमत है। _(carries the `// REVIEW:` flag)_ | §1 PROPOSED English for `bloodborne_restricted_override` (`reactive_patient_rule = 'override_allowed'`) — awaiting owner decision |
+| `s4.lib.cath_lab.consumables.restriction_override_allowed` | ta | _(new key)_ | தற்போதைய கொள்கையின்படி, உறுதிப்படுத்தலுடன் மட்டுமே மறுசெயலாக்கம் அனுமதிக்கப்படுகிறது. _(carries the `// REVIEW:` flag)_ | §1 PROPOSED English for `bloodborne_restricted_override` (`reactive_patient_rule = 'override_allowed'`) — awaiting owner decision |
+| `s4.lib.cath_lab.consumables.restriction_override_allowed` | te | _(new key)_ | ప్రస్తుత విధానం ప్రకారం, ధృవీకరణతో మాత్రమే పునఃప్రాసెసింగ్ అనుమతించబడుతుంది. _(carries the `// REVIEW:` flag)_ | §1 PROPOSED English for `bloodborne_restricted_override` (`reactive_patient_rule = 'override_allowed'`) — awaiting owner decision |
+| `s4.lib.cath_lab.consumables.restriction_override_allowed` | ml | _(new key)_ | നിലവിലെ നയപ്രകാരം, സ്ഥിരീകരണത്തോടെ മാത്രമേ പുനഃസംസ്കരണം അനുവദിക്കൂ. _(carries the `// REVIEW:` flag)_ | §1 PROPOSED English for `bloodborne_restricted_override` (`reactive_patient_rule = 'override_allowed'`) — awaiting owner decision |
+| `s4.lib.cath_lab.consumables.device_blocked` | ml | ഈ ഉപകരണത്തിൽ രക്തത്തിലൂടെ പകരുന്ന അണുബാധയുമായുള്ള സമ്പർക്കം സൂചിപ്പിക്കുന്ന മുന്നറിയിപ്പ് രേഖപ്പെടുത്തിയിട്ടുണ്ട്; ഇത് പുനരുപയോഗിക്കാനാവില്ല. | ഈ ഉപകരണത്തിന് രക്തജന്യ എക്സ്പോഷർ ഫ്ലാഗ് രേഖപ്പെടുത്തിയിട്ടുണ്ട്; പുനരുപയോഗം അനുവദനീയമല്ല | §2 ml replacement supplied verbatim by the owner: reports the recorded exposure flag, not contact with an infection |
+| `s4.lib.cath_lab.consumables.exposure_badge_detail` | en | _(new key)_ | A blood-borne exposure flag is recorded for this device. | §2 the full "blood-borne exposure flag" wording, rendered next to the badge and as the accessibility description — not a tooltip |
+| `s4.lib.cath_lab.consumables.exposure_badge_detail` | hi | _(new key)_ | इस उपकरण पर रक्तजनित एक्सपोज़र का चिह्न दर्ज है। | §2 the full "blood-borne exposure flag" wording, rendered next to the badge and as the accessibility description — not a tooltip |
+| `s4.lib.cath_lab.consumables.exposure_badge_detail` | ta | _(new key)_ | இந்தச் சாதனத்திற்கு இரத்தவழி எக்ஸ்போஷர் குறி பதிவாகியுள்ளது. | §2 the full "blood-borne exposure flag" wording, rendered next to the badge and as the accessibility description — not a tooltip |
+| `s4.lib.cath_lab.consumables.exposure_badge_detail` | te | _(new key)_ | ఈ పరికరానికి రక్తజనిత ఎక్స్‌పోజర్ ఫ్లాగ్ నమోదై ఉంది. | §2 the full "blood-borne exposure flag" wording, rendered next to the badge and as the accessibility description — not a tooltip |
+| `s4.lib.cath_lab.consumables.exposure_badge_detail` | ml | _(new key)_ | ഈ ഉപകരണത്തിന് രക്തജന്യ എക്സ്പോഷർ ഫ്ലാഗ് രേഖപ്പെടുത്തിയിട്ടുണ്ട്. | §2 the full "blood-borne exposure flag" wording, rendered next to the badge and as the accessibility description — not a tooltip |
+| `s4.lib.cath_lab.consumables.post_use_device_already_discarded` | ta | CSSD இந்தச் சாதனத்தை ஏற்கனவே அப்புறப்படுத்தப்பட்டதாகக் குறித்துள்ளது; பயன்பாட்டிற்குப் பிந்தைய நடவடிக்கை பதிவு செய்யப்பட்டது | CSSD இந்தச் சாதனத்தின் நிலையை ஏற்கனவே "அப்புறப்படுத்தப்பட்டது" எனப் பதிவு செய்துள்ளது; பயன்பாட்டிற்குப் பிந்தைய முடிவு பதிவு செய்யப்பட்டது | §3 names the recorded status in quotation marks; ta success now reports a DECISION (முடிவு) |
+| `s4.lib.cath_lab.consumables.post_use_device_already_discarded` | te | CSSD ఈ పరికరాన్ని ఇప్పటికే పారవేసినట్లు గుర్తించింది; వినియోగానంతర నిర్ణయం నమోదైంది | CSSD ఈ పరికరం స్థితిని ఇప్పటికే "పారవేయబడింది"గా నమోదు చేసింది; వినియోగానంతర నిర్ణయం నమోదైంది | §3 names the recorded status in quotation marks; ta success now reports a DECISION (முடிவு) |
+| `s4.lib.cath_lab.consumables.post_use_device_already_discarded` | ml | CSSD ഈ ഉപകരണം ഇതിനകം ഉപേക്ഷിച്ചതായി അടയാളപ്പെടുത്തിയിട്ടുണ്ട്; ഉപയോഗാനന്തര തീരുമാനം രേഖപ്പെടുത്തി | CSSD ഈ ഉപകരണത്തിന്റെ നില ഇതിനകം "ഉപേക്ഷിച്ചു" എന്ന് രേഖപ്പെടുത്തിയിട്ടുണ്ട്; ഉപയോഗാനന്തര തീരുമാനം രേഖപ്പെടുത്തി | §3 names the recorded status in quotation marks; ta success now reports a DECISION (முடிவு) |
+| `s4.lib.cath_lab.consumables.post_use_discard_explainer` | en | _(new key)_ | This takes the device out of reuse circulation and records the disposition on the case. | §3 the confirmation says what the action does — removes the device from reuse circulation and records the disposition |
+| `s4.lib.cath_lab.consumables.post_use_discard_explainer` | hi | _(new key)_ | इससे उपकरण पुनः उपयोग के चक्र में नहीं रहेगा; यह निर्णय केस में दर्ज हो जाएगा। | §3 the confirmation says what the action does — removes the device from reuse circulation and records the disposition |
+| `s4.lib.cath_lab.consumables.post_use_discard_explainer` | ta | _(new key)_ | இதனால் சாதனம் மறுபயன்பாட்டுச் சுழற்சியில் இருக்காது; இந்த முடிவு செயல்முறையில் பதிவு செய்யப்படும். | §3 the confirmation says what the action does — removes the device from reuse circulation and records the disposition |
+| `s4.lib.cath_lab.consumables.post_use_discard_explainer` | te | _(new key)_ | దీంతో పరికరం తిరిగి వాడే చక్రంలో ఉండదు; ఈ నిర్ణయం కేసులో నమోదవుతుంది. | §3 the confirmation says what the action does — removes the device from reuse circulation and records the disposition |
+| `s4.lib.cath_lab.consumables.post_use_discard_explainer` | ml | _(new key)_ | ഇതോടെ ഉപകരണം പുനരുപയോഗ ചക്രത്തിൽ ഉണ്ടാകില്ല; ഈ തീരുമാനം കേസിൽ രേഖപ്പെടുത്തും. | §3 the confirmation says what the action does — removes the device from reuse circulation and records the disposition |
+| `s4.lib.cath_lab.readiness.external_unverified_hint` | en | Stored as an external lab result, unverified by a pathologist | Recorded as an outside-lab result; not verified in this system by a pathologist. | §4 refinement: local verification, not a judgment on the originating lab |
+| `s4.lib.cath_lab.readiness.external_unverified_hint` | hi | बाहरी प्रयोगशाला परिणाम के रूप में सहेजा गया, पैथोलॉजिस्ट द्वारा असत्यापित | बाहरी प्रयोगशाला के परिणाम के रूप में दर्ज; इस सिस्टम में पैथोलॉजिस्ट द्वारा सत्यापित नहीं। | §4 refinement: local verification, not a judgment on the originating lab |
+| `s4.lib.cath_lab.readiness.external_unverified_hint` | ta | வெளி ஆய்வக முடிவாக சேமிக்கப்பட்டது; நோயியல் நிபுணரால் சரிபார்க்கப்படவில்லை | வெளி ஆய்வக முடிவாகப் பதிவு செய்யப்பட்டது; இந்த அமைப்பில் நோயியல் நிபுணரால் சரிபார்க்கப்படவில்லை. | §4 refinement: local verification, not a judgment on the originating lab |
+| `s4.lib.cath_lab.readiness.external_unverified_hint` | te | బయటి ల్యాబ్ ఫలితంగా నమోదు చేయబడింది; పాథాలజిస్ట్ ధృవీకరించలేదు | బయటి ల్యాబ్ ఫలితంగా నమోదు చేయబడింది; ఈ సిస్టమ్‌లో పాథాలజిస్ట్ ధృవీకరించలేదు. | §4 refinement: local verification, not a judgment on the originating lab |
+| `s4.lib.cath_lab.readiness.external_unverified_hint` | ml | പുറത്തെ ലാബ് ഫലമായി സൂക്ഷിച്ചിരിക്കുന്നു; പാത്തോളജിസ്റ്റ് സ്ഥിരീകരിച്ചിട്ടില്ല | പുറത്തെ ലാബ് ഫലമായി രേഖപ്പെടുത്തി; ഈ സിസ്റ്റത്തിൽ പാത്തോളജിസ്റ്റ് സ്ഥിരീകരിച്ചിട്ടില്ല. | §4 refinement: local verification, not a judgment on the originating lab |
+| `s4.lib.cath_lab.readiness.confirm_critical` | en | Critical values present: {items}. Give a reason for marking this check as passed despite the critical result. | Critical values present: {items}. Give a reason for marking this check as "Pass" despite the critical result. | §4 retain: the exact Pass-state label in quotation marks + "despite the critical result" |
+| `s4.lib.cath_lab.readiness.confirm_critical` | hi | गंभीर मान मौजूद: {items}। गंभीर परिणाम के बावजूद इस जांच को उत्तीर्ण के रूप में चिह्नित करने का कारण दें। | गंभीर मान मौजूद: {items}। गंभीर परिणाम के बावजूद इस जांच को "उत्तीर्ण" के रूप में चिह्नित करने का कारण दें। | §4 retain: the exact Pass-state label in quotation marks + "despite the critical result" |
+| `s4.lib.cath_lab.readiness.confirm_critical` | ta | ஆபத்தான மதிப்புகள் உள்ளன: {items}. ஆபத்தான முடிவு இருந்தும் இந்தச் சரிபார்ப்பைத் தேர்ச்சி எனக் குறிப்பதற்கான காரணத்தைத் தரவும். | ஆபத்தான மதிப்புகள் உள்ளன: {items}. ஆபத்தான முடிவு இருந்தும் இந்தச் சரிபார்ப்பை "தேர்ச்சி" எனக் குறிப்பதற்கான காரணத்தைத் தரவும். | §4 retain: the exact Pass-state label in quotation marks + "despite the critical result" |
+| `s4.lib.cath_lab.readiness.confirm_critical` | te | క్రిటికల్ విలువలు ఉన్నాయి: {items}. క్రిటికల్ ఫలితం ఉన్నప్పటికీ ఈ తనిఖీని ఉత్తీర్ణం అని గుర్తించడానికి కారణం తెలియజేయండి. | క్రిటికల్ విలువలు ఉన్నాయి: {items}. క్రిటికల్ ఫలితం ఉన్నప్పటికీ ఈ తనిఖీని "ఉత్తీర్ణం" అని గుర్తించడానికి కారణం తెలియజేయండి. | §4 retain: the exact Pass-state label in quotation marks + "despite the critical result" |
+| `s4.lib.cath_lab.readiness.confirm_critical` | ml | ഗുരുതര മൂല്യങ്ങൾ ഉണ്ട്: {items}. ഗുരുതര ഫലം ഉണ്ടായിട്ടും ഈ പരിശോധന വിജയം എന്ന് അടയാളപ്പെടുത്തുന്നതിനുള്ള കാരണം നൽകുക. | ഗുരുതര മൂല്യങ്ങൾ ഉണ്ട്: {items}. ഗുരുതര ഫലം ഉണ്ടായിട്ടും ഈ പരിശോധന "വിജയം" എന്ന് അടയാളപ്പെടുത്തുന്നതിനുള്ള കാരണം നൽകുക. | §4 retain: the exact Pass-state label in quotation marks + "despite the critical result" |
+| `s4.lib.cath_lab.readiness.confirm_critical_unnamed` | en | A critical value is present. Give a reason for marking this check as passed despite the critical result. | A critical value is present. Give a reason for marking this check as "Pass" despite the critical result. | §4 retain: the exact Pass-state label in quotation marks + "despite the critical result" |
+| `s4.lib.cath_lab.readiness.confirm_critical_unnamed` | hi | एक गंभीर मान मौजूद है। गंभीर परिणाम के बावजूद इस जांच को उत्तीर्ण के रूप में चिह्नित करने का कारण दें। | एक गंभीर मान मौजूद है। गंभीर परिणाम के बावजूद इस जांच को "उत्तीर्ण" के रूप में चिह्नित करने का कारण दें। | §4 retain: the exact Pass-state label in quotation marks + "despite the critical result" |
+| `s4.lib.cath_lab.readiness.confirm_critical_unnamed` | ta | ஆபத்தான மதிப்பு ஒன்று உள்ளது. ஆபத்தான முடிவு இருந்தும் இந்தச் சரிபார்ப்பைத் தேர்ச்சி எனக் குறிப்பதற்கான காரணத்தைத் தரவும். | ஆபத்தான மதிப்பு ஒன்று உள்ளது. ஆபத்தான முடிவு இருந்தும் இந்தச் சரிபார்ப்பை "தேர்ச்சி" எனக் குறிப்பதற்கான காரணத்தைத் தரவும். | §4 retain: the exact Pass-state label in quotation marks + "despite the critical result" |
+| `s4.lib.cath_lab.readiness.confirm_critical_unnamed` | te | ఒక క్రిటికల్ విలువ ఉంది. క్రిటికల్ ఫలితం ఉన్నప్పటికీ ఈ తనిఖీని ఉత్తీర్ణం అని గుర్తించడానికి కారణం తెలియజేయండి. | ఒక క్రిటికల్ విలువ ఉంది. క్రిటికల్ ఫలితం ఉన్నప్పటికీ ఈ తనిఖీని "ఉత్తీర్ణం" అని గుర్తించడానికి కారణం తెలియజేయండి. | §4 retain: the exact Pass-state label in quotation marks + "despite the critical result" |
+| `s4.lib.cath_lab.readiness.confirm_critical_unnamed` | ml | ഒരു ഗുരുതര മൂല്യം ഉണ്ട്. ഗുരുതര ഫലം ഉണ്ടായിട്ടും ഈ പരിശോധന വിജയം എന്ന് അടയാളപ്പെടുത്തുന്നതിനുള്ള കാരണം നൽകുക. | ഒരു ഗുരുതര മൂല്യം ഉണ്ട്. ഗുരുതര ഫലം ഉണ്ടായിട്ടും ഈ പരിശോധന "വിജയം" എന്ന് അടയാളപ്പെടുത്തുന്നതിനുള്ള കാരണം നൽകുക. | §4 retain: the exact Pass-state label in quotation marks + "despite the critical result" |
+| `s4.lib.cath_lab.readiness.header.missing` | hi | लैब जांच अधूरी: {items} | लैब जांचें अधूरी हैं: {items} | §5 hi |
+| `s4.lib.cath_lab.consumables.device_tag_label` | ta | சாதன குறிச்சீட்டு | சாதனக் குறிச்சீட்டு | §5 ta |
+| `s4.lib.cath_lab.consumables.device_tag_help` | en | _(new key)_ | Enter or scan the tag printed on the device, for example RP00000042. | §5 the field takes an identifier that is entered or scanned (e.g. RP00000042); it does not mint a label |
+| `s4.lib.cath_lab.consumables.device_tag_help` | hi | _(new key)_ | उपकरण पर छपा टैग दर्ज करें या स्कैन करें, उदाहरण के लिए RP00000042। | §5 the field takes an identifier that is entered or scanned (e.g. RP00000042); it does not mint a label |
+| `s4.lib.cath_lab.consumables.device_tag_help` | ta | _(new key)_ | சாதனத்தில் அச்சிடப்பட்ட குறிச்சீட்டை உள்ளிடவும் அல்லது ஸ்கேன் செய்யவும், எடுத்துக்காட்டாக RP00000042. | §5 the field takes an identifier that is entered or scanned (e.g. RP00000042); it does not mint a label |
+| `s4.lib.cath_lab.consumables.device_tag_help` | te | _(new key)_ | పరికరంపై ముద్రించిన ట్యాగ్‌ను నమోదు చేయండి లేదా స్కాన్ చేయండి, ఉదాహరణకు RP00000042. | §5 the field takes an identifier that is entered or scanned (e.g. RP00000042); it does not mint a label |
+| `s4.lib.cath_lab.consumables.device_tag_help` | ml | _(new key)_ | ഉപകരണത്തിൽ അച്ചടിച്ച ടാഗ് നൽകുക അല്ലെങ്കിൽ സ്കാൻ ചെയ്യുക, ഉദാഹരണത്തിന് RP00000042. | §5 the field takes an identifier that is entered or scanned (e.g. RP00000042); it does not mint a label |
+| `s4.lib.cath_lab.readiness.auto_managed_note` | ta | இந்தச் சரிபார்ப்பை தானியங்கி நிர்வகிக்கிறது; அடுத்த புதுப்பிப்பு இதைப் பழைய நிலைக்கு மாற்றக்கூடும். | இந்தச் சரிபார்ப்பு தானாக நிர்வகிக்கப்படுகிறது; அடுத்த புதுப்பிப்பு இதைப் பழைய நிலைக்கு மாற்றக்கூடும். | §5 ta |
+| `s4.lib.cath_lab.readiness.external_report_ref_help` | en | _(new key)_ | Letters and numbers are both accepted. | §5 ta `அறிக்கை எண்` kept; the help text says the backend accepts alphanumeric text |
+| `s4.lib.cath_lab.readiness.external_report_ref_help` | hi | _(new key)_ | अक्षर और अंक दोनों स्वीकार्य हैं। | §5 ta `அறிக்கை எண்` kept; the help text says the backend accepts alphanumeric text |
+| `s4.lib.cath_lab.readiness.external_report_ref_help` | ta | _(new key)_ | எழுத்துகளும் எண்களும் ஏற்கப்படும். | §5 ta `அறிக்கை எண்` kept; the help text says the backend accepts alphanumeric text |
+| `s4.lib.cath_lab.readiness.external_report_ref_help` | te | _(new key)_ | అక్షరాలు, అంకెలు రెండూ ఆమోదించబడతాయి. | §5 ta `அறிக்கை எண்` kept; the help text says the backend accepts alphanumeric text |
+| `s4.lib.cath_lab.readiness.external_report_ref_help` | ml | _(new key)_ | അക്ഷരങ്ങളും അക്കങ്ങളും സ്വീകരിക്കും. | §5 ta `அறிக்கை எண்` kept; the help text says the backend accepts alphanumeric text |
+
+Rows: 72 (en 13, hi 14, ta 16, te 14, ml 15).
+
+**Owner approval: pending, and this batch stays DRAFT and OWNER-GATED.** New in the approval packet
+for Batch 1.1: (A) the PROPOSED English `restriction_override_allowed` and its four renderings;
+(B) the assumption that proposed en #1 (`date_required`) and #2 (`result_required`) stand, since the
+review endorses #3 and vetoes neither; (C) the verification finding in §3 — the app has no localised
+Discarded status label to quote.
 
 ---
 
