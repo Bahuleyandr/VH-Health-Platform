@@ -7907,12 +7907,13 @@ class AppStrings {
       's4.lib.cath_lab.readiness.waive_title': "Waive {item}?",
       's4.lib.cath_lab.readiness.waive_reason': "Reason for waiving",
       's4.lib.cath_lab.readiness.waive_reason_line': "Waived: {reason}",
-      's4.lib.cath_lab.readiness.external_unverified_hint':
-          "Stored as an external lab result, unverified by a pathologist",
+      's4.lib.cath_lab.readiness.external_unverified_hint': "Recorded as an outside-lab result; not verified in this system by a pathologist.",
       's4.lib.cath_lab.readiness.external_title': "Outside result — {item}",
       's4.lib.cath_lab.readiness.external_value': "Result value",
       's4.lib.cath_lab.readiness.external_lab_name': "Outside lab name",
       's4.lib.cath_lab.readiness.external_report_ref': "Report reference",
+      's4.lib.cath_lab.readiness.external_report_ref_help':
+          'Letters and numbers are both accepted.',
       's4.lib.cath_lab.readiness.lab_name_required':
           "Enter the outside lab's name",
       's4.lib.cath_lab.readiness.value_invalid': "Enter a number of 0 or more",
@@ -7968,8 +7969,8 @@ class AppStrings {
       's4.lib.cath_lab.readiness.date_required': "Report date is required",
       's4.lib.cath_lab.readiness.confirm_title': "Confirm check status",
       's4.lib.cath_lab.readiness.confirm_body': "Set {check} to {status}?",
-      's4.lib.cath_lab.readiness.confirm_critical': "Critical values present: {items}. Give a reason for marking this check as passed despite the critical result.",
-      's4.lib.cath_lab.readiness.confirm_critical_unnamed': "A critical value is present. Give a reason for marking this check as passed despite the critical result.",
+      's4.lib.cath_lab.readiness.confirm_critical': "Critical values present: {items}. Give a reason for marking this check as \"Pass\" despite the critical result.",
+      's4.lib.cath_lab.readiness.confirm_critical_unnamed': "A critical value is present. Give a reason for marking this check as \"Pass\" despite the critical result.",
       's4.lib.cath_lab.readiness.confirm_notes': "Notes (optional)",
       's4.lib.cath_lab.readiness.confirm_reason': "Reason",
       's4.lib.cath_lab.readiness.reason_required': "A reason is required",
@@ -8140,23 +8141,33 @@ class AppStrings {
       's4.lib.cath_lab.consumables.mode_reused': "Reprocessed device",
       's4.lib.cath_lab.consumables.device_tag_label': "Device tag",
       's4.lib.cath_lab.consumables.device_tag_hint': "RP00000042",
+      's4.lib.cath_lab.consumables.device_tag_help': 'Enter or scan the tag printed on the device, for example RP00000042.',
       's4.lib.cath_lab.consumables.device_check': "Check device",
       's4.lib.cath_lab.consumables.device_not_available':
           "This device is not available for use",
       's4.lib.cath_lab.consumables.device_blocked': "This device carries a blood-borne exposure flag and cannot be reused",
       's4.lib.cath_lab.consumables.acknowledgement_label':
           "Reason for proceeding",
-      's4.lib.cath_lab.consumables.restriction_restricted':
-          "Devices used in this case will be discarded, not reprocessed",
+      's4.lib.cath_lab.consumables.restriction_restricted': "A reactive blood-borne marker is on record; review the recorded reasons.",
       's4.lib.cath_lab.consumables.restriction_unknown':
-          "Serology not on record; reprocessing needs acknowledgement",
+          "Serology status is unresolved; review the recorded reasons.",
+      's4.lib.cath_lab.consumables.restriction_ack_required':
+          'Acknowledge this unresolved status before requesting reprocessing.',
+      's4.lib.cath_lab.consumables.restriction_blocked':
+          'Reprocessing is blocked under the current policy.',
+      's4.lib.cath_lab.consumables.restriction_discard_only': 'Devices used in this procedure must be marked for discard; do not send them for reprocessing.',
+      // REVIEW: Batch 1.1 PROPOSED English (restricted + override_allowed) — awaiting owner decision; a veto reverts all five.
+      's4.lib.cath_lab.consumables.restriction_override_allowed': 'The current policy allows reprocessing only with an acknowledgement.',
       's4.lib.cath_lab.consumables.post_use_send': "Send to CSSD",
       's4.lib.cath_lab.consumables.post_use_discard': "Discard",
       's4.lib.cath_lab.consumables.post_use_units': "Units going to CSSD",
       's4.lib.cath_lab.consumables.post_use_discard_reason': "Discard reason",
+      's4.lib.cath_lab.consumables.post_use_discard_explainer': 'This takes the device out of reuse circulation and records the disposition on the case.',
       's4.lib.cath_lab.consumables.post_use_saved': "Post-use recorded",
       's4.lib.cath_lab.consumables.reused_badge': "Reprocessed",
       's4.lib.cath_lab.consumables.exposure_badge': "Exposure",
+      's4.lib.cath_lab.consumables.exposure_badge_detail':
+          'A blood-borne exposure flag is recorded for this device.',
       's4.dynamic.cath_lab.consumables.device_cycle': "Cycle {cycle} of {max}",
       's4.dynamic.cath_lab.consumables.device_tag': "Tag {tag}",
       's4.lib.cath_lab.consumables.post_use_device_already_discarded': "CSSD has already marked this device as discarded; post-use disposition recorded",
@@ -15456,11 +15467,13 @@ class AppStrings {
       's4.lib.cath_lab.readiness.waive_title': "{item} को छूट दें?",
       's4.lib.cath_lab.readiness.waive_reason': "छूट का कारण",
       's4.lib.cath_lab.readiness.waive_reason_line': "छूट: {reason}",
-      's4.lib.cath_lab.readiness.external_unverified_hint': "बाहरी प्रयोगशाला परिणाम के रूप में सहेजा गया, पैथोलॉजिस्ट द्वारा असत्यापित",
+      's4.lib.cath_lab.readiness.external_unverified_hint': "बाहरी प्रयोगशाला के परिणाम के रूप में दर्ज; इस सिस्टम में पैथोलॉजिस्ट द्वारा सत्यापित नहीं।",
       's4.lib.cath_lab.readiness.external_title': "बाहरी परिणाम — {item}",
       's4.lib.cath_lab.readiness.external_value': "परिणाम मान",
       's4.lib.cath_lab.readiness.external_lab_name': "बाहरी प्रयोगशाला का नाम",
       's4.lib.cath_lab.readiness.external_report_ref': "रिपोर्ट संदर्भ",
+      's4.lib.cath_lab.readiness.external_report_ref_help':
+          'अक्षर और अंक दोनों स्वीकार्य हैं।',
       's4.lib.cath_lab.readiness.lab_name_required':
           "बाहरी प्रयोगशाला का नाम दर्ज करें",
       's4.lib.cath_lab.readiness.value_invalid':
@@ -15517,15 +15530,16 @@ class AppStrings {
       's4.lib.cath_lab.readiness.confirm_title': "जांच स्थिति की पुष्टि करें",
       's4.lib.cath_lab.readiness.confirm_body':
           "{check} को {status} पर सेट करें?",
-      's4.lib.cath_lab.readiness.confirm_critical': "गंभीर मान मौजूद: {items}। गंभीर परिणाम के बावजूद इस जांच को उत्तीर्ण के रूप में चिह्नित करने का कारण दें।",
-      's4.lib.cath_lab.readiness.confirm_critical_unnamed': "एक गंभीर मान मौजूद है। गंभीर परिणाम के बावजूद इस जांच को उत्तीर्ण के रूप में चिह्नित करने का कारण दें।",
+      's4.lib.cath_lab.readiness.confirm_critical': "गंभीर मान मौजूद: {items}। गंभीर परिणाम के बावजूद इस जांच को \"उत्तीर्ण\" के रूप में चिह्नित करने का कारण दें।",
+      's4.lib.cath_lab.readiness.confirm_critical_unnamed': "एक गंभीर मान मौजूद है। गंभीर परिणाम के बावजूद इस जांच को \"उत्तीर्ण\" के रूप में चिह्नित करने का कारण दें।",
       's4.lib.cath_lab.readiness.confirm_notes': "टिप्पणियाँ (वैकल्पिक)",
       's4.lib.cath_lab.readiness.confirm_reason': "कारण",
       's4.lib.cath_lab.readiness.reason_required': "कारण आवश्यक है",
       's4.lib.cath_lab.readiness.confirm_action': "पुष्टि करें",
       's4.lib.cath_lab.readiness.auto_managed_note': "यह जांच स्वचालित रूप से प्रबंधित है; अगला रिफ्रेश इसे वापस बदल सकता है।",
       's4.lib.cath_lab.readiness.waived_on': "{date} को छूट दी गई",
-      's4.lib.cath_lab.readiness.header.missing': "लैब जांच अधूरी: {items}",
+      's4.lib.cath_lab.readiness.header.missing':
+          "लैब जांचें अधूरी हैं: {items}",
       's4.lib.cath_lab.quick_wins.live_evidence': "लाइव साक्ष्य और ऑर्डर सेट",
       's4.lib.cath_lab.quick_wins.load_failed': "लाइव साक्ष्य लोड नहीं हो सका",
       's4.lib.cath_lab.quick_wins.evidence_found':
@@ -15691,22 +15705,36 @@ class AppStrings {
       's4.lib.cath_lab.consumables.mode_reused': "पुनःसंसाधित उपकरण",
       's4.lib.cath_lab.consumables.device_tag_label': "उपकरण टैग",
       's4.lib.cath_lab.consumables.device_tag_hint': "RP00000042",
+      's4.lib.cath_lab.consumables.device_tag_help':
+          'उपकरण पर छपा टैग दर्ज करें या स्कैन करें, उदाहरण के लिए RP00000042।',
       's4.lib.cath_lab.consumables.device_check': "उपकरण जांचें",
       's4.lib.cath_lab.consumables.device_not_available':
           "यह उपकरण उपयोग के लिए उपलब्ध नहीं है",
       's4.lib.cath_lab.consumables.device_blocked': "इस उपकरण पर रक्तजनित एक्सपोज़र का चिह्न दर्ज है; पुनः उपयोग की अनुमति नहीं है",
       's4.lib.cath_lab.consumables.acknowledgement_label': "आगे बढ़ने का कारण",
-      's4.lib.cath_lab.consumables.restriction_restricted': "इस केस में उपयोग किए गए उपकरण डिस्कार्ड किए जाएंगे, पुनःसंसाधित नहीं",
-      's4.lib.cath_lab.consumables.restriction_unknown': "सीरोलॉजी परिणाम दर्ज नहीं हैं; पुनःसंसाधन से पहले इसकी जानकारी होने की पुष्टि आवश्यक है",
+      's4.lib.cath_lab.consumables.restriction_restricted':
+          "रक्तजनित रिएक्टिव मार्कर दर्ज है; दर्ज किए गए कारण देखें।",
+      's4.lib.cath_lab.consumables.restriction_unknown':
+          "सीरोलॉजी की स्थिति स्पष्ट नहीं है; दर्ज किए गए कारण देखें।",
+      's4.lib.cath_lab.consumables.restriction_ack_required': 'पुनःसंसाधन के लिए भेजने से पहले इस अस्पष्ट स्थिति की जानकारी होने की पुष्टि करें।',
+      's4.lib.cath_lab.consumables.restriction_blocked':
+          'मौजूदा नीति के तहत पुनःसंसाधन अवरुद्ध है।',
+      's4.lib.cath_lab.consumables.restriction_discard_only': 'इस प्रक्रिया में उपयोग किए गए उपकरणों को डिस्कार्ड के लिए चिह्नित करना होगा; उन्हें पुनःसंसाधन के लिए न भेजें।',
+      // REVIEW: Batch 1.1 PROPOSED English (restricted + override_allowed) — awaiting owner decision; a veto reverts all five.
+      's4.lib.cath_lab.consumables.restriction_override_allowed':
+          'मौजूदा नीति के तहत पुनःसंसाधन केवल पुष्टि के साथ ही अनुमत है।',
       's4.lib.cath_lab.consumables.post_use_send': "CSSD को भेजें",
       's4.lib.cath_lab.consumables.post_use_discard': "डिस्कार्ड करें",
       's4.lib.cath_lab.consumables.post_use_units': "CSSD को जाने वाली इकाइयां",
       's4.lib.cath_lab.consumables.post_use_discard_reason':
           "डिस्कार्ड का कारण",
+      's4.lib.cath_lab.consumables.post_use_discard_explainer': 'इससे उपकरण पुनः उपयोग के चक्र में नहीं रहेगा; यह निर्णय केस में दर्ज हो जाएगा।',
       's4.lib.cath_lab.consumables.post_use_saved':
           "उपयोग-पश्चात दर्ज किया गया",
       's4.lib.cath_lab.consumables.reused_badge': "पुनःसंसाधित",
       's4.lib.cath_lab.consumables.exposure_badge': "एक्सपोज़र",
+      's4.lib.cath_lab.consumables.exposure_badge_detail':
+          'इस उपकरण पर रक्तजनित एक्सपोज़र का चिह्न दर्ज है।',
       's4.dynamic.cath_lab.consumables.device_cycle': "चक्र {cycle} / {max}",
       's4.dynamic.cath_lab.consumables.device_tag': "टैग {tag}",
       's4.lib.cath_lab.consumables.post_use_device_already_discarded': "CSSD ने इस उपकरण को पहले ही डिस्कार्ड के रूप में चिह्नित कर दिया है; उपयोग-पश्चात निर्णय दर्ज किया गया",
@@ -24324,11 +24352,13 @@ class AppStrings {
       's4.lib.cath_lab.readiness.waive_title': "{item} விலக்க வேண்டுமா?",
       's4.lib.cath_lab.readiness.waive_reason': "விலக்கலுக்கான காரணம்",
       's4.lib.cath_lab.readiness.waive_reason_line': "விலக்கப்பட்டது: {reason}",
-      's4.lib.cath_lab.readiness.external_unverified_hint': "வெளி ஆய்வக முடிவாக சேமிக்கப்பட்டது; நோயியல் நிபுணரால் சரிபார்க்கப்படவில்லை",
+      's4.lib.cath_lab.readiness.external_unverified_hint': "வெளி ஆய்வக முடிவாகப் பதிவு செய்யப்பட்டது; இந்த அமைப்பில் நோயியல் நிபுணரால் சரிபார்க்கப்படவில்லை.",
       's4.lib.cath_lab.readiness.external_title': "வெளி முடிவு — {item}",
       's4.lib.cath_lab.readiness.external_value': "முடிவு மதிப்பு",
       's4.lib.cath_lab.readiness.external_lab_name': "வெளி ஆய்வகத்தின் பெயர்",
       's4.lib.cath_lab.readiness.external_report_ref': "அறிக்கை எண்",
+      's4.lib.cath_lab.readiness.external_report_ref_help':
+          'எழுத்துகளும் எண்களும் ஏற்கப்படும்.',
       's4.lib.cath_lab.readiness.lab_name_required':
           "வெளி ஆய்வகத்தின் பெயரை உள்ளிடவும்",
       's4.lib.cath_lab.readiness.value_invalid':
@@ -24394,14 +24424,14 @@ class AppStrings {
           "சரிபார்ப்பு நிலையை உறுதிப்படுத்தவும்",
       's4.lib.cath_lab.readiness.confirm_body':
           "{check} ஐ {status} ஆக அமைக்கவா?",
-      's4.lib.cath_lab.readiness.confirm_critical': "ஆபத்தான மதிப்புகள் உள்ளன: {items}. ஆபத்தான முடிவு இருந்தும் இந்தச் சரிபார்ப்பைத் தேர்ச்சி எனக் குறிப்பதற்கான காரணத்தைத் தரவும்.",
-      's4.lib.cath_lab.readiness.confirm_critical_unnamed': "ஆபத்தான மதிப்பு ஒன்று உள்ளது. ஆபத்தான முடிவு இருந்தும் இந்தச் சரிபார்ப்பைத் தேர்ச்சி எனக் குறிப்பதற்கான காரணத்தைத் தரவும்.",
+      's4.lib.cath_lab.readiness.confirm_critical': "ஆபத்தான மதிப்புகள் உள்ளன: {items}. ஆபத்தான முடிவு இருந்தும் இந்தச் சரிபார்ப்பை \"தேர்ச்சி\" எனக் குறிப்பதற்கான காரணத்தைத் தரவும்.",
+      's4.lib.cath_lab.readiness.confirm_critical_unnamed': "ஆபத்தான மதிப்பு ஒன்று உள்ளது. ஆபத்தான முடிவு இருந்தும் இந்தச் சரிபார்ப்பை \"தேர்ச்சி\" எனக் குறிப்பதற்கான காரணத்தைத் தரவும்.",
       's4.lib.cath_lab.readiness.confirm_notes':
           "குறிப்புகள் (விருப்பத்தேர்வு)",
       's4.lib.cath_lab.readiness.confirm_reason': "காரணம்",
       's4.lib.cath_lab.readiness.reason_required': "காரணம் தேவை",
       's4.lib.cath_lab.readiness.confirm_action': "உறுதிப்படுத்து",
-      's4.lib.cath_lab.readiness.auto_managed_note': "இந்தச் சரிபார்ப்பை தானியங்கி நிர்வகிக்கிறது; அடுத்த புதுப்பிப்பு இதைப் பழைய நிலைக்கு மாற்றக்கூடும்.",
+      's4.lib.cath_lab.readiness.auto_managed_note': "இந்தச் சரிபார்ப்பு தானாக நிர்வகிக்கப்படுகிறது; அடுத்த புதுப்பிப்பு இதைப் பழைய நிலைக்கு மாற்றக்கூடும்.",
       's4.lib.cath_lab.readiness.waived_on': "{date} அன்று விலக்கப்பட்டது",
       's4.lib.cath_lab.readiness.header.missing':
           "ஆய்வகப் பரிசோதனைகள் முழுமையடையவில்லை: {items}",
@@ -24577,29 +24607,39 @@ class AppStrings {
       's4.dynamic.cath_lab.consumables.serial': "வரிசை {serial}",
       's4.lib.cath_lab.consumables.mode_new': "புதிய யூனிட்",
       's4.lib.cath_lab.consumables.mode_reused': "மறுசெயலாக்கப்பட்ட சாதனம்",
-      's4.lib.cath_lab.consumables.device_tag_label': "சாதன குறிச்சீட்டு",
+      's4.lib.cath_lab.consumables.device_tag_label': "சாதனக் குறிச்சீட்டு",
       's4.lib.cath_lab.consumables.device_tag_hint': "RP00000042",
+      's4.lib.cath_lab.consumables.device_tag_help': 'சாதனத்தில் அச்சிடப்பட்ட குறிச்சீட்டை உள்ளிடவும் அல்லது ஸ்கேன் செய்யவும், எடுத்துக்காட்டாக RP00000042.',
       's4.lib.cath_lab.consumables.device_check': "சாதனத்தைச் சரிபார்",
       's4.lib.cath_lab.consumables.device_not_available':
           "இந்த சாதனம் பயன்பாட்டிற்கு கிடைக்கவில்லை",
       's4.lib.cath_lab.consumables.device_blocked': "இந்தச் சாதனத்திற்கு இரத்தவழி எக்ஸ்போஷர் குறி பதிவாகியுள்ளது; மறுபயன்பாடு தடுக்கப்பட்டுள்ளது",
       's4.lib.cath_lab.consumables.acknowledgement_label':
           "தொடர்வதற்கான காரணம்",
-      's4.lib.cath_lab.consumables.restriction_restricted': "இந்தச் செயல்முறையில் பயன்படுத்தப்படும் சாதனங்கள் அப்புறப்படுத்தப்படும்; மறுசெயலாக்கப்படாது",
-      's4.lib.cath_lab.consumables.restriction_unknown': "சீராலஜி முடிவுகள் பதிவில் இல்லை; மறுசெயலாக்கத்திற்கு முன் இதை அறிந்ததற்கான உறுதிப்படுத்தல் தேவை",
+      's4.lib.cath_lab.consumables.restriction_restricted': "இரத்தவழி ரியாக்டிவ் மார்க்கர் பதிவாகியுள்ளது; பதிவு செய்யப்பட்ட காரணங்களைப் பரிசீலிக்கவும்.",
+      's4.lib.cath_lab.consumables.restriction_unknown': "சீராலஜி நிலை தெளிவாகவில்லை; பதிவு செய்யப்பட்ட காரணங்களைப் பரிசீலிக்கவும்.",
+      's4.lib.cath_lab.consumables.restriction_ack_required': 'மறுசெயலாக்கம் கோருவதற்கு முன், இந்தத் தெளிவற்ற நிலையை அறிந்ததற்கான உறுதிப்படுத்தலை அளிக்கவும்.',
+      's4.lib.cath_lab.consumables.restriction_blocked':
+          'தற்போதைய கொள்கையின்படி மறுசெயலாக்கம் தடுக்கப்பட்டுள்ளது.',
+      's4.lib.cath_lab.consumables.restriction_discard_only': 'இந்தச் செயல்முறையில் பயன்படுத்தப்பட்ட சாதனங்களை அப்புறப்படுத்துவதற்குக் குறிக்க வேண்டும்; அவற்றை மறுசெயலாக்கத்திற்கு அனுப்ப வேண்டாம்.',
+      // REVIEW: Batch 1.1 PROPOSED English (restricted + override_allowed) — awaiting owner decision; a veto reverts all five.
+      's4.lib.cath_lab.consumables.restriction_override_allowed': 'தற்போதைய கொள்கையின்படி, உறுதிப்படுத்தலுடன் மட்டுமே மறுசெயலாக்கம் அனுமதிக்கப்படுகிறது.',
       's4.lib.cath_lab.consumables.post_use_send': "CSSD-க்கு அனுப்பு",
       's4.lib.cath_lab.consumables.post_use_discard': "அப்புறப்படுத்து",
       's4.lib.cath_lab.consumables.post_use_units':
           "CSSD-க்கு செல்லும் யூனிட்டுகள்",
       's4.lib.cath_lab.consumables.post_use_discard_reason':
           "அப்புறப்படுத்துவதற்கான காரணம்",
+      's4.lib.cath_lab.consumables.post_use_discard_explainer': 'இதனால் சாதனம் மறுபயன்பாட்டுச் சுழற்சியில் இருக்காது; இந்த முடிவு செயல்முறையில் பதிவு செய்யப்படும்.',
       's4.lib.cath_lab.consumables.post_use_saved':
           "பயன்பாட்டிற்குப் பின் பதிவு செய்யப்பட்டது",
       's4.lib.cath_lab.consumables.reused_badge': "மறுசெயலாக்கப்பட்டது",
       's4.lib.cath_lab.consumables.exposure_badge': "எக்ஸ்போஷர்",
+      's4.lib.cath_lab.consumables.exposure_badge_detail':
+          'இந்தச் சாதனத்திற்கு இரத்தவழி எக்ஸ்போஷர் குறி பதிவாகியுள்ளது.',
       's4.dynamic.cath_lab.consumables.device_cycle': "சுழற்சி {cycle} / {max}",
       's4.dynamic.cath_lab.consumables.device_tag': "குறிச்சீட்டு {tag}",
-      's4.lib.cath_lab.consumables.post_use_device_already_discarded': "CSSD இந்தச் சாதனத்தை ஏற்கனவே அப்புறப்படுத்தப்பட்டதாகக் குறித்துள்ளது; பயன்பாட்டிற்குப் பிந்தைய நடவடிக்கை பதிவு செய்யப்பட்டது",
+      's4.lib.cath_lab.consumables.post_use_device_already_discarded': "CSSD இந்தச் சாதனத்தின் நிலையை ஏற்கனவே \"அப்புறப்படுத்தப்பட்டது\" எனப் பதிவு செய்துள்ளது; பயன்பாட்டிற்குப் பிந்தைய முடிவு பதிவு செய்யப்பட்டது",
       's4.lib.cath_lab.consumables.post_use_note': "குறிப்பு",
       's4.lib.cath_lab.consumables.post_use_confirm': "உறுதிப்படுத்து",
       's4.dynamic.cath_lab.consumables.more_reasons': "+{count} மேலும்",
@@ -33294,12 +33334,13 @@ class AppStrings {
       's4.lib.cath_lab.readiness.waive_title': "{item} మినహాయించాలా?",
       's4.lib.cath_lab.readiness.waive_reason': "మినహాయింపు కారణం",
       's4.lib.cath_lab.readiness.waive_reason_line': "మినహాయింపు: {reason}",
-      's4.lib.cath_lab.readiness.external_unverified_hint':
-          "బయటి ల్యాబ్ ఫలితంగా నమోదు చేయబడింది; పాథాలజిస్ట్ ధృవీకరించలేదు",
+      's4.lib.cath_lab.readiness.external_unverified_hint': "బయటి ల్యాబ్ ఫలితంగా నమోదు చేయబడింది; ఈ సిస్టమ్‌లో పాథాలజిస్ట్ ధృవీకరించలేదు.",
       's4.lib.cath_lab.readiness.external_title': "బయటి ఫలితం — {item}",
       's4.lib.cath_lab.readiness.external_value': "ఫలిత విలువ",
       's4.lib.cath_lab.readiness.external_lab_name': "బయటి ల్యాబ్ పేరు",
       's4.lib.cath_lab.readiness.external_report_ref': "నివేదిక రిఫరెన్స్",
+      's4.lib.cath_lab.readiness.external_report_ref_help':
+          'అక్షరాలు, అంకెలు రెండూ ఆమోదించబడతాయి.',
       's4.lib.cath_lab.readiness.lab_name_required':
           "బయటి ల్యాబ్ పేరును నమోదు చేయండి",
       's4.lib.cath_lab.readiness.value_invalid':
@@ -33357,8 +33398,8 @@ class AppStrings {
       's4.lib.cath_lab.readiness.confirm_title': "తనిఖీ స్థితిని నిర్ధారించండి",
       's4.lib.cath_lab.readiness.confirm_body':
           "{check}: {status} అని సెట్ చేయాలా?",
-      's4.lib.cath_lab.readiness.confirm_critical': "క్రిటికల్ విలువలు ఉన్నాయి: {items}. క్రిటికల్ ఫలితం ఉన్నప్పటికీ ఈ తనిఖీని ఉత్తీర్ణం అని గుర్తించడానికి కారణం తెలియజేయండి.",
-      's4.lib.cath_lab.readiness.confirm_critical_unnamed': "ఒక క్రిటికల్ విలువ ఉంది. క్రిటికల్ ఫలితం ఉన్నప్పటికీ ఈ తనిఖీని ఉత్తీర్ణం అని గుర్తించడానికి కారణం తెలియజేయండి.",
+      's4.lib.cath_lab.readiness.confirm_critical': "క్రిటికల్ విలువలు ఉన్నాయి: {items}. క్రిటికల్ ఫలితం ఉన్నప్పటికీ ఈ తనిఖీని \"ఉత్తీర్ణం\" అని గుర్తించడానికి కారణం తెలియజేయండి.",
+      's4.lib.cath_lab.readiness.confirm_critical_unnamed': "ఒక క్రిటికల్ విలువ ఉంది. క్రిటికల్ ఫలితం ఉన్నప్పటికీ ఈ తనిఖీని \"ఉత్తీర్ణం\" అని గుర్తించడానికి కారణం తెలియజేయండి.",
       's4.lib.cath_lab.readiness.confirm_notes': "గమనికలు (ఐచ్ఛికం)",
       's4.lib.cath_lab.readiness.confirm_reason': "కారణం",
       's4.lib.cath_lab.readiness.reason_required': "కారణం అవసరం",
@@ -33537,25 +33578,36 @@ class AppStrings {
       's4.lib.cath_lab.consumables.mode_reused': "పునఃప్రాసెస్ చేసిన పరికరం",
       's4.lib.cath_lab.consumables.device_tag_label': "పరికర ట్యాగ్",
       's4.lib.cath_lab.consumables.device_tag_hint': "RP00000042",
+      's4.lib.cath_lab.consumables.device_tag_help': 'పరికరంపై ముద్రించిన ట్యాగ్‌ను నమోదు చేయండి లేదా స్కాన్ చేయండి, ఉదాహరణకు RP00000042.',
       's4.lib.cath_lab.consumables.device_check': "పరికరాన్ని తనిఖీ చేయండి",
       's4.lib.cath_lab.consumables.device_not_available':
           "ఈ పరికరం వినియోగానికి అందుబాటులో లేదు",
       's4.lib.cath_lab.consumables.device_blocked': "ఈ పరికరానికి రక్తజనిత ఎక్స్‌పోజర్ ఫ్లాగ్ నమోదై ఉంది; తిరిగి వాడటం నిరోధించబడింది",
       's4.lib.cath_lab.consumables.acknowledgement_label': "కొనసాగడానికి కారణం",
       's4.lib.cath_lab.consumables.restriction_restricted':
-          "ఈ కేసులో వాడిన పరికరాలు పారవేయబడతాయి; పునఃప్రాసెస్ చేయబడవు",
-      's4.lib.cath_lab.consumables.restriction_unknown': "సెరాలజీ ఫలితాలు నమోదులో లేవు; పునఃప్రాసెసింగ్‌కు ముందు ఇది తెలిసినట్లు ధృవీకరించాలి",
+          "రక్తజనిత రియాక్టివ్ మార్కర్ నమోదై ఉంది; నమోదైన కారణాలను చూడండి.",
+      's4.lib.cath_lab.consumables.restriction_unknown':
+          "సెరాలజీ స్థితి స్పష్టంగా లేదు; నమోదైన కారణాలను చూడండి.",
+      's4.lib.cath_lab.consumables.restriction_ack_required': 'పునఃప్రాసెసింగ్‌ను అభ్యర్థించే ముందు, ఈ స్పష్టంగా లేని స్థితి తెలిసినట్లు ధృవీకరించండి.',
+      's4.lib.cath_lab.consumables.restriction_blocked':
+          'ప్రస్తుత విధానం ప్రకారం పునఃప్రాసెసింగ్ నిరోధించబడింది.',
+      's4.lib.cath_lab.consumables.restriction_discard_only': 'ఈ ప్రక్రియలో వాడిన పరికరాలను పారవేయడానికి గుర్తించాలి; వాటిని పునఃప్రాసెసింగ్‌కు పంపవద్దు.',
+      // REVIEW: Batch 1.1 PROPOSED English (restricted + override_allowed) — awaiting owner decision; a veto reverts all five.
+      's4.lib.cath_lab.consumables.restriction_override_allowed': 'ప్రస్తుత విధానం ప్రకారం, ధృవీకరణతో మాత్రమే పునఃప్రాసెసింగ్ అనుమతించబడుతుంది.',
       's4.lib.cath_lab.consumables.post_use_send': "CSSDకి పంపండి",
       's4.lib.cath_lab.consumables.post_use_discard': "పారవేయండి",
       's4.lib.cath_lab.consumables.post_use_units': "CSSDకి వెళ్లే యూనిట్లు",
       's4.lib.cath_lab.consumables.post_use_discard_reason':
           "పారవేయడానికి కారణం",
+      's4.lib.cath_lab.consumables.post_use_discard_explainer': 'దీంతో పరికరం తిరిగి వాడే చక్రంలో ఉండదు; ఈ నిర్ణయం కేసులో నమోదవుతుంది.',
       's4.lib.cath_lab.consumables.post_use_saved': "వినియోగానంతరం నమోదైంది",
       's4.lib.cath_lab.consumables.reused_badge': "పునఃప్రాసెస్ చేయబడింది",
       's4.lib.cath_lab.consumables.exposure_badge': "ఎక్స్‌పోజర్",
+      's4.lib.cath_lab.consumables.exposure_badge_detail':
+          'ఈ పరికరానికి రక్తజనిత ఎక్స్‌పోజర్ ఫ్లాగ్ నమోదై ఉంది.',
       's4.dynamic.cath_lab.consumables.device_cycle': "చక్రం {cycle} / {max}",
       's4.dynamic.cath_lab.consumables.device_tag': "ట్యాగ్ {tag}",
-      's4.lib.cath_lab.consumables.post_use_device_already_discarded': "CSSD ఈ పరికరాన్ని ఇప్పటికే పారవేసినట్లు గుర్తించింది; వినియోగానంతర నిర్ణయం నమోదైంది",
+      's4.lib.cath_lab.consumables.post_use_device_already_discarded': "CSSD ఈ పరికరం స్థితిని ఇప్పటికే \"పారవేయబడింది\"గా నమోదు చేసింది; వినియోగానంతర నిర్ణయం నమోదైంది",
       's4.lib.cath_lab.consumables.post_use_note': "గమనిక",
       's4.lib.cath_lab.consumables.post_use_confirm': "నిర్ధారించండి",
       's4.dynamic.cath_lab.consumables.more_reasons': "+{count} మరిన్ని",
@@ -39102,12 +39154,14 @@ class AppStrings {
       's4.lib.cath_lab.readiness.waive_title': "{item} ഒഴിവാക്കണോ?",
       's4.lib.cath_lab.readiness.waive_reason': "ഒഴിവാക്കാനുള്ള കാരണം",
       's4.lib.cath_lab.readiness.waive_reason_line': "ഒഴിവാക്കൽ: {reason}",
-      's4.lib.cath_lab.readiness.external_unverified_hint': "പുറത്തെ ലാബ് ഫലമായി സൂക്ഷിച്ചിരിക്കുന്നു; പാത്തോളജിസ്റ്റ് സ്ഥിരീകരിച്ചിട്ടില്ല",
+      's4.lib.cath_lab.readiness.external_unverified_hint': "പുറത്തെ ലാബ് ഫലമായി രേഖപ്പെടുത്തി; ഈ സിസ്റ്റത്തിൽ പാത്തോളജിസ്റ്റ് സ്ഥിരീകരിച്ചിട്ടില്ല.",
       's4.lib.cath_lab.readiness.external_title':
           "പുറത്തുനിന്നുള്ള ഫലം — {item}",
       's4.lib.cath_lab.readiness.external_value': "ഫല മൂല്യം",
       's4.lib.cath_lab.readiness.external_lab_name': "പുറത്തെ ലാബിന്റെ പേര്",
       's4.lib.cath_lab.readiness.external_report_ref': "റിപ്പോർട്ട് റഫറൻസ്",
+      's4.lib.cath_lab.readiness.external_report_ref_help':
+          'അക്ഷരങ്ങളും അക്കങ്ങളും സ്വീകരിക്കും.',
       's4.lib.cath_lab.readiness.lab_name_required':
           "പുറത്തെ ലാബിന്റെ പേര് നൽകുക",
       's4.lib.cath_lab.readiness.value_invalid':
@@ -39168,8 +39222,8 @@ class AppStrings {
       's4.lib.cath_lab.readiness.confirm_title': "പരിശോധനാ നില സ്ഥിരീകരിക്കുക",
       's4.lib.cath_lab.readiness.confirm_body':
           "{check} {status} ആയി സജ്ജമാക്കണോ?",
-      's4.lib.cath_lab.readiness.confirm_critical': "ഗുരുതര മൂല്യങ്ങൾ ഉണ്ട്: {items}. ഗുരുതര ഫലം ഉണ്ടായിട്ടും ഈ പരിശോധന വിജയം എന്ന് അടയാളപ്പെടുത്തുന്നതിനുള്ള കാരണം നൽകുക.",
-      's4.lib.cath_lab.readiness.confirm_critical_unnamed': "ഒരു ഗുരുതര മൂല്യം ഉണ്ട്. ഗുരുതര ഫലം ഉണ്ടായിട്ടും ഈ പരിശോധന വിജയം എന്ന് അടയാളപ്പെടുത്തുന്നതിനുള്ള കാരണം നൽകുക.",
+      's4.lib.cath_lab.readiness.confirm_critical': "ഗുരുതര മൂല്യങ്ങൾ ഉണ്ട്: {items}. ഗുരുതര ഫലം ഉണ്ടായിട്ടും ഈ പരിശോധന \"വിജയം\" എന്ന് അടയാളപ്പെടുത്തുന്നതിനുള്ള കാരണം നൽകുക.",
+      's4.lib.cath_lab.readiness.confirm_critical_unnamed': "ഒരു ഗുരുതര മൂല്യം ഉണ്ട്. ഗുരുതര ഫലം ഉണ്ടായിട്ടും ഈ പരിശോധന \"വിജയം\" എന്ന് അടയാളപ്പെടുത്തുന്നതിനുള്ള കാരണം നൽകുക.",
       's4.lib.cath_lab.readiness.confirm_notes': "കുറിപ്പുകൾ (ഐച്ഛികം)",
       's4.lib.cath_lab.readiness.confirm_reason': "കാരണം",
       's4.lib.cath_lab.readiness.reason_required': "കാരണം ആവശ്യമാണ്",
@@ -39356,26 +39410,38 @@ class AppStrings {
       's4.lib.cath_lab.consumables.mode_reused': 'പുനഃസംസ്കരിച്ച ഉപകരണം',
       's4.lib.cath_lab.consumables.device_tag_label': 'ഉപകരണ ടാഗ്',
       's4.lib.cath_lab.consumables.device_tag_hint': 'RP00000042',
+      's4.lib.cath_lab.consumables.device_tag_help': 'ഉപകരണത്തിൽ അച്ചടിച്ച ടാഗ് നൽകുക അല്ലെങ്കിൽ സ്കാൻ ചെയ്യുക, ഉദാഹരണത്തിന് RP00000042.',
       's4.lib.cath_lab.consumables.device_check': 'ഉപകരണം പരിശോധിക്കുക',
       's4.lib.cath_lab.consumables.device_not_available':
           'ഈ ഉപകരണം ഉപയോഗത്തിന് ലഭ്യമല്ല',
-      's4.lib.cath_lab.consumables.device_blocked': 'ഈ ഉപകരണത്തിൽ രക്തത്തിലൂടെ പകരുന്ന അണുബാധയുമായുള്ള സമ്പർക്കം സൂചിപ്പിക്കുന്ന മുന്നറിയിപ്പ് രേഖപ്പെടുത്തിയിട്ടുണ്ട്; ഇത് പുനരുപയോഗിക്കാനാവില്ല.',
+      's4.lib.cath_lab.consumables.device_blocked': 'ഈ ഉപകരണത്തിന് രക്തജന്യ എക്സ്പോഷർ ഫ്ലാഗ് രേഖപ്പെടുത്തിയിട്ടുണ്ട്; പുനരുപയോഗം അനുവദനീയമല്ല',
       's4.lib.cath_lab.consumables.acknowledgement_label': 'തുടരാനുള്ള കാരണം',
-      's4.lib.cath_lab.consumables.restriction_restricted': 'ഈ കേസിൽ ഉപയോഗിക്കുന്ന ഉപകരണങ്ങൾ ഉപേക്ഷിക്കപ്പെടും; പുനഃസംസ്കരിക്കില്ല',
-      's4.lib.cath_lab.consumables.restriction_unknown': 'സെറോളജി ഫലങ്ങൾ രേഖപ്പെടുത്തിയിട്ടില്ല; പുനഃസംസ്കരണത്തിന് മുമ്പ് ഈ വിവരം അറിഞ്ഞതായി സ്ഥിരീകരിക്കണം',
+      's4.lib.cath_lab.consumables.restriction_restricted': 'രക്തജന്യ റിയാക്ടീവ് മാർക്കർ രേഖപ്പെടുത്തിയിട്ടുണ്ട്; രേഖപ്പെടുത്തിയ കാരണങ്ങൾ പരിശോധിക്കുക.',
+      's4.lib.cath_lab.consumables.restriction_unknown':
+          'സെറോളജി നില വ്യക്തമല്ല; രേഖപ്പെടുത്തിയ കാരണങ്ങൾ പരിശോധിക്കുക.',
+      's4.lib.cath_lab.consumables.restriction_ack_required': 'പുനഃസംസ്കരണം ആവശ്യപ്പെടുന്നതിന് മുമ്പ്, ഈ വ്യക്തമല്ലാത്ത നില അറിഞ്ഞതായി സ്ഥിരീകരിക്കുക.',
+      's4.lib.cath_lab.consumables.restriction_blocked':
+          'നിലവിലെ നയപ്രകാരം പുനഃസംസ്കരണം തടഞ്ഞിരിക്കുന്നു.',
+      's4.lib.cath_lab.consumables.restriction_discard_only': 'ഈ പ്രൊസീജ്യറിൽ ഉപയോഗിച്ച ഉപകരണങ്ങൾ ഉപേക്ഷിക്കാൻ അടയാളപ്പെടുത്തണം; അവ പുനഃസംസ്കരണത്തിന് അയയ്ക്കരുത്.',
+      // REVIEW: Batch 1.1 PROPOSED English (restricted + override_allowed) — awaiting owner decision; a veto reverts all five.
+      's4.lib.cath_lab.consumables.restriction_override_allowed':
+          'നിലവിലെ നയപ്രകാരം, സ്ഥിരീകരണത്തോടെ മാത്രമേ പുനഃസംസ്കരണം അനുവദിക്കൂ.',
       's4.lib.cath_lab.consumables.post_use_send': 'CSSD-ലേക്ക് അയയ്ക്കുക',
       's4.lib.cath_lab.consumables.post_use_discard': 'ഉപേക്ഷിക്കുക',
       's4.lib.cath_lab.consumables.post_use_units':
           'CSSD-ലേക്ക് പോകുന്ന യൂണിറ്റുകൾ',
       's4.lib.cath_lab.consumables.post_use_discard_reason':
           'ഉപേക്ഷിക്കാനുള്ള കാരണം',
+      's4.lib.cath_lab.consumables.post_use_discard_explainer': 'ഇതോടെ ഉപകരണം പുനരുപയോഗ ചക്രത്തിൽ ഉണ്ടാകില്ല; ഈ തീരുമാനം കേസിൽ രേഖപ്പെടുത്തും.',
       's4.lib.cath_lab.consumables.post_use_saved':
           'ഉപയോഗാനന്തരം രേഖപ്പെടുത്തി',
       's4.lib.cath_lab.consumables.reused_badge': 'പുനഃസംസ്കരിച്ചത്',
       's4.lib.cath_lab.consumables.exposure_badge': 'എക്സ്പോഷർ',
+      's4.lib.cath_lab.consumables.exposure_badge_detail':
+          'ഈ ഉപകരണത്തിന് രക്തജന്യ എക്സ്പോഷർ ഫ്ലാഗ് രേഖപ്പെടുത്തിയിട്ടുണ്ട്.',
       's4.dynamic.cath_lab.consumables.device_cycle': 'സൈക്കിൾ {cycle} / {max}',
       's4.dynamic.cath_lab.consumables.device_tag': 'ടാഗ് {tag}',
-      's4.lib.cath_lab.consumables.post_use_device_already_discarded': 'CSSD ഈ ഉപകരണം ഇതിനകം ഉപേക്ഷിച്ചതായി അടയാളപ്പെടുത്തിയിട്ടുണ്ട്; ഉപയോഗാനന്തര തീരുമാനം രേഖപ്പെടുത്തി',
+      's4.lib.cath_lab.consumables.post_use_device_already_discarded': 'CSSD ഈ ഉപകരണത്തിന്റെ നില ഇതിനകം "ഉപേക്ഷിച്ചു" എന്ന് രേഖപ്പെടുത്തിയിട്ടുണ്ട്; ഉപയോഗാനന്തര തീരുമാനം രേഖപ്പെടുത്തി',
       's4.lib.cath_lab.consumables.post_use_note': 'കുറിപ്പ്',
       's4.lib.cath_lab.consumables.post_use_confirm': 'സ്ഥിരീകരിക്കുക',
       's4.dynamic.cath_lab.consumables.more_reasons': '+{count} കൂടുതൽ',

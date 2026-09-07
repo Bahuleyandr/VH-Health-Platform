@@ -330,9 +330,19 @@ void main() {
       find.byKey(const ValueKey('cath-case-reuse-restriction-42')),
       findsOneWidget,
     );
+    // The case header has no `allowed_post_use` row on screen, so it states
+    // the fact `reuse_restriction` carries and says nothing about what the
+    // tenant's reprocessing policy does about it.
     expect(
-      find.text('Devices used in this case will be discarded, not reprocessed'),
+      find.text(
+        'A reactive blood-borne marker is on record; review the recorded '
+        'reasons.',
+      ),
       findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('cath-reuse-restriction-policy')),
+      findsNothing,
     );
     expect(find.text('HBsAg reactive 2026-08-12'), findsOneWidget);
   });

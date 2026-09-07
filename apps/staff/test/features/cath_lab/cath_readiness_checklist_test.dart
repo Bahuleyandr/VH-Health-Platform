@@ -398,7 +398,7 @@ void main() {
       expect(
         find.text(
           'A critical value is present. Give a reason for marking this '
-          'check as passed despite the critical result.',
+          'check as "Pass" despite the critical result.',
         ),
         findsOneWidget,
       );
@@ -447,7 +447,7 @@ void main() {
       expect(
         find.text(
           'A critical value is present. Give a reason for marking this '
-          'check as passed despite the critical result.',
+          'check as "Pass" despite the critical result.',
         ),
         findsOneWidget,
       );
@@ -761,10 +761,20 @@ void main() {
       'City Path Lab',
     );
     await _pickReportDate(tester);
+    // The sheet scrolls, and the report-reference field carries a help line,
+    // so the button can sit below the fold: scroll to it rather than tapping
+    // an offset that may miss. A missed tap would leave `sent` null and make
+    // the refusal below pass without the sheet ever refusing anything.
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('cath-external-save')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('cath-external-save')));
     await tester.pumpAndSettle();
     expect(sent, isNull);
     expect(find.byKey(const ValueKey('cath-external-save')), findsOneWidget);
+    // The validator ran and said why, which is what proves the tap landed.
+    expect(find.text('Enter a number of 0 or more'), findsOneWidget);
 
     // `9.40` is the same haemoglobin as `9.4`: the display value is rendered
     // from the parsed number, not from the keystrokes.
@@ -772,6 +782,10 @@ void main() {
       find.byKey(const ValueKey('cath-external-value')),
       '9.40',
     );
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('cath-external-save')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('cath-external-save')));
     await tester.pumpAndSettle();
 
