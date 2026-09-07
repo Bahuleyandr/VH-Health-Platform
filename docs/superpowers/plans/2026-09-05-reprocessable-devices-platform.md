@@ -1,21 +1,21 @@
 # Reprocessable Devices Platform Implementation Plan
 
 - Date: 2026-09-05
-- Revision: owner review of 2026-09-06, including the revised asymmetric Q1 rule
+- Revision: **Revision 2 — owner return of 2026-09-06**, retaining asymmetric Q1 and closing the ten safety-flow findings plus every smaller inconsistency
 - Status: **awaits owner design approval; stage 1 of 3**
 - Spec: `docs/superpowers/specs/2026-09-05-reprocessable-devices-platform-design.md`
 - Verified base: `github/main` at `db30fe80b` on 2026-09-07; highest migration 766
 - Future implementation branch: `feat/reprocessable-devices-platform`
 - Migration: **`NNN`**, the next free number at implementation push time. Migration 767 is reserved for the Phase 1 dialysis-isolation lane whether or not a `767_*` file exists
 
-This plan implements one patient-blind physical-device register for dialysers and OT instrument sets/trays while keeping patient linkage on usage rows. It preserves dialysis dedication, immutable historical exposure, live-data decisions, atomic un-capture, and the existing cath register. It does not implement the Phase 1 dialysis-isolation resolver or migration 767; it consumes them.
+This plan implements one patient-blind physical-device register for dialysers and OT instrument sets/trays while keeping patient linkage on usage rows. It preserves dialysis dedication, immutable historical exposure, live-data decisions, safe unused-capture restoration, and the existing cath register. It does not implement Phase 1 derivation or migration 767; it submits and consumes the explicit versioned `DialysisIsolationDecision/v2` contract amendment in §3.1.
 
 ## 1. Approval model and execution boundary
 
 Approval has three independent stages. Passing one does not imply the next.
 
 1. **Revised design approval.** The owner approves the spec and this plan after the 2026-09-06 review. No implementation starts before this approval.
-2. **Implementation verification.** The future implementation is exercised through the complete dialysis and OT lifecycles, the three amplified race tests, durable exposure recovery, schema/response validation, mutation checks, fresh-database runs, and the canonical full CI gate. The implementation task remains draft and unmerged at hand-back.
+2. **Implementation verification.** The future implementation is exercised through complete dialysis/OT lifecycles, the five named Revision 2 closure tests, five amplified concurrency tests, durable exposure admission/recovery, schema/response validation, mutation checks, fresh-database runs, and canonical full CI. The implementation task remains draft and unmerged at hand-back.
 3. **Tenant clinical activation.** A tenant may activate a domain only under an approved nephrology/CSSD/infection-control protocol that records the model/processing basis, pathogen-specific matrix, TCV threshold, process-agent limits, residual-test rule, surveillance intervals, and prion pathway. Durable exposure delivery and the real Phase 1 resolver are activation prerequisites.
 
 The hand-back in Task 9 is for stage 2 evidence. It gives no authority to activate a tenant, mark a pull request ready, or merge.
@@ -28,13 +28,16 @@ These are the current-code seams. Re-run the named searches at Task 0; line numb
 |---|---|---|
 | `enrolPatient` (`dialysisService.js:223`) | omitted serology is written with `COALESCE(..., 'negative')` | a legacy negative is not evidence and never clears an analyte |
 | `recordReuseRegister` (`dialysisService.js:943`) | compares a client-supplied count only with the session count and upserts the statutory row | derive cycles from the device; settle the statutory row once; use append-only attempts afterward |
+| `completeSession` / `cancelSession` (`dialysisService.js:529`, `:631`) | completion already records `early_termination` and reason; cancellation is pre-start | use completion as the non-circular aborted-use path; cancellation only restores a proven-unused capture |
 | `recordSerology` (`dialysisService.js:1115`) | #1024 stamps the row's tenant; `:1160-1170` promotes only literal `positive` values to the roster columns | Phase 1 owns derivation; a legacy positive restricts without corroboration |
 | `addAccess` (`dialysisService.js:309`) | #1024 stamps vascular access with its own tenant | closed baseline item; no Plan 4 edit |
 | `ingestMachineObservations` (`dialysisMachineService.js:46`) | #1021 requires tenant scope on the in-progress-session lookup | Task 4 preflight is verify-only |
 | `createSterilizationLoad` (`cssdService.js:424`) | derives an initial outcome and directly updates sets/issues, including loads created already passed or failed | creation and transitions must call one load-outcome handler |
 | `transitionSterilizationLoad` (`cssdService.js:588`) | repeats the outcome writes | call sites are discovered by scan and pinned by a population snapshot |
 | `issueSet`, `transitionIssue`, `cancelIssue` (`cssdService.js:731`, `:807`, `:947`) | issue, return, and cancel mutate the physical set in their existing transactions | hooks stay inside those transactions and follow the common lock order |
+| `markTheatreUse` (`cssdService.js:935`) | is the actual transition into theatre use and currently has no Plan 4 admission hook | add the OT actual-use boundary here, not only at issue |
 | `registerExposureHandler` (`bloodborneMarkerRules.js:227`) and the registration in `cathDeviceReuseService.js:1428` | handler registration is process-local | add the Plan 4 handler to `exposureHandlerBootstrap.js` and make delivery durable |
+| `notifyExposureHandlers` (`bloodborneMarkerRules.js:255`) and cath `quarantineDevicesExposedToPatient` | dispatcher and cath consumer catch failures; promise resolution is not complete delivery | stable handler IDs, explicit results/obligations, and no swallowed failures |
 | `recordMarkerTx`, `recordMarkers`, `recordMarkersFromSignedResults` (`bloodborneMarkerService.js`) | reactive marker rows commit before the current post-commit fan-out | insert the exposure-outbox row in the marker transaction |
 | `reconcileTenant` / `reconcileAllTenants` | #1017 re-drives signed-result writers and the operator sweep refuses an empty handler registry | add an outbox-drain phase; do not treat the sweep alone as durable delivery |
 | `dbClockAsOf` / `refreshCaseLabReadiness` and the clock guard | #1025 uses the database clock and covers DATE comparisons | recorded baseline only; no Plan 4 contract changes |
@@ -53,13 +56,18 @@ resolveDialysisIsolation({
   patientUids,
   db,
   includeMarkers = false,
-  includeIsolationClass = false
+  includeIsolationClass = false,
+  includeEvidenceRefs = false,
+  surveillanceIntervalsDays
 }) -> Map<patientUid, Decision>
 
 Decision.status = restricted | unknown | clear
+Decision.contract_version = 2
 ```
 
-Marker detail and `isolation_class` are opt-in. Exactly two server-side functions may request the class: `assessIsolationTx` for class-to-group routing and `reuseEligibilityTx` for the pathogen-specific reuse matrix. Neither serialises, snapshots, logs, or audits it. With the flag on, `restricted` requires a valid class and `clear`/`unknown` require null. With the flag off, omission is valid and a non-null unrequested class fails closed.
+**CONTRACT AMENDMENT REQUEST — `DialysisIsolationDecision/v2` — to the Phase 1 owner.** Preserve the status/asymmetric-Q1 semantics, but add protected per-analyte `evidence_dated_on`, `surveillance_overdue`, opt-in marker-row `evidence_refs`, and a protected full `isolation_profile` used by cohort compatibility. The Plan 4 caller supplies protocol intervals; Phase 1 never reads Plan 4 tables. Migration 767 adds `UNIQUE (tenant_id, id)` on `patient_bloodborne_markers` for tenant-pinned evidence FKs. The amendment is versioned and must be explicitly accepted by the owning lane; stage 2 fails closed with `RPD_ISOLATION_CONTRACT_VERSION_UNSUPPORTED` until it is. This is an interface request, not a transfer or redesign of Phase 1 derivation.
+
+Marker detail, evidence references, isolation class and profile are opt-in. Routing and reuse callers keep them in process only; neither serialises, snapshots, logs, or audits them. The complete infection profile is checked for cohort compatibility before an opaque group is emitted, preserving the HBsAg separation distinction even when multiple profiles share a label.
 
 Q1 is asymmetric and is owned by the Phase 1 lane:
 
@@ -78,24 +86,24 @@ The device stores `exposure_flag` as immutable history. An unresolved `reprocess
 
 Isolation groups come from an infection-control-approved non-clinical vocabulary. The case-insensitive token deny-list includes `hiv`, `hbv`, `hbs`, `hbsag`, `hcv`, `hep`, `hepatitis`, `aids`, `positive`, `reactive`, `sero`, `infect`, `cjd`, and `prion`. This limits direct disclosure but cannot eliminate ward-level inference about which physical bay serves which cohort.
 
-### 3.3 One release operation
+### 3.3 Processing occurrence, obligation evaluation, and restoration
 
-`releaseToAvailableTx` is the only service path that can make a platform device available. The generic `POST /api/v1/cssd/reprocessable-devices/:id/reprocessed` resolves the domain and delegates:
+`releaseToAvailableTx` is the only **processing-based** readiness authorisation. It always records the physical occurrence first, even when deactivation, a hold, or invalid scope prevents availability. The generic `POST /api/v1/cssd/reprocessable-devices/:id/reprocessed` resolves the domain and delegates:
 
 - dialysis: require `device_usage_id` and the complete statutory evidence, then call `recordDialyserReprocessing` if the statutory row is unsettled or `recordDialyserReprocessingAttempt` after settlement;
 - OT: require the applicable passed load containing this set, linked to the correct processing event and compatible with the active protocol.
 
-The generic controller contains no transition logic. A settled `dialyzer_reuse_register` row is never rewritten. Policy deactivation stops new enrolment, capture, processing, and release while preserving tracking, return/settlement, hold placement/release, failure response, and discard.
+The generic controller contains no transition logic. A settled `dialyzer_reuse_register` row is never rewritten. `restoreUnusedCaptureTx` is separate: it creates no processing event, ignores reprocessing eligibility/ceiling, and restores `available` only for `sealed_unopened` with still-valid readiness and zero obligations. `not_connected` clears episode residual evidence and requires processing. `releaseHoldTx` never writes `available`; `evaluateOutstandingObligationsTx` considers every active hold, released-unsatisfied processing requirement, dirty return, invalidation, residual rule, and exact protocol/device-scope/timing requirement.
 
 ### 3.4 States, cycles, locks, and receipts
 
-Device states remain `awaiting_reprocessing`, `in_cssd`, `available`, `in_case`, `quarantined`, and `discarded`. `uncapture` is only `in_case -> available`, consumes no cycle, and requires affirmative `sealed_unopened` or `not_connected` evidence. A hold arriving while captured changes the un-capture result to return-plus-quarantine.
+Device states remain `awaiting_reprocessing`, `in_cssd`, `available`, `in_case`, `quarantined`, and `discarded`. Unused restoration consumes no cycle: `sealed_unopened` may restore prior readiness; `not_connected` never does. A hold arriving while captured yields quarantine. An in-progress dialysis use ends through `completeSession(early_termination)` into a non-available state before reprocessing.
 
 `max_cycles` means permitted reprocessing cycles. A device permits `max_cycles + 1` total uses. Capture at the current ceiling is allowed; the next reprocessing is not. Unlimited is null and every comparison has an explicit non-null guard so `Number(null) = 0` cannot create a false ceiling. Cath parity tests cover only the shared input domain.
 
-Every command carries `expected_version` and returns a durable receipt `{ version, audit_id, action }`. Idempotency is bound to the lifecycle version/receipt, not only a from-list.
+Every safety-evidence/status change increments `version`, and every accepted command inserts an append-only `reprocessable_device_operations` receipt `{ operation_id, action, device_id, version_before, version_after, audit_id }` in the same transaction. Version change alone is not proof of which command landed; the operation lookup is.
 
-The documented lock order is: owner row (`dialysis_sessions` or `set_issue_log`) -> named `sterilization_loads` row -> `instrument_sets` row -> `reprocessable_devices` rows in ascending id -> usage -> holds -> dialysis link -> statutory row. This differs from a set-first order because the generic/load commands must establish the authoritative owner and load before locking devices, and the load-outcome path already begins from a locked load. Every function follows one order; no function acquires backward.
+The complete call-graph order is: tenant/patient advisory lock when relevant; dialysis session or OT load(s) ascending; OT issue rows ascending; set rows ascending; platform devices ascending; usages; holds/satisfactions; links; statutory/attempt/operation appends. Existing CSSD writers are changed to this order, including ordinary UPDATE and FK locks. Unseen serials use conflict-safe insert, never catch a unique violation and continue in an aborted transaction.
 
 ## 4. File and responsibility map
 
@@ -116,7 +124,7 @@ The documented lock order is: owner row (`dialysis_sessions` or `set_issue_log`)
 - [ ] Fetch `github` and create a fresh worktree from current `github/main`; never reuse a docs/review worktree.
 - [ ] Record `git rev-parse github/main` and re-run every function-name check in §2.
 - [ ] Confirm #1021, #1024, and #1025 remain present by the named functions, not by PR number alone.
-- [ ] Confirm the Phase 1 resolver contract and migration 767 have landed before enabling or testing the dialysis arm. If absent, non-dialysis implementation may proceed, but stage 2 cannot pass.
+- [ ] Send the versioned `DialysisIsolationDecision/v2` amendment request to the Phase 1 owner and record explicit acceptance. Confirm migration 767 supplies the resolver plus `(tenant_id, id)` marker parent unique before enabling/testing dialysis. Non-dialysis work may proceed if absent; stage 2 cannot pass.
 - [ ] Scan migrations on `github/main` and every open GitHub branch. Reserve 767 unconditionally and substitute `NNN` only when the implementation is ready to push. Re-scan at Task 9.
 - [ ] Create a fresh PostgreSQL test database and record the Node version (`v26.5.0`).
 - [ ] Record the discovered current CSSD outcome-write population for `createSterilizationLoad` and `transitionSterilizationLoad`; the snapshot is a deliberate review point, not a hard-coded assumption from this document.
@@ -127,7 +135,7 @@ Gate: the worktree is clean, based on the recorded main SHA, and no migration or
 
 Create one forward migration. Do not edit migrations 168, 418, 421-423, 565, 764-767.
 
-- [ ] Create the eleven new tables from spec §4:
+- [ ] Create the seventeen new relations from spec §4:
 
   1. `reprocessing_domain_settings`
   2. `reprocessing_domain_policies`
@@ -140,6 +148,12 @@ Create one forward migration. Do not edit migrations 168, 418, 421-423, 565, 764
   9. `device_processing_events` (append-only)
   10. `dialyser_reprocessing_attempts` (append-only)
   11. `bloodborne_exposure_outbox`
+  12. `reprocessing_protocol_device_scopes`
+  13. `device_processing_event_revisions` (append-only)
+  14. `reprocessable_hold_satisfactions` (append-only)
+  15. `bloodborne_exposure_deliveries`
+  16. `bloodborne_exposure_applications` (append-only)
+  17. `reprocessable_device_operations` (append-only receipts)
 
 - [ ] Add forward-only columns/constraints to `dialysis_sessions`, `dialyzer_reuse_register`, `surgical_implants`, `ot_schedules`, `instrument_sets`, `sterilization_loads`, `set_issue_log`, and `clinical_ai_biomed_devices` exactly as the spec requires. Baseline-owned tables are altered only; they are never re-declared inline.
 - [ ] Keep the register patient-blind and marker-free. `quarantine_reason` is a fixed non-clinical code, not free text. `exposure_flag` is irreversible history.
@@ -148,8 +162,10 @@ Create one forward migration. Do not edit migrations 168, 418, 421-423, 565, 764
 - [ ] Enforce usage/session/patient and usage/issue/set/device consistency with composite foreign keys where possible and locked transactional checks for the dialysis patient join.
 - [ ] Persist both evidence sides: `ready_processing_event_id` at capture and write-once `post_use_processing_event_id` after use. Never rely on the overwritten convenience `set_issue_log.sterilization_load_id` as statutory evidence.
 - [ ] Remove bloodlines from the release vocabulary. Refuse `procedure_pack` with `reprocessable = true` at both database and service layers.
-- [ ] Require an active `reprocessing_protocols` row before any category becomes reprocessable. Database-lock HBsAg, HIV, and mixed reuse to `no_reuse`; HCV defaults to `no_reuse` and may be `dedicated_reuse` only under the approved protocol.
-- [ ] Add baseline TCV provenance, measured TCV, integrity/process parameters, pre-use residual result, release verdict, missing-evidence list, hold adjudication/protocol/evidence, command version, and append-only attempt/event identity exactly as spec §4 defines.
+- [ ] Make protocol revisions immutable and require an enforceable manufacturer/model device scope, linked IFU and `single_use = false`. Database-lock HBsAg, HIV, and mixed dialysis reuse to `no_reuse`; HCV defaults to `no_reuse`. Give OT a structurally separate standard-processing shape and prion pathway.
+- [ ] Validate protocol JSON as an exact object with all required keys and predicates that are `IS TRUE`; runtime-role probes for `{}`, missing keys and JSON nulls must fail.
+- [ ] Add baseline TCV provenance, measured TCV, integrity/process parameters, pre-use residual result, release verdict, missing-evidence list, device/protocol/time-pinned hold satisfaction, command version, append-only occurrence/revision/attempt/application/receipt identity. A first mid-life measurement is never a baseline; only manufacturer nominal or validated model basis may substitute.
+- [ ] Make all evidence/event/hold/attempt references device-pinned. Make schedule-patient consistency deferrable for the patient-merge transaction. Require Phase 1's `(tenant_id, id)` marker parent unique; never accept a single-column FK as an RLS substitute.
 - [ ] Apply tenant RLS, explicit tenant predicates, sequences, runtime grants, and append-only privilege revocation. Add Prisma scalars/indexes without relation fields, update runtime relation lists, schema tests, and seeder overrides.
 - [ ] Seed an inactive/dark-safe configuration: no active reprocessable category, conservative matrix, one closed usage, one released hold, one event, one not-established attempt, and one delivered outbox row.
 
@@ -162,6 +178,7 @@ Verification:
 ## Task 2: Pure rules, protocol validation, resolver adapter, and projection
 
 - [ ] Implement `assertDecisionShape` for all three statuses with `includeIsolationClass` on and off. Missing/null class is invalid only for `restricted` when asked; a non-null class is invalid for `clear`/`unknown` and when unrequested.
+- [ ] Implement and contract-test `DialysisIsolationDecision/v2`: `contract_version`, protected evidence refs, per-analyte dates/currency, and full protected infection profile. Fail closed on any older/unknown contract version. Supply protocol intervals from the reuse layer.
 - [ ] Keep `includeMarkers` and `includeIsolationClass` default-off. Pin the class requester population at exactly `assessIsolationTx` and `reuseEligibilityTx` by function name.
 - [ ] Implement three separate decisions:
 
@@ -171,45 +188,51 @@ Verification:
 
 - [ ] Implement `reuseEligibilityTx` with conservative protocol defaults: HBsAg no reuse, HIV no reuse, mixed no reuse, HCV per approved protocol, surveillance-overdue handling, active-hold precedence, dedication, and separate `prion_exposure` rules.
 - [ ] Remove the former same-patient exposure escape. Same-patient dedication is necessary for the HCV protocol branch but never overrides a `no_reuse` cell.
-- [ ] Implement `releaseCriteria`: missing mandatory evidence is `not_established`, never pass. Require baseline TCV or an explicitly approved mid-life alternative; default threshold 80% and prohibit lower values; validate integrity, agent, concentration, contact time, and applicable residual test.
+- [ ] Implement `deviceEligibilityTx({ action: 'use' | 'reprocess' })` with no default action. Use checks current readiness/holds/scope and permits the last use at the ceiling; reprocess applies the next-cycle ceiling, matrix, currency and obligations.
+- [ ] Implement `releaseCriteria`: missing mandatory evidence is `not_established`, never pass. Require a pre-use or validated-model/manufacturer baseline (never first mid-life measurement); default threshold 80% and prohibit lower values; validate integrity, agent, concentration, contact time, scope/IFU and residual obligations.
 - [ ] Keep OT sterility evidence (load indicators/process event) separate from return inspection/function evidence.
 - [ ] Implement the cycle ceiling with an explicit null guard and table-driven lifecycles for 1, 2, and unlimited.
-- [ ] Implement approved isolation-group validation and the deny-list. In block mode, refuse unregistered machines and unmapped classes; refuse enabling block until approved mappings cover active machines. Emergency use is an explicit role-gated command, not a warn fallback.
+- [ ] Implement protected `cohortCompatibilityTx` before opaque group routing; preserve HBsAg cohort distinctions and forbid unknown patients from incompatible HBV-dedicated groups. Validate the selected machine's active state.
+- [ ] Implement approved isolation-group validation and deny-list. In block mode refuse unregistered/unmapped. Emergency authorisation is pre-scheduling-capable, role-gated, one-time, max four hours, and bound to patient, selected machine, decision fingerprint, settings/policy/protocol revisions; reassignment/evidence/config changes invalidate it.
 - [ ] Implement distinct non-exposure hold/disposition codes, including `serology_required`, `post_issue_restriction`, and `inspection_failed`.
-- [ ] Implement `projectUsageForRole` and `projectReuseRestrictionForRole` so non-audience responses sanitise nested snapshot reasons, marker arrays, class fields, hold marker pointers, and error details while preserving stable keys where the existing projection contract requires them.
+- [ ] Implement `projectUsageForRole`, `projectReuseRestrictionForRole`, and allow-listed `projectHoldForOperationalRole`. Notes, adjudication, evidence/source refs, patient/case IDs and nested metadata appear only on the purpose-bound, access-logged evidence-review route. Operational prion text is `specialist_contamination_hold`.
 
 Unit gate: rules, adapter, projection, null-ceiling, 1/2/unlimited lifecycle, matrix, protocol, deny-list, and parity-over-shared-domain tests all pass.
 
 ## Task 3: Core lifecycle, holds, one release path, and durable exposure delivery
 
-- [ ] Implement register mint/read, capture, return, un-capture, quarantine, release, discard, label, and history operations in `reprocessableDeviceService.js`.
-- [ ] Define `LOCK_ORDER` once and pin every `FOR UPDATE` sequence. Multiple devices lock in ascending id.
-- [ ] Require `expected_version` on queue/lifecycle commands and return the durable audit-backed receipt. Test stale-version refusal and exact idempotent replay.
+- [ ] Implement register mint/read, reservation, actual-use admission helpers, return, unused restoration, quarantine, hold release, processing release, discard, label, history and operation lookup in `reprocessableDeviceService.js`.
+- [ ] Define the complete call-graph `LOCK_ORDER`, including existing CSSD UPDATE/FK locks. Rewrite `transitionIssue` and load transitions to load→issue→set→device order; sort multi-row IDs.
+- [ ] Use conflict-safe `INSERT ... ON CONFLICT DO NOTHING RETURNING` for unseen serials. Never continue after a caught unique violation inside the failed transaction.
+- [ ] Require `expected_version`, increment version for every safety-evidence mutation, and insert `reprocessable_device_operations` in the same transaction. Test stale-version refusal, receipt lookup, and exact idempotent replay.
 - [ ] Keep `quarantine` out of the `in_case` from-list. Dialysis and OT close the usage with `return` before quarantine in the same transaction.
-- [ ] Require affirmative unopened/unconnected evidence for un-capture. Re-check active holds after locking; a hold arriving while captured produces return-plus-quarantine, never available.
-- [ ] Record implicit capture at reuse time as `capture_provenance = 'retrospective'`, with current recording time and an explicit census count.
-- [ ] Implement `placeHoldTx`, `releaseHoldTx`, and hold satisfaction. Infection-control release records adjudication, required protocol, evidence, actor, and role. Reprocessing satisfies the release condition; it never erases historical exposure.
-- [ ] Implement `releaseToAvailableTx` as the sole availability path. Pin every availability write and every generic-controller delegation. Deactivated policy refuses new processing/release but still allows settlement, tracking, hold work, failure response, and discard.
+- [ ] Implement `restoreUnusedCaptureTx` separately. Standardise `pack_condition`, `sealed_unopened`/`not_connected`, and `RPD_PACK_CONDITION_REQUIRED`/`INVALID`; clear residual evidence on not-connected. Re-check holds/obligations after locking.
+- [ ] Implement the explicit retrospective-use command: record actual-use time, recorder and deviation even if unsafe, then settle non-available with required holds/discard. Never reject history merely because authorisation would have failed.
+- [ ] Implement `placeHoldTx`, `releaseHoldTx`, `evaluateOutstandingObligationsTx`, and device/protocol/time-pinned append-only satisfaction. Hold release never writes available; erroneous release removes only its own obligation.
+- [ ] Implement `releaseToAvailableTx` as processing occurrence plus readiness authorisation. Record the occurrence even if release is refused. Pin processing and restoration call sites separately; deactivation settles enrolled history and never re-enters legacy behavior.
 - [ ] Replace every Plan 4 exposure writer, including the late-reactive handler, with `{ exposure_flag: true }` plus a non-clinical hold code. Put detailed evidence only on the authorised record pointer. Audit only hold ids and reason codes.
-- [ ] Add the Plan 4 handler import to `exposureHandlerBootstrap.js`; keep the bootstrap the one registry authority.
+- [ ] Register handlers as stable `{ id, apply }` records. Change dispatcher and cath compatibility path to return explicit remaining-device/alert/notification obligations; no swallowed failure can be acknowledged complete. Add cath `tested_on = NULL` lookback.
 - [ ] Insert `bloodborne_exposure_outbox` from `recordMarkerTx` in the same transaction as the reactive marker. The two public writers retain post-commit fan-out only as the fast path.
-- [ ] Implement an idempotent reconciler with `FOR UPDATE SKIP LOCKED`, lease/reap, per-handler acknowledgements, bounded backoff, failed/operator-redrive state, scheduler drain, on-demand governance drain, and a first-step drain in the #1017 reconciliation script.
+- [ ] Implement deliveries plus append-only event×handler×device applications. Replays of an applied event never recreate a released hold; new events retain distinct evidence associations. Complete only at zero durable obligations.
+- [ ] Add the shared tenant/patient advisory transaction lock to marker writes and every actual-use admission. Admission synchronously applies relevant committed work or refuses `RPD_EXPOSURE_RECONCILIATION_PENDING`; async drain is recovery, not the safety boundary.
+- [ ] Implement an idempotent reconciler with `FOR UPDATE SKIP LOCKED`, lease/reap, bounded backoff, failed/operator-redrive state, scheduler drain, on-demand governance drain, and a first-step drain in the #1017 reconciliation script.
 - [ ] Define `tested_on = NULL` as an unbounded historical lookback. The handler applies the hold to every affected use and records the non-clinical code `exposure_undated_declaration`; infection control reviews it.
 
-Deep recovery gate: force the post-commit notifier to fail, verify marker+outbox commit without a hold, drain once to create exactly one hold/alert/notification, drain again with unchanged counts, then complete release -> processing -> successful re-issue while `exposure_flag` remains true.
+Deep recovery gate: after marker+outbox commit and a simulated crash, attempt actual dialysis/OT use **before drain** and prove it refuses or synchronously applies; then drain/redrive obligations exactly once and complete release → processing → successful re-issue while `exposure_flag` remains true.
 
 ## Task 4: Dialysis capture, routing, statutory settlement, attempts, and census
 
 - [ ] Verify only: `ingestMachineObservations` still binds the session lookup to `tenantId`; do not create another tenant-scope commit.
-- [ ] Bind `dialysisIsolationAdapter.js` to the real Phase 1 resolver. Product code has no stub or fallback to roster columns.
+- [ ] Bind `dialysisIsolationAdapter.js` to the accepted real Phase 1 v2 contract. Product code has no stub/fallback; version mismatch fails closed. Send the contract amendment to the Phase 1 owner and record acceptance before stage 2.
 - [ ] Add capture by serial/tag with physical identity minting, patient dedication, baseline TCV provenance, residual-test requirement, live decision snapshot, version receipt, and transactionally consistent `dialysis_sessions.dialyser`/`reuse_count` fields.
-- [ ] Integrate by function name: `scheduleSession` evaluates before insert; `startSession` and machine reassignment evaluate while locked; `cancelSession` calls atomic un-capture before its status update; `recordReuseRegister` delegates to the new domain command while dark behavior stays unchanged for sessions with no platform usage.
+- [ ] Integrate by function name: `scheduleSession` plans before insert; `startSession` is the actual-use admission boundary and revalidates exposure, holds, readiness, dedication, scope, residual evidence, use eligibility, selected-machine activity and cohort compatibility; machine reassignment invalidates bound emergency authorisation; `recordReuseRegister` delegates while only truly dark sessions keep legacy behavior.
 - [ ] Persist only `required_group` and non-clinical warning codes. No `required_class`, marker, or reason reaches a session, response, error, or audit row.
-- [ ] Under block mode, unregistered machine, unmapped class, and mismatch all refuse. The switch to block requires validated approved groups and active-machine coverage. Add a separately authorised emergency override with its own role set, reason, actor, receipt, and audit.
-- [ ] Require the dialysis use to be completed/aborted before statutory settlement (`RPD_USE_NOT_ENDED`). Apply return before quarantine atomically.
+- [ ] Under block mode, unregistered, unmapped, retired-selected and cohort-incompatible machines refuse. Add pre-scheduling-capable one-time emergency authorisation bound to patient/machine/decision/config revisions with max four-hour expiry; consume only at start.
+- [ ] Require use completed/aborted before statutory settlement. Route in-progress abort through existing `completeSession` with `early_termination` and close usage non-available in that transaction, without requiring a reprocessing record first.
 - [ ] Record all mandatory release evidence and one of `released`, `not_established`, or a discard verdict on the statutory row. Once settled, route later legitimate work to `dialyser_reprocessing_attempts`; never update the statutory evidence row.
 - [ ] Make the generic `/reprocessed` endpoint delegate to the same statutory command or append-only attempt based on `device_usage_id` and settlement state. A domain-specific role check applies before delegation.
-- [ ] At issue/capture time, check active holds rather than `exposure_flag`. A historically exposed device that completed adjudication and processing can be re-issued to its dedicated patient if the matrix permits.
+- [ ] Treat capture as reservation. Check `deviceEligibilityTx({action:'use'})` again at start; reserve ceiling enforcement for `action:'reprocess'`. A historically exposed device can re-issue only after current holds and all obligations clear.
+- [ ] Add the retrospective-use command and explicit scheduled cancellation restoration contract. `sealed_unopened` may restore; `not_connected` returns awaiting processing and clears residual attestation; in-progress use terminates, never cancels.
 - [ ] Keep the Phase 1 files and `dialysis_patients.*_status` untouched. The asymmetric Q1 rule is an input/acceptance contract, not code owned here.
 - [ ] Implement the Phase 2 census:
 
@@ -223,38 +246,41 @@ Deep recovery gate: force the post-commit notifier to fail, verify marker+outbox
 
 The census gates only a future DROP, never additive migration `NNN`. Preserve valid positives with provenance, reconcile defaults without promoting them, and treat serology rows as their own evidence.
 
-Dialysis deep gate: full capture/use/end/settle/attempt/re-capture lifecycle; 1/2/unlimited ceilings; every matrix cell; missing evidence; residual test; dedication; snapshot-vs-live decision; warn/block/emergency routing; hold arriving during capture; un-capture conditions; generic delegation; race tests 1 and 2; marker-free device/error/audit assertions; real Phase 1 resolver only.
+Dialysis deep gate: full capture/admission/use/end/settle/attempt/re-capture lifecycle; 1/2/unlimited ceilings; every matrix cell; missing evidence; residual test; dedication; snapshot-vs-live decision; compatible cohorts and bounded emergency authorization; hold after capture; unused restoration; early termination; retrospective recording; generic delegation; exposure/release races; marker-free device/error/audit assertions; accepted real Phase 1 v2 resolver only.
 
 ## Task 5: OT/CSSD load identity, issue lifecycle, and failure response
 
 - [ ] Create `applyLoadOutcomeTx` and call it from both `createSterilizationLoad` and `transitionSterilizationLoad`, including loads created already passed or failed.
 - [ ] Build `cssdLoadOutcomeCallSites.test.js` by scanning for all outcome writes, assigning them to containing functions, and asserting both delegation and a reviewed population snapshot. Do not maintain an enumerated allow-list that can silently shrink.
-- [ ] Write one exactly-once `device_processing_events` row per device/load/set/outcome with an applicability window tied to the device's last return. A metadata edit to an old passed load cannot count a cycle or release a newly returned set.
+- [ ] Separate occurrence from adjudication. Write one immutable processing occurrence per device/load; append a `device_processing_event_revisions` invalidation when a later indicator changes that load to failed. Unchanged pass is no-op; invalidation ignores latest-return applicability and never increments a second cycle.
+- [ ] On first enrolment of an existing set, import `last_passed_load_id` as `legacy_readiness_import` with `counts_cycle = false` and use it as first readiness, so a later failure finds every platform usage.
 - [ ] Preserve `ready_processing_event_id` before the use and write-once `post_use_processing_event_id` after it.
-- [ ] Integrate `onSetIssuedTx`, `onSetReturnedTx`, and `onIssueCancelledTx` inside `issueSet` and `transitionIssue`. Validate issue/schedule/patient/set/device relationships while the owner rows are locked.
+- [ ] Integrate reservation/return/cancel hooks plus `onTheatreUseStartedTx` inside `markTheatreUse`. Actual-use admission takes the patient advisory lock and revalidates exposure work, hold, readiness, patient, scope and use eligibility.
+- [ ] Make existing direct `instrument_sets` / `set_issue_log` outcome updates conditional on the handler result for enrolled sets; only dark/unenrolled sets keep the legacy direct behavior.
 - [ ] At issue time, refuse active holds, not historical exposure. If a restriction arrives after issue, place `post_issue_restriction`; acknowledgement is obtained at infection-control release, not fabricated at the earlier issue.
-- [ ] Keep routine blood-borne holds separate from `prion_exposure`. Routine validated processing may satisfy the former after adjudication; prion/CJD follows the protocol's discard or explicit IC pathway.
-- [ ] Require affirmative `sealed_unopened` for cancellation. An opened/connected or already-used set must return and settle; an active hold wins over un-capture.
+- [ ] Keep routine blood-borne holds separate from prion. A known CJD concern synchronously creates the operationally generic specialist hold at assessment/return; only the specifically authorised pathway event can satisfy it.
+- [ ] Standardise cancellation on `pack_condition`. Only `sealed_unopened` may restore readiness; already-used/opened requires return; an active hold or obligation wins.
 - [ ] Require the generic OT `reprocessed` command to name the passed load that contains this set, follows its return, matches the allowed cycle/protocol, and has no prior event for this device.
 - [ ] Keep sterility evidence separate from mechanical inspection/function. A failed inspection has its own hold and cannot be cleared merely by a passed load.
-- [ ] Implement the minimum load-failure response now: identify every device prepared by the failed/invalidated event, identify affected usages and patients, place holds that prevent further issue where indicated (including `pending_return` for an in-case set), create the patient safety alerts, and notify infection control. Only the dashboard is deferred.
+- [ ] Implement the minimum load-failure response now: follow every usage linked to the original occurrence regardless of current device state/return, place holds, create patient safety alerts, notify IC, and produce a durable investigation. CSSD receives devices plus aggregate counts only; patient/case detail is on the access-logged investigation route.
+- [ ] Implement the required suspect-interval report/manual closure back to the last acceptable biological indicator whenever the active protocol requires it. Only a richer dashboard is deferred.
 
-OT deep gate: dark vs active vs deactivated policy; creation-time and transition-time outcomes; exactly-once event identity; old-load non-applicability; both load links; restricted/unknown/post-issue/inspection/prion holds; full authorised-release-processing-reissue acceptance; cancellation conditions; minimum failure response; generic applicable-load refusal; race test 3; marker-free responses/audits.
+OT deep gate: dark/active/deactivated; creation/transition outcomes; cycle-neutral legacy import; unchanged pass; late invalidation after issue/use/return; both load links; actual-use hold refusal; restricted/unknown/post-issue/inspection/prion holds; full release-processing-reissue; patient-blind CSSD plus authorised investigation; generic applicable-load refusal; return/load and overlapping-load races; marker-free responses/audits.
 
 ## Task 6: Routes, role gates, OpenAPI, response validation, and canary
 
 ### 6.1 Routes
 
-- [ ] Dialysis: capture/read dialyser, append-only attempts, emergency isolation override, existing reuse-register delegation, machine reassignment, machine master, and cancel hook.
-- [ ] CSSD: list platform devices, list/release holds, label, receive, one generic domain-aware `reprocessed`, quarantine, release, discard, issue/cancel hooks, and load affected-device/usage results.
+- [ ] Dialysis: capture/read, explicit retrospective use, append-only attempts, pre-scheduling emergency authorization, reuse-register delegation, machine reassignment/master, actual-start admission, early-termination settlement, and scheduled cancellation restoration.
+- [ ] CSSD: list platform devices and operationally projected holds, label, receive, generic domain-aware `reprocessed`, quarantine/hold release/discard, issue/cancel/theatre-use hooks, and patient-blind load results.
 - [ ] Theatre: `GET /api/v1/theatre/:id/reprocessable-sets` with projected restriction and both load-evidence sides.
-- [ ] Governance: settings, policies, protocols, outbox drain, and device history with per-patient HIPAA access logging.
+- [ ] Governance: settings, policies, immutable protocols/device scopes, outbox drain, exact hold evidence, load-investigation affected usages, operation receipt lookup, and device history with per-patient HIPAA access logging.
 - [ ] Apply the resolved domain's role gate to generic reprocessing. All mutation guards run before idempotency-key claim.
 - [ ] Define hold-release and emergency role sets as intersections with their mounts. Add an actual-assignment census for `DIALYSIS_TECHNICIAN`, `BLOOD_BANK_STAFF`, and `BLOOD_BANK_TECHNICIAN`; D10a, D10b and D10c remain separate decisions and are each NO; the census verifies that no actual assignment invalidates that baseline.
 
 ### 6.2 OpenAPI response enforcement
 
-- [ ] Add `reprocessableDevices.mjs`, register every operation, and set `additionalProperties: false` on every response object, nested warning, receipt, hold, affected-device/usage item, and error detail.
+- [ ] Add `reprocessableDevices.mjs`, register every operation, and set `additionalProperties: false` on every response object, nested warning, operation receipt, projected hold, aggregate load result, investigation item, and error detail.
 - [ ] Name the test validator: `apps/backend/src/tests/helpers/assertSchema.js` with `assertResponse`, `assertData`, and `assertErrorBody` compiled from generated OpenAPI.
 - [ ] Validate one success response for every operation and every documented error body in `reprocessableDevicesOpenApiContract.test.js`. Validate deep-suite readbacks with `assertData`.
 - [ ] Do not claim OpenAPI validates production responses by itself. The named tests are the enforcement boundary.
@@ -267,13 +293,14 @@ OT deep gate: dark vs active vs deactivated policy; creation-time and transition
 - [ ] Attribute liveness separately: counters prove the walker visited Decision and warning nodes; an entitled response proves poisoned restriction reasons arrived; a fixed `machine_id` proves the isolation fixture arrived; the class mutation proves the value sentinel bites. None substitutes for another.
 - [ ] Regenerate the reachable-route snapshot deliberately, inspect every added line, and pin the new population.
 - [ ] Resolve the old contradiction: no deep test expects a marker on a device. The positive assertion is `exposure_flag = true`, an active hold pointing to the authorised evidence row, and no marker word in the device JSON.
+- [ ] Exercise exported marker-free behavior and inspect persisted/projected/returned values; `JSON.stringify(module)` is not evidence.
 
 ## Task 7: Admin and Staff surfaces
 
 ### 7.1 Admin
 
-- [ ] Add the CSSD domain filter, platform device actions, label, holds/adjudication dialog, version-conflict reload, and load failure results.
-- [ ] Add reprocessing settings/policies/protocols with the three locked matrix cells, HCV choice, TCV floor, mid-life baseline alternatives, process-agent bounds, surveillance, prion rule, approved isolation-group vocabulary, and retirement/deactivation impact.
+- [ ] Add the CSSD domain filter, platform device actions, label, operational hold dialog, version-conflict reload, and patient-blind load aggregates/investigation link only for authorised users.
+- [ ] Add reprocessing settings/policies/immutable protocol revisions and device scopes with linked IFU/single-use exclusion, locked dialysis cells, HCV choice, TCV floor, validated model baseline (never first mid-life measurement), process-agent bounds, surveillance, prion/suspect-interval rules, approved isolation groups, and retirement/deactivation impact.
 - [ ] Add dialysis machine and dialyser panels. Render `required_group`; never parse or display `required_class`.
 - [ ] Add append-only attempt history and `not_established` missing evidence.
 
@@ -305,21 +332,29 @@ Every Hindi, Tamil, Telugu, and Malayalam block carries the established OPEN-21 
 
 ### 8.1 Mandatory deep lifecycle tests
 
+- [ ] `lateLoadFailureInvalidatesReadinessWithoutRecount.deep.test.js`: pass → issue/use → return → late original-load failure; append invalidation, do not recount, identify every usage/patient via authorised investigation.
+- [ ] `exposureAdmissionBoundaryCrash.deep.test.js`: marker commits and process crashes before drain; actual dialysis start and OT theatre use before drain cannot proceed unsafely.
+- [ ] `holdBetweenCaptureAndUse.deep.test.js`: capture/issue → new hold → actual session/theatre start refused.
+- [ ] `abortedUseTermination.deep.test.js`: in-progress `completeSession(early_termination)` closes usage non-available without circular processing prerequisite.
+- [ ] `erroneousHoldReleaseKeepsProcessingObligation.deep.test.js`: erroneous hold release cannot restore available while any other obligation remains.
 - [ ] Dialysis: capture -> use -> end -> live decision -> statutory settlement -> not-established attempt -> release -> residual check -> re-capture, plus quarantine/hold/adjudication/reprocessing/re-capture.
 - [ ] OT: issue -> theatre use -> return -> hold/release -> applicable load -> re-issue, plus cancellation before use and failed-load response.
 - [ ] Test `max_cycles` at 1, 2, and unlimited through full lifecycle.
 - [ ] Test every matrix cell, unknown/surveillance rules, prion pathway, block-mode preconditions, emergency override, and policy deactivation.
 - [ ] Test relationship mismatches, end-of-use preconditions, retrospective capture provenance, hold arriving while captured, and distinct non-exposure dispositions.
 - [ ] Test the outbox crash window and `tested_on = NULL` unbounded lookback.
-- [ ] Run the three races with two connections and a lock barrier, 20 times each:
+- [ ] Run five races with two connections and a lock barrier, 20 times each:
 
   1. concurrent first capture of one unseen serial;
   2. exposure hold versus authorised release/reprocessing;
   3. set issue versus load outcome.
+  4. set return versus load outcome;
+  5. overlapping multi-device loads with sorted locks.
 
 ### 8.2 Mutation/liveness checks
 
 - [ ] Remove each dedication, hold, ceiling, end-of-use, applicable-load, release-criteria, and relationship guard once; confirm the named test fails; restore.
+- [ ] Remove actual-use admission from `startSession` and `markTheatreUse`, late-failure invalidation, legacy readiness import, obligation evaluation, stable delivery result, or event-application uniqueness one at a time; confirm the corresponding named closure suite turns red.
 - [ ] Remove `applyLoadOutcomeTx` only from `createSterilizationLoad`; confirm both discovery-population and creation deep tests fail.
 - [ ] Shrink the discovery regex; confirm the population snapshot fails rather than passing over fewer call sites.
 - [ ] Reintroduce `Late reactive hcv` into a device reason; confirm the device-field canary and code-vocabulary test fail.
@@ -333,6 +368,7 @@ Every Hindi, Tamil, Telugu, and Malayalam block carries the established OPEN-21 
 - [ ] Add `check-dialysis-activation-gate.mjs` to the release check chain. If Plan 4's dialysis arm exists and the real resolver is missing, CI fails.
 - [ ] Run the dialysis deep suite under `RPD_REQUIRE_PHASE1=1`; missing Phase 1 is a failure, not a skip.
 - [ ] Add the boot-time `dialysisActivationGuard.js`: any active dialysis reprocessing policy with an unavailable resolver refuses startup.
+- [ ] Gate the policy activation WRITE itself on resolver v2, admission hooks, stable required exposure consumers, active immutable protocol/device scopes, required suspect-interval/prion capabilities, and valid block-mode isolation mapping. Prove each missing capability refuses atomically.
 - [ ] Run backend lint, focused/unit/deep suites, OpenAPI generation/check/core sync/lint budget, Prisma/schema/RLS/seed gates, security checks, Staff analysis/tests/i18n, Admin type-check/lint/format/tests/build.
 - [ ] Run the complete backend/Staff/Admin/fresh-database matrix twice on the final implementation tree.
 - [ ] Make the final source change before the canonical marker. Then create the no-source-change `[full-ci]` commit and require both `Merge Gate` and `Full Merge Gate` on that exact head.
@@ -342,12 +378,13 @@ No skipped dialysis suite, stale head, or manually dispatched diagnostic run cou
 ## Task 9: Stage 2 hand-back — draft, no merge, no activation
 
 - [ ] Re-fetch `github/main`, re-scan migration numbers, and resolve `NNN` only if still free while treating 767 as reserved.
+- [ ] Attach the Phase 1 `DialysisIsolationDecision/v2` amendment request and the owning lane's explicit acceptance/version evidence; do not implement migration 767 or silently emulate missing fields.
 - [ ] Confirm the implementation diff contains no edits to Phase 1-owned files, migrations 168/418/421-423/565/764-767, or out-of-scope bloodline/procedure-pack activation.
 - [ ] Run the role-assignment census and report actual active assignments separately for D10a `DIALYSIS_TECHNICIAN`, D10b `BLOOD_BANK_STAFF`, and D10c `BLOOD_BANK_TECHNICIAN`. Non-assignability is not treated as proof of zero assignments.
 - [ ] Run the Phase 2 census and report declared positives, declared-and-evidence-backed negatives, defaults, column-only declared negatives (must be zero), and status/routing differences. State plainly that it gates only the future DROP.
-- [ ] Report every deep lifecycle result, the three race results, outbox crash/replay result, call-site populations, canary liveness/mutations, response-schema results, fresh-database runs, and exact full-CI head.
+- [ ] Report the five named closure suites, every deep lifecycle result, all five race results, admission-before-drain/replay obligations, call-site populations, canary liveness/mutations, response schemas, fresh-database runs, activation-write probes, and exact full-CI head.
 - [ ] State that stage 2 verification is complete or incomplete. Do not collapse skipped/failing evidence into a green summary.
-- [ ] State stage 3 prerequisites: tenant-approved nephrology/CSSD/infection-control protocol; model/processing basis; locked/default matrix; TCV/process/residual/surveillance rules; approved isolation groups; real resolver; durable outbox; named clinical activation authority.
+- [ ] State stage 3 prerequisites: tenant-approved nephrology/CSSD/infection-control protocol; immutable device scope/IFU/single-use exclusion; locked/default matrix; TCV/process/residual/surveillance and suspect-interval/prion rules; approved isolation groups/cohort mapping; accepted real v2 resolver; admission-safe durable exposure delivery; named clinical activation authority.
 - [ ] Keep the implementation pull request draft, do not mark ready, do not merge, and do not activate a tenant. The owner/merge-authority session decides those actions separately.
 
 Clinical thresholds in the implementation are protocol configuration constrained by conservative floors/defaults; they are not new owner questions. Any genuinely new question discovered during implementation is reported separately and does not silently broaden configuration.
@@ -368,19 +405,42 @@ Every review point and additional release condition appears in both the spec and
 | 8 | Relationship integrity, bloodline removal, end-of-use, affirmative un-capture, hold race, retrospective provenance | Tasks 1, 3-5, 8 | §1.1, §4.3-4.8, §5.1-5.2 |
 | 9 | Same-transaction outbox, idempotent reconciler, activation prerequisite, NULL-date lookback | Task 3 and Task 8 | §3.2, §4.15, §5.7 |
 | 10 | Full asymmetric census, status+routing comparison, preserve provenance, defaults reconciliation, DROP-only gate | Task 4 and Task 9 | §3.3, §7.6, §8 |
-| A1 | Lock order, three races, lifecycle/version receipts | §3.4; Tasks 3-5, 8 | §4.3, §5.8, §8 |
+| A1 | Lock order, five races, lifecycle/version/operation receipts | §3.4; Tasks 3-5, 8 | §4.3, §4.16, §5.8, §8 |
 | A2 | CI fails when activation is possible without real resolver | Tasks 0 and 8 | §7.3, §8 |
 | A3 | Named outgoing response validator, nested warnings/errors | Task 6 | §6.6, §8 |
 | A4 | D10 per role plus actual-assignment check | Tasks 6 and 9 | §2 D10, §7.6, §9 |
 | Approval | Three stages and clinical activation boundary | §1 and Task 9 | §1.2 |
 | Baseline | Re-verify current main by function name, including #1025 | §2 and Task 0 | document header and §11 |
 
-## 6. Final consistency checklist
+## 6. Revision 2 coverage ledger
 
-- [ ] Both documents say 11 new tables, two append-only tables, six device states, one availability service, two class-requesting functions, and 75 Staff keys.
+| # | Owner requirement | Plan implementation | Spec |
+|---|---|---|---|
+| 1 | Late failure after existing pass; legacy readiness; direct board writes | Tasks 1, 5, 8: occurrence revisions, cycle-neutral import, handler-governed board writes, named test | §4.13, §5.2, §8 |
+| 2 | Admission-safe exposure; explicit completion; replay; cath NULL | Tasks 2–3, 8: advisory lock, stable IDs/results/obligations, applications, cath compatibility, named test | §4.15, §5.7, §8 |
+| 3 | Reservation vs use/reprocess; last use; retrospective record | Tasks 2, 4–5, 8: mandatory action, actual-use hooks, retrospective command | §5.1–§5.3, §6.1–§6.2 |
+| 4 | Abort; separate restoration; all obligations; not-connected | Tasks 3–5, 8: early termination, `restoreUnusedCaptureTx`, obligation evaluator, residual reset | §5.1, §5.5–§5.6 |
+| 5 | Patient-blind CSSD; evidence roles/projection; prion boundary | Tasks 2, 5–6, 8: aggregates, logged investigation/evidence, allow-list, specialist operational code | §3.5, §5.2, §6.2, §6.4 |
+| 6 | Resolver evidence/profile amendment; domain/prion rules | Tasks 0–2, 5, 9: versioned Phase 1 request/acceptance, reuse-owned intervals, domain shapes/pathway | §3.3, §4.2a, §5.2–§5.3 |
+| 7 | Cohort compatibility and bounded emergency | Tasks 2, 4, 8: protected profile, selected-active check, one-time fingerprinted pre-schedule authorization | §3.3–§3.4, §5.1, §8 |
+| 8 | Enforceable constraints/device pinning/merge/append order/marker tenant | Tasks 1–2, 8–9: exact JSON checks, device FKs, deferrable merge, reverse event link, Phase 1 parent unique | §3.3, §4.2a–§4.15, §8 |
+| 9 | Complete lock graph; conflict-safe insert; evidence version; operation receipt | Tasks 1, 3, 5, 8: rewritten CSSD order, safe insert, version + append-only operation, two added races | §4.16, §5.8, §8 |
+| 10 | Enforceable device applicability/baseline/immutability/hold timing/suspect interval | Tasks 1–2, 5, 7–8: scope+IFU+single-use, validated model baseline, pinned satisfaction, report | §4.2a, §4.12–§4.13, §5.2, §5.5 |
+| S1 | Unknown block-return | Tasks 2, 4–5: both domains use `serology_required`; discard explicit | §5.3 |
+| S2 | Deactivation bypass | Tasks 3–5: discover enrolment first; physical history retained | §4.2, §5.2, §5.6 |
+| S3 | Cancellation vocabulary | Tasks 3–6: one `pack_condition` contract and two errors | §5.1–§5.2, §6.2, §7.1 |
+| S4 | Activation write | Tasks 2, 4, 8: atomic capability validator | §7.3 |
+| S5 | Marker-free behavior test | Tasks 2, 6, 8: execute exports and inspect values | §8 |
+| S6 | Regex not semantic proof | Tasks 5, 8: population pin plus deep call-graph/races | §5.2, §5.8, §8 |
+| S7 | Physical occurrence despite refused release | Tasks 1, 3, 5, 8: occurrence precedes readiness authorization | §4.13, §5.2, §5.6 |
+
+## 7. Final consistency checklist
+
+- [ ] Both documents say 17 Plan 4 relations, six device states, separate processing release and unused restoration, protected v2 profile/evidence requests, and 75 Staff keys.
 - [ ] Both documents use `RPD_DIALYSIS_USAGE_REQUIRED` for a generic dialysis command lacking its usage and do not claim dialysis is refused by the generic route.
 - [ ] Both documents say a legacy positive restricts alone and a legacy negative is not evidence.
 - [ ] Both documents distinguish exposure history from an active hold and require acceptance through re-issue.
 - [ ] Both documents keep `required_group` and prohibit `required_class` in routing payloads.
 - [ ] Both documents keep migration `NNN` unresolved and reserve 767 for Phase 1.
+- [ ] Both documents name the same five closure suites and five concurrency races.
 - [ ] Both documents finish at a draft, unmerged, non-activated hand-back.
