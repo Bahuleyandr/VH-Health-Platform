@@ -4,8 +4,11 @@
 // resolution and the check-level decision. Spec:
 // docs/superpowers/specs/2026-09-04-cath-pre-procedure-lab-readiness-design.md
 //
-// No I/O, no clock of its own (every function that needs one takes `asOf`), no
-// tenant and no database. That is the point of the file: `resolveItemState` and
+// No I/O, no clock of its own, no tenant and no database. Every function that
+// needs an instant takes `asOf`, and `asOf` is REQUIRED — see
+// `requireAsOfMs` below for why there is no longer a `new Date()` default.
+//
+// That is the point of the file: `resolveItemState` and
 // `computeCheckDecision` are the two functions the whole feature's behaviour
 // turns on, and they can be driven directly, exhaustively and without a stub
 // client — which is how the boundary-date and check-decision tables in
@@ -16,6 +19,7 @@
 // it wants the rules without the persistence graph behind them.
 
 import { AppError } from '../../utils/AppError.js';
+import { calendarDateMs } from '../../utils/calendarDate.js';
 import { epochMsOrNull } from '../../utils/dbInstant.js';
 import {
   LAB_ANALYTE_ITEMS,
@@ -50,7 +54,6 @@ export function isCriticalResult(row) {
 }
 
 const MS_PER_DAY = 86_400_000;
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 // Milliseconds since the epoch from anything a row can carry here: an epoch-ms
 // twin (the driver hands `::bigint` back as a BigInt), a driver-materialised
@@ -79,35 +82,21 @@ export function instantMs(row, field) {
 
 // lab_results.external_reported_on is the day the OUTSIDE laboratory reported
 // the value; performed_at on such a row is only when somebody keyed it in here,
-// which can be months later. A DATE carries no time zone, so it is read as IST
-// midnight — the ward's day, the convention clinicalDate() uses.
+// which can be months later. A DATE carries no time zone, so it means the
+// ward's day, and it is resolved through the shared calendar-date rail
+// (src/utils/calendarDate.js) — the ONE function that turns a calendar day into
+// an instant, so the facility zone lives in one place rather than in each
+// caller's string literal.
 //
-// Both shapes this column can arrive in mean the SAME thing — a calendar date —
-// so both go down one rail. A DATE read back through the driver materialises as
-// a Date pinned to UTC midnight of that day (`SELECT '2026-09-06'::date` hands
-// back 2026-09-06T00:00:00.000Z on a UTC session), which is NOT when that day
-// begins on the ward: it is 05:30 IST. Reading that Date as an instant made a
-// report dated today look FUTURE to rankResult between 18:30Z and 24:00Z, so an
-// older outside value outranked it. Taking its UTC Y-M-D and rebuilding through
-// the string path below keeps one meaning of "date"; stored rows always take
-// this branch, so it is the branch production runs.
-//
-// The +05:30 here is a hardcoded facility zone. Seen, and deliberately left
-// alone: it is a separate multi-region defect owned by the clock-fix lane, and
-// widening this fix to cover it would change every existing outside-report
-// instant. This function only stops the two branches disagreeing.
+// Both shapes this column can arrive in mean the SAME thing, so both go down
+// that rail. A DATE read back through the driver materialises as a Date pinned
+// to UTC midnight of that day (`SELECT '2026-09-06'::date` hands back
+// 2026-09-06T00:00:00.000Z on a UTC session), which is NOT when that day begins
+// on the ward: it is 05:30 IST. Reading that Date as an instant made a report
+// dated today look FUTURE to rankResult between 18:30Z and 24:00Z, so an older
+// outside value outranked it (PR #1022).
 function externalReportedMs(value) {
-  if (value === null || value === undefined) return NaN;
-  let text;
-  if (value instanceof Date) {
-    // An Invalid Date would throw out of toISOString(); it was NaN here before
-    // and stays NaN.
-    if (!Number.isFinite(value.getTime())) return NaN;
-    text = value.toISOString().slice(0, 10);
-  } else {
-    text = String(value).trim();
-  }
-  return ISO_DATE.test(text) ? toMs(`${text}T00:00:00+05:30`) : NaN;
+  return calendarDateMs(value);
 }
 
 // When the value became true of the patient, as an absolute instant.
@@ -223,6 +212,34 @@ function waivedAfterStart(waivedAt, caseStartedAt) {
   return waivedMs > startedMs;
 }
 
+// The instant this evaluation calls "now", in milliseconds. REQUIRED, and it
+// throws rather than defaulting.
+//
+// `asOf = new Date()` used to be the default, and that default WAS a defect.
+// Every row this resolver ranks carries a Postgres stamp taken off the
+// database's clock, in microseconds; `new Date()` is a different clock on a
+// different process (and, in dev and CI, a different container). A row written
+// a moment ago therefore read as FUTURE-dated to `withinWindow`'s `age >= 0`
+// bound and to `rankResult`, and the item fell back to `not_ordered` with a
+// null investigation_id — a checklist telling the ward to order a draw that
+// was already in flight. The two clocks are not the same clock, so the only
+// safe rule is that the caller says which instant the database thinks it is.
+//
+// A DEFAULT cannot be caught by a caller: it substitutes the wrong clock
+// silently and the answer merely looks a little wrong. An omission that throws
+// is a bug report. So this is a plain Error, not an AppError — it is a
+// programming fault in the caller, not a bad request from a user.
+function requireAsOfMs(asOf) {
+  const ms = toMs(asOf);
+  if (!Number.isFinite(ms)) {
+    throw new Error(
+      'resolveItemState requires `asOf`: the DATABASE clock for this evaluation '
+      + '(SELECT clock_timestamp() on the refresh transaction), never the process clock',
+    );
+  }
+  return ms;
+}
+
 // One item's state from the patient's rows. Pure; the caller fetches rows.
 export function resolveItemState({
   item,
@@ -231,7 +248,10 @@ export function resolveItemState({
   specimens = [],
   waiver = null,
   windowDays,
-  asOf = new Date(),
+  // REQUIRED. The database's clock for this evaluation, not the process's:
+  // refreshCaseLabReadiness takes it from `SELECT clock_timestamp()` on the
+  // very transaction it then reads the rows on. See requireAsOfMs above.
+  asOf,
   // The owning case's actual_start_at, for the waiver-lateness marker below.
   // Optional: every other branch reads it as "not started", which is also the
   // right answer for a case that has not.
@@ -252,7 +272,7 @@ export function resolveItemState({
     // not vary by branch. Only a waived item can carry true.
     recorded_after_start: false,
   };
-  const asOfMs = toMs(asOf);
+  const asOfMs = requireAsOfMs(asOf);
   // A row whose instant is unusable OR in the future ranks last, so it never
   // outranks a real value; ties then break on id descending.
   const rankResult = (row) => {
