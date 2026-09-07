@@ -320,17 +320,23 @@ export async function addAccess({ tenantId, dialysis_patient_id, ...body }) {
      WHERE dialysis_patient_id = $1 AND active = true`,
     patient.id);
 
+  // Same explicit bind as recordSerology below, and for the same reason: the
+  // column default resolves an unset GUC to the DEFAULT tenant, so an access
+  // row for any other tenant was mis-stamped.
   const sql = `
     INSERT INTO vascular_access
       (dialysis_patient_id, access_type, side, created_date, first_used_date,
-       active, last_qa_check_date, qa_flow_ml_min, last_doppler_date, notes)
-    VALUES ($1, $2, $3, $4::date, $5::date, true, $6::date, $7, $8::date, $9)
+       active, last_qa_check_date, qa_flow_ml_min, last_doppler_date, notes,
+       tenant_id)
+    VALUES ($1, $2, $3, $4::date, $5::date, true, $6::date, $7, $8::date, $9,
+            $10::uuid)
     RETURNING *`;
   const rows = await prisma.$queryRawUnsafe(sql,
     patient.id, body.access_type,
     body.side || null, body.created_date, body.first_used_date || null,
     body.last_qa_check_date || null, body.qa_flow_ml_min || null,
-    body.last_doppler_date || null, body.notes || null);
+    body.last_doppler_date || null, body.notes || null,
+    tenantOr(tenantId));
   return unwrap(rows);
 }
 
@@ -1127,18 +1133,28 @@ export async function recordSerology({ tenantId, dialysis_patient_id, ...body })
     return false;
   })();
 
+  // tenant_id is bound EXPLICITLY, not left to the column default. That default
+  // is COALESCE(current_setting('app.current_tenant_id'), DEFAULT_TENANT_ID) and
+  // the GUC is transaction-local — this runs on a plain client outside one — so
+  // every non-default tenant's serology row was being stamped with the DEFAULT
+  // tenant's id. Reads key on dialysis_patient_id behind an in-tenant patient
+  // lookup, so nothing is invisible TODAY; it becomes a fail-open the moment
+  // marker evidence is read PER TENANT, which is exactly what the isolation
+  // resolver (Phase 1 / migration 767) does: a tenant-scoped read would miss
+  // that tenant's own markers and resolve a marker-positive patient as clear.
   const sql = `
     INSERT INTO dialysis_serology
       (dialysis_patient_id, test_date, hbsag, hbs_titre, anti_hcv,
-       hcv_pcr, hiv, is_seroconversion, reported_by, notes)
+       hcv_pcr, hiv, is_seroconversion, reported_by, notes, tenant_id)
     VALUES ($1, COALESCE($2::date, CURRENT_DATE),
-            $3, $4, $5, $6, $7, $8, $9, $10)
+            $3, $4, $5, $6, $7, $8, $9, $10, $11::uuid)
     RETURNING *`;
   const rows = await prisma.$queryRawUnsafe(sql,
     patient.id, body.test_date || null,
     body.hbsag || null, body.hbs_titre || null, body.anti_hcv || null,
     body.hcv_pcr || null, body.hiv || null, isSeroconv,
-    body.reported_by || null, body.notes || null);
+    body.reported_by || null, body.notes || null,
+    tenantOr(tenantId));
 
   // Promote patient-level statuses on a positive — drives isolation flag.
   if (body.hbsag === 'positive' || body.anti_hcv === 'positive' || body.hiv === 'positive') {
