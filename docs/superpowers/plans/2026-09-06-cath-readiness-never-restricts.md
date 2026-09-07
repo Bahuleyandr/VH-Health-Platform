@@ -4,7 +4,7 @@
 
 **Goal:** Make the pre-cath readiness checklist inform and record instead of restrict: any `scheduled` / `readiness_pending` / `ready` case may start with checks pending (the documented authority to proceed — consent — is the one hard block), the checklist keeps living after start with lateness marked, a cancelled case has an audited door back, and a monthly report of starts-with-pending exists — per the owner decisions of 2026-09-06, as corrected by the owner's review of the same day.
 
-**Architecture (revision 2):** One start function (`startCaseTx`) behind the two existing start paths; it asserts the documented authority to proceed, reads the **last committed** lab picture (never awaiting the lab rail), binds a client **command id** to the **procedure attempt** so a stale retry can never restart a reopened case, and writes an attempt-keyed at-start snapshot plus an `audit_logs` row. Ordinary creation may create only pre-start statuses. A second, deliberately separate function (`reopenCaseTx`) takes a `cancelled` case — and only a cancelled case — back to `readiness_pending`; when the previous attempt had started it opens attempt N+1, clears the active start, moves the snapshot into history and resets consent and time-out. The generic status endpoint refuses every transition on a cancelled case and names `/reopen`. The pure rules module gains a post-start regime keyed on the **active attempt** and on a persisted **`unavailability_cause`** (ageing alone never retracts; any other change does), three lateness markers beside #1018's, a tri-state "started with pending" and time-out timing. Consent records `authority` and `mode`; time-out records `performed_at` apart from documentation time. One report handler over the audit rows, audited itself on both mounts, with facility scope and a bounds-converted predicate. **Migration 767** adds `procedure_attempt`, `attempt_started_at`, four CHECKs, and the item cause column. Staff gains Start / Reopen, live updates over the existing `staff:lab` rail, and the consent / time-out fields; Admin gains the report tab.
+**Architecture (revision 2):** One start function (`startCaseTx`) behind the two existing start paths; it asserts the documented authority to proceed, reads the **last committed** lab picture (never awaiting the lab rail), binds a client **command id** to the **procedure attempt** so a stale retry can never restart a reopened case, and writes an attempt-keyed at-start snapshot plus an `audit_logs` row. Ordinary creation may create only pre-start statuses. A second, deliberately separate function (`reopenCaseTx`) takes a `cancelled` case — and only a cancelled case — back to `readiness_pending`; when the previous attempt had started it opens attempt N+1, clears the active start, moves the snapshot into history and resets consent and time-out. The generic status endpoint refuses every transition on a cancelled case and names `/reopen`. The pure rules module gains a post-start regime keyed on the **active attempt** and on a persisted **`unavailability_cause`** (ageing alone never retracts; any other change does), three lateness markers beside #1018's, a tri-state "started with pending" and time-out timing. Consent records `authority` and `mode`; time-out records `performed_at` apart from documentation time. One report handler over the audit rows, audited itself on both mounts, with facility scope and a bounds-converted predicate. **migration NNN** adds `procedure_attempt`, `attempt_started_at`, four CHECKs, and the item cause column. Staff gains Start / Reopen, live updates over the existing `staff:lab` rail, and the consent / time-out fields; Admin gains the report tab.
 
 **Tech Stack:** Node 26 ESM backend (Express 5, Prisma raw SQL on Postgres 17, jest with `--experimental-vm-modules`), Flutter Staff app, Next.js Admin console, OpenAPI overlay scripts.
 
@@ -16,6 +16,9 @@
 
 ---
 
+
+> **Migration number.** `NNN` = the next free migration number at push time. **767 is NOT this lane's:** it is reserved by the merge-authority session's Phase 1 isolation-derivation lane (dev-1b). Task 0 must re-check the free number when the branch is pushed; any lane that claims a number it does not own collides with the immutability gate.
+
 ## Conventions
 
 All of Plan 3's conventions apply (tenant transactions, raw SQL, `AppError`, npm-run jest, immutable migrations, scratch DB, commit trailer `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`, `[full-ci]` on the last commit, draft PR, no merge — merge authority is dev-1b). Plus:
@@ -25,7 +28,7 @@ All of Plan 3's conventions apply (tenant transactions, raw SQL, `AppError`, npm
 - **Every "started" read is the ACTIVE attempt:** `attempt_started_at` (and its epoch twin), never `actual_start_at`. `actual_start_at` is history — the first start — and is never rewritten.
 - **Post-start suppression is decided by `unavailability_cause === 'aged_out'`, never by `state === 'stale'`.** The pre-start staleness test is in the mutation list because it is the regime this lane does *not* change.
 - **Never widen the picture with a value.** New payload keys are booleans, codes, causes, enums or instants. There are **four** free-text fields (spec §6.5), each projected through `roleSeesSerologyDetail` or privileged, each with a named sentinel on each reader.
-- **Migration 767 is claimed.** Reserve it in Task 1, re-check before the first push (Task 9), renumber **before** pushing if taken, never edit it after it is on a remote (add 768).
+- **migration NNN is claimed.** Reserve it in Task 1, re-check before the first push (Task 9), renumber **before** pushing if taken, never edit it after it is on a remote (add 768).
 - **Fixtures with `<col>_at` carry `<col>_at_epoch_ms`** (`epochTwinFixtureFidelity.test.js`), derived from the same instant.
 - **Every new error code** in the `CATH_LAB_(CONSENT|TIMEOUT|START|CASE_STATUS|CASE_CANCELLED|CASE_START|REOPEN|REPORT)_*` family must be in `CASE_LIFECYCLE_ERROR_CODES` (Task 5) — the scan is bidirectional, so an undocumented code and a documented-but-unraised code both fail.
 - **No `git stash`, no `git restore`; commit with pathspecs.**
@@ -37,7 +40,7 @@ All of Plan 3's conventions apply (tenant transactions, raw SQL, `AppError`, npm
 
 | File | Responsibility |
 |---|---|
-| Create `apps/backend/src/migrations/767_cath_lab_case_attempts.sql` | `procedure_attempt`, `attempt_started_at`, four CHECKs on `cath_lab_cases`; `unavailability_cause`, `window_days` + CHECK on `cath_case_lab_readiness_items`; backfill. |
+| Create `apps/backend/src/migrations/NNN_cath_lab_case_attempts.sql` | `procedure_attempt`, `attempt_started_at`, four CHECKs on `cath_lab_cases`; `unavailability_cause`, `window_days` + CHECK on `cath_case_lab_readiness_items`; backfill. |
 | Modify `apps/backend/prisma/schema.prisma` | The two models' new columns (schema-drift gate). |
 | Modify `apps/backend/src/services/clinical/cathLabReadinessRules.js` | `computeCheckDecision` keyed on `attempt_started_at` + cause; `classifyUnavailability`, `UNAVAILABILITY_CAUSES`; `afterCaseStartMs`; `ordered_after_start` / `received_after_start` / `finalised_after_start`; snapshot helpers (`START_SNAPSHOT_KEYS` ×12, `buildStartSnapshot`, `normalizeStartSnapshot`, tri-state `startedWithReadinessPending`, `missingLabItemCodes`, `labComponentStatus`, `START_PICTURE_FRESH_MS`, `LAB_COMPONENT_STATUSES`); `timeoutTiming`; `CONSENT_AUTHORITIES`, `CONSENT_MODES`. |
 | Modify `apps/backend/src/services/clinical/cathLabService.js` | `CASE_TRANSITIONS` (+ `cancelled: ['readiness_pending']`), `START_ELIGIBLE_STATUSES`, `REOPENABLE_STATUSES` / `REOPEN_TARGET_STATUS`, `CREATABLE_STATUSES`, `START_LOG_STATUSES`, `ATTEMPT_RESET_CHECKS`, `CASE_START_METADATA_KEYS`; `assertConsentDocumented` (replaces `assertReadinessComplete`); `consentPolicyFor`; consent / time-out validation in `updateReadinessCheck`; `caseById` widened; `normalizeCommandId`; `labsPictureForStartTx`; `startCaseTx`; `reopenCaseTx` + `reopenCase` + `latestCancelReasonTx`; `transitionCaseStatus` (short-circuit, rewire, post-commit refresh); `recordProcedureLog` (exhaustive); `createCase` (`CREATABLE_STATUSES`, reserved keys); `listCases` (two columns + tri-state fold). |
@@ -107,7 +110,7 @@ grep -rn "UPDATE cath_lab_cases\|INSERT INTO cath_lab_cases" src --include=*.js 
 
 Expected on the base tree: **eight** `UPDATE` literals — `cathLabReadinessService.js` (`recomputeCaseStatusTx`), `cathLabService.js` ×5 (`updateCaseCanonicalRefs`, `updateReadinessCheck`, `transitionCaseStatus`, `recordProcedureLog`, `resolveCathConsumableAuthorityRecovery`), `cathSchedulingRegistryService.js` (`scheduleCase`), `stemiPathwayService.js` (`spawnCathCase`) — and **two** `INSERT` literals (`createCase`, `spawnCathCase`). No `ON CONFLICT` on the table. Write the function names down; if a name differs (an inner helper wraps a literal), the pin's list uses the measured name.
 
-- [ ] **Step 5: Migration 767 is unclaimed** (Task 1 Step 1 repeats this; Task 9 re-runs it before the push).
+- [ ] **Step 5: migration NNN is unclaimed** (Task 1 Step 1 repeats this; Task 9 re-runs it before the push).
 
 - [ ] **Step 6: Create the scratch DB for deep runs**
 
@@ -167,10 +170,10 @@ Expected: zero (the existing `CATH_LAB_CASE_*` codes are `_NOT_FOUND`, `_ENCOUNT
 
 ---
 
-## Task 1: Migration 767 — the attempt columns and the cause column (DDL only)
+## Task 1: migration NNN — the attempt columns and the cause column (DDL only)
 
 **Files:**
-- Create: `apps/backend/src/migrations/767_cath_lab_case_attempts.sql`
+- Create: `apps/backend/src/migrations/NNN_cath_lab_case_attempts.sql`
 - Modify: `apps/backend/prisma/schema.prisma` (`cath_lab_cases`, `cath_case_lab_readiness_items`)
 
 > **Why a migration now** (spec §8.1): the owner's point 4 — "'no migration' must not determine clinical meaning" — is accepted. The attempt lifecycle is read by every rule, compared against the process clock and lab instants, and must be enforceable by a CHECK; the cause of unavailability must be stable across refreshes, so it is persisted beside the state it explains. Revision 1's "no migration" is withdrawn. **Pure DDL plus one backfill UPDATE; no plpgsql body** (no plpgsql body is CI-validated after the baseline, so none is written).
@@ -185,12 +188,12 @@ for ref in $(git for-each-ref --format='%(refname)' refs/remotes/github/); do
 done | sed -E 's#.*/([0-9]+)_.*#\1#' | sort -n | uniq | tail -2
 ```
 
-Expected tail: `765`, `766` (re-checked 2026-09-07 over the seven `github/*` branches). If `767` appears on any branch, take the next free number **now** and use it everywhere below; if it appears between now and the first push (Task 9 re-runs this), renumber **before** pushing, never after — the immutability gate pins a file by name once it is on a remote.
+Expected tail: `765`, `766` (re-checked 2026-09-07 over the seven `github/*` branches). If `NNN` appears on any branch, take the next free number **now** and use it everywhere below; if it appears between now and the first push (Task 9 re-runs this), renumber **before** pushing, never after — the immutability gate pins a file by name once it is on a remote.
 
 - [ ] **Step 2: Write the migration** (spec §8.1, verbatim — the CHECK names are cited by the deep tests and the OpenAPI pin)
 
 ```sql
--- 767_cath_lab_case_attempts.sql — spec 2026-09-06 (revision 2) §4.9, §5.6, §8.
+-- NNN_cath_lab_case_attempts.sql — spec 2026-09-06 (revision 2) §4.9, §5.6, §8.
 ALTER TABLE cath_lab_cases
   ADD COLUMN procedure_attempt INTEGER NOT NULL DEFAULT 1,
   ADD COLUMN attempt_started_at TIMESTAMPTZ(6);
@@ -237,7 +240,7 @@ DATABASE_URL="postgresql://…@127.0.0.1:55432/vh_crr_<initials>" npm run test:d
 DATABASE_URL="postgresql://…@127.0.0.1:55432/vh_crr_<initials>" node scripts/check-schema-drift.mjs
 ```
 
-All green. The immutability gate is **live** on this lane (767 is a new file, so it passes; what it protects is the file's content after the first push — do not edit it afterwards, add 768).
+All green. The immutability gate is **live** on this lane (NNN is a new file, so it passes; what it protects is the file's content after the first push — do not edit it afterwards, add 768).
 
 - [ ] **Step 5: Smoke the two CHECKs by hand** (the deep tests in Task 4 make them permanent)
 
@@ -253,8 +256,8 @@ psql "…" -c "UPDATE cath_lab_cases SET attempt_started_at = NOW() WHERE status
 - [ ] **Step 6: Commit**
 
 ```bash
-git add apps/backend/src/migrations/767_cath_lab_case_attempts.sql apps/backend/prisma/schema.prisma
-git commit -m "feat(cath): migration 767 — procedure attempt + attempt_started_at on cath_lab_cases, unavailability_cause + window_days on readiness items, four CHECKs
+git add apps/backend/src/migrations/NNN_cath_lab_case_attempts.sql apps/backend/prisma/schema.prisma
+git commit -m "feat(cath): migration NNN — procedure attempt + attempt_started_at on cath_lab_cases, unavailability_cause + window_days on readiness items, four CHECKs
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
@@ -1761,7 +1764,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Day-list prose: `started_with_readiness_pending` is the seventh summary key and is tri-state.
 - **`CASE_LIFECYCLE_ERROR_CODES`** (spec §9): a second exported enum listing `CATH_LAB_CONSENT_REQUIRED`, `CATH_LAB_CONSENT_AUTHORITY_REQUIRED`, `CATH_LAB_CONSENT_AUTHORITY_NOT_PERMITTED`, `CATH_LAB_TIMEOUT_PERFORMED_AT_REQUIRED`, `CATH_LAB_START_REASON_REQUIRED`, `CATH_LAB_START_COMMAND_REQUIRED`, `CATH_LAB_START_COMMAND_STALE`, `CATH_LAB_START_VIA_INVALID`, `CATH_LAB_CASE_STATUS_NOT_CREATABLE`, `CATH_LAB_CASE_CANCELLED_REOPEN_REQUIRED`, `CATH_LAB_CASE_START_NOT_ELIGIBLE`, `CATH_LAB_REOPEN_REASON_REQUIRED`, `CATH_LAB_REPORT_MONTH_INVALID`, `CATH_LAB_REPORT_FACILITY_INVALID` — documented on the four prose-only operations and (Task 6) the two report operations; exported through `ENUMS` for the pin.
 
-In `cathLabReadinessOpenApiSource.test.js`: `PROSE_ONLY` gains the four keys; the readiness key-set assertion gains the five keys; the item key set is derived by driving the resolver (it picks the four new keys up by construction — confirm the `required` list matches); `it('readiness_at_start declares exactly START_SNAPSHOT_KEYS; its check_type enum is migration 482\'s; its cause enum is migration 767\'s')` — parse `767_cath_lab_case_attempts.sql`'s `cath_case_lab_readiness_items_cause_check` list the way the file already parses 482's type CHECK and compare to `UNAVAILABILITY_CAUSES`; **the second scan**: `/'(CATH_LAB_(?:CONSENT|TIMEOUT|START|CASE_STATUS|CASE_CANCELLED|CASE_START|REOPEN|REPORT)_[A-Z_]+)'/g` over `cathLabService.js`, `cathLabReadinessRules.js`, `cathStartsWithPendingReportService.js` (Task 6 — add the file then) and the cath router, compared to `CASE_LIFECYCLE_ERROR_CODES` **in both directions**; the existing `CATH_LAB_READINESS_*` scan and its scope are unchanged.
+In `cathLabReadinessOpenApiSource.test.js`: `PROSE_ONLY` gains the four keys; the readiness key-set assertion gains the five keys; the item key set is derived by driving the resolver (it picks the four new keys up by construction — confirm the `required` list matches); `it('readiness_at_start declares exactly START_SNAPSHOT_KEYS; its check_type enum is migration 482\'s; its cause enum is migration NNN\'s')` — parse `NNN_cath_lab_case_attempts.sql`'s `cath_case_lab_readiness_items_cause_check` list the way the file already parses 482's type CHECK and compare to `UNAVAILABILITY_CAUSES`; **the second scan**: `/'(CATH_LAB_(?:CONSENT|TIMEOUT|START|CASE_STATUS|CASE_CANCELLED|CASE_START|REOPEN|REPORT)_[A-Z_]+)'/g` over `cathLabService.js`, `cathLabReadinessRules.js`, `cathStartsWithPendingReportService.js` (Task 6 — add the file then) and the cath router, compared to `CASE_LIFECYCLE_ERROR_CODES` **in both directions**; the existing `CATH_LAB_READINESS_*` scan and its scope are unchanged.
 
 Run `npm test -- --testPathPatterns unit/cathLabReadinessOpenApiSource` → PASS (it will list `CATH_LAB_REPORT_*` as documented-but-unraised until Task 6 — either add those two to the enum in Task 6 or accept a red here that Task 6 turns green; say which in the commit message). Then `npm run openapi:generate && npm run openapi:check`; commit the regenerated `src/docs/openapi.json` and `packages/vhhealth_core/swagger/openapi.json`.
 
@@ -2146,7 +2149,7 @@ If any branch now carries a `767_*` that is not ours, **renumber before pushing*
 cd apps/backend
 npm run lint
 npm test -- --testPathPatterns unit/                       # the FULL unit corpus
-npm run openapi:check && npm run check:migration-numbers && npm run check:migration-immutability   # LIVE: 767 is claimed
+npm run openapi:check && npm run check:migration-numbers && npm run check:migration-immutability   # LIVE: NNN is claimed
 DATABASE_URL=… node scripts/check-schema-drift.mjs
 cd ../.. && node scripts/ci/security.mjs
 ```
@@ -2210,7 +2213,7 @@ gh pr create --repo Bahuleyandr/VH-Health-Platform --draft --base main --head fe
   --body-file "$SCRATCH/rr-pr-body.md"
 ```
 
-The PR body states: the spec path and revision; the owner principle verbatim and the five decisions; **migration 767** (what it adds, why revision 1's "no migration" was withdrawn — the owner's point 4 — the four CHECKs, the number re-checked at push time); the hard block = the documented authority to proceed, in `assertConsentDocumented` reached only through `startCaseTx`, with the pin's four families (callers, SQL shapes, `SET status =` list, **write-site population** 9 + 2); `CREATABLE_STATUSES` and the route-level proof that creation cannot manufacture a running case; the exhaustive procedure-log table in one line per row; the door: cancelled-only, generic `/status` refuses everything on a cancelled case, attempt N+1 with consent/time-out reset and history, `actual_start_at` preserved; the command id bound to the attempt and the replay sequence proved; the non-blocking start (last committed picture, refresh after commit, never-settling test); the regime by cause with the repeat-order case; the three markers and what `received_after_start` does **not** claim; consent authority/mode and the tenant policy (emergency basis never rendered as consent); the time-out's two instants and the three outcomes; the report: identifiable, start events with attempt id, facility scope default (tenant-wide by precedent — the one owner confirmation, §10.2), `logAudit` on both mounts, the bounds predicate with the pasted EXPLAIN plan; the four free-text fields and their sentinels incl. CSV; Survey C's finding on the timeline reader; the reader survey for `cancelled`; the deep counts from both fresh-DB runs; the canary diff (two entries); OpenAPI regeneration; Staff strings pending OPEN-21 (40 keys); `Merge Gate` / `Full Merge Gate` by name with the head SHA **from the tier-verifying poller** once the canonical run lands (not `gh run watch`). **Open items: one owner confirmation with a decided default (report scope), nothing blocking.** End with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`. Hand back to dev-1b.
+The PR body states: the spec path and revision; the owner principle verbatim and the five decisions; **migration NNN** (what it adds, why revision 1's "no migration" was withdrawn — the owner's point 4 — the four CHECKs, the number re-checked at push time); the hard block = the documented authority to proceed, in `assertConsentDocumented` reached only through `startCaseTx`, with the pin's four families (callers, SQL shapes, `SET status =` list, **write-site population** 9 + 2); `CREATABLE_STATUSES` and the route-level proof that creation cannot manufacture a running case; the exhaustive procedure-log table in one line per row; the door: cancelled-only, generic `/status` refuses everything on a cancelled case, attempt N+1 with consent/time-out reset and history, `actual_start_at` preserved; the command id bound to the attempt and the replay sequence proved; the non-blocking start (last committed picture, refresh after commit, never-settling test); the regime by cause with the repeat-order case; the three markers and what `received_after_start` does **not** claim; consent authority/mode and the tenant policy (emergency basis never rendered as consent); the time-out's two instants and the three outcomes; the report: identifiable, start events with attempt id, facility scope default (tenant-wide by precedent — the one owner confirmation, §10.2), `logAudit` on both mounts, the bounds predicate with the pasted EXPLAIN plan; the four free-text fields and their sentinels incl. CSV; Survey C's finding on the timeline reader; the reader survey for `cancelled`; the deep counts from both fresh-DB runs; the canary diff (two entries); OpenAPI regeneration; Staff strings pending OPEN-21 (40 keys); `Merge Gate` / `Full Merge Gate` by name with the head SHA **from the tier-verifying poller** once the canonical run lands (not `gh run watch`). **Open items: one owner confirmation with a decided default (report scope), nothing blocking.** End with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`. Hand back to dev-1b.
 
 - [ ] **Step 8: Drop the scratch DBs** — `dropdb -h 127.0.0.1 -p 55432 vh_crr_<initials>` (and `_1`, `_2`).
 
@@ -2218,11 +2221,11 @@ The PR body states: the spec path and revision; the owner principle verbatim and
 
 ## Self-review against the spec (revision 2)
 
-- **§0 / owner point 1** — `CREATABLE_STATUSES` (Task 3 Step 3), `createCase` refusal before any read (Step 9), the creation route's validation, the INSERT pin, the **population pin** (Step 11), the route-level deep test + 23514 (Task 4 Step 8), migration 767's `cath_lab_cases_in_progress_attempt_check` (Task 1); mutations 16, 31.
+- **§0 / owner point 1** — `CREATABLE_STATUSES` (Task 3 Step 3), `createCase` refusal before any read (Step 9), the creation route's validation, the INSERT pin, the **population pin** (Step 11), the route-level deep test + 23514 (Task 4 Step 8), migration NNN's `cath_lab_cases_in_progress_attempt_check` (Task 1); mutations 16, 31.
 - **Point 2a** — the `=== 'cancelled'` short-circuit before `validateCaseTransition` (Task 3 Step 7), the unit loop over every target, the generic-bypass deep test, the order pin; mutation 17.
 - **Point 2b** — the explicit precondition and the parameter `reason` (Task 3 Step 6), the reopen loop over every non-cancelled status incl. `scheduled` (unit + deep); mutation 18.
 - **Point 3** — the exhaustive table with `requested` / unexpected refused before the insert and **a draft never starts** (`START_LOG_STATUSES`, Task 3 Step 8), the unit cells and the deep twin; mutation 19.
-- **Point 4** — migration 767 (Task 1); `attempt_started_at` as the discriminator everywhere (Task 2 Step 3, Task 4 Steps 3–4, Task 7 models), `actual_start_at` preserved (Task 3 Step 5's `COALESCE`, Step 6's UPDATE never naming it), attempt N+1 with history and `ATTEMPT_RESET_CHECKS` (Step 6), the owner's point-4 deep test (Task 4 Step 8), the report's attempt id (Task 6); mutations 20, 21, 29.
+- **Point 4** — migration NNN (Task 1); `attempt_started_at` as the discriminator everywhere (Task 2 Step 3, Task 4 Steps 3–4, Task 7 models), `actual_start_at` preserved (Task 3 Step 5's `COALESCE`, Step 6's UPDATE never naming it), attempt N+1 with history and `ATTEMPT_RESET_CHECKS` (Step 6), the owner's point-4 deep test (Task 4 Step 8), the report's attempt id (Task 6); mutations 20, 21, 29.
 - **Point 5** — `labsPictureForStartTx` on the stored rows (Task 3 Step 5), `scheduleReadinessRefresh` by the **caller after commit** (Steps 7–8), `readiness_picture_at` / `lab_component_status`, `missing_lab_items: null` never `[]` (Task 2 Step 15), the never-settling unit test (Task 3 Step 1); mutations 22, 23.
 - **Point 6** — `classifyUnavailability` with the full precedence table and persistence (Task 2 Steps 5–7, Task 4 Step 4), `agedOnly` on the cause (Task 2 Step 3), the repeat-order-open, policy-change, future-dated, unparseable, withdrawn and stability tests; mutations 2, 24, 30.
 - **Point 7** — `normalizeCommandId`, `start_commands[]` bound to the attempt, the three outcomes (Task 3 Step 5), the point-7 deep test, `IdempotencyKey.generate()` once per confirmation in Staff (Task 7); reopen key per user decision through `IdempotencyAttempt`; mutation 25.
