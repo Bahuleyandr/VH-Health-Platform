@@ -1,7 +1,7 @@
 # Reprocessable Devices Platform Implementation Plan
 
 - Date: 2026-09-05
-- Revision: **Revision 2 — owner return of 2026-09-06**, retaining asymmetric Q1 and closing the ten safety-flow findings plus every smaller inconsistency
+- Revision: **Revision 2.1 — contract amendment realigned 2026-09-07**, retaining Revision 2's accepted owner-review closure and the asymmetric Q1 rule
 - Status: **awaits owner design approval; stage 1 of 3**
 - Spec: `docs/superpowers/specs/2026-09-05-reprocessable-devices-platform-design.md`
 - Verified base: `github/main` at `db30fe80b` on 2026-09-07; highest migration 766
@@ -55,19 +55,27 @@ resolveDialysisIsolation({
   tenantId,
   patientUids,
   db,
+  contractVersion = 2,
   includeMarkers = false,
-  includeIsolationClass = false,
-  includeEvidenceRefs = false,
-  surveillanceIntervalsDays
+  includeIsolationClass = false
 }) -> Map<patientUid, Decision>
 
-Decision.status = restricted | unknown | clear
-Decision.contract_version = 2
+Decision = {
+  contract_version: 2,
+  status:   'restricted' | 'unknown' | 'clear',
+  asOf,
+  reasons:  [],
+  evidence: 'marker' | 'legacy_declaration' | 'none',
+  evidence_dated_on: date | null,
+  isolation_class?: 'hbsag' | 'hcv' | 'hiv' | 'isolation_mixed' | null,
+  markers?: [{ marker, result, tested_on, source, marker_row_id }]
+}
+isolated === (status === 'restricted')
 ```
 
-**CONTRACT AMENDMENT REQUEST — `DialysisIsolationDecision/v2` — to the Phase 1 owner.** Preserve the status/asymmetric-Q1 semantics, but add protected per-analyte `evidence_dated_on`, `surveillance_overdue`, opt-in marker-row `evidence_refs`, and a protected full `isolation_profile` used by cohort compatibility. The Plan 4 caller supplies protocol intervals; Phase 1 never reads Plan 4 tables. Migration 767 adds `UNIQUE (tenant_id, id)` on `patient_bloodborne_markers` for tenant-pinned evidence FKs. The amendment is versioned and must be explicitly accepted by the owning lane; stage 2 fails closed with `RPD_ISOLATION_CONTRACT_VERSION_UNSUPPORTED` until it is. This is an interface request, not a transfer or redesign of Phase 1 derivation.
+**CONTRACT AMENDMENT REQUEST — `DialysisIsolationDecision/v2` — to the Phase 1 owner.** Preserve the status/asymmetric-Q1 semantics. The v2 additions are limited to: one base-Decision `evidence_dated_on`, the date of the most recent qualifying evidence whatever analyte produced it; `tested_on` and `marker_row_id` inside each existing `markers` object, present only behind `includeMarkers: true`; the already-agreed opt-in `isolation_class`, present only behind `includeIsolationClass: true`; and migration 767's `UNIQUE (tenant_id, id)` on `patient_bloodborne_markers` for Plan 4's tenant-pinned composite evidence FKs. A per-analyte date is marker-identifying even when called currency, so it belongs inside the marker object: putting the same fact in a parallel map would reproduce the shape behind the two earlier disclosures. There is no `includeEvidenceRefs`, `evidence_refs`, `surveillanceIntervalsDays`, resolver-computed overdue verdict, or profile field under `includeIsolationClass`. This is an interface request, not a transfer or redesign of Phase 1 derivation; the contract owner has answered these details, so no further owner decision is required. Stage 2 still fails closed with `RPD_ISOLATION_CONTRACT_VERSION_UNSUPPORTED` until the real v2 resolver lands.
 
-Marker detail, evidence references, isolation class and profile are opt-in. Routing and reuse callers keep them in process only; neither serialises, snapshots, logs, or audits them. The complete infection profile is checked for cohort compatibility before an opaque group is emitted, preserving the HBsAg separation distinction even when multiple profiles share a label.
+The resolver returns evidence, not policy. `reuseEligibilityTx` owns the tenant/protocol interval and computes overdue from the single base `evidence_dated_on`; when a protocol requires per-analyte currency, that function requests `includeMarkers: true` and computes from marker-object `tested_on`. It also passes a selected `marker_row_id` directly to `placeHoldTx` when its verdict creates a hold. `cohortCompatibilityTx` is the only other Plan 4 function that requests `includeMarkers: true`; it derives the per-analyte profile from the returned marker objects. Its output is exactly `{ verdict: 'compatible' | 'incompatible' | 'not_established' }`, with no analyte, class or date. A whole-value pin rejects `hbsag`, `hcv`, `hiv` and `isolation_mixed` anywhere in that returned object; a mutation that returns the profile beside the verdict must turn it red. D11 is preserved because the server-side calculation emits only whether two patients may share a bay. The marker caller set is pinned at exactly those two in-process functions, and no route, snapshot, receipt, audit row or device record passes `includeMarkers: true` or receives their protected input.
 
 Q1 is asymmetric and is owned by the Phase 1 lane:
 
@@ -124,7 +132,7 @@ The complete call-graph order is: tenant/patient advisory lock when relevant; di
 - [ ] Fetch `github` and create a fresh worktree from current `github/main`; never reuse a docs/review worktree.
 - [ ] Record `git rev-parse github/main` and re-run every function-name check in §2.
 - [ ] Confirm #1021, #1024, and #1025 remain present by the named functions, not by PR number alone.
-- [ ] Send the versioned `DialysisIsolationDecision/v2` amendment request to the Phase 1 owner and record explicit acceptance. Confirm migration 767 supplies the resolver plus `(tenant_id, id)` marker parent unique before enabling/testing dialysis. Non-dialysis work may proceed if absent; stage 2 cannot pass.
+- [ ] Record the Phase 1 contract owner's 2026-09-07 answer as the accepted `DialysisIsolationDecision/v2` shape in §3.1. Confirm migration 767 supplies that resolver plus the `(tenant_id, id)` marker parent unique before enabling/testing dialysis. No further owner decision is required; non-dialysis work may proceed if the implementation is absent, but stage 2 cannot pass.
 - [ ] Scan migrations on `github/main` and every open GitHub branch. Reserve 767 unconditionally and substitute `NNN` only when the implementation is ready to push. Re-scan at Task 9.
 - [ ] Create a fresh PostgreSQL test database and record the Node version (`v26.5.0`).
 - [ ] Record the discovered current CSSD outcome-write population for `createSterilizationLoad` and `transitionSterilizationLoad`; the snapshot is a deliberate review point, not a hard-coded assumption from this document.
@@ -178,21 +186,21 @@ Verification:
 ## Task 2: Pure rules, protocol validation, resolver adapter, and projection
 
 - [ ] Implement `assertDecisionShape` for all three statuses with `includeIsolationClass` on and off. Missing/null class is invalid only for `restricted` when asked; a non-null class is invalid for `clear`/`unknown` and when unrequested.
-- [ ] Implement and contract-test `DialysisIsolationDecision/v2`: `contract_version`, protected evidence refs, per-analyte dates/currency, and full protected infection profile. Fail closed on any older/unknown contract version. Supply protocol intervals from the reuse layer.
-- [ ] Keep `includeMarkers` and `includeIsolationClass` default-off. Pin the class requester population at exactly `assessIsolationTx` and `reuseEligibilityTx` by function name.
+- [ ] Implement and contract-test `DialysisIsolationDecision/v2`: `contract_version`, one base `evidence_dated_on`, marker-object `tested_on` and `marker_row_id` behind `includeMarkers`, and the existing `isolation_class` behind `includeIsolationClass`. Fail closed on any older/unknown contract version. Assert that the Decision has no overdue verdict or isolation-profile field and that no third detail flag exists.
+- [ ] Keep `includeMarkers` and `includeIsolationClass` default-off. Pin the marker requester population at exactly `reuseEligibilityTx` and `cohortCompatibilityTx` by function name; pin the class requester population separately at exactly `assessIsolationTx` and `reuseEligibilityTx`.
 - [ ] Implement three separate decisions:
 
   - `resolveDialysisIsolation`: what clinical evidence establishes;
   - `assessIsolationTx`: where the patient may dialyse;
   - `reuseEligibilityTx`: whether this physical dialyser may be reprocessed.
 
-- [ ] Implement `reuseEligibilityTx` with conservative protocol defaults: HBsAg no reuse, HIV no reuse, mixed no reuse, HCV per approved protocol, surveillance-overdue handling, active-hold precedence, dedication, and separate `prion_exposure` rules.
+- [ ] Implement `reuseEligibilityTx` with conservative protocol defaults: HBsAg no reuse, HIV no reuse, mixed no reuse, HCV per approved protocol, active-hold precedence, dedication, and separate `prion_exposure` rules. It owns surveillance intervals and computes overdue from the base `evidence_dated_on`; only a protocol requiring per-analyte currency may make it request marker detail and use marker-object `tested_on`. Its return value is an eligibility verdict only.
 - [ ] Remove the former same-patient exposure escape. Same-patient dedication is necessary for the HCV protocol branch but never overrides a `no_reuse` cell.
 - [ ] Implement `deviceEligibilityTx({ action: 'use' | 'reprocess' })` with no default action. Use checks current readiness/holds/scope and permits the last use at the ceiling; reprocess applies the next-cycle ceiling, matrix, currency and obligations.
 - [ ] Implement `releaseCriteria`: missing mandatory evidence is `not_established`, never pass. Require a pre-use or validated-model/manufacturer baseline (never first mid-life measurement); default threshold 80% and prohibit lower values; validate integrity, agent, concentration, contact time, scope/IFU and residual obligations.
 - [ ] Keep OT sterility evidence (load indicators/process event) separate from return inspection/function evidence.
 - [ ] Implement the cycle ceiling with an explicit null guard and table-driven lifecycles for 1, 2, and unlimited.
-- [ ] Implement protected `cohortCompatibilityTx` before opaque group routing; preserve HBsAg cohort distinctions and forbid unknown patients from incompatible HBV-dedicated groups. Validate the selected machine's active state.
+- [ ] Implement `cohortCompatibilityTx` before opaque group routing. It requests existing marker objects with `includeMarkers: true`, derives the per-analyte profile in process, preserves HBsAg cohort distinctions, and forbids unknown patients from incompatible HBV-dedicated groups. Its return value is exactly a compatibility verdict with no analyte, class or date; validate the selected machine's active state.
 - [ ] Implement approved isolation-group validation and deny-list. In block mode refuse unregistered/unmapped. Emergency authorisation is pre-scheduling-capable, role-gated, one-time, max four hours, and bound to patient, selected machine, decision fingerprint, settings/policy/protocol revisions; reassignment/evidence/config changes invalidate it.
 - [ ] Implement distinct non-exposure hold/disposition codes, including `serology_required`, `post_issue_restriction`, and `inspection_failed`.
 - [ ] Implement `projectUsageForRole`, `projectReuseRestrictionForRole`, and allow-listed `projectHoldForOperationalRole`. Notes, adjudication, evidence/source refs, patient/case IDs and nested metadata appear only on the purpose-bound, access-logged evidence-review route. Operational prion text is `specialist_contamination_hold`.
@@ -223,7 +231,7 @@ Deep recovery gate: after marker+outbox commit and a simulated crash, attempt ac
 ## Task 4: Dialysis capture, routing, statutory settlement, attempts, and census
 
 - [ ] Verify only: `ingestMachineObservations` still binds the session lookup to `tenantId`; do not create another tenant-scope commit.
-- [ ] Bind `dialysisIsolationAdapter.js` to the accepted real Phase 1 v2 contract. Product code has no stub/fallback; version mismatch fails closed. Send the contract amendment to the Phase 1 owner and record acceptance before stage 2.
+- [ ] Bind `dialysisIsolationAdapter.js` to the accepted real Phase 1 v2 contract. Product code has no stub/fallback; version mismatch fails closed. Record the contract owner's 2026-09-07 answer and the landed resolver/version evidence before stage 2; no further owner decision is needed.
 - [ ] Add capture by serial/tag with physical identity minting, patient dedication, baseline TCV provenance, residual-test requirement, live decision snapshot, version receipt, and transactionally consistent `dialysis_sessions.dialyser`/`reuse_count` fields.
 - [ ] Integrate by function name: `scheduleSession` plans before insert; `startSession` is the actual-use admission boundary and revalidates exposure, holds, readiness, dedication, scope, residual evidence, use eligibility, selected-machine activity and cohort compatibility; machine reassignment invalidates bound emergency authorisation; `recordReuseRegister` delegates while only truly dark sessions keep legacy behavior.
 - [ ] Persist only `required_group` and non-clinical warning codes. No `required_class`, marker, or reason reaches a session, response, error, or audit row.
@@ -291,6 +299,7 @@ OT deep gate: dark/active/deactivated; creation/transition outcomes; cycle-neutr
 - [ ] Poison and walk device fields, `reuse_screen`, `post_use_screen`, service error details/error bodies, and audit-derived history responses.
 - [ ] Run the D11 class-in-routing check for every role in a fixed `D11_FIXTURE_ROLES`, independent of D10 and independent of the serology audience complement.
 - [ ] Attribute liveness separately: counters prove the walker visited Decision and warning nodes; an entitled response proves poisoned restriction reasons arrived; a fixed `machine_id` proves the isolation fixture arrived; the class mutation proves the value sentinel bites. None substitutes for another.
+- [ ] Pin `includeMarkers: true` to exactly `reuseEligibilityTx` and `cohortCompatibilityTx`; prove no route, response/snapshot builder, receipt/audit writer or device persistence path passes it. Walk both functions' outputs and every route, snapshot, receipt, audit row and device value in the canary. By value, reject every marker-class string anywhere in `cohortCompatibilityTx`'s verdict object.
 - [ ] Regenerate the reachable-route snapshot deliberately, inspect every added line, and pin the new population.
 - [ ] Resolve the old contradiction: no deep test expects a marker on a device. The positive assertion is `exposure_flag = true`, an active hold pointing to the authorised evidence row, and no marker word in the device JSON.
 - [ ] Exercise exported marker-free behavior and inspect persisted/projected/returned values; `JSON.stringify(module)` is not evidence.
@@ -360,6 +369,7 @@ Every Hindi, Tamil, Telugu, and Malayalam block carries the established OPEN-21 
 - [ ] Reintroduce `Late reactive hcv` into a device reason; confirm the device-field canary and code-vocabulary test fail.
 - [ ] Poison snapshot reasons, error details, and audit history independently; confirm each attributed canary assertion fails.
 - [ ] Add `required_class: 'hbsag'` beside benign `required_group: 'Bay 1'`; confirm every fixed D11 role fails regardless of D10 while the benign group remains accepted.
+- [ ] Mutate `cohortCompatibilityTx` to return the derived profile beside its verdict; confirm the whole-value marker-class pin turns red. If it stays green, the pin is decorative and stage 2 fails.
 - [ ] Remove the isolation fixture, the Decision poison, and the fixed machine id one at a time; confirm the corresponding liveness assertion alone fails.
 - [ ] Make missing baseline pass, remove a locked matrix check at service and DB layers, clear historical exposure on release, bypass the generic domain delegate, remove expected-version handling, and move outbox insertion after commit; confirm each named test fails.
 
@@ -378,7 +388,7 @@ No skipped dialysis suite, stale head, or manually dispatched diagnostic run cou
 ## Task 9: Stage 2 hand-back — draft, no merge, no activation
 
 - [ ] Re-fetch `github/main`, re-scan migration numbers, and resolve `NNN` only if still free while treating 767 as reserved.
-- [ ] Attach the Phase 1 `DialysisIsolationDecision/v2` amendment request and the owning lane's explicit acceptance/version evidence; do not implement migration 767 or silently emulate missing fields.
+- [ ] Attach the final Phase 1 `DialysisIsolationDecision/v2` contract block, the contract owner's 2026-09-07 answer, and the landed resolver/version evidence; do not seek another owner decision, implement migration 767, or silently emulate missing fields.
 - [ ] Confirm the implementation diff contains no edits to Phase 1-owned files, migrations 168/418/421-423/565/764-767, or out-of-scope bloodline/procedure-pack activation.
 - [ ] Run the role-assignment census and report actual active assignments separately for D10a `DIALYSIS_TECHNICIAN`, D10b `BLOOD_BANK_STAFF`, and D10c `BLOOD_BANK_TECHNICIAN`. Non-assignability is not treated as proof of zero assignments.
 - [ ] Run the Phase 2 census and report declared positives, declared-and-evidence-backed negatives, defaults, column-only declared negatives (must be zero), and status/routing differences. State plainly that it gates only the future DROP.
@@ -421,8 +431,8 @@ Every review point and additional release condition appears in both the spec and
 | 3 | Reservation vs use/reprocess; last use; retrospective record | Tasks 2, 4–5, 8: mandatory action, actual-use hooks, retrospective command | §5.1–§5.3, §6.1–§6.2 |
 | 4 | Abort; separate restoration; all obligations; not-connected | Tasks 3–5, 8: early termination, `restoreUnusedCaptureTx`, obligation evaluator, residual reset | §5.1, §5.5–§5.6 |
 | 5 | Patient-blind CSSD; evidence roles/projection; prion boundary | Tasks 2, 5–6, 8: aggregates, logged investigation/evidence, allow-list, specialist operational code | §3.5, §5.2, §6.2, §6.4 |
-| 6 | Resolver evidence/profile amendment; domain/prion rules | Tasks 0–2, 5, 9: versioned Phase 1 request/acceptance, reuse-owned intervals, domain shapes/pathway | §3.3, §4.2a, §5.2–§5.3 |
-| 7 | Cohort compatibility and bounded emergency | Tasks 2, 4, 8: protected profile, selected-active check, one-time fingerprinted pre-schedule authorization | §3.3–§3.4, §5.1, §8 |
+| 6 | Resolver evidence amendment; domain/prion rules | Tasks 0–2, 5, 9: one base date, marker-object ids/dates, reuse-owned intervals, domain shapes/pathway | §3.3, §4.2a, §5.2–§5.3 |
+| 7 | Cohort compatibility and bounded emergency | Tasks 2, 4, 8: profile derived from opted-in markers, verdict-only value pin, selected-active check, one-time fingerprinted pre-schedule authorization | §3.3–§3.4, §5.1, §8 |
 | 8 | Enforceable constraints/device pinning/merge/append order/marker tenant | Tasks 1–2, 8–9: exact JSON checks, device FKs, deferrable merge, reverse event link, Phase 1 parent unique | §3.3, §4.2a–§4.15, §8 |
 | 9 | Complete lock graph; conflict-safe insert; evidence version; operation receipt | Tasks 1, 3, 5, 8: rewritten CSSD order, safe insert, version + append-only operation, two added races | §4.16, §5.8, §8 |
 | 10 | Enforceable device applicability/baseline/immutability/hold timing/suspect interval | Tasks 1–2, 5, 7–8: scope+IFU+single-use, validated model baseline, pinned satisfaction, report | §4.2a, §4.12–§4.13, §5.2, §5.5 |
@@ -436,7 +446,7 @@ Every review point and additional release condition appears in both the spec and
 
 ## 7. Final consistency checklist
 
-- [ ] Both documents say 17 Plan 4 relations, six device states, separate processing release and unused restoration, protected v2 profile/evidence requests, and 75 Staff keys.
+- [ ] Both documents say 17 Plan 4 relations, six device states, separate processing release and unused restoration, one base v2 evidence date plus marker-object ids/dates, no v2 profile or overdue field, and 75 Staff keys.
 - [ ] Both documents use `RPD_DIALYSIS_USAGE_REQUIRED` for a generic dialysis command lacking its usage and do not claim dialysis is refused by the generic route.
 - [ ] Both documents say a legacy positive restricts alone and a legacy negative is not evidence.
 - [ ] Both documents distinguish exposure history from an active hold and require acceptance through re-issue.
