@@ -50,11 +50,15 @@ for (const f of ruleFiles) {
 for (const script of [
   'verify-rule-metadata.mjs',
   'check-cnpg-metric-parity.mjs',
+  'check-cnpg-metric-parity.test.mjs',
   'run-promtool-rule-tests.mjs',
   'verify-monitoring-negative-contracts.mjs',
 ]) {
   try {
-    const out = execFileSync(process.execPath, [join(here, script)], {
+    const args = script.endsWith('.test.mjs')
+      ? ['--test', join(here, script)]
+      : [join(here, script)];
+    const out = execFileSync(process.execPath, args, {
       encoding: 'utf8',
       env: { ...process.env, PROMTOOL_BIN: promtool },
     });
