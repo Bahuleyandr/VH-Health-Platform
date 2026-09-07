@@ -662,7 +662,7 @@ New top-level keys: `case_started` (from the active recording instant), `procedu
   "clinical_started_at": "2026-09-06T05:02:11.000Z",
   "clinical_start_provenance": "staff_confirmed_now",
   "procedure_attempt": 2,
-  "lifecycle_token": "2ccb17df-17b6-463f-8af8-45f321871ee0",
+  "lifecycle_token": "example-token",
   "via": "status",
   "command_id": "1f0f2c9e-…",
   "procedure_log_id": null,
