@@ -453,6 +453,43 @@ export const DIALYSIS_ROUTE_ROLES = mergeRoles(
   rolesFrom(['DOCTOR']),
 );
 
+export const RPD_BIOLOGICAL_HOLD_ADJUDICATION_ROUTE_ROLES = Object.freeze([
+  'INFECTION_CONTROL_OFFICER',
+  'CONSULTANT',
+  'ADMIN',
+  'SUPER_ADMIN',
+]);
+export const RPD_ROUTINE_HOLD_RELEASE_ROUTE_ROLES = Object.freeze([
+  'QUALITY_OFFICER',
+  'OT_INCHARGE',
+  'ADMIN',
+  'SUPER_ADMIN',
+]);
+export const DIALYSIS_EMERGENCY_OVERRIDE_ROUTE_ROLES = Object.freeze([
+  'CONSULTANT',
+  'ADMIN',
+  'SUPER_ADMIN',
+]);
+export const HOLD_EVIDENCE_REVIEW_ROUTE_ROLES = Object.freeze([
+  'INFECTION_CONTROL_OFFICER',
+  'CONSULTANT',
+  'ADMIN',
+  'SUPER_ADMIN',
+]);
+export const REPROCESSING_MOUNT_ROUTE_ROLES = Object.freeze([
+  'QUALITY_OFFICER',
+  'INFECTION_CONTROL_OFFICER',
+  'CONSULTANT',
+  'ADMIN',
+  'SUPER_ADMIN',
+]);
+export const REPROCESSING_POLICY_ROUTE_ROLES = Object.freeze([
+  'QUALITY_OFFICER',
+  'INFECTION_CONTROL_OFFICER',
+  'ADMIN',
+  'SUPER_ADMIN',
+]);
+
 export const STROKE_ROUTE_ROLES = mergeRoles(
   getRolesForCapabilityGroups(['ip_flow', 'emergency', 'diagnostics', 'specialty_services']),
   rolesFrom([
