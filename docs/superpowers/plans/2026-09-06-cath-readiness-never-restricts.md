@@ -28,7 +28,7 @@ All of Plan 3's conventions apply (tenant transactions, raw SQL, `AppError`, npm
 - **Every "started" read is the ACTIVE attempt:** `attempt_started_at` (and its epoch twin), never `actual_start_at`. `actual_start_at` is history — the first start — and is never rewritten.
 - **Post-start suppression is decided by `unavailability_cause === 'aged_out'`, never by `state === 'stale'`.** The pre-start staleness test is in the mutation list because it is the regime this lane does *not* change.
 - **Never widen the picture with a value.** New payload keys are booleans, codes, causes, enums or instants. There are **four** free-text fields (spec §6.5), each projected through `roleSeesSerologyDetail` or privileged, each with a named sentinel on each reader.
-- **migration NNN is claimed.** Reserve it in Task 1, re-check before the first push (Task 9), renumber **before** pushing if taken, never edit it after it is on a remote (add 768).
+- **migration NNN is claimed.** Reserve it in Task 1, re-check before the first push (Task 9), `NNN = max(highest number on any github/* branch, 767) + 1` - never 767 (reserved for the Phase 1 lane even before its file exists); never edit a migration after it is on a remote (add a new number instead).
 - **Fixtures with `<col>_at` carry `<col>_at_epoch_ms`** (`epochTwinFixtureFidelity.test.js`), derived from the same instant.
 - **Every new error code** in the `CATH_LAB_(CONSENT|TIMEOUT|START|CASE_STATUS|CASE_CANCELLED|CASE_START|REOPEN|REPORT)_*` family must be in `CASE_LIFECYCLE_ERROR_CODES` (Task 5) — the scan is bidirectional, so an undocumented code and a documented-but-unraised code both fail.
 - **No `git stash`, no `git restore`; commit with pathspecs.**
@@ -188,7 +188,7 @@ for ref in $(git for-each-ref --format='%(refname)' refs/remotes/github/); do
 done | sed -E 's#.*/([0-9]+)_.*#\1#' | sort -n | uniq | tail -2
 ```
 
-Expected tail: `765`, `766` (re-checked 2026-09-07 over the seven `github/*` branches). If `NNN` appears on any branch, take the next free number **now** and use it everywhere below; if it appears between now and the first push (Task 9 re-runs this), renumber **before** pushing, never after — the immutability gate pins a file by name once it is on a remote.
+Expected tail: `765`, `766` (re-checked 2026-09-07 over the seven `github/*` branches). `NNN` is never 767 (reserved for the Phase 1 lane); if `NNN` appears on any branch, take the next free number above it **now** and use it everywhere below; if it appears between now and the first push (Task 9 re-runs this), renumber **before** pushing, never after — the immutability gate pins a file by name once it is on a remote.
 
 - [ ] **Step 2: Write the migration** (spec §8.1, verbatim — the CHECK names are cited by the deep tests and the OpenAPI pin)
 
@@ -2137,11 +2137,11 @@ Plan 3 Task 7 / Plan 2 Task 8 are the template. Merge authority is dev-1b; **dra
 
 ```bash
 git fetch github '+refs/heads/*:refs/remotes/github/*'
-git merge --no-ff github/main -m "chore: merge main into feat/cath-readiness-never-restricts"
+git merge --no-ff github/main -m "chore: merge main into feat/cath-readiness-never-restricts [full-ci]"
 for ref in $(git for-each-ref --format='%(refname)' refs/remotes/github/); do git ls-tree --name-only "$ref" apps/backend/src/migrations/ 2>/dev/null; done | sed -E 's#.*/([0-9]+)_.*#\1#' | sort -n | uniq | tail -2
 ```
 
-If any branch now carries a `767_*` that is not ours, **renumber before pushing** (file, `schema.prisma` comment, the OpenAPI pin's parse path, the spec cross-references in the PR body) — this branch has never been pushed, so nothing is immutable yet.
+This lane NEVER takes 767 - it is reserved for the Phase 1 isolation-derivation lane whether or not a `767_*` file exists yet (absence of a file is not evidence the number is unclaimed). Before pushing, compute `NNN = max(highest migration number on any github/* branch, 767) + 1` and apply it everywhere (file, `schema.prisma` comment, the OpenAPI pin's parse path, the spec cross-references in the PR body) — this branch has never been pushed, so nothing is immutable yet.
 
 - [ ] **Step 2: Backend gates**
 
