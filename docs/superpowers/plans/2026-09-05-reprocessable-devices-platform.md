@@ -1,14 +1,14 @@
 # Reprocessable Devices Platform Implementation Plan
 
 - Date: 2026-09-05
-- Revision: **Revision 2.1 — contract amendment realigned 2026-09-07**, retaining Revision 2's accepted owner-review closure and the asymmetric Q1 rule
+- Revision: **Revision 2.2 — final migration 767 §3 contract quoted verbatim 2026-09-07**, retaining Revision 2.1's accepted contract positions and Revision 2's owner-review closure
 - Status: **awaits owner design approval; stage 1 of 3**
 - Spec: `docs/superpowers/specs/2026-09-05-reprocessable-devices-platform-design.md`
 - Verified base: `github/main` at `db30fe80b` on 2026-09-07; highest migration 766
 - Future implementation branch: `feat/reprocessable-devices-platform`
 - Migration: **`NNN`**, the next free number at implementation push time. Migration 767 is reserved for the Phase 1 dialysis-isolation lane whether or not a `767_*` file exists
 
-This plan implements one patient-blind physical-device register for dialysers and OT instrument sets/trays while keeping patient linkage on usage rows. It preserves dialysis dedication, immutable historical exposure, live-data decisions, safe unused-capture restoration, and the existing cath register. It does not implement Phase 1 derivation or migration 767; it submits and consumes the explicit versioned `DialysisIsolationDecision/v2` contract amendment in §3.1.
+This plan implements one patient-blind physical-device register for dialysers and OT instrument sets/trays while keeping patient linkage on usage rows. It preserves dialysis dedication, immutable historical exposure, live-data decisions, safe unused-capture restoration, and the existing cath register. It does not implement Phase 1 derivation or migration 767; it consumes the accepted, versioned `DialysisIsolationDecision/v2` contract quoted verbatim in §3.1.
 
 ## 1. Approval model and execution boundary
 
@@ -48,32 +48,62 @@ These are the current-code seams. Re-run the named searches at Task 0; line numb
 
 ### 3.1 Resolver and asymmetric Q1
 
-The only dialysis isolation input is:
+The request was accepted into the Phase 1 migration 767 brief §3 as written on 2026-09-07. Plan 4 consumes that contract and adds nothing to it:
 
-```text
+```js
+export const CONTRACT_VERSION = 2;   // exported by the resolver module
+
 resolveDialysisIsolation({
   tenantId,
   patientUids,
   db,
-  contractVersion = 2,
-  includeMarkers = false,
-  includeIsolationClass = false
+  contractVersion,                 // caller states what it can read; adapter enforces
+  includeMarkers = false,          // opt-in, default OFF
+  includeIsolationClass = false,   // separate opt-in, default OFF (D11)
 }) -> Map<patientUid, Decision>
 
 Decision = {
   contract_version: 2,
-  status:   'restricted' | 'unknown' | 'clear',
+
+  status: 'restricted' | 'unknown' | 'clear',
   asOf,
-  reasons:  [],
+  reasons: [],
   evidence: 'marker' | 'legacy_declaration' | 'none',
+
+  // ONE date: the most recent qualifying evidence, whatever marker produced it.
+  // Per-marker dates are NOT here — see markers below. null when evidence === 'none'.
   evidence_dated_on: date | null,
-  isolation_class?: 'hbsag' | 'hcv' | 'hiv' | 'isolation_mixed' | null,
-  markers?: [{ marker, result, tested_on, source, marker_row_id }]
+
+  // ONLY when includeMarkers === true. Per-marker detail lives here and nowhere
+  // else. A per-marker DATE is marker-identifying, so it is gated exactly as the
+  // marker is. Key is `marker`, matching the shipped `markers` shape.
+  markers: [ { marker, result, tested_on, marker_row_id, source } ],
+
+  // ONLY when includeIsolationClass === true. Two server-side askers, no read surface.
+  isolation_class: 'hbsag' | 'hcv' | 'hiv' | 'isolation_mixed' | null,
 }
-isolated === (status === 'restricted')
 ```
 
-**CONTRACT AMENDMENT REQUEST — `DialysisIsolationDecision/v2` — to the Phase 1 owner.** Preserve the status/asymmetric-Q1 semantics. The v2 additions are limited to: one base-Decision `evidence_dated_on`, the date of the most recent qualifying evidence whatever analyte produced it; `tested_on` and `marker_row_id` inside each existing `markers` object, present only behind `includeMarkers: true`; the already-agreed opt-in `isolation_class`, present only behind `includeIsolationClass: true`; and migration 767's `UNIQUE (tenant_id, id)` on `patient_bloodborne_markers` for Plan 4's tenant-pinned composite evidence FKs. A per-analyte date is marker-identifying even when called currency, so it belongs inside the marker object: putting the same fact in a parallel map would reproduce the shape behind the two earlier disclosures. There is no `includeEvidenceRefs`, `evidence_refs`, `surveillanceIntervalsDays`, resolver-computed overdue verdict, or profile field under `includeIsolationClass`. This is an interface request, not a transfer or redesign of Phase 1 derivation; the contract owner has answered these details, so no further owner decision is required. Stage 2 still fails closed with `RPD_ISOLATION_CONTRACT_VERSION_UNSUPPORTED` until the real v2 resolver lands.
+Plan 4 derives only `isolated === (status === 'restricted')`; it is not another resolver field.
+
+The following three paragraphs are quoted verbatim from the Phase 1 migration 767 brief §3:
+
+**Why the version field earns its place** (it is not ceremony): the adapter already fails
+closed when the Phase 1 module is *absent*. The version makes it fail closed when the
+module is *present and incompatible* — the more dangerous case, because an absent field
+reads as a negative answer. If `evidence_dated_on` were later moved or renamed, a
+consumer would read `undefined` and could treat it as "no evidence dated", which is a
+fail-open by omission. A version turns that silent misread into a loud refusal.
+
+**The two constants must not be allowed to drift.** The adapter hard-codes the version it
+supports; the resolver exports `CONTRACT_VERSION`. Pin that they are equal *today*, so a
+bump without updating the consumer fails CI rather than production, and keep the runtime
+refusal for the case that reaches it anyway.
+
+**Not on the Decision, deliberately:** `surveillance_overdue` (a policy verdict, not
+evidence — the interval varies by tenant and protocol; expose the date, let the policy
+layer compute it), and any third flag such as `includeEvidenceRefs` (its payload is
+data `markers` already carries — one door, not two).
 
 The resolver returns evidence, not policy. `reuseEligibilityTx` owns the tenant/protocol interval and computes overdue from the single base `evidence_dated_on`; when a protocol requires per-analyte currency, that function requests `includeMarkers: true` and computes from marker-object `tested_on`. It also passes a selected `marker_row_id` directly to `placeHoldTx` when its verdict creates a hold. `cohortCompatibilityTx` is the only other Plan 4 function that requests `includeMarkers: true`; it derives the per-analyte profile from the returned marker objects. Its output is exactly `{ verdict: 'compatible' | 'incompatible' | 'not_established' }`, with no analyte, class or date. A whole-value pin rejects `hbsag`, `hcv`, `hiv` and `isolation_mixed` anywhere in that returned object; a mutation that returns the profile beside the verdict must turn it red. D11 is preserved because the server-side calculation emits only whether two patients may share a bay. The marker caller set is pinned at exactly those two in-process functions, and no route, snapshot, receipt, audit row or device record passes `includeMarkers: true` or receives their protected input.
 
@@ -187,6 +217,7 @@ Verification:
 
 - [ ] Implement `assertDecisionShape` for all three statuses with `includeIsolationClass` on and off. Missing/null class is invalid only for `restricted` when asked; a non-null class is invalid for `clear`/`unknown` and when unrequested.
 - [ ] Implement and contract-test `DialysisIsolationDecision/v2`: `contract_version`, one base `evidence_dated_on`, marker-object `tested_on` and `marker_row_id` behind `includeMarkers`, and the existing `isolation_class` behind `includeIsolationClass`. Fail closed on any older/unknown contract version. Assert that the Decision has no overdue verdict or isolation-profile field and that no third detail flag exists.
+- [ ] In `dialysisIsolationAdapter.js`, hard-code the consumer's supported version as its own `SUPPORTED_CONTRACT_VERSION = 2`; do **not** import the resolver's `CONTRACT_VERSION`, because comparing an imported constant to the resolver's own output would be a tautology. Unit-test that the adapter's hard-coded value equals the resolver module's exported `CONTRACT_VERSION` today, and separately prove a Decision with a mismatched `contract_version` fails closed with 503 `RPD_ISOLATION_CONTRACT_VERSION_UNSUPPORTED`.
 - [ ] Keep `includeMarkers` and `includeIsolationClass` default-off. Pin the marker requester population at exactly `reuseEligibilityTx` and `cohortCompatibilityTx` by function name; pin the class requester population separately at exactly `assessIsolationTx` and `reuseEligibilityTx`.
 - [ ] Implement three separate decisions:
 
@@ -370,6 +401,7 @@ Every Hindi, Tamil, Telugu, and Malayalam block carries the established OPEN-21 
 - [ ] Poison snapshot reasons, error details, and audit history independently; confirm each attributed canary assertion fails.
 - [ ] Add `required_class: 'hbsag'` beside benign `required_group: 'Bay 1'`; confirm every fixed D11 role fails regardless of D10 while the benign group remains accepted.
 - [ ] Mutate `cohortCompatibilityTx` to return the derived profile beside its verdict; confirm the whole-value marker-class pin turns red. If it stays green, the pin is decorative and stage 2 fails.
+- [ ] Mutate the adapter to import the resolver's `CONTRACT_VERSION` instead of using its own hard-coded supported value. Demonstrate the equality comparison becomes tautological and require the mismatched-version refusal test to turn red; if it stays green, the drift pin does not protect the present-and-incompatible case.
 - [ ] Remove the isolation fixture, the Decision poison, and the fixed machine id one at a time; confirm the corresponding liveness assertion alone fails.
 - [ ] Make missing baseline pass, remove a locked matrix check at service and DB layers, clear historical exposure on release, bypass the generic domain delegate, remove expected-version handling, and move outbox insertion after commit; confirm each named test fails.
 
@@ -431,7 +463,7 @@ Every review point and additional release condition appears in both the spec and
 | 3 | Reservation vs use/reprocess; last use; retrospective record | Tasks 2, 4–5, 8: mandatory action, actual-use hooks, retrospective command | §5.1–§5.3, §6.1–§6.2 |
 | 4 | Abort; separate restoration; all obligations; not-connected | Tasks 3–5, 8: early termination, `restoreUnusedCaptureTx`, obligation evaluator, residual reset | §5.1, §5.5–§5.6 |
 | 5 | Patient-blind CSSD; evidence roles/projection; prion boundary | Tasks 2, 5–6, 8: aggregates, logged investigation/evidence, allow-list, specialist operational code | §3.5, §5.2, §6.2, §6.4 |
-| 6 | Resolver evidence amendment; domain/prion rules | Tasks 0–2, 5, 9: one base date, marker-object ids/dates, reuse-owned intervals, domain shapes/pathway | §3.3, §4.2a, §5.2–§5.3 |
+| 6 | Resolver evidence amendment; domain/prion rules | Tasks 0–2, 5, 9: final 767 §3 contract quoted verbatim, one base date, marker-object ids/dates with `marker` key, independent hard-coded version drift pin, reuse-owned intervals, domain shapes/pathway | §3.3, §4.2a, §5.2–§5.3 |
 | 7 | Cohort compatibility and bounded emergency | Tasks 2, 4, 8: profile derived from opted-in markers, verdict-only value pin, selected-active check, one-time fingerprinted pre-schedule authorization | §3.3–§3.4, §5.1, §8 |
 | 8 | Enforceable constraints/device pinning/merge/append order/marker tenant | Tasks 1–2, 8–9: exact JSON checks, device FKs, deferrable merge, reverse event link, Phase 1 parent unique | §3.3, §4.2a–§4.15, §8 |
 | 9 | Complete lock graph; conflict-safe insert; evidence version; operation receipt | Tasks 1, 3, 5, 8: rewritten CSSD order, safe insert, version + append-only operation, two added races | §4.16, §5.8, §8 |
@@ -446,7 +478,7 @@ Every review point and additional release condition appears in both the spec and
 
 ## 7. Final consistency checklist
 
-- [ ] Both documents say 17 Plan 4 relations, six device states, separate processing release and unused restoration, one base v2 evidence date plus marker-object ids/dates, no v2 profile or overdue field, and 75 Staff keys.
+- [ ] Both documents quote migration 767 §3's v2 block verbatim, use marker object `{ marker, result, tested_on, marker_row_id, source }`, require an independently hard-coded adapter version plus drift pin, and also say 17 Plan 4 relations, six device states, separate processing release and unused restoration, no v2 profile or overdue field, and 75 Staff keys.
 - [ ] Both documents use `RPD_DIALYSIS_USAGE_REQUIRED` for a generic dialysis command lacking its usage and do not claim dialysis is refused by the generic route.
 - [ ] Both documents say a legacy positive restricts alone and a legacy negative is not evidence.
 - [ ] Both documents distinguish exposure history from an active hold and require acceptance through re-issue.
