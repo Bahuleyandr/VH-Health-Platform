@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
 import { Client } from 'pg';
+import {
+  compatibilityVerdict,
+  validateIsolationSettingRevision,
+} from '../services/clinical/reprocessableDeviceRules.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const describeIfDb = databaseUrl ? describe : describe.skip;
@@ -60,5 +64,39 @@ describeIfDb('isolationSettingsRevisionApproval', () => {
     )).rejects.toMatchObject({ code: '23514' });
     await client.query('ROLLBACK TO SAVEPOINT invalid_approval');
     await client.query('RELEASE SAVEPOINT invalid_approval');
+  });
+});
+
+const approval = {
+  revision: 1,
+  approved_isolation_groups: ['Bay 1', 'Bay 2'],
+  isolation_groups: {
+    hbsag: 'Bay 1', hcv: 'Bay 2', hiv: 'Bay 2', isolation_mixed: 'Bay 2',
+  },
+  vocabulary_approved_by: '00000000-0000-4000-8000-000000000001',
+  vocabulary_approved_role: 'INFECTION_CONTROL_OFFICER',
+  vocabulary_approved_at: '2026-09-07T10:00:00.000Z',
+  mapping_approved_by: '00000000-0000-4000-8000-000000000002',
+  mapping_approved_role: 'INFECTION_CONTROL_OFFICER',
+  mapping_approved_at: '2026-09-07T10:01:00.000Z',
+};
+
+describe('isolation settings revision approval', () => {
+  test('pins complete revision-bound infection-control approval and amendment re-approval', () => {
+    expect(validateIsolationSettingRevision(approval).revision).toBe(1);
+    expect(() => validateIsolationSettingRevision({
+      ...approval,
+      revision: 2,
+      isolation_groups: { ...approval.isolation_groups, hcv: 'Bay 1' },
+      mapping_approved_by: null,
+      mapping_approved_at: null,
+    })).toThrow(expect.objectContaining({ code: 'RPD_ISOLATION_APPROVAL_REQUIRED' }));
+  });
+
+  test('an approved shared label never bypasses cohort compatibility', () => {
+    expect(approval.isolation_groups.hcv).toBe(approval.isolation_groups.hiv);
+    const hcvProfile = { hbsag: 'non_reactive', hcv: 'reactive', hiv: 'non_reactive' };
+    const hivProfile = { hbsag: 'non_reactive', hcv: 'non_reactive', hiv: 'reactive' };
+    expect(compatibilityVerdict([hcvProfile, hivProfile])).toBe('incompatible');
   });
 });
