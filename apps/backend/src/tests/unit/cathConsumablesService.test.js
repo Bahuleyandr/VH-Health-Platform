@@ -115,6 +115,8 @@ jest.unstable_mockModule('../../services/clinical/bloodborneMarkerService.js', (
 // mock does not carry. Covered end to end by cath-lab-readiness.deep.test.js.
 jest.unstable_mockModule('../../services/clinical/cathLabReadinessService.js', () => ({
   refreshCaseLabReadiness: jest.fn(async () => null),
+  // cathLabService's day list reads the readiness settings once per page.
+  getReadinessSettings: jest.fn(async () => ({})),
 }));
 
 jest.unstable_mockModule('../../services/staff/credentialingService.js', () => ({

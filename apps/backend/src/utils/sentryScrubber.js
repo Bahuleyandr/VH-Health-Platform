@@ -1,9 +1,15 @@
 import { redactSensitiveQueryParams } from './urlRedaction.js';
+import { isSensitiveKey } from './sensitiveKeys.js';
 
 const REDACTED = '[Filtered]';
 
-const SENSITIVE_KEY_PATTERN =
-  /(password|passcode|pin|otp|token|secret|authorization|auth|cookie|api[-_ ]?key|phone|mobile|email|name|address|patient|diagnosis|symptom|note|clinical|medical|record|abha|aadhaar|mrn|hospital[-_ ]?id)/i;
+// Vocabulary and matcher shared with logMasking.js — see utils/sensitiveKeys.js.
+// This file previously carried its own copy of the pattern, and the copies had
+// DRIFTED: this one was missing `uhid`, so a key named `uhid` — a hospital
+// patient identifier — was redacted in logs and sent VERBATIM to Sentry. The
+// comment on the other copy asserted they mirrored each other; nothing enforced
+// it. sensitiveKeyContracts.test.js now does.
+const SENSITIVE_KEY_PATTERN = { test: (key) => isSensitiveKey(key) };
 
 const TEXT_PATTERNS = [
   [/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[REDACTED_EMAIL]'],

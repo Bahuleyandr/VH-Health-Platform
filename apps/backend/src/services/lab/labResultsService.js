@@ -56,6 +56,7 @@ import {
 } from '../diagnostics/diagnosticClassification.js';
 import { createLabDiagnosticGenerationTx } from '../diagnostics/diagnosticResultGenerationService.js';
 import { SIGN_OFF_DECISIONS, recordMarkersFromSignedResults } from '../clinical/bloodborneMarkerService.js';
+import { scheduleReadinessRefresh } from '../clinical/cathLabReadinessHooks.js';
 
 // Cap on the CRITICAL-lab alert fan-out. The candidate set is "clinicians
 // responsible for this patient" (ordering doctor, order placer, attending on an
@@ -1551,23 +1552,18 @@ export async function ingestOruMessage(message, {
       logger.error(`Critical ORU realtime fan-out failed after commit: ${error?.message}`);
     }
     // Cath-lab readiness (spec 2026-09-04 §6). Post-commit, best-effort and
-    // dynamically imported: the readiness module imports THIS one for the
-    // manual-entry escape hatch, so a static import here would be a cycle. A
-    // refresh that fails leaves the snapshot one event behind — the next
-    // refresh repairs it — and must never unwind a lab write that has already
-    // committed. One message can carry
+    // SCHEDULED, not awaited: the refresh costs ~8 queries per open case and a
+    // snapshot one event behind is repaired by the next refresh, so it does not
+    // belong on the ingest's latency (Plan 3 final review, F2). The scheduler
+    // opens its own tenant scope, swallows and logs its own failures, and can
+    // never unwind a lab write that has already committed. One message can carry
     // results for more than one patient, so the loop is over the DISTINCT uids
     // of the rows this ingest actually wrote.
-    try {
-      const { refreshOpenCasesForPatient } = await import('../clinical/cathLabReadinessService.js');
-      const ingestedPatientUids = [...new Set(
-        (results || []).map((row) => row?.patient_uid).filter(Boolean).map(String),
-      )];
-      for (const patientUid of ingestedPatientUids) {
-        await refreshOpenCasesForPatient({ tenantId, patientUid });
-      }
-    } catch (readinessErr) {
-      logger.warn(`Cath lab readiness refresh after lab event failed (lab write stands): ${readinessErr?.message}`);
+    const ingestedPatientUids = [...new Set(
+      (results || []).map((row) => row?.patient_uid).filter(Boolean).map(String),
+    )];
+    for (const patientUid of ingestedPatientUids) {
+      scheduleReadinessRefresh({ tenantId, patientUid, source: 'ingestORU' });
     }
   }
 
@@ -2110,20 +2106,14 @@ async function recordManualLabResultRow({
       logger.error(`Manual-result realtime fan-out failed after commit: ${error?.message}`);
     }
     // Cath-lab readiness (spec 2026-09-04 §6). Post-commit, best-effort and
-    // dynamically imported: the readiness module imports THIS one for the
-    // manual-entry escape hatch, so a static import here would be a cycle. A
-    // refresh that fails leaves the snapshot one event behind — the next
-    // refresh repairs it — and must never unwind a lab write that has already
-    // committed.
-    try {
-      const { refreshOpenCasesForPatient } = await import('../clinical/cathLabReadinessService.js');
-      await refreshOpenCasesForPatient({
-        tenantId,
-        patientUid: phaseOne.responseData.result.patient_uid,
-      });
-    } catch (readinessErr) {
-      logger.warn(`Cath lab readiness refresh after lab event failed (lab write stands): ${readinessErr?.message}`);
-    }
+    // SCHEDULED, not awaited — see the note on the ORU path above. The
+    // scheduler opens its own tenant scope, swallows and logs its own failures,
+    // and can never unwind a lab write that has already committed.
+    scheduleReadinessRefresh({
+      tenantId,
+      patientUid: phaseOne.responseData.result.patient_uid,
+      source: 'recordManualLabResultRow',
+    });
   }
   return phaseOne.responseData;
 }
@@ -2727,17 +2717,12 @@ export async function signOffResults({
   }
 
   // Cath-lab readiness (spec 2026-09-04 §6). Post-commit, best-effort and
-  // dynamically imported: the readiness module imports THIS one for the
-  // manual-entry escape hatch, so a static import here would be a cycle. A
-  // refresh that fails leaves the snapshot one event behind — the next
-  // refresh repairs it — and must never unwind a lab write that has already
-  // committed.
-  try {
-    const { refreshOpenCasesForPatient } = await import('../clinical/cathLabReadinessService.js');
-    await refreshOpenCasesForPatient({ tenantId: tid, patientUid: resultPatientUid });
-  } catch (readinessErr) {
-    logger.warn(`Cath lab readiness refresh after lab event failed (lab write stands): ${readinessErr?.message}`);
-  }
+  // SCHEDULED, not awaited — see the note on the ORU path above. The scheduler
+  // opens its own tenant scope, swallows and logs its own failures, and can
+  // never unwind a sign-off that has already committed.
+  scheduleReadinessRefresh({
+    tenantId: tid, patientUid: resultPatientUid, source: 'signOffResults',
+  });
 
   if (CORRECTIVE_SIGNOFF_DECISIONS.has(normalizedDecision)) {
     for (const generation of correctiveGenerations || []) {

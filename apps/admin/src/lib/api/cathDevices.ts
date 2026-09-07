@@ -60,8 +60,27 @@ export const CATH_REPROCESSING_POLICIES_PATH =
 export const CATH_LAB_READINESS_SETTINGS_PATH =
   "/api/v1/cath-reprocessing/lab-readiness-settings" as const;
 
-/** One row of GET /api/v1/cssd/devices — the spec's CathReprocessableDevice. */
+/**
+ * One row of GET /api/v1/cssd/devices — the spec's CssdDeviceQueueItem: the
+ * register row PLUS the two columns only the queue joins in (`facility_name`,
+ * `status_changed_at`).
+ */
 export type CathDevice = ApiData<typeof CSSD_DEVICES_PATH, "get">[number];
+
+/**
+ * What a TRANSITION answers — the spec's CathReprocessableDevice, the bare
+ * register row. It is NOT the queue item: the five transition handlers return
+ * `lockDeviceTx`'s row, which never went through the queue's facility and
+ * audit-trail joins, so `facility_name` and `status_changed_at` are simply not
+ * on it. Typing them as `CathDevice` made the console's own types promise two
+ * fields no transition ever returns, which is exactly the sort of lie that
+ * only shows up when someone reads one off a mutation result and gets
+ * `undefined` where the type said `string`.
+ */
+export type CathReprocessableDevice = ApiData<
+  "/api/v1/cssd/devices/{id}/receive",
+  "post"
+>;
 export type CathDeviceStatus = CathDevice["status"];
 export type CathDeviceCycleType = NonNullable<CathDevice["last_cycle_type"]>;
 export type CathDeviceFunctionCheck = NonNullable<
@@ -241,6 +260,47 @@ export function exposureMarkerLabel(marker: string): string {
 /** GET /cssd/devices caps `limit` at 500; the console asks for a page of 200. */
 export const CSSD_DEVICE_LIST_LIMIT = 200;
 
+/**
+ * TanStack Query key for the category policy list, shared by the two screens
+ * that read it: the quality console's Reprocessing policy tab (which owns the
+ * editor) and the CSSD Devices tab (which offers a cycle-type picker built
+ * from it). One key means a policy saved on the first screen is what the
+ * second offers, from one cache entry — two keys would be two fetches and, for
+ * as long as one of them was stale, two different answers to "what may CSSD
+ * record for a catheter".
+ */
+export const CATH_REPROCESSING_POLICIES_QUERY_KEY = [
+  "cath",
+  "reprocessing",
+  "policies",
+] as const;
+
+/**
+ * The cycle types CSSD may record for a device of `category`. Mirrors
+ * `markDeviceReprocessed` in
+ * `apps/backend/src/services/clinical/cathDeviceReuseService.js`:
+ *
+ *   * no policy row for the category, or `reprocessable !== true`
+ *     → 409 `CATH_REPROCESSING_NOT_ALLOWED`, whatever type is sent;
+ *   * a type outside `allowed_cycle_types`
+ *     → 409 `CSSD_DEVICE_CYCLE_TYPE_NOT_ALLOWED`, carrying the allowed list.
+ *
+ * So an EMPTY return means "every cycle type would be refused", which is what
+ * the Devices tab disables the Reprocess action on. The result is ordered by
+ * the published vocabulary rather than by the stored array, so the picker
+ * reads the same however the policy happened to be saved, and a value the
+ * tenant stored that is not in the vocabulary is dropped rather than offered.
+ */
+export function allowedCycleTypesForCategory(
+  policies: readonly CathReprocessingPolicy[] | null | undefined,
+  category: CathCategory,
+): CathDeviceCycleType[] {
+  const policy = policies?.find((entry) => entry.category === category);
+  if (!policy || policy.reprocessable !== true) return [];
+  const allowed = new Set<string>(policy.allowed_cycle_types);
+  return CATH_DEVICE_CYCLE_TYPES.filter((type) => allowed.has(type));
+}
+
 function transitionHeaders(idempotencyKey: string) {
   return { "Idempotency-Key": assertIdempotencyKey(idempotencyKey) };
 }
@@ -259,9 +319,27 @@ export function listCssdDevices(
   });
 }
 
+/**
+ * The printed label for one device — `GET /cssd/devices/{id}/label`, which
+ * answers a 100 x 50 mm PDF by default (`?format=json` returns the same seven
+ * fields as JSON, and nothing here asks for that).
+ *
+ * A URL rather than a fetch: the response is binary, `core.ts` parses JSON,
+ * and what CSSD actually wants is the browser's own PDF viewer and its print
+ * dialog. Opened through the portal proxy so the httpOnly `auth_token` cookie
+ * rides along — the backend origin would not see it. Same shape as the
+ * cold-chain register export.
+ *
+ * The label carries no patient data and no serology: see DEVICE_LABEL_FIELDS
+ * in the backend service for why the register's exposure columns are not on it.
+ */
+export function cssdDeviceLabelUrl(id: number) {
+  return `/api/proxy${CSSD_DEVICES_PATH}/${id}/label`;
+}
+
 export function receiveCssdDevice(id: number, idempotencyKey: string) {
   // No request body in the spec; the route reads `req.params.id` alone.
-  return postJSON<CathDevice>(
+  return postJSON<CathReprocessableDevice>(
     `/api/v1/cssd/devices/${id}/receive`,
     {},
     true,
@@ -274,7 +352,7 @@ export function markCssdDeviceReprocessed(
   body: CathDeviceReprocessedInput,
   idempotencyKey: string,
 ) {
-  return postJSON<CathDevice>(
+  return postJSON<CathReprocessableDevice>(
     `/api/v1/cssd/devices/${id}/reprocessed`,
     body,
     true,
@@ -287,7 +365,7 @@ export function quarantineCssdDevice(
   body: CathDeviceQuarantineInput,
   idempotencyKey: string,
 ) {
-  return postJSON<CathDevice>(
+  return postJSON<CathReprocessableDevice>(
     `/api/v1/cssd/devices/${id}/quarantine`,
     body,
     true,
@@ -300,7 +378,7 @@ export function releaseCssdDevice(
   body: CathDeviceReleaseInput,
   idempotencyKey: string,
 ) {
-  return postJSON<CathDevice>(
+  return postJSON<CathReprocessableDevice>(
     `/api/v1/cssd/devices/${id}/release`,
     body,
     true,
@@ -313,7 +391,7 @@ export function discardCssdDevice(
   body: CathDeviceDiscardInput,
   idempotencyKey: string,
 ) {
-  return postJSON<CathDevice>(
+  return postJSON<CathReprocessableDevice>(
     `/api/v1/cssd/devices/${id}/discard`,
     body,
     true,

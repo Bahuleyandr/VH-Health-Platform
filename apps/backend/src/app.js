@@ -327,6 +327,11 @@ import dialysisRoutes from './routes/clinical/dialysisRoutes.js';
 import cathLabRoutes from './routes/clinical/cathLabRoutes.js';
 import cathInventoryReconciliationRoutes from './routes/clinical/cathInventoryReconciliationRoutes.js';
 import cathReprocessingPolicyRoutes from './routes/clinical/cathReprocessingPolicyRoutes.js';
+// Side-effect import: registers every blood-borne exposure handler so a
+// reactive marker recorded ANYWHERE in this process sweeps the cath device
+// register. Registration used to be an emergent property of the cath routes
+// above being mounted; this makes it explicit and route-independent.
+import './services/clinical/exposureHandlerBootstrap.js';
 import radiationOncologyRoutes from './routes/clinical/radiationOncologyRoutes.js';
 import bloodBankRoutes from './routes/bloodbank/bloodBankRoutes.js';
 

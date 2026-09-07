@@ -85,6 +85,12 @@ const CSSD_CALLS: [string, string][] = [
   ["GET", "cssd/sets?limit=200"],
   ["POST", "cssd/sets"],
   ["GET", "cssd/sets/5/label"],
+  // The reprocessable-device queue's own routes. The label print answers a
+  // binary PDF, which the Devices tab opens in a tab through this proxy rather
+  // than fetching — so it is the one control here whose reachability nothing
+  // else would catch.
+  ["GET", "cssd/devices?limit=200"],
+  ["GET", "cssd/devices/41/label"],
   ["GET", "cssd/loads?limit=100"],
   ["POST", "cssd/loads"],
   ["PATCH", "cssd/loads/71/status"],

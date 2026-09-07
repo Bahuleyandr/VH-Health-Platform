@@ -26,6 +26,7 @@ class CathLabCaseSummary {
     this.signedReportCount = 0,
     this.reportTatMinutes,
     this.reuseRestriction,
+    this.labReadinessSummary,
   });
 
   final int id;
@@ -50,6 +51,16 @@ class CathLabCaseSummary {
   /// one — the case LIST does not — which is a different fact from `clear`
   /// and must not be rendered as a restriction of unknown status.
   final CathReuseRestriction? reuseRestriction;
+
+  /// The stored pre-procedure lab picture for this case, as the day list
+  /// carries it. Null when the case's readiness has never been resolved — a
+  /// different fact from "nothing is missing", which is why it is nullable
+  /// rather than an empty summary.
+  ///
+  /// [readinessCleared] / [readinessTotal] beside it are counts over the EIGHT
+  /// check rows and say nothing about the lab items: a case can be 8/8 and be
+  /// sitting on a potassium of 6.9.
+  final CathLabReadinessSummary? labReadinessSummary;
 
   double get readinessProgress {
     if (readinessTotal <= 0) return 0;
@@ -80,6 +91,11 @@ class CathLabCaseSummary {
       reuseRestriction: json['reuse_restriction'] is Map
           ? CathReuseRestriction.fromJson(
               Map<String, dynamic>.from(json['reuse_restriction'] as Map),
+            )
+          : null,
+      labReadinessSummary: json['lab_readiness_summary'] is Map
+          ? CathLabReadinessSummary.fromJson(
+              Map<String, dynamic>.from(json['lab_readiness_summary'] as Map),
             )
           : null,
     );
@@ -990,6 +1006,36 @@ class CathLabApiService {
       idempotencyKey: idempotencyKey,
     );
     final data = _successfulData(response, 'Failed to waive lab item');
+    return CathLabReadiness.fromJson(data);
+  }
+
+  /// POST `.../readiness/labs/:item/unwaive` — withdraws a waiver and answers
+  /// the refreshed readiness block itself, exactly as waive does.
+  ///
+  /// A key is REQUIRED. What keeps a lift from replaying the waive's recorded
+  /// response is the DISTINCT REQUEST PATH, not the scope: the server's claim
+  /// register is unique on (tenant, actor, request key, request path), so
+  /// `.../waive` and `.../unwaive` are separate claims even under one key. The
+  /// scopes (`cath_lab_readiness_waive` / `cath_lab_readiness_unwaive`) differ
+  /// so a refusal and a log line say which write produced them — they are
+  /// triage, not identity.
+  ///
+  /// The consequence for this client: keep the two paths distinct. Mounting
+  /// either behind an alias that pins one stable public path would collapse
+  /// them into a single claim, and a lift under a key the waive already used
+  /// would replay the waive's 200 — the waiver would look removed and still be
+  /// there.
+  static Future<CathLabReadiness> unwaiveLabItem(
+    int caseId,
+    String item, {
+    required String idempotencyKey,
+  }) async {
+    final response = await ApiClient.post(
+      '/cath-lab/cases/$caseId/readiness/labs/$item/unwaive',
+      body: const {},
+      idempotencyKey: idempotencyKey,
+    );
+    final data = _successfulData(response, 'Failed to remove the waiver');
     return CathLabReadiness.fromJson(data);
   }
 

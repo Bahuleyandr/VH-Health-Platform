@@ -37,9 +37,19 @@ import {
   markDeviceWastedTx
 } from './cathDeviceReuseService.js';
 import { resolveReuseStatus } from './bloodborneMarkerService.js';
+// The pure rule pieces come from the rules module directly: this service needs
+// the item vocabulary and the availability predicate, not the persistence
+// facade, and suites that mock the facade must not have to re-declare them.
+import {
+  ITEM_CODES as LAB_READINESS_ITEM_CODES,
+  isItemAvailable
+} from './cathLabReadinessRules.js';
 // One direction only: the readiness module never imports this one (it inlines
 // the gate recompute), so this static import is not a cycle.
-import { refreshCaseLabReadiness } from './cathLabReadinessService.js';
+import {
+  getReadinessSettings,
+  refreshCaseLabReadiness
+} from './cathLabReadinessService.js';
 
 const tenantOr = value => requireTenantId(value);
 
@@ -976,7 +986,108 @@ export async function listCases({ tenantId, date = null, status = null, limit = 
     ...params,
     safeLimit
   );
-  return normalizeRows(rows);
+  const cases = normalizeRows(rows);
+  if (cases.length === 0) return cases;
+  const summaries = await labReadinessSummaries(
+    tid,
+    cases.map(row => Number(row.id)).filter(Number.isSafeInteger)
+  );
+  return cases.map(row => ({
+    ...row,
+    lab_readiness_summary: summaries.get(Number(row.id)) ?? null
+  }));
+}
+
+// The lab-readiness picture for a whole day of cases, READ ONLY.
+//
+// Why this is not a refresh. GET /cases/:id and the readiness endpoint are
+// read-through: they re-resolve the seven items from the patient's lab rows,
+// persist them and let the automation move the `labs` check. Doing that per
+// card on a worklist would be one lock and one write cycle per case on every
+// poll of a screen that is open all day, so the list reports the STORED
+// snapshot instead — the rows the last read-through of that case wrote.
+//
+// What that costs, stated so the client can be honest about it: the summary is
+// as fresh as the last time somebody opened the case, and the refresh's own
+// stamp (`live_evidence_refreshed_at`, rewritten at most every 60 s while a
+// case is being read) is published beside it so a caller can see the age rather
+// than infer it. The moment a card's checklist loads, the loaded block wins.
+//
+// WHAT IS DELIBERATELY NOT HERE: `critical_items`. Naming a serology item as
+// critical says it came back reactive, so the per-case surfaces run that list
+// through cathLabReadinessProjection for a role outside the serology audience —
+// and this list is cath REPORT-READ, the same audience that projection exists
+// for. `critical_warning` stays: it says a critical value exists somewhere on
+// the case without naming it, which is the advisory the front desk is admitted
+// for. Not exposing the list at all is a stronger guarantee than projecting it
+// correctly, and the case detail is one tap away for a reader entitled to it.
+// `missing_items` names item CODES, which the per-case `missing[]` already
+// publishes unprojected to the same audience: "hbsag not ordered" is the
+// checklist, not the result.
+const LAB_READINESS_SUMMARY_ITEM_ORDER = Object.freeze([...LAB_READINESS_ITEM_CODES]);
+
+async function labReadinessSummaries(tenantId, caseIds) {
+  if (caseIds.length === 0) return new Map();
+  // Three reads for the whole page, not three per card: the two snapshot tables
+  // are keyed (tenant_id, case_id, …) so both are index scans over the day.
+  const checkRows = await prisma.$queryRawUnsafe(
+    `SELECT case_id, status, metadata
+       FROM cath_lab_readiness_checks
+      WHERE tenant_id = $1::uuid
+        AND case_id = ANY($2::bigint[])
+        AND check_type = 'labs'`,
+    tenantId,
+    caseIds
+  );
+  const itemRows = await prisma.$queryRawUnsafe(
+    `SELECT case_id, item_code, required, state
+       FROM cath_case_lab_readiness_items
+      WHERE tenant_id = $1::uuid
+        AND case_id = ANY($2::bigint[])`,
+    tenantId,
+    caseIds
+  );
+  // Tenant policy, once. Only `external_results_count` is read from it, and it
+  // is read through the readiness module's OWN availability rule so the list
+  // and the checklist cannot disagree about whether an outside value counts.
+  const settings = await getReadinessSettings({ tenantId });
+
+  const checkByCase = new Map(checkRows.map(row => [Number(row.case_id), row]));
+  const itemsByCase = new Map();
+  for (const row of itemRows) {
+    const key = Number(row.case_id);
+    if (!itemsByCase.has(key)) itemsByCase.set(key, []);
+    itemsByCase.get(key).push(row);
+  }
+
+  const summaries = new Map();
+  for (const caseId of caseIds) {
+    const items = itemsByCase.get(caseId);
+    // No snapshot means NOT KNOWN, and not-known must never render as
+    // "nothing missing". A case nobody has opened yet has no item rows at all,
+    // so it answers null and the client shows no strip.
+    if (!items || items.length === 0) continue;
+    const check = checkByCase.get(caseId) || null;
+    const metadata = check?.metadata && typeof check.metadata === 'object'
+      ? check.metadata
+      : {};
+    const missing = items
+      .filter(item => item.required !== false && !isItemAvailable(item, settings))
+      .map(item => item.item_code)
+      .sort(
+        (left, right) => LAB_READINESS_SUMMARY_ITEM_ORDER.indexOf(left)
+          - LAB_READINESS_SUMMARY_ITEM_ORDER.indexOf(right)
+      );
+    summaries.set(caseId, {
+      check_status: String(check?.status || 'pending'),
+      critical_warning: metadata.critical_warning === true,
+      auto_managed: metadata.auto_managed === true,
+      missing_count: missing.length,
+      missing_items: missing,
+      live_evidence_refreshed_at: metadata.live_evidence_refreshed_at ?? null
+    });
+  }
+  return summaries;
 }
 
 // The context a READ-THROUGH readiness refresh runs under. `requestId` is not

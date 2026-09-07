@@ -191,8 +191,12 @@ const LAB_RESULTS = [
 const ITEM_ORDER = ['hb', 'platelets', 'creatinine', 'potassium', 'hiv', 'hbsag', 'hcv'];
 
 /** The seven persisted item rows, poisoned to match. Belt and braces: nothing
- * returns these directly today, so a route that started to would be new. */
+ * returns these VALUES today, but the case LIST now reads this table for its
+ * per-case readiness summary — which is why the rows carry `case_id`: the
+ * summary groups by it, and rows without one would leave the list surface
+ * silently untested. */
 const STORED_ITEMS = ITEM_ORDER.map((code, index) => ({
+  case_id: CASE_ID,
   item_code: code,
   required: true,
   state: 'result_final',
@@ -1093,6 +1097,31 @@ describe('the poison really is in the persistence layer', () => {
     // The real builder produced this, not the fixture: the items were rebuilt
     // from lab_results, so the canary below is testing a live projection.
     expect(body.data.items).toHaveLength(ITEM_ORDER.length);
+  });
+
+  it('the case LIST really carries a readiness summary, and it is value-free', () => {
+    // A coverage floor for the surface Plan 3 follow-up B added. The canary
+    // below can only catch a leak on a payload that EXISTS, so this asserts the
+    // summary is there — and then asserts what it is made of. Everything here
+    // is a status, a flag, a count, an item code or a timestamp: there is no
+    // value, no abnormal flag, no per-item criticality and no `critical_items`,
+    // which is why GET /cases needs no serology projection. Adding any of them
+    // makes this test the place the decision has to be re-argued.
+    const route = GET_ROUTES.find((r) => r.fullPath === '/api/v1/cath-lab/cases');
+    const { status, body } = RESPONSES.get(key('CATH_LAB_STAFF', route));
+    expect(status).toBe(200);
+    const summary = body.data.cases[0].lab_readiness_summary;
+    expect(summary).not.toBeNull();
+    expect(Object.keys(summary).sort()).toEqual([
+      'auto_managed', 'check_status', 'critical_warning',
+      'live_evidence_refreshed_at', 'missing_count', 'missing_items',
+    ]);
+    // The fixture's own critical value (a potassium of 6.9 AND a reactive
+    // hbsag) reaches the flag, so the advisory is real...
+    expect(summary.critical_warning).toBe(true);
+    // ...and nothing in the payload says WHICH.
+    expect(JSON.stringify(summary)).not.toContain('hbsag');
+    expect(JSON.stringify(summary)).not.toContain(SENTINEL);
   });
 
   it('CATH_LAB_STAFF reads it on GET /cases/:id too, in both places it lives', () => {

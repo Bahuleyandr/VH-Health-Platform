@@ -39,6 +39,30 @@ export const POST_USE_DISPOSITIONS = Object.freeze([
   'sent_for_reprocessing', 'discarded_bloodborne_exposure', 'discarded_max_cycles',
   'discarded_wasted', 'discarded_other', 'not_reprocessable',
 ]);
+// The printed CSSD label, field for field and in the order the label reads.
+//
+// It is DEVICE IDENTITY ONLY, and the omission is the point: the register also
+// carries exposure_flag and exposure_markers, which name a blood-borne marker a
+// PREVIOUS patient tested reactive for. A label is a physical artefact that
+// leaves the department stuck to the device — putting that on it would be a
+// serology disclosure to everyone who handles the tray, with no role gate
+// anywhere in front of it. The console shows those columns, behind
+// CSSD_DEVICE_ROUTE_ROLES; the sticker does not.
+//
+// The published contract (scripts/openapi/schemas/cathDeviceReuse.mjs,
+// CssdDeviceLabel) is diffed against this list, so neither copy can move alone.
+export const DEVICE_LABEL_FIELDS = Object.freeze([
+  'device_tag', 'category', 'catalogue_item', 'reuse_cycle', 'max_cycles', 'facility_name', 'printed_at',
+]);
+export const DEVICE_LABEL_FORMATS = Object.freeze(['pdf', 'json']);
+/**
+ * The one status a label is refused for. A discard is the register's only
+ * terminal state: the device is out of circulation and a sticker is a physical
+ * instruction to put it back on a tray. Every other status — including
+ * `quarantined`, where CSSD still needs the tag to identify what it is holding
+ * — prints.
+ */
+export const DEVICE_LABEL_BLOCKED_STATUS = 'discarded';
 export const REACTIVE_PATIENT_RULES = Object.freeze(['discard', 'override_allowed']);
 export const UNKNOWN_SEROLOGY_RULES = Object.freeze(['warn', 'block_return']);
 export const CATH_CATEGORIES = Object.freeze([
@@ -306,9 +330,81 @@ function normalizeDevice(row) {
     current_usage_id: row.current_usage_id == null ? null : num(row.current_usage_id), cycle_count: Number(row.cycle_count),
     max_cycles_snapshot: Number(row.max_cycles_snapshot), facility_id: Number(row.facility_id), exposure_markers: Array.isArray(row.exposure_markers) ? row.exposure_markers : [] };
 }
+// One queue row: the device columns plus the two the queue joins in.
+//
+// Both are passed through as the query returned them, with NO nullable
+// fallback, because the published contract (CssdDeviceQueueItem) requires both
+// as non-nullable strings and the SQL already guarantees it: the facilities
+// join is INNER on a RESTRICT foreign key with a NOT NULL display_name, and
+// DEVICE_QUEUE_SELECT COALESCEs status_changed_at onto d.created_at, itself
+// NOT NULL DEFAULT NOW() (migration 765).
+//
+// A `?? null` here would look defensive and be the opposite: it would take a
+// query that had somehow stopped guaranteeing the column and hand every
+// consumer a null their generated types say cannot occur — the admin console's
+// sort would compare NaN and its clock would read "-" forever, silently. If
+// that invariant ever breaks, it should break where it broke.
+function normalizeQueueDevice(row) {
+  return {
+    ...normalizeDevice(row),
+    facility_name: row.facility_name,
+    status_changed_at: row.status_changed_at,
+  };
+}
+// The audit actions that ARE a status change, for the queue's
+// status_changed_at below. `cath_device.exposure_flagged` is deliberately not
+// among them: the late-reactive sweep stamps a marker without moving the
+// device, and counting it would restart the clock on a device that has been
+// waiting in the queue all along.
+const DEVICE_STATUS_AUDIT_ACTIONS = Object.freeze([
+  'cath_device.created',
+  ...Object.keys(DEVICE_ACTIONS).map((action) => `cath_device.${action}`),
+]);
+
+// The CSSD queue reads two things the register itself does not hold.
+//
+// facility_name: joined from `facilities`, tenant-pinned like every other join
+// on this table, so the console can name the site a device is waiting at
+// rather than print its integer id.
+//
+// status_changed_at: THE REGISTER HAS NO SUCH COLUMN, and `updated_at` is not
+// a substitute — flagDeviceExposureTx moves it when the late-reactive sweep
+// stamps an exposure marker, which changes no status at all, so a device that
+// had been queued for a week would read as freshly touched on the day some
+// OTHER patient's result came back. Nor do the per-status columns cover it:
+// discarded_at, quarantined_at and last_reprocessed_at exist, but the status
+// that matters most to a queue — awaiting_reprocessing — has none.
+//
+// So it is derived from the register's own append-only trail: the newest
+// transition audit row for the device. The fallback to created_at is for a
+// device whose audit rows have been pruned; a minted device always has its own
+// `cath_device.created` row, written in the same transaction as the INSERT.
+//
+// audit_logs.created_at is `timestamp WITHOUT time zone` while the register's
+// is TIMESTAMPTZ. The pool pins the session to UTC (prisma.js
+// pinSessionTimeZoneToUrl), so the naive value IS UTC wall time — say so
+// explicitly rather than let COALESCE coerce it under whatever zone the
+// session happens to carry.
+const DEVICE_QUEUE_SELECT = `${DEVICE_SELECT}, f.display_name AS facility_name, COALESCE(t.status_changed_at AT TIME ZONE 'UTC', d.created_at) AS status_changed_at`;
+// $2 is the action list; listDevices pins it so its optional filters can number
+// from $3. Backed by idx_audit_logs_tenant_resource_time
+// (tenant_id, resource, resource_id, created_at DESC, id DESC).
+const DEVICE_QUEUE_FROM = `${DEVICE_FROM}
+  JOIN facilities f ON f.id = d.facility_id AND f.tenant_id = d.tenant_id
+  LEFT JOIN LATERAL (
+    SELECT a.created_at AS status_changed_at
+      FROM audit_logs a
+     WHERE a.tenant_id = d.tenant_id
+       AND a.resource = 'cath_reprocessable_devices'
+       AND a.resource_id = d.id::text
+       AND a.action = ANY($2::text[])
+     ORDER BY a.created_at DESC, a.id DESC
+     LIMIT 1
+  ) t ON TRUE`;
+
 export async function listDevices({ tenantId, status = null, facilityId = null, limit = 100, db = null } = {}) {
   const tid = tenantOr(tenantId);
-  const params = [tid]; const clauses = ['d.tenant_id = $1::uuid'];
+  const params = [tid, [...DEVICE_STATUS_AUDIT_ACTIONS]]; const clauses = ['d.tenant_id = $1::uuid'];
   if (status) { params.push(oneOf(status, DEVICE_STATUSES, 'status')); clauses.push(`d.status = $${params.length}`); }
   // Presence, not truthiness: facility_id is INTEGER, so a bad filter should be
   // a 400 rather than silently listing every facility. 0 is not a valid id and
@@ -319,10 +415,10 @@ export async function listDevices({ tenantId, status = null, facilityId = null, 
   }
   params.push(Math.min(Math.max(Number.parseInt(limit, 10) || 100, 1), 500));
   const rows = await withTenant(tid, db, (client) => client.$queryRawUnsafe(
-    `SELECT ${DEVICE_SELECT} ${DEVICE_FROM} WHERE ${clauses.join(' AND ')}
+    `SELECT ${DEVICE_QUEUE_SELECT} ${DEVICE_QUEUE_FROM} WHERE ${clauses.join(' AND ')}
       ORDER BY CASE d.status WHEN 'awaiting_reprocessing' THEN 0 WHEN 'in_cssd' THEN 1 WHEN 'quarantined' THEN 2 WHEN 'available' THEN 3 WHEN 'in_case' THEN 4 ELSE 5 END, d.updated_at DESC, d.id DESC
       LIMIT $${params.length}::int`, ...params));
-  return rows.map(normalizeDevice);
+  return rows.map(normalizeQueueDevice);
 }
 export async function deviceByTag({ tenantId, tag, db = null } = {}) {
   const tid = tenantOr(tenantId); const safeTag = normalizeDeviceTag(tag);
@@ -494,6 +590,76 @@ export async function discardDevice(deviceId, input = {}, context = {}) {
   const reason = oneOf(rawReason, DISCARD_REASONS, 'reason', 'CATH_DEVICE_DISCARD_REASON_INVALID');
   requireUuid(context.actorUid, 'actorUid');
   return setTenantTx(tid, async (tx) => applyDeviceTransitionTx(tx, await lockDeviceTx(tx, tid, deviceId), 'discard', { discardReason: reason, discardNote: cleanText(input.note, 2000) }, context));
+}
+
+/**
+ * The printed label for one device: the seven DEVICE_LABEL_FIELDS, nothing
+ * else. See that constant for why the exposure columns are not among them.
+ *
+ * A read, not a transition — the device does not move because someone printed
+ * its tag — so it claims no idempotency key and takes no lock. It is still a
+ * transaction, because it writes an audit row: a printed label is a physical
+ * artefact in circulation, and "who printed this tag, when, in what format" is
+ * the only record that it exists at all. Same action shape as the CSSD
+ * instrument-set label (cssd.instrument_set.label_printed).
+ *
+ * No hipaa_access_log row: there is no patient subject to log one against, and
+ * a row with patient_id = NULL is noise in the one table breach detection
+ * queries by patient.
+ */
+export async function deviceLabel(deviceId, context = {}) {
+  const tid = tenantOr(context.tenantId);
+  const id = positiveInt(deviceId, 'device_id');
+  const format = oneOf(
+    context.format ?? DEVICE_LABEL_FORMATS[0], DEVICE_LABEL_FORMATS, 'format',
+    'CSSD_DEVICE_LABEL_FORMAT_INVALID',
+  );
+  requireUuid(context.actorUid, 'actorUid');
+  return setTenantTx(tid, async (tx) => {
+    // Both joins are tenant-pinned like the register's own DEVICE_FROM: a bare
+    // id join would name another tenant's facility or catalogue item on this
+    // tenant's label. facilities.display_name is NOT NULL and the device's
+    // (tenant_id, facility_id) FK is RESTRICT, so the inner joins always match
+    // a real device.
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT d.id, d.device_tag, d.cycle_count, d.max_cycles_snapshot, d.status,
+              c.item_name, c.category, f.display_name AS facility_name
+         FROM cath_reprocessable_devices d
+         JOIN cath_consumable_catalog c ON c.id = d.catalog_item_id AND c.tenant_id = d.tenant_id
+         JOIN facilities f ON f.id = d.facility_id AND f.tenant_id = d.tenant_id
+        WHERE d.tenant_id = $1::uuid AND d.id = $2::bigint
+        LIMIT 1`,
+      tid, id,
+    );
+    if (!rows[0]) throw AppError.notFound('Reprocessable device not found', 'CATH_DEVICE_NOT_FOUND');
+    const row = rows[0];
+    // A discard is irreversible and takes the device out of circulation for
+    // good, so its tag must not be re-stickered: a label is a physical
+    // instruction to put the thing back on a tray. The console already hides
+    // the control, but the URL is guessable and the SERVICE is the authority —
+    // the same reason every transition is refused here rather than in the UI.
+    // Refused BEFORE the audit row below: a print that did not happen is not a
+    // printed label in circulation.
+    if (row.status === DEVICE_LABEL_BLOCKED_STATUS) {
+      throw AppError.conflict(
+        `Device ${row.device_tag} is discarded; a label would put it back in circulation`,
+        'CSSD_DEVICE_LABEL_NOT_PRINTABLE', { status: row.status },
+      );
+    }
+    await recordDeviceAudit(tx, {
+      tenantId: tid, action: 'cssd.device.label_printed', resource: 'cath_reprocessable_devices',
+      resourceId: num(row.id), context, metadata: { device_tag: row.device_tag, format },
+    });
+    return {
+      device_tag: row.device_tag,
+      category: row.category,
+      catalogue_item: row.item_name,
+      reuse_cycle: Number(row.cycle_count),
+      max_cycles: Number(row.max_cycles_snapshot),
+      facility_name: row.facility_name,
+      printed_at: new Date().toISOString(),
+    };
+  });
 }
 
 // The generic validators (cleanText, requireUuid, positiveInt, oneOf) and the

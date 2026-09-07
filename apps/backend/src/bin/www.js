@@ -36,6 +36,11 @@ import {
 import { collectReliabilityMetrics } from '../observability/reliabilityMetrics.js';
 import { collectTeleconsultOpsMetrics } from '../observability/teleconsultOpsMetrics.js';
 import { logPrivilegeGateStates } from '../config/privilegeGates.js';
+// Registry read ONLY (bloodborneMarkerRules.js has no side effects). Do NOT
+// import exposureHandlerBootstrap.js here: that import would register the
+// handlers itself and turn the boot guard below into a tautology. The point
+// is to measure what app.js's own side-effect import registered.
+import { exposureHandlerCount } from '../services/clinical/bloodborneMarkerRules.js';
 
 let schedulerModule = null;
 
@@ -366,6 +371,21 @@ server.on('listening', onListening);
 const RELIABILITY_METRICS_INTERVAL_MS = 20_000;
 prepareApplication()
   .then(() => {
+    // Boot guard: a reactive blood-borne marker recorded by this process must
+    // reach at least one exposure handler (the cath device quarantine).
+    // Registration is a side-effect import in src/app.js; if that import is
+    // ever tidied away the API would notify an EMPTY handler set and report
+    // clean writes. Refuse to listen instead of failing silently.
+    const registeredExposureHandlers = exposureHandlerCount();
+    if (registeredExposureHandlers === 0) {
+      const err = new Error(
+        'No blood-borne exposure handler is registered; src/app.js must import '
+        + 'services/clinical/exposureHandlerBootstrap.js for its side effect',
+      );
+      err.code = 'EXPOSURE_HANDLERS_MISSING';
+      throw err;
+    }
+    logger.info('Blood-borne exposure handlers registered', { count: registeredExposureHandlers });
     server.listen(PORT);
 
     // Reliability metrics collector — refresh DB-derived gauges every 20s.

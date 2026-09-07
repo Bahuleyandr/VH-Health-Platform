@@ -97,6 +97,155 @@ describe('CathReprocessableDevice mirrors DEVICE_SELECT exactly', () => {
   });
 });
 
+describe('CssdDeviceQueueItem is the device row plus what the queue joins in', () => {
+  const columns = selectColumns('DEVICE_SELECT');
+  const schema = overlay.schemas.CssdDeviceQueueItem;
+
+  it('publishes every device column plus facility_name and status_changed_at', () => {
+    expect(schema.additionalProperties).toBe(false);
+    expect(schema.required).toEqual([...columns, 'facility_name', 'status_changed_at']);
+    expect(Object.keys(schema.properties)).toEqual([...columns, 'facility_name', 'status_changed_at']);
+    // The device columns keep the SAME published shapes — the queue item is
+    // the device row widened, not a second opinion about it.
+    for (const column of columns) {
+      expect(schema.properties[column]).toEqual(overlay.schemas.CathReprocessableDevice.properties[column]);
+    }
+  });
+
+  it('the queue SELECT really returns those two, and only the queue does', () => {
+    expect(SERVICE_SOURCE).toContain('AS facility_name');
+    expect(SERVICE_SOURCE).toContain('AS status_changed_at');
+    // DEVICE_SELECT is what every OTHER device surface reads; widening it
+    // would make CathReprocessableDevice (additionalProperties:false) reject
+    // its own responses.
+    expect(selectColumns('DEVICE_SELECT')).not.toContain('display_name AS facility_name');
+    expect(columns).toHaveLength(31);
+  });
+
+  it('status_changed_at is derived from TRANSITIONS, never the exposure stamp', () => {
+    // The whole reason the column is derived rather than read from
+    // updated_at: flagDeviceExposureTx moves updated_at without moving the
+    // device. Counting cath_device.exposure_flagged here would restart a
+    // queued device's clock on some other patient's lab result.
+    const actions = SERVICE_SOURCE.match(
+      /const DEVICE_STATUS_AUDIT_ACTIONS = Object\.freeze\(\[([\s\S]*?)\]\)/,
+    );
+    expect(actions).not.toBeNull();
+    expect(actions[1]).toContain("'cath_device.created'");
+    expect(actions[1]).not.toContain('exposure_flagged');
+    // ...and the writer really does use that action name, so the exclusion is
+    // excluding something that exists.
+    expect(SERVICE_SOURCE).toContain("action: 'cath_device.exposure_flagged'");
+  });
+
+  it('publishes both joined columns as NON-nullable, and the normaliser agrees', () => {
+    // The contract says string, not string|null, because the SQL guarantees
+    // it: an INNER join on a RESTRICT foreign key with a NOT NULL
+    // display_name, and a COALESCE onto d.created_at (NOT NULL DEFAULT NOW(),
+    // migration 765). A `?? null` in the normaliser would publish one thing
+    // and answer another — the admin console's generated types say the null
+    // cannot happen, so its sort would compare NaN and its clock would read
+    // "-" forever, with nothing failing anywhere.
+    expect(schema.properties.facility_name).toEqual({ type: 'string' });
+    expect(schema.properties.status_changed_at.nullable).toBeUndefined();
+    const normalizer = SERVICE_SOURCE.match(
+      /function normalizeQueueDevice\(row\) \{([\s\S]*?)\n\}/,
+    );
+    expect(normalizer).not.toBeNull();
+    expect(normalizer[1]).toContain('facility_name: row.facility_name,');
+    expect(normalizer[1]).toContain('status_changed_at: row.status_changed_at,');
+    expect(normalizer[1]).not.toContain('??');
+  });
+
+  it('the queue list response carries the queue item, not the bare device', () => {
+    expect(overlay.schemas.CssdDeviceListResponse.properties.data.items).toEqual({
+      $ref: '#/components/schemas/CssdDeviceQueueItem',
+    });
+    // ...while the single-device transition responses stay the device row:
+    // those handlers return lockDeviceTx's row, which has neither column.
+    expect(overlay.schemas.CssdDeviceResponse.properties.data).toEqual({
+      $ref: '#/components/schemas/CathReprocessableDevice',
+    });
+  });
+});
+
+describe('CssdDeviceLabel mirrors the fields the label actually carries', () => {
+  const schema = overlay.schemas.CssdDeviceLabel;
+
+  it('publishes exactly DEVICE_LABEL_FIELDS, in order, all required', () => {
+    expect(schema.additionalProperties).toBe(false);
+    expect(schema.required).toEqual([...service.DEVICE_LABEL_FIELDS]);
+    expect(Object.keys(schema.properties)).toEqual([...service.DEVICE_LABEL_FIELDS]);
+  });
+
+  it('carries NO serology, exposure or patient column', () => {
+    // The label is printed and travels with the device. exposure_markers names
+    // a blood-borne marker a PREVIOUS patient tested reactive for, and it is
+    // on the device row one join away — publishing it here would put a
+    // serology disclosure on a sticker.
+    for (const forbidden of [
+      'exposure_flag', 'exposure_markers', 'patient_uid', 'reuse_screen',
+      'post_use_screen', 'reuse_restriction', 'current_usage_id', 'origin_usage_id',
+    ]) {
+      expect(Object.keys(schema.properties)).not.toContain(forbidden);
+    }
+  });
+
+  it('speaks the category vocabulary and bounds the cycle counters', () => {
+    expect(schema.properties.category.enum).toEqual([...service.CATH_CATEGORIES]);
+    expect(schema.properties.device_tag.pattern).toBe(overlay.ENUMS.DEVICE_TAG_OUT_PATTERN);
+    // cycle_count starts at 0 and max_cycles_snapshot at 1, the same bounds
+    // the device row publishes for the columns these two are read from.
+    expect(schema.properties.reuse_cycle).toMatchObject({ type: 'integer', minimum: 0 });
+    expect(schema.properties.max_cycles).toMatchObject({ type: 'integer', minimum: 1 });
+  });
+
+  it('the operation declares BOTH answers the route can send', () => {
+    const operation = overlay.operations['GET /api/v1/cssd/devices/{id}/label'];
+    const content = operation.additionalResponses[200].content;
+    expect(Object.keys(content).sort()).toEqual(['application/json', 'application/pdf']);
+    expect(content['application/json'].schema).toEqual({
+      $ref: '#/components/schemas/CssdDeviceLabelResponse',
+    });
+    expect(content['application/pdf'].schema).toEqual({ type: 'string', format: 'binary' });
+    // The format switch is published with the two values the service accepts.
+    const format = operation.parameters.find((parameter) => parameter.name === 'format');
+    expect(format.schema.enum).toEqual([...service.DEVICE_LABEL_FORMATS]);
+    expect(format.required).toBe(false);
+  });
+
+  it('publishes the 409 a discarded device answers, and the code it carries', () => {
+    // The console hides the button; the SERVICE is the authority and the spec
+    // is what a second client reads. All three have to say the same thing.
+    const operation = overlay.operations['GET /api/v1/cssd/devices/{id}/label'];
+    const conflict = operation.additionalResponses[409];
+    expect(conflict.description).toContain('CSSD_DEVICE_LABEL_NOT_PRINTABLE');
+    expect(conflict.content['application/json'].schema).toEqual({
+      $ref: '#/components/schemas/CssdDeviceLabelErrorResponse',
+    });
+    expect(overlay.schemas.CssdDeviceLabelErrorResponse.properties.code.enum)
+      .toContain('CSSD_DEVICE_LABEL_NOT_PRINTABLE');
+    // ...and the code the service throws is that one, spelled the same way.
+    expect(SERVICE_SOURCE).toContain("'CSSD_DEVICE_LABEL_NOT_PRINTABLE'");
+    // The refused status is the register's ONE terminal state — a wider gate
+    // would take the tag away from CSSD while it still holds the device.
+    expect(service.DEVICE_LABEL_BLOCKED_STATUS).toBe('discarded');
+    expect([...service.DEVICE_STATUSES]).toContain(service.DEVICE_LABEL_BLOCKED_STATUS);
+  });
+
+  it('the published error codes are the ones this route can actually answer', () => {
+    for (const code of overlay.ENUMS.DEVICE_LABEL_ERROR_CODES) {
+      // Every published code is thrown by the service or by the shared id
+      // guard the route sits behind — no aspirational vocabulary.
+      expect(
+        SERVICE_SOURCE.includes(`'${code}'`) || code === 'CATH_LAB_BAD_ID',
+      ).toBe(true);
+    }
+    expect(overlay.ENUMS.DEVICE_LABEL_ERROR_CODES).toContain('CATH_DEVICE_NOT_FOUND');
+    expect(overlay.ENUMS.DEVICE_LABEL_ERROR_CODES).toContain('CSSD_DEVICE_LABEL_FORMAT_INVALID');
+  });
+});
+
 describe('settings and policy rows mirror their SELECT lists', () => {
   it('CathReprocessingSettings = SETTINGS_SELECT + the derived `configured` flag', () => {
     const columns = [...selectColumns('SETTINGS_SELECT'), 'configured'];
