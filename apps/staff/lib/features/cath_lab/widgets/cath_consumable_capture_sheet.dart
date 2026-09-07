@@ -604,7 +604,7 @@ class _CathConsumableCaptureSheetState
                             'max': _lookup!.device.maxCycles + 1,
                           },
                         ),
-                        cathHumanize(_lookup!.device.status),
+                        cathDeviceStatusLabel(s, _lookup!.device.status),
                         // The tag is what the save actually sends, so it is
                         // stated on the card rather than left to the field
                         // above it.

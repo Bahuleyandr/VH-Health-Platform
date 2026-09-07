@@ -8173,9 +8173,16 @@ class AppStrings {
       's4.lib.cath_lab.consumables.exposure_badge': "Exposure",
       's4.lib.cath_lab.consumables.exposure_badge_detail':
           'A blood-borne exposure flag is recorded for this device.',
+      's4.lib.cath_lab.device_status.awaiting_reprocessing':
+          'Awaiting reprocessing',
+      's4.lib.cath_lab.device_status.in_cssd': 'In CSSD',
+      's4.lib.cath_lab.device_status.available': 'Available',
+      's4.lib.cath_lab.device_status.in_case': 'In case',
+      's4.lib.cath_lab.device_status.quarantined': 'Quarantined',
+      's4.lib.cath_lab.device_status.discarded': 'Discarded',
       's4.dynamic.cath_lab.consumables.device_cycle': "Cycle {cycle} of {max}",
       's4.dynamic.cath_lab.consumables.device_tag': "Tag {tag}",
-      's4.lib.cath_lab.consumables.post_use_device_already_discarded': "CSSD has already marked this device as discarded; post-use disposition recorded",
+      's4.lib.cath_lab.consumables.post_use_device_already_discarded': "CSSD has already recorded this device's status as \"{status}\"; post-use disposition recorded",
       's4.lib.cath_lab.consumables.post_use_note': "Note",
       's4.lib.cath_lab.consumables.post_use_confirm': "Confirm",
       's4.dynamic.cath_lab.consumables.more_reasons': "+{count} more",
@@ -15748,9 +15755,22 @@ class AppStrings {
       's4.lib.cath_lab.consumables.exposure_badge': "एक्सपोज़र",
       's4.lib.cath_lab.consumables.exposure_badge_detail':
           'इस उपकरण पर रक्तजनित एक्सपोज़र का चिह्न दर्ज है।',
+      // REVIEW: linguistic review pending
+      's4.lib.cath_lab.device_status.awaiting_reprocessing':
+          'पुनःसंसाधन की प्रतीक्षा में',
+      // REVIEW: linguistic review pending
+      's4.lib.cath_lab.device_status.in_cssd': 'CSSD में',
+      // REVIEW: linguistic review pending
+      's4.lib.cath_lab.device_status.available': 'उपलब्ध',
+      // REVIEW: linguistic review pending
+      's4.lib.cath_lab.device_status.in_case': 'केस में',
+      // REVIEW: linguistic review pending
+      's4.lib.cath_lab.device_status.quarantined': 'क्वारंटीन में',
+      // REVIEW: linguistic review pending
+      's4.lib.cath_lab.device_status.discarded': 'डिस्कार्ड',
       's4.dynamic.cath_lab.consumables.device_cycle': "चक्र {cycle} / {max}",
       's4.dynamic.cath_lab.consumables.device_tag': "टैग {tag}",
-      's4.lib.cath_lab.consumables.post_use_device_already_discarded': "CSSD ने इस उपकरण को पहले ही डिस्कार्ड के रूप में चिह्नित कर दिया है; उपयोग-पश्चात निर्णय दर्ज किया गया",
+      's4.lib.cath_lab.consumables.post_use_device_already_discarded': 'CSSD ने इस उपकरण की स्थिति पहले ही "{status}" के रूप में दर्ज कर दी है; उपयोग-पश्चात निर्णय दर्ज किया गया',
       's4.lib.cath_lab.consumables.post_use_note': "टिप्पणी",
       's4.lib.cath_lab.consumables.post_use_confirm': "पुष्टि करें",
       's4.dynamic.cath_lab.consumables.more_reasons': "+{count} और",
@@ -24660,9 +24680,22 @@ class AppStrings {
       's4.lib.cath_lab.consumables.exposure_badge': "எக்ஸ்போஷர்",
       's4.lib.cath_lab.consumables.exposure_badge_detail':
           'இந்தச் சாதனத்திற்கு இரத்தவழி எக்ஸ்போஷர் குறி பதிவாகியுள்ளது.',
+      // REVIEW: linguistic review pending
+      's4.lib.cath_lab.device_status.awaiting_reprocessing':
+          'மறுசெயலாக்கத்திற்காகக் காத்திருக்கிறது',
+      // REVIEW: linguistic review pending
+      's4.lib.cath_lab.device_status.in_cssd': 'CSSD-இல்',
+      // REVIEW: linguistic review pending
+      's4.lib.cath_lab.device_status.available': 'கிடைக்கிறது',
+      // REVIEW: linguistic review pending
+      's4.lib.cath_lab.device_status.in_case': 'செயல்முறையில்',
+      // REVIEW: linguistic review pending
+      's4.lib.cath_lab.device_status.quarantined': 'தனிமைப்படுத்தப்பட்டது',
+      // REVIEW: linguistic review pending
+      's4.lib.cath_lab.device_status.discarded': 'அப்புறப்படுத்தப்பட்டது',
       's4.dynamic.cath_lab.consumables.device_cycle': "சுழற்சி {cycle} / {max}",
       's4.dynamic.cath_lab.consumables.device_tag': "குறிச்சீட்டு {tag}",
-      's4.lib.cath_lab.consumables.post_use_device_already_discarded': "CSSD இந்தச் சாதனத்தின் நிலையை ஏற்கனவே \"அப்புறப்படுத்தப்பட்டது\" எனப் பதிவு செய்துள்ளது; பயன்பாட்டிற்குப் பிந்தைய முடிவு பதிவு செய்யப்பட்டது",
+      's4.lib.cath_lab.consumables.post_use_device_already_discarded': 'CSSD இந்தச் சாதனத்தின் நிலையை ஏற்கனவே "{status}" எனப் பதிவு செய்துள்ளது; பயன்பாட்டிற்குப் பிந்தைய முடிவு பதிவு செய்யப்பட்டது',
       's4.lib.cath_lab.consumables.post_use_note': "குறிப்பு",
       's4.lib.cath_lab.consumables.post_use_confirm': "உறுதிப்படுத்து",
       's4.dynamic.cath_lab.consumables.more_reasons': "+{count} மேலும்",
@@ -33638,9 +33671,22 @@ class AppStrings {
       's4.lib.cath_lab.consumables.exposure_badge': "ఎక్స్‌పోజర్",
       's4.lib.cath_lab.consumables.exposure_badge_detail':
           'ఈ పరికరానికి రక్తజనిత ఎక్స్‌పోజర్ ఫ్లాగ్ నమోదై ఉంది.',
+      // REVIEW: linguistic review pending
+      's4.lib.cath_lab.device_status.awaiting_reprocessing':
+          'పునఃప్రాసెసింగ్ కోసం వేచి ఉంది',
+      // REVIEW: linguistic review pending
+      's4.lib.cath_lab.device_status.in_cssd': 'CSSDలో',
+      // REVIEW: linguistic review pending
+      's4.lib.cath_lab.device_status.available': 'అందుబాటులో ఉంది',
+      // REVIEW: linguistic review pending
+      's4.lib.cath_lab.device_status.in_case': 'కేసులో',
+      // REVIEW: linguistic review pending
+      's4.lib.cath_lab.device_status.quarantined': 'క్వారంటైన్‌లో',
+      // REVIEW: linguistic review pending
+      's4.lib.cath_lab.device_status.discarded': 'పారవేయబడింది',
       's4.dynamic.cath_lab.consumables.device_cycle': "చక్రం {cycle} / {max}",
       's4.dynamic.cath_lab.consumables.device_tag': "ట్యాగ్ {tag}",
-      's4.lib.cath_lab.consumables.post_use_device_already_discarded': "CSSD ఈ పరికరం స్థితిని ఇప్పటికే \"పారవేయబడింది\"గా నమోదు చేసింది; వినియోగానంతర నిర్ణయం నమోదైంది",
+      's4.lib.cath_lab.consumables.post_use_device_already_discarded': 'CSSD ఈ పరికరం స్థితిని ఇప్పటికే "{status}"గా నమోదు చేసింది; వినియోగానంతర నిర్ణయం నమోదైంది',
       's4.lib.cath_lab.consumables.post_use_note': "గమనిక",
       's4.lib.cath_lab.consumables.post_use_confirm': "నిర్ధారించండి",
       's4.dynamic.cath_lab.consumables.more_reasons': "+{count} మరిన్ని",
@@ -39481,9 +39527,22 @@ class AppStrings {
       's4.lib.cath_lab.consumables.exposure_badge': 'എക്സ്പോഷർ',
       's4.lib.cath_lab.consumables.exposure_badge_detail':
           'ഈ ഉപകരണത്തിന് രക്തജന്യ എക്സ്പോഷർ ഫ്ലാഗ് രേഖപ്പെടുത്തിയിട്ടുണ്ട്.',
+      // REVIEW: linguistic review pending
+      's4.lib.cath_lab.device_status.awaiting_reprocessing':
+          'പുനഃസംസ്കരണത്തിനായി കാത്തിരിക്കുന്നു',
+      // REVIEW: linguistic review pending
+      's4.lib.cath_lab.device_status.in_cssd': 'CSSD-യിൽ',
+      // REVIEW: linguistic review pending
+      's4.lib.cath_lab.device_status.available': 'ലഭ്യമാണ്',
+      // REVIEW: linguistic review pending
+      's4.lib.cath_lab.device_status.in_case': 'കേസിൽ',
+      // REVIEW: linguistic review pending
+      's4.lib.cath_lab.device_status.quarantined': 'ക്വാറന്റൈനിൽ',
+      // REVIEW: linguistic review pending
+      's4.lib.cath_lab.device_status.discarded': 'ഉപേക്ഷിച്ചു',
       's4.dynamic.cath_lab.consumables.device_cycle': 'സൈക്കിൾ {cycle} / {max}',
       's4.dynamic.cath_lab.consumables.device_tag': 'ടാഗ് {tag}',
-      's4.lib.cath_lab.consumables.post_use_device_already_discarded': 'CSSD ഈ ഉപകരണത്തിന്റെ നില ഇതിനകം "ഉപേക്ഷിച്ചു" എന്ന് രേഖപ്പെടുത്തിയിട്ടുണ്ട്; ഉപയോഗാനന്തര തീരുമാനം രേഖപ്പെടുത്തി',
+      's4.lib.cath_lab.consumables.post_use_device_already_discarded': 'CSSD ഈ ഉപകരണത്തിന്റെ നില ഇതിനകം "{status}" എന്ന് രേഖപ്പെടുത്തിയിട്ടുണ്ട്; ഉപയോഗാനന്തര തീരുമാനം രേഖപ്പെടുത്തി',
       's4.lib.cath_lab.consumables.post_use_note': 'കുറിപ്പ്',
       's4.lib.cath_lab.consumables.post_use_confirm': 'സ്ഥിരീകരിക്കുക',
       's4.dynamic.cath_lab.consumables.more_reasons': '+{count} കൂടുതൽ',
