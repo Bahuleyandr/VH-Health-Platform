@@ -554,6 +554,10 @@ function rowsFor(sql) {
   // when its audit event does not land, so without a RETURNING row every report
   // read answers 500 and drops out of this canary's coverage.
   if (/INSERT INTO clinical_audit_events/.test(text)) return [AUDIT_EVENT_ROW];
+  // The cath readiness refresh takes its freshness clock from the DATABASE
+  // (clock_timestamp() on its own transaction), so a stub client has to answer
+  // it. It has no FROM, which is why it needs a branch above the FROM guard.
+  if (/clock_timestamp/i.test(text)) return [{ as_of_epoch_ms: BigInt(Date.now()) }];
   if (!/\bFROM\b/i.test(text)) return [];
   // The readiness refresh's own labs read is `... AND check_type = 'labs' FOR
   // UPDATE` and takes rows[0] as THE labs check; answering it with the whole
