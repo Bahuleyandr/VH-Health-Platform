@@ -21,6 +21,7 @@ import crypto from 'node:crypto';
 import { jest } from '@jest/globals';
 
 import prisma, { setTenantTx } from '../lib/prisma.js';
+import logger from '../logging/logger.js';
 import {
   importFhirBundle as importFhirBundleWithAuthority,
   importFhirVitalObservation,
@@ -2960,6 +2961,98 @@ d('R8 — FHIR import never overwrites charted vitals (real Postgres)', () => {
     expect(sets[0].count).toBe(1);
     expect(links[0].count).toBe(6);
   });
+
+  it('retries a forced concurrent replay serialization conflict without escaping 40001', async () => {
+    const configuredIterations = Number(process.env.VITALS_REPLAY_40001_ITERATIONS || 1);
+    if (!Number.isInteger(configuredIterations) || configuredIterations < 1 || configuredIterations > 200) {
+      throw new Error('VITALS_REPLAY_40001_ITERATIONS must be an integer from 1 through 200');
+    }
+
+    const failures = [];
+    const invalidOutcomes = [];
+    const warnSpy = jest.spyOn(logger, 'warn');
+    const runId = crypto.randomUUID();
+    const observedAtBase = Date.now() - 6 * 60 * 60 * 1000;
+
+    for (let iteration = 0; iteration < configuredIterations; iteration += 1) {
+      let arrivals = 0;
+      let releaseBoth;
+      const bothImportsReachedReceiptLock = new Promise((resolve) => {
+        releaseBoth = resolve;
+      });
+      const beforeClinicalImportReceiptLock = async () => {
+        arrivals += 1;
+        if (arrivals === 2) releaseBoth();
+        await bothImportsReachedReceiptLock;
+      };
+      const observedAt = new Date(observedAtBase + iteration).toISOString();
+      const bundle = compositeNews2Bundle(observedAt, {
+        idSuffix: `-forced-serialization-${runId}-${iteration}`,
+      });
+
+      const settled = await Promise.allSettled([
+        importFhirBundle(bundle, IMPORTER, {
+          tenantId: TENANT,
+          autoVerifyClinicalVitals: false,
+          beforeClinicalImportReceiptLock,
+        }),
+        importFhirBundle(structuredClone(bundle), IMPORTER, {
+          tenantId: TENANT,
+          autoVerifyClinicalVitals: false,
+          beforeClinicalImportReceiptLock,
+        }),
+      ]);
+      const rejected = settled.filter(({ status }) => status === 'rejected');
+      failures.push(...rejected.map(({ reason }) => ({
+        iteration,
+        sqlState: String(
+          reason?.meta?.driverAdapterError?.cause?.code
+            || reason?.meta?.driverAdapterError?.cause?.originalCode
+            || reason?.meta?.code
+            || reason?.cause?.code
+            || reason?.code
+            || 'unknown',
+        ),
+        message: String(reason?.message || reason).slice(0, 300),
+      })));
+
+      if (rejected.length === 0) {
+        const results = settled.map(({ value }) => value);
+        const importedCount = results.filter(({ imported }) => imported === 6).length;
+        const replay = results.find(({ imported }) => imported === 0);
+        const replaySettled = replay && (
+          replay.errors.length === 0
+          || (
+            replay.errors.length === 6
+            && replay.errors.every(({ code }) => code === 'FHIR_OBSERVATION_EFFECTS_IN_PROGRESS')
+          )
+        );
+        if (importedCount !== 1 || !replaySettled) {
+          invalidOutcomes.push({
+            iteration,
+            results: results.map(({ imported, deduplicated, errors }) => ({
+              imported,
+              deduplicated,
+              errorCodes: errors.map(({ code }) => code),
+            })),
+          });
+        }
+      }
+    }
+
+    const retryCount = warnSpy.mock.calls.filter(([message]) => (
+      message === 'Clinical FHIR import transaction conflicted; retrying from a fresh snapshot'
+    )).length;
+    warnSpy.mockRestore();
+    if (retryCount < configuredIterations || failures.length > 0 || invalidOutcomes.length > 0) {
+      throw new Error(`forced concurrent replay failures: ${JSON.stringify({
+        iterations: configuredIterations,
+        retryCount,
+        failures,
+        invalidOutcomes,
+      })}`);
+    }
+  }, 180_000);
 
   it('rejects a malformed known same-time component before writing any part of the set', async () => {
     const observedAt = new Date(Date.now() - 6 * 60 * 1000).toISOString();
