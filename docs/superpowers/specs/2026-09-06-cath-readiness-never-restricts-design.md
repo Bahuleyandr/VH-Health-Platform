@@ -8,7 +8,7 @@
 - Plan: `docs/superpowers/plans/2026-09-06-cath-readiness-never-restricts.md`.
 
 
-> **Migration number.** `NNN` = the next free migration number at push time. **767 is NOT this lane's:** it is reserved by the merge-authority session's Phase 1 isolation-derivation lane (dev-1b). Task 0 must re-check the free number when the branch is pushed; any lane that claims a number it does not own collides with the immutability gate.
+> **Migration number.** `NNN` = the next free migration number ABOVE 767 at push time (768 unless claimed). **767 is NOT this lane's:** it is reserved by the merge-authority session's Phase 1 isolation-derivation lane (dev-1b). Task 0 must re-check the free number when the branch is pushed; any lane that claims a number it does not own collides with the immutability gate.
 
 ## 0. What revision 2 changes, point by point (owner review 2026-09-06)
 
