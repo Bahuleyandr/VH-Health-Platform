@@ -73,6 +73,15 @@ const DELIBERATE_ENGLISH_FALLBACK = {
     'States what an inter-facility handoff record asserts was confirmed.',
   's4.lib.referrals.continue_ownership':
     'First-person declaration of continuing clinical ownership of a patient.',
+  // The two `continuity.unknown.*` keys below differ from the three above:
+  // they are PRESENT in every locale map, carrying the English text, rather
+  // than absent. Listing them records the decision (and stops a reviewer
+  // "fixing" them) — the only visible effect is that the `[loc] N/M` line
+  // below counts them out of M while they are still counted in N.
+  'continuity.unknown.allergy':
+    'Pinned English in all five locales by apps/staff/test/i18n_guard_test.dart:37-46 — a continuity UNKNOWN marker read by clinicians across language settings; reviewers confirm, do not translate.',
+  'continuity.unknown.code_status':
+    'Pinned English in all five locales by apps/staff/test/i18n_guard_test.dart:37-46 — same class as continuity.unknown.allergy.',
 };
 
 // ── Dart map parsing ───────────────────────────────────────────────────

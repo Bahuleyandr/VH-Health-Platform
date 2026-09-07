@@ -90,7 +90,21 @@ jest.unstable_mockModule('../../services/clinical/bloodborneMarkerService.js', (
 // export this suite's tenantService mock deliberately does not provide.
 // The behaviour is covered end to end by cath-lab-readiness.deep.test.js, so
 // stub the boundary rather than loading that graph here.
+// listCases now reads the STORED readiness snapshot for its per-case summary,
+// so this suite's stub has to carry the three names cathLabService imports.
+// They are transcribed rather than real because this suite mocks the whole
+// readiness module by design (its real graph pulls the lab-results rail in);
+// the SOURCE of truth for both is cathLabReadinessService, pinned against the
+// published contract by cathLabReadinessOpenApiSource.test.js and driven for
+// real by cath-lab-readiness.deep.test.js.
 jest.unstable_mockModule('../../services/clinical/cathLabReadinessService.js', () => ({
+  ITEM_CODES: Object.freeze([
+    'hb', 'platelets', 'creatinine', 'potassium', 'hiv', 'hbsag', 'hcv'
+  ]),
+  getReadinessSettings: jest.fn(async () => ({ external_results_count: true })),
+  isItemAvailable: (item, settings) =>
+    ['result_final', 'result_preliminary', 'waived'].includes(item.state)
+    || (item.state === 'external_recorded' && settings.external_results_count === true),
   refreshCaseLabReadiness: jest.fn(async () => null)
 }));
 

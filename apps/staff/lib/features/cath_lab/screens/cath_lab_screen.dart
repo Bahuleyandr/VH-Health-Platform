@@ -985,10 +985,15 @@ class _ReadinessCardState extends State<_ReadinessCard> {
   /// What the checklist below has loaded, so the header can carry the two
   /// signals a collapsed card has to show. Null while unknown.
   ///
-  /// It has to come from the checklist: `GET /cath-lab/cases` carries only
-  /// `readiness_total` / `readiness_cleared` — two COUNTS over the eight check
-  /// rows — and no lab-item detail at all, so nothing in the list payload can
-  /// say which items are missing or whether a value is critical.
+  /// The list payload's `lab_readiness_summary` fills that gap until it lands:
+  /// it is the STORED snapshot, so it can be a minute or a day behind, but it
+  /// is the same two facts and it arrives with the card rather than one round
+  /// trip later. The loaded checklist WINS the moment it exists — it ran a
+  /// read-through refresh, the summary did not.
+  ///
+  /// What neither may be built from is `readiness_total` / `readiness_cleared`:
+  /// those are counts over the eight CHECK rows and say nothing about the lab
+  /// items, so a case can be 8/8 and still be sitting on a potassium of 6.9.
   final ValueNotifier<CathCaseReadiness?> _signals = ValueNotifier(null);
 
   @override
@@ -1014,8 +1019,11 @@ class _ReadinessCardState extends State<_ReadinessCard> {
             _CaseHeader(cathCase: cathCase),
             ValueListenableBuilder<CathCaseReadiness?>(
               valueListenable: _signals,
-              builder: (context, readiness, _) =>
-                  _headerSignals(s, readiness?.labs),
+              builder: (context, readiness, _) => _headerSignals(
+                s,
+                loaded: readiness?.labs,
+                fromList: cathCase.labReadinessSummary,
+              ),
             ),
             const SizedBox(height: 14),
             ClipRRect(
@@ -1074,13 +1082,27 @@ class _ReadinessCardState extends State<_ReadinessCard> {
   }
 
   /// The two signals spec 10 asks the case header to carry: what is missing,
-  /// and whether a resolved value is critical. Both are read from the loaded
-  /// lab block, never from the list payload's cleared/total counts — a case
-  /// can be 8/8 on the check rows and still be sitting on a potassium of 6.9.
-  Widget _headerSignals(AppStrings s, CathLabReadiness? labs) {
-    if (labs == null) return const SizedBox.shrink();
-    final missing = labs.missing;
-    if (missing.isEmpty && !labs.criticalWarning) {
+  /// and whether a resolved value is critical.
+  ///
+  /// [loaded] is the checklist's own block, from a read-through refresh, and it
+  /// WINS whenever it exists — including when it says nothing is missing, which
+  /// is a live answer the stored summary cannot contradict. [fromList] is the
+  /// day list's stored summary, which carries the card until then.
+  ///
+  /// Neither is the cleared/total counts: those are over the eight check rows.
+  Widget _headerSignals(
+    AppStrings s, {
+    required CathLabReadiness? loaded,
+    required CathLabReadinessSummary? fromList,
+  }) {
+    if (loaded == null && fromList == null) return const SizedBox.shrink();
+    final missing = loaded != null
+        ? loaded.missing.map((entry) => entry.item).toList(growable: false)
+        : fromList!.missingItems;
+    final criticalWarning = loaded != null
+        ? loaded.criticalWarning
+        : fromList!.criticalWarning;
+    if (missing.isEmpty && !criticalWarning) {
       return const SizedBox.shrink();
     }
     return Padding(
@@ -1113,10 +1135,7 @@ class _ReadinessCardState extends State<_ReadinessCard> {
                   Flexible(
                     child: Text(
                       s.format('s4.lib.cath_lab.readiness.header.missing', {
-                        'items': cathReadinessItemList(
-                          s,
-                          missing.map((entry) => entry.item),
-                        ),
+                        'items': cathReadinessItemList(s, missing),
                       }),
                       style: const TextStyle(
                         fontSize: 12,
@@ -1128,7 +1147,7 @@ class _ReadinessCardState extends State<_ReadinessCard> {
                 ],
               ),
             ),
-          if (labs.criticalWarning)
+          if (criticalWarning)
             Container(
               key: const ValueKey('cath-readiness-header-critical'),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),

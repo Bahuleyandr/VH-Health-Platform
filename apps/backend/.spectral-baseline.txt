@@ -1236,7 +1236,6 @@ warning	operation-description	["paths","/api/v1/burns/charts/{id}/protocol-links
 warning	operation-description	["paths","/api/v1/burns/charts/{id}/protocol-links","post"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/burns/charts/{id}/reassessments","post"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/burns/charts/{id}/tbsa-regions","post"]	Operation "description" must be present and non-empty string.
-warning	operation-description	["paths","/api/v1/cath-lab/cases","get"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/cath-lab/cases","post"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/cath-lab/cases/{caseId}/reports","get"]	Operation "description" must be present and non-empty string.
 warning	operation-description	["paths","/api/v1/cath-lab/cases/{caseId}/reports","post"]	Operation "description" must be present and non-empty string.

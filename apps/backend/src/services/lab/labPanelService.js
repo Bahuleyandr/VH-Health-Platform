@@ -17,6 +17,7 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatformService.js';
+import { scheduleReadinessRefresh } from '../clinical/cathLabReadinessHooks.js';
 import { publishInpatientDiagnosticResourceLinkedTx } from '../emr/inpatientPathwayDomainService.js';
 import { sendStaffNotifications } from '../notification/staffNotificationService.js';
 import { materializeLabCriticalAlertGeneration } from './labCriticalAlertService.js';
@@ -661,16 +662,15 @@ export async function recordLabPanel({
   }
 
   // Cath-lab readiness (spec 2026-09-04 §6). Post-commit, best-effort and
-  // dynamically imported — the readiness module imports the lab services, so a
-  // static import here would be a cycle. A refresh failure never unwinds a
-  // panel that has already committed.
+  // SCHEDULED, not awaited: the refresh costs ~8 queries per open case and a
+  // snapshot one event behind is repaired by the next refresh, so it does not
+  // belong on the panel writer's latency (Plan 3 final review, F2). The
+  // scheduler opens its own tenant scope, swallows and logs its own failures,
+  // and never unwinds a panel that has already committed.
   if (!phaseOne.replayed && phaseOne.patientUid) {
-    try {
-      const { refreshOpenCasesForPatient } = await import('../clinical/cathLabReadinessService.js');
-      await refreshOpenCasesForPatient({ tenantId: tid, patientUid: phaseOne.patientUid });
-    } catch (readinessErr) {
-      logger.warn(`Cath lab readiness refresh after lab event failed (lab write stands): ${readinessErr?.message}`);
-    }
+    scheduleReadinessRefresh({
+      tenantId: tid, patientUid: phaseOne.patientUid, source: 'recordLabPanel',
+    });
   }
 
   logger.info('Structured lab panel recorded', {

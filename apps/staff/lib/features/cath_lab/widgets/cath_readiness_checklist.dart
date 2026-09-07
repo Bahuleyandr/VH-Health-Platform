@@ -29,6 +29,7 @@ class CathReadinessDependencies {
     this.orderMissing,
     this.recordExternal,
     this.waiveItem,
+    this.unwaiveItem,
   });
 
   final CathReadinessLoader? loadReadiness;
@@ -36,6 +37,7 @@ class CathReadinessDependencies {
   final CathReadinessOrderMissing? orderMissing;
   final CathReadinessExternalRecorder? recordExternal;
   final CathReadinessWaiver? waiveItem;
+  final CathReadinessUnwaiver? unwaiveItem;
 }
 
 /// The per-check readiness list for one cath case: the eight
@@ -101,6 +103,8 @@ class _CathReadinessChecklistState extends State<CathReadinessChecklist>
       CathLabApiService.recordExternalLabResult;
   CathReadinessWaiver get _waiveItem =>
       widget.dependencies.waiveItem ?? CathLabApiService.waiveLabItem;
+  CathReadinessUnwaiver get _unwaiveItem =>
+      widget.dependencies.unwaiveItem ?? CathLabApiService.unwaiveLabItem;
 
   @override
   void initState() {
@@ -208,7 +212,7 @@ class _CathReadinessChecklistState extends State<CathReadinessChecklist>
       // audience while keeping `critical_warning`, and a degraded read can
       // leave `lab_readiness` null altogether — so when there is nothing to
       // name the line drops the list rather than rendering the naming copy
-      // with an empty slot in it ("Critical value present: ."). The gate
+      // with an empty slot in it ("Critical values present: ."). The gate
       // itself does not soften: `reasonRequired` still follows `critical`.
       final criticalItems = cathReadinessItemList(
         s,
@@ -368,6 +372,7 @@ class _CathReadinessChecklistState extends State<CathReadinessChecklist>
               orderMissing: _orderMissing,
               recordExternal: _recordExternal,
               waiveItem: _waiveItem,
+              unwaiveItem: _unwaiveItem,
               today: widget.today,
             ),
         ],

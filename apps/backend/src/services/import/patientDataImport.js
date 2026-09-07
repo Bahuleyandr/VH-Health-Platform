@@ -51,8 +51,9 @@ const CLINICAL_IMPORT_SERIALIZABLE_ATTEMPTS = 3;
 
 function clinicalImportSqlState(error) {
   return String(
-    error?.meta?.code
+    error?.meta?.driverAdapterError?.cause?.code
       || error?.meta?.driverAdapterError?.cause?.originalCode
+      || error?.meta?.code
       || error?.cause?.code
       || error?.code
       || '',
@@ -895,6 +896,7 @@ function normalizeFhirBundlePatientReferences(bundle, targetPatientUid, accepted
 export async function importFhirBundle(bundle, importedBy, {
   tenantId = null,
   authority = null,
+  beforeClinicalImportReceiptLock = null,
   beforeFhirVitalWrite = null,
 } = {}) {
   if (!bundle || bundle.resourceType !== 'Bundle') {
@@ -945,6 +947,9 @@ export async function importFhirBundle(bundle, importedBy, {
           authority: withoutClinicalImportPatientIdentityBinding(transactionAuthority),
           resourceManifest,
         });
+        if (typeof beforeClinicalImportReceiptLock === 'function') {
+          await beforeClinicalImportReceiptLock({ attempt, tenantId: tid, patientUid: targetPatientUid });
+        }
         const replay = await lockClinicalImportDocumentReceiptTx(lockTx, preliminaryReceiptAuthority);
         if (replay) return replay.result;
         const identityClaims = collectFhirPatientIdentityClaims(bundle, targetPatientUid);
@@ -3801,5 +3806,7 @@ async function importAllergyFromCCDA(allergy, patientUid) {
     allergy.id || allergy.code || null,
   );
 }
+
+export const __testing__ = Object.freeze({ isRetryableClinicalImportTransactionError });
 
 export default { importFhirBundle, importCCDA };

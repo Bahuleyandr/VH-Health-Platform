@@ -43,13 +43,26 @@ jest.unstable_mockModule('../../services/tenant/tenantService.js', () => ({
 // The device queue's service is not under test here (this suite pins wrap()'s
 // AppError wire shape on the instrument-set routes); stub it so the suite does
 // not drag the reuse register's whole dependency graph in.
+//
+// DEVICE_LABEL_FORMATS is not a function but the module MUST carry it: the
+// label route reads its default format from that constant at module scope, so
+// a stub without it fails the ESM link and the whole suite fails to run —
+// which is exactly how this surfaced.
 jest.unstable_mockModule('../../services/clinical/cathDeviceReuseService.js', () => ({
+  DEVICE_LABEL_FORMATS: Object.freeze(['pdf', 'json']),
+  deviceLabel: jest.fn(),
   discardDevice: jest.fn(),
   listDevices: jest.fn(async () => []),
   markDeviceReprocessed: jest.fn(),
   quarantineDevice: jest.fn(),
   receiveDevice: jest.fn(),
   releaseDevice: jest.fn(),
+}));
+
+// The label route renders its PDF through this module; stubbed for the same
+// reason (pdfkit is not this suite's concern).
+jest.unstable_mockModule('../../services/documents/cathDeviceLabelPdfService.js', () => ({
+  renderCathDeviceLabelPdf: jest.fn(async () => Buffer.from('%PDF-1.3 stub')),
 }));
 
 jest.unstable_mockModule('../../middleware/idempotencyMiddleware.js', () => ({

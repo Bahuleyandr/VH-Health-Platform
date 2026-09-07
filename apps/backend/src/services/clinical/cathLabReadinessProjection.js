@@ -27,6 +27,12 @@
 // where, who waived it — which is what the front desk is admitted for. What is
 // removed is WHICH result came back.
 //
+// `recorded_after_start` survives too, deliberately: it says a waiver was
+// DOCUMENTED after the case began, which is checklist provenance in exactly the
+// way `waived_by` / `waived_at` are. It discloses nothing about a marker's
+// value — a late waiver on hb reads the same as a late waiver on hcv — so it
+// does not belong on the redaction list, on any item.
+//
 // CRITICALITY IS PART OF THE RESULT, on these three items only. `is_critical`
 // is an ordinary flag on a quantitative item — a potassium can be critical high
 // or critical low — but hiv/hbsag/hcv are qualitative, and nothing except a

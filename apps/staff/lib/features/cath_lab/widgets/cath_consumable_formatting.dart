@@ -7,6 +7,17 @@
 /// two copies could quietly drift into rendering the same row differently.
 library;
 
+import '../../../l10n/app_strings.dart';
+
+const cathDeviceStatuses = <String>{
+  'awaiting_reprocessing',
+  'in_cssd',
+  'available',
+  'in_case',
+  'quarantined',
+  'discarded',
+};
+
 /// A backend enum (`sent_for_reprocessing`, `max_cycles_reached`) rendered as
 /// a human-readable phrase. Returns `-` for an empty code so a missing value
 /// never collapses a joined line into a stray separator.
@@ -21,6 +32,11 @@ String cathHumanize(String value) {
             : '${part[0].toUpperCase()}${part.substring(1)}',
       )
       .join(' ');
+}
+
+String cathDeviceStatusLabel(AppStrings strings, String status) {
+  if (!cathDeviceStatuses.contains(status)) return cathHumanize(status);
+  return strings.lookup('s4.lib.cath_lab.device_status.$status');
 }
 
 /// A NUMERIC quantity without trailing zeroes: `2` rather than `2.00`, `1.5`

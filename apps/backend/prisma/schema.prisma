@@ -9104,9 +9104,9 @@ model dialysis_patients {
   dry_weight_kg       Decimal?  @db.Decimal(5, 2)
   dry_weight_set_at   DateTime? @db.Timestamptz(6)
   anticoag_default    String?   @default("heparin") @db.VarChar(20)
-  hbsag_status        String?   @default("negative") @db.VarChar(20)
-  hcv_status          String?   @default("negative") @db.VarChar(20)
-  hiv_status          String?   @default("negative") @db.VarChar(20)
+  hbsag_status        String?   @default("unknown") @db.VarChar(20)
+  hcv_status          String?   @default("unknown") @db.VarChar(20)
+  hiv_status          String?   @default("unknown") @db.VarChar(20)
   isolation_required  Boolean?  @default(dbgenerated("(((hbsag_status)::text = 'positive'::text) OR ((hcv_status)::text = 'positive'::text) OR ((hiv_status)::text = 'positive'::text))"))
   status              String    @default("active") @db.VarChar(20)
   notes               String?
@@ -9114,6 +9114,7 @@ model dialysis_patients {
   created_at          DateTime  @default(now()) @db.Timestamptz(6)
   updated_at          DateTime  @default(now()) @db.Timestamptz(6)
 
+  @@unique([tenant_id, id], map: "uq_dialysis_patients_tenant_id_id")
   @@index([tenant_id, status], map: "idx_dialysis_patients_active", where: raw("((status)::text = 'active'::text)"))
   @@index([tenant_id], map: "idx_dialysis_patients_isolation", where: raw("(isolation_required = true)"))
   @@index([patient_uid], map: "idx_dialysis_patients_pat")
@@ -9168,6 +9169,7 @@ model dialysis_serology {
 
   @@index([dialysis_patient_id, test_date(sort: Desc)], map: "idx_dialysis_serology_patient")
   @@index([dialysis_patient_id], map: "idx_dialysis_serology_seroconv", where: raw("is_seroconversion"))
+  @@index([tenant_id, dialysis_patient_id, test_date(sort: Desc), id(sort: Desc)], map: "idx_dialysis_serology_tenant_patient_date")
   @@index([tenant_id], map: "idx_dialysis_serology_tenant_id")
 }
 
@@ -26740,6 +26742,7 @@ model patient_bloodborne_markers {
   void_reason   String?
   notes         String?
 
+  @@unique([tenant_id, id], map: "uq_patient_bloodborne_markers_tenant_id_id")
   @@unique([tenant_id, lab_result_id], map: "ux_patient_bloodborne_markers_lab_result", where: raw("((lab_result_id IS NOT NULL) AND (voided_at IS NULL))"))
   @@index([tenant_id, patient_uid, marker, tested_on(sort: Desc), id(sort: Desc)], map: "idx_patient_bloodborne_markers_patient")
 }

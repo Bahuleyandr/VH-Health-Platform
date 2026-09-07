@@ -20,9 +20,11 @@ import {
   upsertConsumableCatalogItem,
 } from '../services/clinical/cathLabService.js';
 import {
+  DEVICE_LABEL_FIELDS,
   decorateConsumablesWithReuse,
   deviceByTag,
   deviceHistory,
+  deviceLabel,
   discardDevice,
   listDevices,
   markDeviceReprocessed,
@@ -35,6 +37,7 @@ import {
   upsertReprocessingSettings,
 } from '../services/clinical/cathDeviceReuseService.js';
 import { clinicalDate, recordMarkers } from '../services/clinical/bloodborneMarkerService.js';
+import { renderCathDeviceLabelPdf } from '../services/documents/cathDeviceLabelPdfService.js';
 
 const hasDatabaseUrl = Boolean(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const describeIfDb = hasDatabaseUrl ? describe : describe.skip;
@@ -669,6 +672,90 @@ describeIfDb('cath device reuse (deep)', () => {
     ]));
   }, 60000);
 
+  test('the printed label reads the register and the facility, and audits the print', async () => {
+    // The only place the label SQL is exercised against the real schema: it
+    // joins facilities, which nothing else on this router does, and it runs
+    // under RLS on both tables.
+    const device = await deviceByTag({ tenantId: TENANT, tag: deviceTags[0] });
+    const label = await deviceLabel(device.id, ctx(CSSD_ACTOR, { format: 'pdf' }));
+
+    expect(Object.keys(label).sort()).toEqual([...DEVICE_LABEL_FIELDS].sort());
+    expect(label).toMatchObject({
+      device_tag: deviceTags[0],
+      category: 'catheter',
+      catalogue_item: 'Deep test reusable diagnostic catheter',
+      reuse_cycle: device.cycle_count,
+      max_cycles: device.max_cycles_snapshot,
+    });
+    // The facility name comes from the joined row, not from the register.
+    const [facility] = await prisma.$queryRawUnsafe(
+      `SELECT display_name FROM facilities WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT, facilityId,
+    );
+    expect(label.facility_name).toBe(facility.display_name);
+    // Nothing patient-shaped, and in particular no serology: this device has
+    // been through a case, so a leaky projection would have something to leak.
+    expect(JSON.stringify(label)).not.toMatch(/hbsag|patient|exposure/i);
+
+    const audits = await prisma.$queryRawUnsafe(
+      `SELECT action, metadata FROM audit_logs
+        WHERE tenant_id = $1::uuid AND resource = 'cath_reprocessable_devices'
+          AND resource_id = $2 AND action = 'cssd.device.label_printed'`,
+      TENANT, String(device.id),
+    );
+    expect(audits).toHaveLength(1);
+    expect(audits[0].metadata).toMatchObject({ device_tag: deviceTags[0], format: 'pdf' });
+
+    // ...and the PDF really is one, drawn from that label alone.
+    const pdf = await renderCathDeviceLabelPdf(label);
+    expect(pdf.subarray(0, 5).toString()).toBe('%PDF-');
+
+    // Another tenant's id space is not this one's: an id that exists nowhere
+    // in this tenant is a 404, never a label for someone else's device.
+    await expect(deviceLabel(2147483646, ctx(CSSD_ACTOR)))
+      .rejects.toMatchObject({ code: 'CATH_DEVICE_NOT_FOUND' });
+  }, 60000);
+
+  test('the queue names the facility and when the device last MOVED', async () => {
+    // CAVEAT, recorded in the spec's §18 as well: this harness connects as the
+    // database SUPERUSER, for whom every row-level security policy is bypassed.
+    // So this proves the lateral onto audit_logs is CORRECT — it is tenant-
+    // pinned in SQL and reads the right row — but it cannot prove the tenant
+    // runtime role is allowed to read audit_logs at all. A policy that refused
+    // that reader would pass here and surface in production as a queue where
+    // every row reads "just now".
+    const device = await deviceByTag({ tenantId: TENANT, tag: deviceTags[0] });
+    const [row] = (await listDevices({ tenantId: TENANT }))
+      .filter((entry) => entry.device_tag === deviceTags[0]);
+
+    const [facility] = await prisma.$queryRawUnsafe(
+      `SELECT display_name FROM facilities WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT, facilityId,
+    );
+    expect(row.facility_id).toBe(facilityId);
+    expect(row.facility_name).toBe(facility.display_name);
+
+    // status_changed_at is the newest TRANSITION audit row, not updated_at and
+    // not the row's own timestamps: the register has no such column.
+    const [latest] = await prisma.$queryRawUnsafe(
+      `SELECT created_at FROM audit_logs
+        WHERE tenant_id = $1::uuid AND resource = 'cath_reprocessable_devices'
+          AND resource_id = $2 AND action <> 'cath_device.exposure_flagged'
+          AND action <> 'cssd.device.label_printed'
+        ORDER BY created_at DESC, id DESC LIMIT 1`,
+      TENANT, String(device.id),
+    );
+    expect(latest).toBeDefined();
+    // audit_logs.created_at is `timestamp WITHOUT time zone` written under a
+    // UTC session, so the queue reads it back AT TIME ZONE 'UTC'. Compare on
+    // the instant, which is what that conversion has to get right.
+    expect(new Date(row.status_changed_at).getTime())
+      .toBe(Date.parse(`${latest.created_at.toISOString().replace('Z', '')}Z`));
+    // ...and it is NOT simply updated_at, which the label print above did not
+    // move but the exposure sweep below does.
+    expect(row.status_changed_at).toBeTruthy();
+  }, 60000);
+
   test('a reused row is not a facility shutdown blocker', async () => {
     // loadFacilityShutdownBlockersTx is module-private, so this runs its
     // unreconciled_cath_usage predicate against the same row both ways: the
@@ -857,6 +944,8 @@ describeIfDb('cath device reuse (deep)', () => {
     const before = await deviceByTag({ tenantId: TENANT, tag: deviceTags[1] });
     expect(before.status).toBe('quarantined');
     expect(before.exposure_markers).not.toContain('hcv');
+    const queuedBefore = (await listDevices({ tenantId: TENANT, status: 'quarantined' }))
+      .find((entry) => entry.device_tag === deviceTags[1]);
     const result = await quarantineDevicesExposedToPatient({
       tenantId: TENANT,
       patientUid: PATIENT,
@@ -869,6 +958,17 @@ describeIfDb('cath device reuse (deep)', () => {
     const after = await deviceByTag({ tenantId: TENANT, tag: deviceTags[1] });
     expect(after).toMatchObject({ status: 'quarantined', exposure_flag: true });
     expect(after.exposure_markers).toEqual(expect.arrayContaining(['hbsag', 'hcv']));
+    // THE POINT OF DERIVING status_changed_at: the sweep stamps a marker and
+    // moves updated_at, but the device has not moved — it has been sitting in
+    // quarantine all along, and a queue that read updated_at would show it as
+    // freshly touched on some OTHER patient's lab result.
+    const queuedAfter = (await listDevices({ tenantId: TENANT, status: 'quarantined' }))
+      .find((entry) => entry.device_tag === deviceTags[1]);
+    expect(new Date(queuedAfter.status_changed_at).getTime())
+      .toBe(new Date(queuedBefore.status_changed_at).getTime());
+    expect(new Date(queuedAfter.updated_at).getTime())
+      .toBeGreaterThan(new Date(queuedBefore.updated_at).getTime());
+
     // The discarded device is out of scope for the sweep.
     const discarded = await deviceByTag({ tenantId: TENANT, tag: deviceTags[0] });
     expect(discarded.status).toBe('discarded');
@@ -876,6 +976,8 @@ describeIfDb('cath device reuse (deep)', () => {
 
   test('quarantine release goes back to awaiting_reprocessing; discard is terminal', async () => {
     const device = await deviceByTag({ tenantId: TENANT, tag: deviceTags[1] });
+    const queuedAtRelease = (await listDevices({ tenantId: TENANT, status: 'quarantined' }))
+      .find((entry) => entry.device_tag === deviceTags[1]).status_changed_at;
     const released = await releaseDevice(device.id, { note: 'reviewed by infection control' }, ctx(CSSD_ACTOR));
     expect(released).toMatchObject({ status: 'awaiting_reprocessing', quarantine_reason: null });
     await expect(quarantineDevice(device.id, {}, ctx(CSSD_ACTOR)))
@@ -886,6 +988,30 @@ describeIfDb('cath device reuse (deep)', () => {
       .rejects.toMatchObject({ code: 'CATH_DEVICE_INVALID_TRANSITION' });
     const queue = await listDevices({ tenantId: TENANT, status: 'discarded' });
     expect(queue.map((entry) => entry.device_tag)).toEqual(expect.arrayContaining(deviceTags));
+    // ...and a REAL transition does advance the clock the sweep above left
+    // alone: this device released and then discarded since that assertion.
+    const movedRow = queue.find((entry) => entry.device_tag === device.device_tag);
+    expect(new Date(movedRow.status_changed_at).getTime())
+      .toBeGreaterThan(new Date(queuedAtRelease).getTime());
+    // ...and terminal means the LABEL is refused too. A discarded device is
+    // out of circulation and a sticker is a physical instruction to put it
+    // back on a tray, so the print is a 409 rather than a PDF — asserted
+    // against the real row here because it reads d.status from the same
+    // tenant-pinned SELECT the label is built from.
+    await expect(deviceLabel(device.id, ctx(CSSD_ACTOR)))
+      .rejects.toMatchObject({
+        code: 'CSSD_DEVICE_LABEL_NOT_PRINTABLE',
+        details: { status: 'discarded' },
+      });
+    const printAudits = await prisma.$queryRawUnsafe(
+      `SELECT count(*)::int AS n FROM audit_logs
+        WHERE tenant_id = $1::uuid AND resource = 'cath_reprocessable_devices'
+          AND resource_id = $2 AND action = 'cssd.device.label_printed'`,
+      TENANT, String(device.id),
+    );
+    // The refusal wrote no print row: a label that was not printed is not a
+    // label in circulation.
+    expect(printAudits[0].n).toBe(0);
   }, 60000);
 
   test('under override_allowed an exposure-flagged device is captured and the override lands on the record', async () => {

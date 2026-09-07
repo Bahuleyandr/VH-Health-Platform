@@ -74,6 +74,7 @@
     "scheduler:run-now": "node -e \"import('./src/utils/scheduler.js').then(m => m.runAllScheduledTasksNow())\"",
     "lab:reconcile-critical-alert-generations": "node scripts/reconcile-lab-critical-alert-generations.mjs",
     "lab:reconcile-threshold-exceptions": "node scripts/reconcile-lab-threshold-exceptions.mjs",
+    "clinical:reconcile-bloodborne-markers": "node scripts/reconcile-bloodborne-markers.mjs",
     "lab:audit-care-pathway-spine-readiness": "node scripts/audit-care-pathway-spine-readiness.mjs",
     "care-pathways:audit-owner-routing-readiness": "node scripts/audit-care-pathway-owner-routing-readiness.mjs",
     "payroll:revision-754:preflight": "node scripts/payroll-revision-754-preflight.mjs",

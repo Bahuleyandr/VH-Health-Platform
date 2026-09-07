@@ -236,6 +236,22 @@ export function __clearExposureHandlersForTests() {
   exposureHandlers.clear();
 }
 
+/**
+ * How many exposure handlers are registered in THIS process.
+ *
+ * Registration is a module-load side effect of each consumer
+ * (cathDeviceReuseService.js today), so a process that never imports the
+ * consumer silently has none — a reactive marker recorded there fans out to
+ * nobody and no device is quarantined. Callers that record markers outside the
+ * Express process (the reconciliation sweep) read this to refuse to run
+ * half-wired rather than to repair a marker whose exposure fan-out is dead.
+ * services/clinical/exposureHandlerBootstrap.js is the module that makes the
+ * count non-zero on purpose.
+ */
+export function exposureHandlerCount() {
+  return exposureHandlers.size;
+}
+
 export async function notifyExposureHandlers(events = []) {
   for (const event of Array.isArray(events) ? events : []) {
     for (const handler of exposureHandlers) {

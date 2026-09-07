@@ -48,6 +48,28 @@ export function fmtDate(value?: string | null) {
   });
 }
 
+/**
+ * How long ago `value` was, humanised for a queue: "just now", "42m",
+ * "3h 25m", "2d 2h". Coarse on purpose — CSSD reads this to decide what to
+ * pick up next, and a device is not more urgent for 40 seconds.
+ *
+ * `now` is a parameter so the caller can pin it: a component that computes it
+ * per row would drift across a long table, and a test needs it fixed.
+ * A future timestamp (clock skew between the app server and the database)
+ * reads as "just now" rather than a negative age.
+ */
+export function fmtAge(value?: string | null, now: number = Date.now()) {
+  if (!value) return "-";
+  const then = new Date(value).getTime();
+  if (Number.isNaN(then)) return "-";
+  const minutes = Math.floor((now - then) / 60_000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ${minutes % 60}m`;
+  return `${Math.floor(hours / 24)}d ${hours % 24}h`;
+}
+
 export function statusTone(status?: string) {
   return (
     STATUS_TONE[String(status || "").toLowerCase()] ??
