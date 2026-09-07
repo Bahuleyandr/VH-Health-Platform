@@ -4,15 +4,32 @@
 
 **Goal:** Make the pre-cath readiness checklist inform and record instead of restrict: any `scheduled` / `readiness_pending` / `ready` case may start with checks pending (the documented authority to proceed — consent — is the one hard block), the checklist keeps living after start with lateness marked, a cancelled case has an audited door back, and a monthly report of starts-with-pending exists — per the owner decisions of 2026-09-06, as corrected by the owner's review of the same day.
 
-**Architecture (revision 2):** One start function (`startCaseTx`) behind the two existing start paths; it asserts the documented authority to proceed, reads the **last committed** lab picture (never awaiting the lab rail), binds a client **command id** to the **procedure attempt** so a stale retry can never restart a reopened case, and writes an attempt-keyed at-start snapshot plus an `audit_logs` row. Ordinary creation may create only pre-start statuses. A second, deliberately separate function (`reopenCaseTx`) takes a `cancelled` case — and only a cancelled case — back to `readiness_pending`; when the previous attempt had started it opens attempt N+1, clears the active start, moves the snapshot into history and resets consent and time-out. The generic status endpoint refuses every transition on a cancelled case and names `/reopen`. The pure rules module gains a post-start regime keyed on the **active attempt** and on a persisted **`unavailability_cause`** (ageing alone never retracts; any other change does), three lateness markers beside #1018's, a tri-state "started with pending" and time-out timing. Consent records `authority` and `mode`; time-out records `performed_at` apart from documentation time. One report handler over the audit rows, audited itself on both mounts, with facility scope and a bounds-converted predicate. **migration NNN** adds `procedure_attempt`, `attempt_started_at`, four CHECKs, and the item cause column. Staff gains Start / Reopen, live updates over the existing `staff:lab` rail, and the consent / time-out fields; Admin gains the report tab.
+**Architecture (revision 3):** One `startCaseTx` remains behind both start paths, but replay dispatch precedes ordinary transition validation. A server-issued `lifecycle_token` fences Start, consent, time-out and procedure-log writes and rotates on cancel/reopen; Start commands and log commands are distinct idempotency identities. Attempt history lives in an attempt-keyed server-owned table, and procedure logs carry attempt/token provenance. Clinical start time is nullable and separate from server recording time; one bound database clock value feeds the case projection, snapshot and event. Lab refresh resolves evidence outside the case-row critical section and publishes in a brief generation-checked transaction; Staff loads cached readiness without awaiting refresh. Age-only suppression requires equal evidence and policy fingerprints. Consent has authority-conditional evidence and no fictitious emergency communication mode. Report joins are attempt-keyed and access auditing is explicit-tenant and fail-closed. Migration NNN is deployed only through preflight, old-writer quiescence, classified backfill and enforcement with rollback points.
 
 **Tech Stack:** Node 26 ESM backend (Express 5, Prisma raw SQL on Postgres 17, jest with `--experimental-vm-modules`), Flutter Staff app, Next.js Admin console, OpenAPI overlay scripts.
 
-**Spec:** `docs/superpowers/specs/2026-09-06-cath-readiness-never-restricts-design.md` — **revision 2 (2026-09-07)**. Read it first; section numbers below are its; its §0 table maps every owner point to the section that answers it.
+**Spec:** `docs/superpowers/specs/2026-09-06-cath-readiness-never-restricts-design.md` — **revision 3 (2026-09-07)**. Read it first; revision-3 §0 controls where an older snippet conflicts.
 
-**Revision 2 of this plan** rebuilds revision 1 against the revised spec. What is new, task by task: **Task 1** is a migration (revision 1 had none); **Task 2** keys the regime on `attempt_started_at` and on `unavailability_cause` and adds `classifyUnavailability`, `finalised_after_start` (with `resulted_after_start` renamed `received_after_start`), the attempt-aware snapshot, `labComponentStatus`, `timeoutTiming` and the consent vocabularies; **Task 3** adds `CREATABLE_STATUSES`, the population pin, the generic-status short-circuit, the explicit reopen precondition, the exhaustive procedure-log table, the command-id binding, the non-blocking lab picture, consent authority/mode validation against the tenant policy, the time-out `performed_at` rule, and the attempt increment with consent/time-out reset on reopen; **Task 4** persists the cause, moves every "started" read to the active attempt, and carries the deep tests the owner asked for by name (aged-out-before-next-attempt, generic `/status` bypass, `/reopen` on `scheduled`, creation route + 23514, replay across attempts); **Task 5** adds the tri-state day-list flag, the four-field free-text inventory with CSV coverage, and the `CASE_LIFECYCLE_ERROR_CODES` bidirectional scan; **Task 6** gives the report facility scope, shared `logAudit` on both mounts, the bounds-converted predicate with an EXPLAIN gate, start-event identity with the attempt, and the time-out / consent breakdowns; **Task 7** adds the `staff:lab` subscription with the end-to-end live-warning test, the consent choosers, the time-out field and the stale-command handling; **Task 9** carries 31 mutations and the live migration gates.
+**Revision-2 baseline retained.** Revision 2 rebuilt revision 1 around first-start history, active attempts, non-blocking readiness and event-based reporting. Revision 3 supersedes any older snippet that conflicts with the following controlling task map.
 
-**Nothing blocks a task.** The one open owner item (spec §10.2 — whether `CATH_LAB_INCHARGE` reads the report tenant-wide) has a decided default (tenant-wide, by the day-list precedent) and Task 6 implements the default; the three clinical-meaning decisions the owner is asked to approve as part of the documents (a draft log does not start; consent and time-out reset on a new attempt; Start = the beginning of the invasive procedure) are each **one constant** in the code below, named where they land.
+| Owner review item | Controlling plan work |
+|---|---|
+| 1. Reachable replay and a server lifecycle fence | Task 3 dispatches Start replay before ordinary transition validation, uses distinct Start/log command identities, and fences Start, consent, time-out and procedure logs with a server-issued `lifecycle_token`; Task 4 proves delayed first delivery cannot affect a reopened lifecycle. |
+| 2. Lock-independent refresh | Task 3 resolves lab evidence outside the case lock and publishes under a short generation-checked transaction; Task 7 makes Staff render cached readiness immediately; Task 4 uses two database connections to prove Start is not blocked by refresh resolution. |
+| 3. Attempt history end to end | Task 1 creates server-owned attempt records and log provenance; Task 3 writes them transactionally; Task 6 reports by attempt; Task 4 covers attempt 1, cancel/reopen, attempt 2 and later amendment. |
+| 4. Time-out and clocks | Tasks 2–3 distinguish `not_documented` / `performance_unknown` from explicit `not_performed`, preserve clinical occurrence separately from recording, and reuse one database recording timestamp for projection, snapshot and event; Task 6 reports the distinction. |
+| 5. Age-only fingerprint | Task 2 defines evidence and policy fingerprints plus an independently retained accepted decision; Task 4 covers corrections, withdrawals, bounded-lookback absence and bootstrap. |
+| 6. Conditional consent | Tasks 2–3 require evidence/scope only when the authority needs it, disallow a fictitious emergency mode, and make provenance server-owned; Task 7 mirrors the conditional form. Clinical/legal approval remains a release condition. |
+| 7. Migration rollout | Tasks 0–1 inventory inconsistent rows and every writer, then expand/backfill/enforce only after old-writer quiescence; Task 9 defines rollback gates. The SQL CHECK enforces timestamp shape, not consent authority. |
+| Further: active-attempt end invariant | Tasks 1, 4 and 9 require `in_progress ⇒ actual_end_at IS NULL`; mutation 15 directly asserts the final row rather than comparing against first-start history. |
+| Further: audit tenant binding | Task 6 replaces best-effort `logAudit` with an explicit-tenant, fail-closed report-access insert and tests a non-default tenant plus forced failure. |
+| Further: realtime path | Tasks 4 and 7 test sign-off commit → publish commit → emission → delivery → reload, plus reconnect, 2-second maximum wait and stale response suppression. |
+| Further: EXPLAIN criteria | Task 6 uses a representative 100,000-row, 1–5%-selectivity fixture and bounded block/temp-I/O criteria without requiring a fixed node type. |
+| Further: new-writer pin | Tasks 3–4 and 9 test synthetic parameterized-SQL and ORM writers and assert the known 9 UPDATE + 2 INSERT post-lane population. |
+| Further: privacy survey | Tasks 0, 5 and 9 make the complete timeline, nested-payload and export reader survey a release condition with reachable-role tests. |
+| Further: PR migration claim | Tasks 0, 1 and 9 require the PR description to name NNN as the next free migration above 767 and never claim 767. |
+
+**One release approval remains intentionally external.** The design records the owner-decided procedure-start meaning and new-attempt reconfirmation rules. Clinical/legal owners must approve the authority-conditional consent evidence policy before deployment; implementation does not invent that policy. `CATH_LAB_INCHARGE` report scope remains tenant-wide by the day-list precedent.
 
 ---
 
@@ -23,11 +40,11 @@
 
 All of Plan 3's conventions apply (tenant transactions, raw SQL, `AppError`, npm-run jest, immutable migrations, scratch DB, commit trailer `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`, `[full-ci]` on the last commit, draft PR, no merge — merge authority is dev-1b). Plus:
 
-- **Base is `github/main` at `5857298dc`.** #1018 (merged as `3f3959306`, head `a0144fc00`), #1022 (`35a231238`) and #1024 are in it. There is no "#1018 not merged" arm any more; Task 0 confirms its shape (record-yes / lift-no) rather than choosing a branch.
+- **Verified code reference is current `github/main` at `db30fe80bed25a66d25c9b9f75ab4996a87ca507` (or a newer fetched head at implementation time).** Task 0 re-verifies every named function before editing.
 - **Cite by function name.** Line numbers are illustrative; grep the function.
-- **Every "started" read is the ACTIVE attempt:** `attempt_started_at` (and its epoch twin), never `actual_start_at`. `actual_start_at` is history — the first start — and is never rewritten.
-- **Post-start suppression is decided by `unavailability_cause === 'aged_out'`, never by `state === 'stale'`.** The pre-start staleness test is in the mutation list because it is the regime this lane does *not* change.
-- **Never widen the picture with a value.** New payload keys are booleans, codes, causes, enums or instants. There are **four** free-text fields (spec §6.5), each projected through `roleSeesSerologyDetail` or privileged, each with a named sentinel on each reader.
+- **Every operational "started" read uses the ACTIVE attempt's server recording instant:** `attempt_start_recorded_at` (and its epoch twin), never `actual_start_at`. `attempt_started_at` is nullable clinical occurrence; `actual_start_at` is the first server-recorded start and is never rewritten.
+- **Post-start suppression is decided only by a matching accepted evidence-and-policy fingerprint whose classified cause is `aged_out`, never by `state === 'stale'`.** Bootstrap and bounded-lookback absence are not policy change or withdrawal.
+- **Never widen the picture with a value.** New payload keys are booleans, codes, causes, enums or instants. There are exactly **five** free-text fields (spec §6.5), including emergency-basis justification; each has an explicit reader matrix, projection and sentinel.
 - **migration NNN is claimed.** Reserve it in Task 1, re-check before the first push (Task 9), `NNN = max(highest number on any github/* branch, 767) + 1` - never 767 (reserved for the Phase 1 lane even before its file exists); never edit a migration after it is on a remote (add a new number instead).
 - **Fixtures with `<col>_at` carry `<col>_at_epoch_ms`** (`epochTwinFixtureFidelity.test.js`), derived from the same instant.
 - **Every new error code** in the `CATH_LAB_(CONSENT|TIMEOUT|START|CASE_STATUS|CASE_CANCELLED|CASE_START|REOPEN|REPORT)_*` family must be in `CASE_LIFECYCLE_ERROR_CODES` (Task 5) — the scan is bidirectional, so an undocumented code and a documented-but-unraised code both fail.
@@ -40,15 +57,15 @@ All of Plan 3's conventions apply (tenant transactions, raw SQL, `AppError`, npm
 
 | File | Responsibility |
 |---|---|
-| Create `apps/backend/src/migrations/NNN_cath_lab_case_attempts.sql` | `procedure_attempt`, `attempt_started_at`, four CHECKs on `cath_lab_cases`; `unavailability_cause`, `window_days` + CHECK on `cath_case_lab_readiness_items`; backfill. |
-| Modify `apps/backend/prisma/schema.prisma` | The two models' new columns (schema-drift gate). |
-| Modify `apps/backend/src/services/clinical/cathLabReadinessRules.js` | `computeCheckDecision` keyed on `attempt_started_at` + cause; `classifyUnavailability`, `UNAVAILABILITY_CAUSES`; `afterCaseStartMs`; `ordered_after_start` / `received_after_start` / `finalised_after_start`; snapshot helpers (`START_SNAPSHOT_KEYS` ×12, `buildStartSnapshot`, `normalizeStartSnapshot`, tri-state `startedWithReadinessPending`, `missingLabItemCodes`, `labComponentStatus`, `START_PICTURE_FRESH_MS`, `LAB_COMPONENT_STATUSES`); `timeoutTiming`; `CONSENT_AUTHORITIES`, `CONSENT_MODES`. |
-| Modify `apps/backend/src/services/clinical/cathLabService.js` | `CASE_TRANSITIONS` (+ `cancelled: ['readiness_pending']`), `START_ELIGIBLE_STATUSES`, `REOPENABLE_STATUSES` / `REOPEN_TARGET_STATUS`, `CREATABLE_STATUSES`, `START_LOG_STATUSES`, `ATTEMPT_RESET_CHECKS`, `CASE_START_METADATA_KEYS`; `assertConsentDocumented` (replaces `assertReadinessComplete`); `consentPolicyFor`; consent / time-out validation in `updateReadinessCheck`; `caseById` widened; `normalizeCommandId`; `labsPictureForStartTx`; `startCaseTx`; `reopenCaseTx` + `reopenCase` + `latestCancelReasonTx`; `transitionCaseStatus` (short-circuit, rewire, post-commit refresh); `recordProcedureLog` (exhaustive); `createCase` (`CREATABLE_STATUSES`, reserved keys); `listCases` (two columns + tri-state fold). |
-| Modify `apps/backend/src/services/clinical/cathLabReadinessService.js` | `caseRowTx` selects the attempt columns + twin + snapshot path; refresh passes the twin, computes and persists the cause + `window_days`, audits `passed_after_start`, returns the new keys; `refreshOpenCasesForPatient` predicate; facade re-exports. |
-| Modify `apps/backend/src/services/clinical/cathLabReadinessActions.js` | Lift the two refusals; STAT after start; `isAfterCaseStart` on `attempt_started_at`; audit keys. |
+| Create `apps/backend/src/migrations/NNN_cath_lab_case_attempts.sql` | Expand with lifecycle/recording/provenance columns, attempt-keyed readiness history, procedure-log attempt/token/idempotency columns and evidence/policy fingerprints; classify legacy data, backfill without inventing clinical occurrence, then enforce only after old-writer quiescence. |
+| Modify `apps/backend/prisma/schema.prisma` | Mirror every migration-NNN column/table after the enforced phase (schema-drift gate). |
+| Modify `apps/backend/src/services/clinical/cathLabReadinessRules.js` | Key operational timing on `attempt_start_recorded_at`; preserve nullable clinical occurrence; classify `not_documented`, `performance_unknown` and explicit `not_performed`; retain accepted evidence/policy fingerprints independently from the live observation. |
+| Modify `apps/backend/src/services/clinical/cathLabService.js` | Reachable replay before transition validation; server-issued lifecycle fencing; one bound recording clock; authority-conditional consent; attempt-history writes; cancelled-only token-rotating reopen; exhaustive attempt-aware procedure logs with a separate log command identity. |
+| Modify `apps/backend/src/services/clinical/cathLabReadinessService.js` | Resolve lab evidence outside the case lock, then validate generation/token and publish in a short transaction; persist live and accepted fingerprints separately; expose a cached read that never awaits refresh. |
+| Modify `apps/backend/src/services/clinical/cathLabReadinessActions.js` | Lift the two refusals; STAT after start; use the active attempt's server recording instant; fence consent/time-out writes by lifecycle token and record clinical occurrence separately. |
 | Modify `apps/backend/src/services/clinical/cathLabReadinessProjection.js` | Blank `readiness_at_start.reason` for non-entitled roles; export `projectStartReasonForRole`. |
-| Create `apps/backend/src/services/clinical/cathStartsWithPendingReportService.js` | Month + facility validation, bounds-converted query with the time-out join, per-facility fold, breakdowns, `distinct_cases`, CSV, projection. |
-| Create `apps/backend/src/routes/clinical/cathStartsWithPendingReportHandler.js` | One handler, registered on both mounts, `logAudit` awaited before the response. |
+| Create `apps/backend/src/services/clinical/cathStartsWithPendingReportService.js` | Month + facility validation; event-to-attempt join; time-out clinical/recording outcomes; representative bounded-work EXPLAIN criteria; per-facility fold, CSV and projection. |
+| Create `apps/backend/src/routes/clinical/cathStartsWithPendingReportHandler.js` | One handler on both mounts; explicit tenant-bound report-access audit that is awaited and fail-closed before response. |
 | Modify `apps/backend/src/routes/clinical/cathLabRoutes.js`, `cathReprocessingPolicyRoutes.js` | Report route (before `/reports/:id` on the cath router); `POST /cases/:id/reopen` (cath router only); creation route validates `status` against `CREATABLE_STATUSES`. |
 | Modify `apps/backend/src/utils/roleHelpers.js` | `CATH_READINESS_REPORT_ROLES`, `canReadCathReadinessReport`. |
 | Modify `apps/backend/scripts/openapi/schemas/cathLabReadiness.mjs` | `CathLabCase` +2 columns; item +3 booleans + cause; readiness keys; snapshot schema; report schemas/operations (+ `facility_id`); prose-only status / procedure-log / reopen / creation notes; `CASE_LIFECYCLE_ERROR_CODES`; decision-9 edits. |
@@ -56,7 +73,7 @@ All of Plan 3's conventions apply (tenant transactions, raw SQL, `AppError`, npm
 | Create `apps/backend/src/tests/unit/cathStartsWithPendingReportService.test.js` | Report unit tests (incl. the bounds literal). |
 | Modify unit tests: `cathLabService.test.js`, `cathLabReadinessService.test.js`, `cathLabReadinessServiceOrders.test.js`, `cathLabReadinessOpenApiSource.test.js`, `cathLabReadinessProjection.test.js`, `serologyDisclosureCanary.test.js` (+ `fixtures/serologyDisclosureCanary.reachable.json`), the roleHelpers test, `cathLabRouteGuards.test.js` (report probes only — decision 9 is KEPT) | Per task. |
 | Modify `apps/backend/src/tests/cath-lab-readiness.deep.test.js` | Deep coverage, case-parameterised helpers. |
-| Staff: modify `features/cath_lab/models/cath_readiness_models.dart`, `services/cath_lab_api_service.dart`, `widgets/cath_readiness_checklist.dart`, `widgets/cath_lab_readiness_panel.dart`, `screens/cath_lab_screen.dart`, `l10n/app_strings.dart`; tests `test/features/cath_lab/cath_readiness_checklist_test.dart`, `cath_lab_screen_test.dart`, `test/i18n_guard_test.dart` | Start / Reopen affordances, live updates, banners, chips, consent choosers, time-out field, 40 keys. |
+| Staff: modify `features/cath_lab/models/cath_readiness_models.dart`, `services/cath_lab_api_service.dart`, `widgets/cath_readiness_checklist.dart`, `widgets/cath_lab_readiness_panel.dart`, `screens/cath_lab_screen.dart`, `l10n/app_strings.dart`; tests `test/features/cath_lab/cath_readiness_checklist_test.dart`, `cath_lab_screen_test.dart`, `test/i18n_guard_test.dart` | Cached-first loading; lifecycle-token commands; conditional consent evidence; clinical and recording time labels; commit-to-delivery realtime with reconnect, maximum wait and stale-generation guards. |
 | Admin: create `dashboard/quality/cath/components/StartsWithPendingTab.tsx`, `__tests__/dashboard/quality/cath-starts-with-pending.test.tsx`; modify `lib/api/cathDevices.ts`, `dashboard/quality/cath/page.tsx` | Report tab with facility filter, breakdowns, identifiability header, CSV. |
 
 ---
@@ -70,7 +87,7 @@ All of Plan 3's conventions apply (tenant transactions, raw SQL, `AppError`, npm
 ```bash
 cd "/d/Dev/Projects/VH Health/VH-Health-Platform"
 git fetch github '+refs/heads/*:refs/remotes/github/*'
-git rev-parse github/main            # 5857298dc… or later; record it in the PR body
+git rev-parse github/main            # db30fe80… or later; record the fetched SHA in the PR body
 git worktree add "$SCRATCH/wt/rr-impl" -b feat/cath-readiness-never-restricts github/main
 cd "$SCRATCH/wt/rr-impl/apps/backend" && npm ci
 ```
@@ -158,7 +175,7 @@ grep -n "^export async function\|^export function" apps/backend/src/services/cli
 grep -rln "canonicalClinicalPlatformService" apps/backend/src/routes
 ```
 
-Known at the time of writing (verified on `main`): `recordCanonicalClinicalEvent` writes `visible_to_patient` **only** when the input says `true`, and `writeCanonicalEvent` never sets it — so the cath events are not patient-visible and the patient app is out; the reader is `readCanonicalPatientTimeline`, called from `emr/clinicalTimelineRoutes.js`, `clinical/encounterRoutes.js` and `patient/patientSearchRoutes.js`. Record the **roles** admitted on those three routes. **Verdict rule**: if any is outside `roleSeesSerologyDetail`, Task 5 projects `payload.reason` and `payload.readiness_at_start.reason` in `readCanonicalPatientTimeline` by the same predicate and adds the sentinel test on that reader; if only entitled staff reach it, record that, and the coverage is the unit assertion (Task 3) that the two cath events are written `visible_to_patient = false` plus the writer's payload-shape test. Either way the finding goes in the PR body.
+Known at the revision-3 code-reference SHA: `recordCanonicalClinicalEvent` writes `visible_to_patient` **only** when the input says `true`, and `writeCanonicalEvent` never sets it. The complete current caller search for `readCanonicalPatientTimeline` finds exactly two route callers: `emr/clinicalTimelineRoutes.js` and `patient/patientSearchRoutes.js`; both pass through `patientAccessGuard`. Re-run the route/function search at implementation time, record every nested projection/copy/CSV/notification consumer, and fail the release survey if the measured caller set differs without a reviewed projection decision. For each reachable role, prove `payload.reason`, `payload.readiness_at_start.reason`, emergency justification, evidence references and provenance are absent unless `roleSeesSerologyDetail` (or the narrower approved predicate) admits them. Cath events remain `visible_to_patient = false`, but that writer flag is not a substitute for surveying readers. Survey evidence and sentinel tests are a release condition, not a best-effort note.
 
 - [ ] **Step 10: The lifecycle error-code scan on the base tree**
 
@@ -170,13 +187,13 @@ Expected: zero (the existing `CATH_LAB_CASE_*` codes are `_NOT_FOUND`, `_ENCOUNT
 
 ---
 
-## Task 1: migration NNN — the attempt columns and the cause column (DDL only)
+## Task 1: migration NNN — lifecycle, attempt evidence, fingerprints and staged enforcement
 
 **Files:**
 - Create: `apps/backend/src/migrations/NNN_cath_lab_case_attempts.sql`
-- Modify: `apps/backend/prisma/schema.prisma` (`cath_lab_cases`, `cath_case_lab_readiness_items`)
+- Modify: `apps/backend/prisma/schema.prisma` (all three affected models plus `cath_procedure_logs`)
 
-> **Why a migration now** (spec §8.1): the owner's point 4 — "'no migration' must not determine clinical meaning" — is accepted. The attempt lifecycle is read by every rule, compared against the process clock and lab instants, and must be enforceable by a CHECK; the cause of unavailability must be stable across refreshes, so it is persisted beside the state it explains. Revision 1's "no migration" is withdrawn. **Pure DDL plus one backfill UPDATE; no plpgsql body** (no plpgsql body is CI-validated after the baseline, so none is written).
+> **Rollout invariant** (spec §8.1, §13): do not run NNN until the preflight inventory has classified every inconsistent `in_progress` row and all old writers are quiesced. The migration's order is expand → classified backfill → enforce. It never derives clinical occurrence from `created_at` or `actual_start_at`, and its CHECKs enforce timestamp/end-field shape only—not consent or route use.
 
 - [ ] **Step 1: Reserve the number — and plan to re-check it at push time**
 
@@ -192,44 +209,178 @@ Expected tail: `765`, `766` (re-checked 2026-09-07 over the seven `github/*` bra
 
 - [ ] **Step 2: Write the migration** (spec §8.1, verbatim — the CHECK names are cited by the deep tests and the OpenAPI pin)
 
+Write `NNN_cath_lab_case_attempts.sql` exactly as spec §8.1, including: case lifecycle/recording/provenance/generation columns; legacy recording-only backfill; procedure-log attempt/token/log-command columns and partial uniqueness; `cath_lab_attempt_readiness_records` with its complete consent/time-out backfill; enable/force RLS plus `tenant_isolation`; lifecycle shape constraints; readiness cause/evidence/policy/last-accepted fields; and log-column enforcement. Copy the complete SQL block, not a prose placeholder, and compare the two fenced blocks byte-for-byte in the docs self-review.
+
 ```sql
--- NNN_cath_lab_case_attempts.sql — spec 2026-09-06 (revision 2) §4.9, §5.6, §8.
+-- NNN_cath_lab_case_attempts.sql — spec 2026-09-06 revision 3.
+-- PRECONDITION: the inventory in §13 returned zero unresolved rows and all old
+-- writers are quiesced. Do not invent clinical time from created_at.
 ALTER TABLE cath_lab_cases
   ADD COLUMN procedure_attempt INTEGER NOT NULL DEFAULT 1,
-  ADD COLUMN attempt_started_at TIMESTAMPTZ(6);
+  ADD COLUMN lifecycle_token UUID NOT NULL DEFAULT gen_random_uuid(),
+  ADD COLUMN attempt_start_recorded_at TIMESTAMPTZ(6),
+  ADD COLUMN attempt_started_at TIMESTAMPTZ(6),
+  ADD COLUMN attempt_start_time_provenance VARCHAR(40),
+  ADD COLUMN lab_readiness_generation BIGINT NOT NULL DEFAULT 0;
 
--- A case that had started when this lands is in its (first) attempt; a case that
--- had not has no active attempt. Runs BEFORE the constraints below.
-UPDATE cath_lab_cases SET attempt_started_at = actual_start_at WHERE actual_start_at IS NOT NULL;
+-- Existing actual_start_at is known only as the legacy server recording time;
+-- it is not proof of clinical occurrence time.
+UPDATE cath_lab_cases
+   SET attempt_start_recorded_at = actual_start_at,
+       attempt_started_at = NULL,
+       attempt_start_time_provenance = 'legacy_recording_only'
+ WHERE actual_start_at IS NOT NULL;
+
+ALTER TABLE cath_procedure_logs
+  ADD COLUMN procedure_attempt INTEGER,
+  ADD COLUMN lifecycle_token UUID,
+  ADD COLUMN log_command_id VARCHAR(128);
+UPDATE cath_procedure_logs l SET procedure_attempt = 1, lifecycle_token = c.lifecycle_token
+  FROM cath_lab_cases c WHERE c.tenant_id = l.tenant_id AND c.id = l.case_id;
+CREATE UNIQUE INDEX uq_cath_procedure_log_command
+  ON cath_procedure_logs (tenant_id, case_id, log_command_id)
+  WHERE log_command_id IS NOT NULL;
+
+CREATE TABLE cath_lab_attempt_readiness_records (
+  tenant_id UUID NOT NULL,
+  case_id BIGINT NOT NULL,
+  procedure_attempt INTEGER NOT NULL,
+  check_type VARCHAR(40) NOT NULL CHECK (check_type IN ('consent','timeout')),
+  lifecycle_token UUID NOT NULL,
+  server_provenance VARCHAR(40),
+  current_status VARCHAR(40) NOT NULL,
+  current_completed_at TIMESTAMPTZ(6),
+  current_completed_by UUID,
+  current_metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  current_evidence_refs JSONB NOT NULL DEFAULT '[]'::jsonb,
+  at_start_status VARCHAR(40),
+  at_start_completed_at TIMESTAMPTZ(6),
+  at_start_metadata JSONB,
+  at_start_evidence_refs JSONB,
+  at_start_recorded_at TIMESTAMPTZ(6),
+  created_at TIMESTAMPTZ(6) NOT NULL DEFAULT clock_timestamp(),
+  updated_at TIMESTAMPTZ(6) NOT NULL DEFAULT clock_timestamp(),
+  PRIMARY KEY (tenant_id, case_id, procedure_attempt, check_type),
+  CONSTRAINT fk_cath_attempt_readiness_tenant
+    FOREIGN KEY (tenant_id) REFERENCES tenants(id) ON DELETE NO ACTION,
+  CONSTRAINT fk_cath_attempt_readiness_case
+    FOREIGN KEY (tenant_id, case_id) REFERENCES cath_lab_cases(tenant_id, id) ON DELETE CASCADE,
+  CONSTRAINT cath_attempt_readiness_status_check
+    CHECK (current_status IN ('pending','pass','fail','waived','not_applicable')),
+  CONSTRAINT cath_attempt_readiness_refs_check
+    CHECK (jsonb_typeof(current_evidence_refs) = 'array'
+       AND (at_start_evidence_refs IS NULL OR jsonb_typeof(at_start_evidence_refs) = 'array'))
+);
+-- Backfill current consent/time-out rows for attempt 1. A consent pass without
+-- structured evidence receives server_provenance='legacy_pre_NNN'; clients can
+-- never write this column. Copy attachment/evidence references into the archive.
+INSERT INTO cath_lab_attempt_readiness_records (
+  tenant_id, case_id, procedure_attempt, check_type, lifecycle_token,
+  server_provenance, current_status, current_completed_at, current_completed_by,
+  current_metadata, current_evidence_refs
+)
+SELECT r.tenant_id, r.case_id, 1, r.check_type, c.lifecycle_token,
+       CASE WHEN r.check_type = 'consent' AND r.status = 'pass'
+            THEN 'legacy_pre_NNN' ELSE 'legacy_projection' END,
+       r.status, r.completed_at, r.completed_by, COALESCE(r.metadata, '{}'::jsonb),
+       CASE WHEN r.evidence_owner IS NULL AND r.source_name IS NULL
+                  AND r.source_version IS NULL AND r.attachment_ref IS NULL
+            THEN '[]'::jsonb
+            ELSE jsonb_build_array(jsonb_strip_nulls(jsonb_build_object(
+              'evidence_owner', r.evidence_owner,
+              'source_name', r.source_name,
+              'source_version', r.source_version,
+              'attachment_ref', r.attachment_ref))) END
+  FROM cath_lab_readiness_checks r
+  JOIN cath_lab_cases c ON c.tenant_id = r.tenant_id AND c.id = r.case_id
+ WHERE r.check_type IN ('consent', 'timeout');
+
+ALTER TABLE cath_lab_attempt_readiness_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE cath_lab_attempt_readiness_records FORCE ROW LEVEL SECURITY;
+CREATE POLICY tenant_isolation ON cath_lab_attempt_readiness_records
+  USING (
+    current_setting('app.current_tenant_id', true) IS NULL
+    OR current_setting('app.current_tenant_id', true) = ''
+    OR current_setting('app.current_tenant_id', true) = 'bypass'
+    OR tenant_id = app_current_tenant_id_uuid()
+  )
+  WITH CHECK (
+    current_setting('app.current_tenant_id', true) IS NULL
+    OR current_setting('app.current_tenant_id', true) = ''
+    OR current_setting('app.current_tenant_id', true) = 'bypass'
+    OR tenant_id = app_current_tenant_id_uuid()
+  );
 
 ALTER TABLE cath_lab_cases
   ADD CONSTRAINT cath_lab_cases_attempt_check
     CHECK (procedure_attempt >= 1),
-  -- The active attempt cannot start before the first start, and cannot exist without one.
-  ADD CONSTRAINT cath_lab_cases_attempt_start_check
-    CHECK (attempt_started_at IS NULL OR (actual_start_at IS NOT NULL AND attempt_started_at >= actual_start_at)),
-  -- A running case IS a started attempt: closes the creation bypass at the database (decision 14).
+  ADD CONSTRAINT cath_lab_cases_attempt_record_check
+    CHECK (attempt_start_recorded_at IS NULL OR actual_start_at IS NOT NULL),
   ADD CONSTRAINT cath_lab_cases_in_progress_attempt_check
-    CHECK (status <> 'in_progress' OR attempt_started_at IS NOT NULL),
-  -- A pre-start case has no active attempt (a reopened case is pre-start again).
+    CHECK (status <> 'in_progress' OR (attempt_start_recorded_at IS NOT NULL AND actual_end_at IS NULL)),
   ADD CONSTRAINT cath_lab_cases_pre_start_attempt_check
-    CHECK (status IN ('in_progress', 'completed', 'cancelled') OR attempt_started_at IS NULL);
+    CHECK (status IN ('in_progress', 'completed', 'cancelled') OR attempt_start_recorded_at IS NULL),
+  ADD CONSTRAINT cath_lab_cases_clinical_start_provenance_check
+    CHECK (attempt_started_at IS NULL OR attempt_start_time_provenance IS NOT NULL);
 
 ALTER TABLE cath_case_lab_readiness_items
   ADD COLUMN unavailability_cause VARCHAR(30),
-  ADD COLUMN window_days INTEGER;
+  ADD COLUMN window_days INTEGER,
+  ADD COLUMN evidence_fingerprint CHAR(64),
+  ADD COLUMN policy_fingerprint CHAR(64),
+  ADD COLUMN last_accepted_evidence JSONB,
+  ADD COLUMN classifier_initialized_at TIMESTAMPTZ(6);
 
 ALTER TABLE cath_case_lab_readiness_items
   ADD CONSTRAINT cath_case_lab_readiness_items_cause_check
     CHECK (unavailability_cause IS NULL OR unavailability_cause IN
       ('aged_out', 'future_dated', 'unparseable', 'withdrawn', 'corrected', 'policy_changed', 'reordered'));
+
+ALTER TABLE cath_procedure_logs
+  ALTER COLUMN procedure_attempt SET NOT NULL,
+  ALTER COLUMN lifecycle_token SET NOT NULL;
 ```
 
-No RLS change (row policies are unaffected by added columns). No index (the report's plan is checked in Task 6 before one is claimed).
+Before applying it, run this read-only preflight with tenant bypass and export its rows as rollout evidence:
+
+```sql
+SELECT tenant_id, id, status, actual_start_at, actual_end_at, created_at, updated_at,
+       metadata->'start_commands' AS start_commands
+  FROM cath_lab_cases
+ WHERE (status = 'in_progress' AND (actual_start_at IS NULL OR actual_end_at IS NOT NULL))
+    OR (status IN ('requested','scheduled','readiness_pending','ready') AND actual_start_at IS NOT NULL)
+ ORDER BY tenant_id, id;
+
+SELECT tenant_id, status, count(*)
+  FROM cath_lab_cases
+ GROUP BY tenant_id, status
+ ORDER BY tenant_id, status;
+
+SELECT tenant_id, id, actual_start_at, actual_end_at
+  FROM cath_lab_cases
+ WHERE actual_end_at IS NOT NULL
+   AND (actual_start_at IS NULL OR actual_end_at < actual_start_at)
+ ORDER BY tenant_id, id;
+
+SELECT l.tenant_id, l.id, l.case_id
+  FROM cath_procedure_logs l
+  LEFT JOIN cath_lab_cases c ON c.tenant_id = l.tenant_id AND c.id = l.case_id
+ WHERE c.id IS NULL
+ ORDER BY l.tenant_id, l.id;
+
+SELECT r.tenant_id, r.case_id, r.status, r.metadata,
+       r.evidence_owner, r.source_name, r.source_version, r.attachment_ref
+  FROM cath_lab_readiness_checks r
+ WHERE r.check_type = 'consent' AND r.status = 'pass'
+   AND jsonb_typeof(r.metadata->'consent') IS DISTINCT FROM 'object'
+ ORDER BY r.tenant_id, r.case_id;
+```
+
+Zero unresolved rows is the migration gate. A dev/test fixture may be repaired only by its owning fixture script. Production-like data requires a signed case-by-case disposition; never synthesize a start instant or convert a status merely to satisfy the CHECK. No index is added until Task 6 demonstrates one from representative bounded-work evidence.
 
 - [ ] **Step 3: `schema.prisma`**
 
-`model cath_lab_cases`: add `procedure_attempt Int @default(1)` and `attempt_started_at DateTime? @db.Timestamptz(6)` beside `actual_start_at`. `model cath_case_lab_readiness_items`: add `unavailability_cause String? @db.VarChar(30)` and `window_days Int?` after `refreshed_at`. Keep the `/// This table contains check constraints` doc comments as they are.
+Mirror every NNN column and the new attempt table in Prisma: `cath_lab_cases` gets `procedure_attempt`, server-owned `lifecycle_token`, `attempt_start_recorded_at`, nullable clinical `attempt_started_at`, `attempt_start_time_provenance`, and `lab_readiness_generation`; `cath_procedure_logs` gets `procedure_attempt`, `lifecycle_token`, and nullable legacy `log_command_id`; readiness items get the cause/window plus both fingerprints, `last_accepted_evidence`, and `classifier_initialized_at`. Keep existing CHECK documentation comments.
 
 - [ ] **Step 4: Apply to the scratch DB and run the schema gates**
 
@@ -240,38 +391,84 @@ DATABASE_URL="postgresql://…@127.0.0.1:55432/vh_crr_<initials>" npm run test:d
 DATABASE_URL="postgresql://…@127.0.0.1:55432/vh_crr_<initials>" node scripts/check-schema-drift.mjs
 ```
 
-All green. The immutability gate is **live** on this lane (NNN is a new file, so it passes; what it protects is the file's content after the first push — do not edit it afterwards, add 768).
+All green. Also run the preflight above, the explicit writer-population pin from Task 3, and a deployment probe proving the old application version has been quiesced before the migration begins. The immutability gate protects the file after first push; later corrections require another free number above NNN.
 
-- [ ] **Step 5: Smoke the two CHECKs by hand** (the deep tests in Task 4 make them permanent)
+- [ ] **Step 5: Smoke lifecycle shape without pretending it enforces consent** (the deep tests in Task 4 make this permanent)
 
 ```bash
-psql "postgresql://…@127.0.0.1:55432/vh_crr_<initials>" -c "
+psql "$DATABASE_URL" -c "
   INSERT INTO cath_lab_cases (tenant_id, patient_uid, requested_procedure, status)
   VALUES ('00000000-0000-4000-8000-000000000001', gen_random_uuid(), 'probe', 'in_progress');"
 # expect: ERROR 23514 ... violates check constraint "cath_lab_cases_in_progress_attempt_check"
-psql "…" -c "UPDATE cath_lab_cases SET attempt_started_at = NOW() WHERE status = 'scheduled' AND id = (SELECT min(id) FROM cath_lab_cases WHERE status='scheduled');"
+psql "$DATABASE_URL" -c "UPDATE cath_lab_cases SET attempt_start_recorded_at = clock_timestamp() WHERE status = 'scheduled' AND id = (SELECT min(id) FROM cath_lab_cases WHERE status='scheduled');"
 # expect: ERROR 23514 ... "cath_lab_cases_pre_start_attempt_check" (or 0 rows if no scheduled case exists — then skip)
 ```
+
+Then create a scheduled case with no consent and confirm the row remains valid. This is intentional: application transaction logic, not the CHECK, enforces consent.
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add apps/backend/src/migrations/NNN_cath_lab_case_attempts.sql apps/backend/prisma/schema.prisma
-git commit -m "feat(cath): migration NNN — procedure attempt + attempt_started_at on cath_lab_cases, unavailability_cause + window_days on readiness items, four CHECKs
+git commit -m "feat(cath): add lifecycle-fenced cath attempt history and readiness fingerprints
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
 
 ---
 
-## Task 2: Pure rules — cause-scoped regime, three markers, start snapshot, lab picture, time-out timing, consent vocabularies (TDD)
+## Task 2: Pure rules — two clocks, fingerprinted age-only carry, snapshot, time-out outcomes and consent shapes (TDD)
 
 **Files:**
 - Modify: `apps/backend/src/services/clinical/cathLabReadinessRules.js`
 - Modify: `apps/backend/src/services/clinical/cathLabReadinessService.js` (facade re-exports only)
 - Test: `apps/backend/src/tests/unit/cathLabReadinessService.test.js`
 
-Everything in this task is pure and keyed on **`caseRow.attempt_started_at`** (never `actual_start_at`) and on **`unavailability_cause`** (never `state === 'stale'`) — the two substitutions the owner's points 4 and 6 required.
+Operational lateness in this task is keyed on **`caseRow.attempt_start_recorded_at`**. Nullable `attempt_started_at` is used only for claims about clinical occurrence. Age-only carry requires matching evidence and policy fingerprints attached to the independently retained last accepted decision; `unavailability_cause` or `state === 'stale'` alone is insufficient.
+
+The controlling pure contracts are:
+
+```js
+export const TIMEOUT_OUTCOMES = Object.freeze([
+  'not_documented',
+  'performance_unknown',
+  'performed_before_clinical_start',
+  'performed_after_clinical_start',
+  'not_performed',
+]);
+
+export function timeoutTiming({ outcome, performedAt, documentedAt, attemptStartedAt, attemptStartRecordedAt }) {
+  if (outcome === 'not_performed') {
+    return { timing: 'not_performed', documented_after_start: Boolean(attemptStartRecordedAt && documentedAt && Date.parse(documentedAt) > Date.parse(attemptStartRecordedAt)) };
+  }
+  if (outcome !== 'performed') {
+    return { timing: documentedAt ? 'performance_unknown' : 'not_documented', documented_after_start: false };
+  }
+  if (!performedAt) return { timing: 'performance_unknown', documented_after_start: false };
+  const clinical = attemptStartedAt ? Date.parse(attemptStartedAt) : NaN;
+  const recorded = attemptStartRecordedAt ? Date.parse(attemptStartRecordedAt) : NaN;
+  const performed = Date.parse(performedAt);
+  const documented = documentedAt ? Date.parse(documentedAt) : NaN;
+  if (!Number.isFinite(performed) || !Number.isFinite(clinical)) return { timing: 'performance_unknown', documented_after_start: Number.isFinite(recorded) && Number.isFinite(documented) && documented > recorded };
+  if (Number.isFinite(clinical) && performed > clinical) {
+    return { timing: 'performed_after_clinical_start', documented_after_start: Number.isFinite(recorded) && Number.isFinite(documented) && documented > recorded };
+  }
+  return {
+    timing: 'performed_before_clinical_start',
+    documented_after_start: Number.isFinite(recorded) && Number.isFinite(documented) && documented > recorded,
+  };
+}
+
+export function canCarryAcceptedAgeDecision({ liveEvidenceFingerprint, livePolicyFingerprint, lastAcceptedEvidence }) {
+  return Boolean(
+    lastAcceptedEvidence?.classification === 'accepted'
+    && lastAcceptedEvidence?.evidence_fingerprint === liveEvidenceFingerprint
+    && lastAcceptedEvidence?.policy_fingerprint === livePolicyFingerprint,
+  );
+}
+```
+
+The classifier canonicalizes and SHA-256 hashes `{ result_id, observed_instant, updated_at_or_version, status, signed_off_at, source, result_origin }` and `{ required, effective_window_days, external_results_count, external_result_acceptance_policy_version }`. A same-id correction, withdrawal, backwards timestamp/version, or policy change changes a fingerprint and forces re-evaluation. A bounded-lookback miss is `not_observed`; it does not manufacture `withdrawn`. Initial population sets `classifier_initialized_at` and is `bootstrap`, never `policy_changed`.
 
 - [ ] **Step 1: Write the failing regime tests for `computeCheckDecision`** (spec §5.2)
 
@@ -284,8 +481,8 @@ Append inside `describe('computeCheckDecision', …)`. Items now carry `unavaila
   const futureHb = { item_code: 'hb', required: true, state: 'stale', unavailability_cause: 'future_dated' };
   const neverHcv = { item_code: 'hcv', required: true, state: 'not_ordered', unavailability_cause: null };
   const autoPass = { status: 'pass', metadata: { auto_managed: true } };
-  const preStart = { attempt_started_at: null, actual_start_at: AS_OF.toISOString() }; // attempt 2 not yet started: PRE-start regime
-  const postStart = { attempt_started_at: AS_OF.toISOString(), actual_start_at: AS_OF.toISOString() };
+  const preStart = { attempt_start_recorded_at: null, attempt_started_at: null, actual_start_at: AS_OF.toISOString() };
+  const postStart = { attempt_start_recorded_at: AS_OF.toISOString(), attempt_started_at: null, actual_start_at: AS_OF.toISOString() };
 
   test('pre-start (active attempt not started): an aged-out item still retracts — even when actual_start_at is set', () => {
     const out = computeCheckDecision({ items: [agedHb], settings, check: autoPass, caseRow: preStart });
@@ -329,7 +526,7 @@ Delete `'an auto-managed pass flips back to pending when an item goes missing be
 In `computeCheckDecision`, `missing` becomes `{ item: item.item_code, state: item.state, cause: item.unavailability_cause ?? null }` and the body from `const started` to the return is:
 
 ```js
-  const started = Boolean(caseRow?.attempt_started_at);
+  const started = Boolean(caseRow?.attempt_start_recorded_at);
   let nextStatus = null;
   let autoPendingReason = null;
   // Spec 2026-09-06 §5.2 (decisions 7, 17, 19). BEFORE the ACTIVE attempt starts
@@ -338,15 +535,19 @@ In `computeCheckDecision`, `missing` becomes `{ item: item.item_code, state: ite
   // included. AFTER start, new evidence always applies (the pass branch is open
   // in both regimes; the critical flags are computed above regardless) but
   // AGEING ALONE never moves the check: the team acted on the value it had.
-  // "Ageing alone" is the item's persisted unavailability_cause === 'aged_out'
-  // — never state === 'stale' (a policy change or a future-dated correction
-  // also reads stale, and an aged value with a repeat draw open reads
-  // ordered_awaiting_sample). Gated on attempt_started_at, not actual_start_at:
-  // a reopened case is pre-start again until its next attempt starts.
+  // "Ageing alone" requires persisted cause plus evidence/policy fingerprints
+  // equal to last_accepted_evidence. State or cause alone is insufficient.
+  // Gated on attempt_start_recorded_at, not the nullable clinical instant or
+  // historical actual_start_at.
   // Delete `started &&` → the pre-start test goes red. Replace
   // `cause === 'aged_out'` with `state === 'stale'` → the policy-change and
   // future-dated tests go red and the repeat-order test goes red the other way.
-  const agedOnly = started && missing.length > 0 && missing.every((row) => row.cause === 'aged_out');
+  const agedOnly = started && missing.length > 0 && missing.every((row) =>
+    row.cause === 'aged_out' && canCarryAcceptedAgeDecision({
+      liveEvidenceFingerprint: row.evidence_fingerprint,
+      livePolicyFingerprint: row.policy_fingerprint,
+      lastAcceptedEvidence: row.last_accepted_evidence,
+    }));
   if (missing.length === 0) {
     if (settings.auto_pass === true && (status === 'pending' || (status === 'pass' && autoManaged))) {
       nextStatus = status === 'pass' ? null : 'pass';
@@ -522,9 +723,9 @@ In `resolveItemState`'s `base`, after `recorded_after_start: false,`: `ordered_a
 describe('start snapshot helpers (spec §8.2)', () => {
   const blocking = [{ check_type: 'labs', reason: 'pending' }, { check_type: 'timeout', reason: 'pending' }];
   test('buildStartSnapshot emits exactly START_SNAPSHOT_KEYS, in order', () => {
-    const snap = buildStartSnapshot({ procedureAttempt: 2, via: 'status', commandId: 'cmd-0123456789abcdef', urgency: 'emergency', reason: 'Primary PCI', blocking, missingLabItems: ['hcv', 'hb'], readinessPictureAt: AS_OF.toISOString(), labComponentStatus: 'fresh', consentAuthority: 'emergency_basis', now: AS_OF });
+    const snap = buildStartSnapshot({ recordedAt: AS_OF, clinicalStartedAt: null, clinicalStartProvenance: 'retrospective_time_unknown', procedureAttempt: 2, lifecycleToken: '11111111-1111-4111-8111-111111111111', via: 'status', commandId: 'cmd-0123456789abcdef', urgency: 'emergency', reason: 'Primary PCI', blocking, missingLabItems: ['hcv', 'hb'], readinessPictureAt: AS_OF.toISOString(), labComponentStatus: 'fresh', consentAuthority: 'emergency_basis' });
     expect(Object.keys(snap)).toEqual([...START_SNAPSHOT_KEYS]);
-    expect(START_SNAPSHOT_KEYS).toEqual(['recorded_at', 'procedure_attempt', 'via', 'command_id', 'procedure_log_id', 'urgency', 'reason', 'blocking', 'missing_lab_items', 'readiness_picture_at', 'lab_component_status', 'consent_authority']);
+    expect(START_SNAPSHOT_KEYS).toEqual(['recorded_at', 'clinical_started_at', 'clinical_start_provenance', 'procedure_attempt', 'lifecycle_token', 'via', 'command_id', 'procedure_log_id', 'urgency', 'reason', 'blocking', 'missing_lab_items', 'readiness_picture_at', 'lab_component_status', 'consent_authority']);
     expect(snap).toMatchObject({ recorded_at: AS_OF.toISOString(), procedure_attempt: 2, command_id: 'cmd-0123456789abcdef', missing_lab_items: ['hb', 'hcv'], lab_component_status: 'fresh', consent_authority: 'emergency_basis' });
   });
   test('missing_lab_items is null when the lab component is unavailable, and never [] in that case', () => {
@@ -554,16 +755,16 @@ describe('start snapshot helpers (spec §8.2)', () => {
 
 describe('timeoutTiming (spec §4.7)', () => {
   const t = (offset) => new Date(AS_OF.getTime() + offset).toISOString();
-  test('performed before start, documented after → performed_before_start + documented_after_start', () => {
-    expect(timeoutTiming({ performedAt: t(-60_000), documentedAt: t(+600_000), attemptStartedAt: t(0) })).toEqual({ timing: 'performed_before_start', documented_after_start: true });
+  test('performed before clinical start, documented after recording → separate timing and lateness', () => {
+    expect(timeoutTiming({ outcome: 'performed', performedAt: t(-60_000), documentedAt: t(+600_000), attemptStartedAt: t(0), attemptStartRecordedAt: t(0) })).toEqual({ timing: 'performed_before_clinical_start', documented_after_start: true });
   });
-  test('performed after start → performed_after_start', () => {
-    expect(timeoutTiming({ performedAt: t(+30_000), documentedAt: t(+30_000), attemptStartedAt: t(0) }).timing).toBe('performed_after_start');
+  test('performed after clinical start → performed_after_clinical_start', () => {
+    expect(timeoutTiming({ outcome: 'performed', performedAt: t(+30_000), documentedAt: t(+30_000), attemptStartedAt: t(0), attemptStartRecordedAt: t(0) }).timing).toBe('performed_after_clinical_start');
   });
-  test('not passed and the attempt started → not_performed; passed without performed_at → unknown; not started → unknown', () => {
-    expect(timeoutTiming({ performedAt: null, documentedAt: null, attemptStartedAt: t(0) }).timing).toBe('not_performed');
-    expect(timeoutTiming({ performedAt: null, documentedAt: t(+1), attemptStartedAt: t(0) }).timing).toBe('unknown');
-    expect(timeoutTiming({ performedAt: t(-1), documentedAt: t(-1), attemptStartedAt: null }).timing).toBe('unknown');
+  test('absence is unknown; not_performed requires an explicit attested outcome', () => {
+    expect(timeoutTiming({ outcome: null, performedAt: null, documentedAt: null, attemptStartRecordedAt: t(0) }).timing).toBe('not_documented');
+    expect(timeoutTiming({ outcome: null, performedAt: null, documentedAt: t(+1), attemptStartRecordedAt: t(0) }).timing).toBe('performance_unknown');
+    expect(timeoutTiming({ outcome: 'not_performed', performedAt: null, documentedAt: t(+1), attemptStartRecordedAt: t(0) }).timing).toBe('not_performed');
   });
 });
 
@@ -587,7 +788,8 @@ Import the new names from the facade: `START_SNAPSHOT_KEYS, START_VIAS, LAB_COMP
 // free-text reason (projected before it leaves the server). Never a lab value.
 // ---------------------------------------------------------------------------
 export const START_SNAPSHOT_KEYS = Object.freeze([
-  'recorded_at', 'procedure_attempt', 'via', 'command_id', 'procedure_log_id', 'urgency', 'reason',
+  'recorded_at', 'clinical_started_at', 'clinical_start_provenance', 'procedure_attempt', 'lifecycle_token',
+  'via', 'command_id', 'procedure_log_id', 'urgency', 'reason',
   'blocking', 'missing_lab_items', 'readiness_picture_at', 'lab_component_status', 'consent_authority',
 ]);
 export const START_VIAS = Object.freeze(['status', 'procedure_log']);
@@ -609,16 +811,20 @@ export function labComponentStatus({ pictureAt, itemCount, now = new Date() }) {
 }
 
 export function buildStartSnapshot({
-  procedureAttempt, via, commandId = null, procedureLogId = null, urgency = null, reason = null, blocking = [],
-  missingLabItems = null, readinessPictureAt = null, labComponentStatus: componentStatus = 'unavailable', consentAuthority = null, now = new Date(),
+  recordedAt, clinicalStartedAt = null, clinicalStartProvenance = null, procedureAttempt, lifecycleToken,
+  via, commandId = null, procedureLogId = null, urgency = null, reason = null, blocking = [],
+  missingLabItems = null, readinessPictureAt = null, labComponentStatus: componentStatus = 'unavailable', consentAuthority = null,
 }) {
   if (!START_VIAS.includes(via)) throw AppError.badRequest(`start via must be one of ${START_VIAS.join(', ')}`, 'CATH_LAB_START_VIA_INVALID');
   if (!LAB_COMPONENT_STATUSES.includes(componentStatus)) throw AppError.badRequest('lab component status invalid', 'CATH_LAB_START_VIA_INVALID');
   // UNKNOWN is null, never []: an empty array would read as "nothing missing".
   if (componentStatus === 'unavailable' && Array.isArray(missingLabItems)) throw new Error('missing_lab_items must be null when the lab component is unavailable');
   return {
-    recorded_at: new Date(now).toISOString(),
+    recorded_at: new Date(recordedAt).toISOString(),
+    clinical_started_at: clinicalStartedAt == null ? null : new Date(clinicalStartedAt).toISOString(),
+    clinical_start_provenance: clinicalStartProvenance,
     procedure_attempt: Number(procedureAttempt),
+    lifecycle_token: lifecycleToken,
     via,
     command_id: commandId ?? null,
     procedure_log_id: procedureLogId == null ? null : Number(procedureLogId),
@@ -637,7 +843,10 @@ export function normalizeStartSnapshot(raw) {
   const componentStatus = LAB_COMPONENT_STATUSES.includes(raw.lab_component_status) ? raw.lab_component_status : 'unavailable';
   return {
     recorded_at: raw.recorded_at ?? null,
+    clinical_started_at: raw.clinical_started_at ?? null,
+    clinical_start_provenance: raw.clinical_start_provenance ?? null,
     procedure_attempt: raw.procedure_attempt == null ? null : Number(raw.procedure_attempt),
+    lifecycle_token: raw.lifecycle_token ?? null,
     via: START_VIAS.includes(raw.via) ? raw.via : null,
     command_id: raw.command_id ?? null,
     procedure_log_id: raw.procedure_log_id == null ? null : Number(raw.procedure_log_id),
@@ -663,16 +872,10 @@ export function missingLabItemCodes(items, settings) {
   return orderedItemCodes((items || []).filter((item) => item.required !== false && !isItemAvailable(item, settings)).map((item) => item.item_code));
 }
 
-// The time-out's two instants (spec §4.7): performed (team) vs documented (server).
-export function timeoutTiming({ performedAt, documentedAt, attemptStartedAt }) {
-  const started = toMs(attemptStartedAt);
-  const performed = toMs(performedAt);
-  const documented = toMs(documentedAt);
-  if (!Number.isFinite(started)) return { timing: 'unknown', documented_after_start: false };
-  if (!Number.isFinite(documented)) return { timing: 'not_performed', documented_after_start: false };
-  if (!Number.isFinite(performed)) return { timing: 'unknown', documented_after_start: documented > started };
-  return { timing: performed > started ? 'performed_after_start' : 'performed_before_start', documented_after_start: documented > started };
-}
+// Use the complete revision-3 timeoutTiming implementation at the start of
+// Task 2. Pending/absent documentation never implies not_performed; only the
+// explicit attested outcome does. Clinical ordering uses attemptStartedAt,
+// while documentation lateness uses attemptStartRecordedAt.
 ```
 
 Add every new name to the facade's explicit re-export list in `cathLabReadinessService.js` (the facade test fails until you do).
@@ -697,7 +900,23 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Create: `apps/backend/src/tests/unit/cathLabStartPathPin.test.js`
 - Test: `apps/backend/src/tests/unit/cathLabService.test.js`
 
-> Land the **door** (Step 6) before the **refusals** that name it (Steps 7–8), so no error message ever points at a route that does not exist. Every owner point 1–3 and 7 lands here; point 4's write side (attempt increment, check reset) lands in `reopenCaseTx`; point 5's read side (`labsPictureForStartTx`) lands in `startCaseTx`; point 8's write side (authority / mode / `performed_at`) lands in `updateReadinessCheck`.
+> Revision-3 controlling order: land the cancelled-only door before refusals that name it. Then make replay reachable, introduce the server lifecycle fence on every attempt-specific write, bind one recording instant, archive attempt evidence, and split lab resolution from publication. Any older Step 5–8 snippet below is implemented with these signatures and this order.
+
+`transitionCaseStatus` must execute this exact sequence inside its tenant transaction:
+
+1. Normalize `requestedTarget`, `command_id`, and `expected_lifecycle_token`.
+2. Lock/read the case.
+3. If the current status is `cancelled`, reject every generic status write with `CATH_LAB_CASE_CANCELLED_REOPEN_REQUIRED`.
+4. If `requestedTarget === 'in_progress'`, call `startCaseTx` immediately. Do **not** call `validateCaseTransition` first; replay on an already-running row must remain reachable.
+5. For every other target, call `validateCaseTransition` and perform the generic update. If the target is `cancelled`, rotate `lifecycle_token = gen_random_uuid()` in that same statement—even when no attempt has started.
+
+`startCaseTx(tx, { tenantId, cathCase, reason, via, commandId, expectedLifecycleToken, procedureLogId, clinicalStartedAt, clinicalStartProvenance, context })` then executes: normalize command/token; inspect `start_commands` for `(command_id, lifecycle_token)` and return the stored result before eligibility checks; reject command reuse with changed request; compare the supplied token to the locked case; check `START_ELIGIBLE_STATUSES`; assert attempt-specific consent; read cached lab/check projections without calling refresh; obtain exactly one `SELECT clock_timestamp() AS recorded_at`; derive the status-start clinical instant as `recorded_at` with `staff_confirmed_now`, or validate the retrospective log's nullable clinical instant/provenance; freeze consent/time-out at-start fields in `cath_lab_attempt_readiness_records`; update the case with `attempt_start_recorded_at = recorded_at`, nullable `attempt_started_at`, provenance, `actual_start_at = COALESCE(actual_start_at, recorded_at)`, `actual_end_at = NULL`, snapshot and command binding under `WHERE lifecycle_token = expected`; write audit and canonical event with that same `recorded_at`; return `{ updated, snapshot, replayed }`. A zero-row update is `CATH_LAB_LIFECYCLE_STALE`.
+
+`recordProcedureLog` requires both `log_command_id` and `expected_lifecycle_token` for every draft/finalized log. Under the case lock it checks the lifecycle token, looks up `(tenant_id, case_id, log_command_id)`, returns the identical stored request before INSERT, and rejects a changed request with `CATH_LAB_PROCEDURE_LOG_COMMAND_CONFLICT`. Every INSERT stores server-derived `procedure_attempt` and `lifecycle_token`. Only after insertion may a finalized row invoke `startCaseTx` with its independent Start `command_id`. Drafts never start. Requested cases refuse before INSERT; cancelled cases name the reopen door before INSERT.
+
+`updateReadinessCheck` requires `expected_lifecycle_token` only for `consent` and `timeout`, compares it under the same case lock before either projection/attempt record changes, and rejects client-owned `documented_at`, `documented_by`, `procedure_attempt`, `lifecycle_token`, `server_provenance`, `policy_version`, `previous_attempts`, or evidence archives. Patient/representative consent requires approved evidence and scope (plus representative reference for the latter); emergency basis requires an approved document reference or justification plus attestation and accepts no communication mode. The server supplies provenance, policy version, actor and recording time.
+
+`reopenCaseTx` accepts only `cancelled`, preserves `actual_start_at`, clears `actual_end_at`, current snapshot and both active-attempt clocks, and always rotates `lifecycle_token`. It increments `procedure_attempt` and resets current consent/time-out only when `attempt_start_recorded_at` proves that the cancelled lifecycle had started; otherwise the attempt number and checks remain. Prior consent/time-out evidence remains in `cath_lab_attempt_readiness_records`, never client-mergeable metadata.
 
 - [ ] **Step 1: Write the failing unit tests**
 
@@ -711,8 +930,8 @@ function readinessRows(overrides = {}, meta = {}) {
       : check_type === 'consent' ? (meta.consent ?? { consent: { authority: 'patient', mode: 'written' } }) : {},
   }));
 }
-const lockedCase = (status, extra = {}) => ({ ...cathCase(status), urgency: 'emergency', facility_id: 4, procedure_attempt: 1, attempt_started_at: null, actual_start_at: null, start_commands: [], readiness_at_start: null, ...extra });
-const startedRow = (extra = {}) => ({ ...cathCase('in_progress'), urgency: 'emergency', facility_id: 4, actual_start_at: '2026-09-06T04:31:07.412Z', attempt_started_at: '2026-09-06T04:31:07.412Z', procedure_attempt: 1, metadata: {}, ...extra });
+const lockedCase = (status, extra = {}) => ({ ...cathCase(status), urgency: 'emergency', facility_id: 4, procedure_attempt: 1, lifecycle_token: TOKEN, attempt_start_recorded_at: null, attempt_started_at: null, actual_start_at: null, start_commands: [], readiness_at_start: null, ...extra });
+const startedRow = (extra = {}) => ({ ...cathCase('in_progress'), urgency: 'emergency', facility_id: 4, actual_start_at: RECORDED, attempt_start_recorded_at: RECORDED, attempt_started_at: RECORDED, attempt_start_time_provenance: 'staff_confirmed_now', procedure_attempt: 1, lifecycle_token: TOKEN, metadata: {}, ...extra });
 const CMD = 'a1b2c3d4e5f60718a1b2c3d4e5f60718';
 ```
 
@@ -776,12 +995,12 @@ describe('startCaseTx — the one start path (spec §4.2)', () => {
       expect(recordReadinessAuditMock).not.toHaveBeenCalled();
     }
   });
-  test('a legacy consent pass (no metadata.consent) satisfies the block with consent_authority null', async () => { /* readinessRows({}, { consent: {} }) → starts; snapshot.consent_authority === null */ });
+  test('only a migration-stamped legacy consent pass satisfies the block with consent_authority null', async () => { /* attempt record server_provenance=legacy_pre_NNN starts; an unmarked gap is refused */ });
   test('a pending gate needs a reason on the status path; the refusal names the checks', async () => { /* as revision 1, with command_id: CMD */ });
-  test('consent pass + labs pending + reason: starts, snapshots (12 keys), binds the command, audits, emits, schedules the refresh AFTER commit', async () => {
+  test('consent pass + labs pending + reason: starts, snapshots 15 keys with one clock, binds command/token, audits, emits, schedules refresh after commit', async () => {
     queryUnsafeMock
       .mockResolvedValueOnce([lockedCase('readiness_pending')])
-      .mockResolvedValueOnce(readinessRows({ labs: 'pending', timeout: 'pending' }, { consent: { consent: { authority: 'emergency_basis', mode: 'verbal' } } }))
+      .mockResolvedValueOnce(readinessRows({ labs: 'pending', timeout: 'pending' }, { consent: { consent: { authority: 'emergency_basis', justification: 'Immediate life threat', attested: true } } }))
       .mockResolvedValueOnce([{ item_code: 'hcv', required: true, state: 'not_ordered' }, { item_code: 'hb', required: true, state: 'result_final' }])
       .mockResolvedValueOnce([startedRow()])
       .mockResolvedValueOnce([]);
@@ -790,7 +1009,8 @@ describe('startCaseTx — the one start path (spec §4.2)', () => {
     const update = queryUnsafeMock.mock.calls.find(([sql]) => /UPDATE cath_lab_cases/.test(sql));
     expect(update[0]).toMatch(/status = 'in_progress'/);
     expect(update[0]).toMatch(/actual_start_at = COALESCE\(actual_start_at, NOW\(\)\)/);
-    expect(update[0]).toMatch(/attempt_started_at = NOW\(\)/);
+    expect(update[0]).toMatch(/attempt_start_recorded_at = \$6::timestamptz/);
+    expect(update[0]).toMatch(/attempt_started_at = \$7::timestamptz/);
     expect(update[0]).toMatch(/'start_commands'/);
     const snapshot = JSON.parse(update[3]);
     expect(Object.keys(snapshot)).toEqual([...START_SNAPSHOT_KEYS]);
@@ -818,7 +1038,7 @@ describe('startCaseTx — the one start path (spec §4.2)', () => {
   test('a clean start writes blocking [] and no audit row', async () => { /* as revision 1 */ });
   test('command replay: same attempt while in_progress → the case as it stands, nothing written; another attempt → 409 STALE', async () => {
     queryUnsafeMock.mockReset();
-    queryUnsafeMock.mockResolvedValueOnce([lockedCase('in_progress', { attempt_started_at: 'x', start_commands: [{ command_id: CMD, procedure_attempt: 1 }] })]).mockResolvedValueOnce([startedRow()]); // SELECT * replay read
+    queryUnsafeMock.mockResolvedValueOnce([lockedCase('in_progress', { attempt_start_recorded_at: RECORDED, start_commands: [{ command_id: CMD, lifecycle_token: TOKEN, procedure_attempt: 1 }] })]).mockResolvedValueOnce([startedRow()]);
     const replay = await transitionCaseStatus(42, { tenantId: TENANT, status: 'in_progress', command_id: CMD }, { actorUid: ACTOR });
     expect(replay.status).toBe('in_progress');
     expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE cath_lab_cases/.test(sql))).toBe(false);
@@ -832,7 +1052,7 @@ describe('startCaseTx — the one start path (spec §4.2)', () => {
 
 describe('recordProcedureLog — the exhaustive table (spec §4.2, decision 16 — owner point 3)', () => {
   const log = (status) => ({ id: 7, tenant_id: TENANT, case_id: 42, patient_uid: PATIENT, encounter_id: ENCOUNTER, procedure_type: 'PTCA', status });
-  test('start-eligible × finalized: inserts, then starts through startCaseTx (via procedure_log, log id in the snapshot, no reason needed, command optional)', async () => { /* mock: case, INSERT log, readiness rows, items, UPDATE, refs, log-id UPDATE, registry → snapshot.via === 'procedure_log', procedure_log_id 7, reason null; scheduleRefreshMock once */ });
+  test('start-eligible × finalized: log command is checked before insert, then independent Start command reaches startCaseTx with token and provenance', async () => { /* assert snapshot via/log id, one insert, one Start, one bound recording instant */ });
   test('start-eligible × draft: inserts, case UNTOUCHED (no consent read, no start, no snapshot, no refresh)', async () => {
     for (const status of ['scheduled', 'readiness_pending', 'ready']) {
       queryUnsafeMock.mockReset(); scheduleRefreshMock.mockClear();
@@ -857,10 +1077,10 @@ describe('recordProcedureLog — the exhaustive table (spec §4.2, decision 16 �
 });
 
 describe('consent and time-out writes (spec §4.3, §4.7 — owner point 8)', () => {
-  test('a consent pass without authority/mode → 400 CONSENT_AUTHORITY_REQUIRED before any write', async () => { /* updateReadinessCheck(42, { check_type: 'consent', status: 'pass' }) with a locked case → rejects; no INSERT/UPDATE */ });
+  test('a consent pass without its authority-conditional evidence → 400 before any write', async () => { /* patient/representative require evidence+scope; representative also requires representative_ref; emergency requires document_ref or justification+attested and rejects mode */ });
   test('a consent pass with an authority outside the tenant policy → 400 CONSENT_AUTHORITY_NOT_PERMITTED with details.permitted', async () => { /* tenants.settings mock → { cath_lab: { consent_authorities: ['patient'] } }; authority 'emergency_basis' → rejects */ });
-  test('a consent pass with a permitted authority stores { consent: { authority, mode, documented_at } }, documented_at server-stamped', async () => { /* assert the bound metadata JSON; a client documented_at is ignored */ });
-  test('a timeout pass without a usable past performed_at → 400 TIMEOUT_PERFORMED_AT_REQUIRED; with one, completed_at is NOW() (client value ignored)', async () => { /* future performed_at refused; assert the upsert binds NULL for $7 / NOW() branch for timeout */ });
+  test('a permitted consent stores projected evidence while provenance/policy/actor/time are server-owned in the attempt record', async () => { /* client-owned provenance/history fields are rejected */ });
+  test('time-out pending is not_documented; explicit attested omission is not_performed; performed carries clinical time and one server recording time', async () => { /* future performed_at refused */ });
 });
 
 describe('reopenCaseTx — the door out of cancelled (spec §4.8, decisions 13/15/17 — owner points 2b, 4)', () => {
@@ -894,9 +1114,9 @@ describe('reopenCaseTx — the door out of cancelled (spec §4.8, decisions 13/1
     expect(queryUnsafeMock.mock.calls.some(([sql]) => /UPDATE cath_lab_readiness_checks/.test(sql))).toBe(false);
     expect(recordReadinessAuditMock).toHaveBeenCalledWith(__prismaDefaultMock, expect.objectContaining({ action: 'cath_lab.case.reopened', metadata: expect.objectContaining({ previous_attempt: 1, procedure_attempt: 1, checks_reset: [], cancel_reason: 'List overran', cancelled_at: 'e' }) }));
   });
-  test('cancelled AFTER it had started: attempt N+1, snapshot moved to history, consent + timeout reset with previous_attempts preserved, actual_start_at kept', async () => {
+  test('cancelled AFTER it had started: attempt N+1, prior attempt record preserved, consent + timeout reset, actual_start_at kept', async () => {
     queryUnsafeMock
-      .mockResolvedValueOnce([lockedCase('cancelled', { actual_end_at: 'e', attempt_started_at: 's', actual_start_at: 's', procedure_attempt: 1 })])
+      .mockResolvedValueOnce([lockedCase('cancelled', { actual_end_at: 'e', attempt_start_recorded_at: 's', attempt_started_at: null, actual_start_at: 's', procedure_attempt: 1 })])
       .mockResolvedValueOnce([])                                            // no cancel event
       .mockResolvedValueOnce([{ ...lockedCase('readiness_pending'), procedure_attempt: 2, actual_start_at: 's', actual_end_at: null }])
       .mockResolvedValueOnce([])                                            // checks reset UPDATE
@@ -905,10 +1125,11 @@ describe('reopenCaseTx — the door out of cancelled (spec §4.8, decisions 13/1
     const caseUpdate = queryUnsafeMock.mock.calls.find(([sql]) => /UPDATE cath_lab_cases/.test(sql));
     expect(caseUpdate[4]).toBe(2);
     expect(caseUpdate[0]).toMatch(/readiness_at_start_history/);
+    expect(caseUpdate[0]).not.toMatch(/previous_attempts/);
     const checksUpdate = queryUnsafeMock.mock.calls.find(([sql]) => /UPDATE cath_lab_readiness_checks/.test(sql));
     expect(checksUpdate[0]).toMatch(/check_type IN \('consent', 'timeout'\)/);
-    expect(checksUpdate[0]).toMatch(/status = 'pending'/); expect(checksUpdate[0]).toMatch(/completed_at = NULL/); expect(checksUpdate[0]).toMatch(/'previous_attempts'/);
-    expect(recordReadinessAuditMock).toHaveBeenCalledWith(__prismaDefaultMock, expect.objectContaining({ metadata: expect.objectContaining({ previous_attempt: 1, procedure_attempt: 2, previous_attempt_started_at: 's', checks_reset: ['consent', 'timeout'] }) }));
+    expect(checksUpdate[0]).toMatch(/status = 'pending'/); expect(checksUpdate[0]).toMatch(/completed_at = NULL/); expect(checksUpdate[0]).not.toMatch(/previous_attempts/);
+    expect(recordReadinessAuditMock).toHaveBeenCalledWith(__prismaDefaultMock, expect.objectContaining({ metadata: expect.objectContaining({ previous_attempt: 1, procedure_attempt: 2, previous_attempt_start_recorded_at: 's', checks_reset: ['consent', 'timeout'] }) }));
     expect(recordCanonicalClinicalEventMock).toHaveBeenCalledWith(expect.objectContaining({ eventType: 'cath_lab.case_reopened', payload: expect.objectContaining({ procedure_attempt: 2, previous_attempt: 1, checks_reset: ['consent', 'timeout'] }) }), expect.anything());
   });
 });
@@ -962,32 +1183,42 @@ Import `CONSENT_AUTHORITIES, CONSENT_MODES, buildStartSnapshot, normalizeStartSn
 Replace `assertReadinessComplete` with `assertConsentDocumented` exactly as spec §4.3 (returns `{ gate, checks, consent }`; the old name must not survive anywhere — the pin greps for it). Add:
 
 ```js
-// The hospital's consent policy: which authorities to proceed exist here.
-// Per-tenant configuration (tenants.settings.cath_lab.consent_authorities),
-// default all three. Hospital configuration, not an owner decision (spec §4.3).
+// Versioned, clinically/legally approved policy. Missing configuration is a
+// deployment/configuration error; there is no permissive production default.
 async function consentPolicyFor(tenantId, db) {
   const rows = normalizeRows(await db.$queryRawUnsafe(
-    `SELECT settings->'cath_lab'->'consent_authorities' AS authorities FROM tenants WHERE id = $1::uuid LIMIT 1`, tenantOr(tenantId)));
-  const configured = Array.isArray(rows[0]?.authorities) ? rows[0].authorities.filter((a) => CONSENT_AUTHORITIES.includes(a)) : [];
-  return configured.length ? configured : [...CONSENT_AUTHORITIES];
+    `SELECT settings->'cath_lab'->'consent_policy' AS policy FROM tenants WHERE id = $1::uuid LIMIT 1`, tenantOr(tenantId)));
+  const policy = rows[0]?.policy;
+  if (!policy?.approved_version || !Array.isArray(policy.authorities)) {
+    throw AppError.serviceUnavailable('The approved cath consent policy is not configured', 'CATH_LAB_CONSENT_POLICY_UNAVAILABLE');
+  }
+  return policy;
 }
 ```
 
 (Read the `tenants` primary-key column name off `schema.prisma` before pasting; remember `tenants` may be unreadable without the tenant GUC under RLS — this runs inside the tenant transaction, which sets it.) In `updateReadinessCheck`, **before** the upsert and before any write:
 
 ```js
+    if (checkType === 'consent' || checkType === 'timeout') {
+      const token = normalizeLifecycleToken(input.expected_lifecycle_token);
+      const cathCase = await caseById(tx, tenantId, caseId, { lock: true });
+      if (!token || String(cathCase.lifecycle_token) !== token) {
+        throw AppError.conflict('The case lifecycle changed; reload before writing', 'CATH_LAB_LIFECYCLE_STALE');
+      }
+      rejectClientOwnedAttemptFields(input);
+    }
     if (checkType === 'consent' && status === 'pass') {
       const consent = input.metadata?.consent;
-      if (!consent || !CONSENT_AUTHORITIES.includes(consent.authority) || !CONSENT_MODES.includes(consent.mode)) {
-        throw AppError.badRequest('A consent pass must record who gave the authority to proceed (authority) and how it was communicated (mode)', 'CATH_LAB_CONSENT_AUTHORITY_REQUIRED', { authorities: CONSENT_AUTHORITIES, modes: CONSENT_MODES });
-      }
-      const permitted = await consentPolicyFor(tenantId, tx);
-      if (!permitted.includes(consent.authority)) {
-        throw AppError.badRequest('This authority to proceed is not permitted by the hospital\'s consent policy', 'CATH_LAB_CONSENT_AUTHORITY_NOT_PERMITTED', { authority: consent.authority, permitted });
-      }
-      metadata = { ...metadata, consent: { authority: consent.authority, mode: consent.mode, documented_at: new Date().toISOString() } };  // server-stamped; a client documented_at is dropped
+      const policy = await consentPolicyFor(tenantId, tx);
+      validateConsentAgainstPolicy(consent, policy); // patient: mode+evidence+scope;
+      // representative: same plus representative_ref; emergency: approved
+      // document_ref OR justification+attested, and mode MUST be absent.
+      metadata = { ...metadata, consent: projectConsentInput(consent) };
     }
     if (checkType === 'timeout' && status === 'pass') {
+      if (input.metadata?.timeout?.outcome !== 'performed') {
+        throw AppError.badRequest('A passed time-out must explicitly record performed', 'CATH_LAB_TIMEOUT_OUTCOME_INVALID');
+      }
       const performedAt = optionalTimestamp(input.metadata?.timeout?.performed_at, 'performed_at');
       if (!performedAt || new Date(performedAt).getTime() > Date.now()) {
         throw AppError.badRequest('A time-out pass must record when the time-out was performed (a past instant)', 'CATH_LAB_TIMEOUT_PERFORMED_AT_REQUIRED');
@@ -995,13 +1226,19 @@ async function consentPolicyFor(tenantId, db) {
       metadata = { ...metadata, timeout: { performed_at: new Date(performedAt).toISOString(), documented_at: null } };  // documented_at = completed_at, set below
       completedAtOverride = null;   // the ONE check type whose client completed_at is ignored: the two instants must not be conflated
     }
+    if (checkType === 'timeout' && input.metadata?.timeout?.outcome === 'not_performed') {
+      if (input.metadata.timeout.attested !== true) throw AppError.badRequest('not_performed requires attestation', 'CATH_LAB_TIMEOUT_ATTESTATION_REQUIRED');
+      status = 'pending';
+      metadata = { ...metadata, timeout: { outcome: 'not_performed', attested: true } };
+      completedAtOverride = null;
+    }
 ```
 
-and bind `$7` from `completedAtOverride` (defaulting to today's `optionalTimestamp(input.completed_at || input.completedAt)`) so the upsert's `COALESCE($7::timestamptz, NOW())` stamps NOW() for the time-out; after the upsert, for `timeout`, patch `metadata.timeout.documented_at` to the returned `completed_at` (one small `UPDATE … SET metadata = metadata || jsonb_build_object('timeout', …)` on `cath_lab_readiness_checks`, or fold it into the upsert with `NOW()` — either is fine; the deep test only checks the stored value equals `completed_at`).
+Obtain one server `documented_at` inside the transaction and write the current projection and matching `cath_lab_attempt_readiness_records` row together, with server-owned actor, attempt, lifecycle token, approved policy version and archived evidence references. Legacy structured gaps are accepted only when the migration stamped `server_provenance = 'legacy_pre_NNN'`; no request may manufacture that marker.
 
 - [ ] **Step 5: Implement — `caseById`, `normalizeCommandId`, `labsPictureForStartTx`, `startCaseTx`** (spec §4.2, §4.5, §4.10)
 
-`caseById`'s SELECT gains `procedure_attempt, attempt_started_at, metadata->'start_commands' AS start_commands, metadata->'readiness_at_start' AS readiness_at_start` (JSON paths — never the whole `metadata` column).
+`caseById`'s SELECT gains `procedure_attempt, lifecycle_token, attempt_start_recorded_at, attempt_started_at, attempt_start_time_provenance, lab_readiness_generation, metadata->'start_commands' AS start_commands, metadata->'readiness_at_start' AS readiness_at_start` (JSON paths—never the whole `metadata` column).
 
 ```js
 const COMMAND_ID = /^[A-Za-z0-9_.:-]{16,128}$/;
@@ -1032,16 +1269,18 @@ async function labsPictureForStartTx(tx, tenantId, caseId, checks) {
 // counts, the SQL shapes and the write-site population. Caller holds the row
 // FOR UPDATE. Never awaits the lab rail; the CALLER schedules the refresh after
 // commit.
-async function startCaseTx(tx, { tenantId, cathCase, reason = null, via, commandId = null, procedureLogId = null, context = {} }) {
+async function startCaseTx(tx, { tenantId, cathCase, reason = null, via, commandId, expectedLifecycleToken, procedureLogId = null, clinicalStartedAt = null, clinicalStartProvenance = null, context = {} }) {
   // 1. Command binding (decision 20). A replay against the SAME attempt answers
   //    the started case; against ANOTHER attempt it is refused — the sequence
   //    "start, response lost, cancel, reopen, retry" must not start attempt 2.
   const command = normalizeCommandId(commandId);
-  if (via === 'status' && !command) {
+  if (!command) {
     throw AppError.badRequest('A stable command_id is required to start the procedure', 'CATH_LAB_START_COMMAND_REQUIRED', { reason: commandId == null ? 'missing' : 'malformed' });
   }
   const priorCommands = Array.isArray(cathCase.start_commands) ? cathCase.start_commands : [];
-  const prior = command ? priorCommands.find((entry) => entry?.command_id === command) : null;
+  const token = normalizeLifecycleToken(expectedLifecycleToken);
+  if (!token) throw AppError.badRequest('A server lifecycle token is required', 'CATH_LAB_LIFECYCLE_TOKEN_REQUIRED');
+  const prior = command ? priorCommands.find((entry) => entry?.command_id === command && entry?.lifecycle_token === token) : null;
   if (prior) {
     if (Number(prior.procedure_attempt) === Number(cathCase.procedure_attempt) && cathCase.status === 'in_progress') {
       const current = unwrap(await tx.$queryRawUnsafe(`SELECT * FROM cath_lab_cases WHERE tenant_id = $1::uuid AND id = $2::bigint`, tenantOr(tenantId), cathCase.id));
@@ -1050,7 +1289,10 @@ async function startCaseTx(tx, { tenantId, cathCase, reason = null, via, command
     throw AppError.conflict('This start command belongs to an earlier attempt of this case; review the checklist and start again', 'CATH_LAB_START_COMMAND_STALE',
       { command_attempt: Number(prior.procedure_attempt), current_attempt: Number(cathCase.procedure_attempt), case_status: cathCase.status });
   }
-  // 2. Eligibility. cancelled never reaches here (both callers refuse it first) — the guard stays.
+  if (String(cathCase.lifecycle_token) !== token) {
+    throw AppError.conflict('The case lifecycle changed; reload before writing', 'CATH_LAB_LIFECYCLE_STALE');
+  }
+  // 2. Eligibility follows replay and lifecycle matching.
   if (!START_ELIGIBLE_STATUSES.includes(cathCase.status)) {
     throw AppError.invalidTransition(cathCase.status, 'in_progress', CASE_TRANSITIONS[cathCase.status] || []);
   }
@@ -1063,27 +1305,47 @@ async function startCaseTx(tx, { tenantId, cathCase, reason = null, via, command
   }
   // 5. The last committed lab picture (decision 18).
   const labs = await labsPictureForStartTx(tx, tenantId, cathCase.id, checks);
-  // 6. The snapshot, keyed by attempt (decisions 5, 17).
+  const [{ recorded_at: recordedAt }] = normalizeRows(await tx.$queryRawUnsafe('SELECT clock_timestamp() AS recorded_at'));
+  const clinical = via === 'status' ? recordedAt : clinicalStartedAt;
+  const provenance = via === 'status' ? 'staff_confirmed_now' : (clinicalStartProvenance ?? 'retrospective_time_unknown');
+  await tx.$executeRawUnsafe(
+    `UPDATE cath_lab_attempt_readiness_records
+        SET at_start_status = current_status,
+            at_start_completed_at = current_completed_at,
+            at_start_metadata = current_metadata,
+            at_start_evidence_refs = current_evidence_refs,
+            at_start_recorded_at = $5::timestamptz,
+            updated_at = $5::timestamptz
+      WHERE tenant_id = $1::uuid AND case_id = $2::bigint
+        AND procedure_attempt = $3::int AND lifecycle_token = $4::uuid
+        AND check_type IN ('consent','timeout') AND at_start_recorded_at IS NULL`,
+    tenantOr(tenantId), cathCase.id, Number(cathCase.procedure_attempt), token, recordedAt);
+  // 6. Snapshot and every start-side write share recordedAt.
   const snapshot = buildStartSnapshot({
-    procedureAttempt: cathCase.procedure_attempt, via, commandId: command, procedureLogId, urgency: cathCase.urgency ?? null, reason: cleanReason,
+    recordedAt, clinicalStartedAt: clinical, clinicalStartProvenance: provenance,
+    procedureAttempt: cathCase.procedure_attempt, lifecycleToken: token, via, commandId: command, procedureLogId, urgency: cathCase.urgency ?? null, reason: cleanReason,
     blocking: gate.blocking, missingLabItems: labs.missing, readinessPictureAt: labs.picture_at, labComponentStatus: labs.lab_component_status,
     consentAuthority: consent?.authority ?? null
   });
-  const commandEntries = command ? [{ command_id: command, procedure_attempt: Number(cathCase.procedure_attempt), via, recorded_at: snapshot.recorded_at }] : [];
+  const commandEntries = [{ command_id: command, lifecycle_token: token, procedure_attempt: Number(cathCase.procedure_attempt), via, recorded_at: snapshot.recorded_at }];
   // 7. One UPDATE. A MERGE into metadata, never a replacement (STEMI's keys and the history array survive).
   const rows = await tx.$queryRawUnsafe(
     `UPDATE cath_lab_cases
         SET status = 'in_progress',
-            actual_start_at = COALESCE(actual_start_at, NOW()),
-            attempt_started_at = NOW(),
+            actual_start_at = COALESCE(actual_start_at, $6::timestamptz),
+            attempt_start_recorded_at = $6::timestamptz,
+            attempt_started_at = $7::timestamptz,
+            attempt_start_time_provenance = $8::varchar,
             metadata = COALESCE(metadata, '{}'::jsonb)
                        || jsonb_build_object('readiness_at_start', $3::jsonb)
                        || jsonb_build_object('start_commands', COALESCE(metadata->'start_commands', '[]'::jsonb) || $4::jsonb),
             updated_by = $5::uuid,
-            updated_at = NOW()
-      WHERE tenant_id = $1::uuid AND id = $2::bigint
+            updated_at = $6::timestamptz
+      WHERE tenant_id = $1::uuid AND id = $2::bigint AND lifecycle_token = $9::uuid
       RETURNING *`,
-    tenantOr(tenantId), cathCase.id, JSON.stringify(snapshot), JSON.stringify(commandEntries), maybeUuid(context.actorUid, 'actorUid'));
+    tenantOr(tenantId), cathCase.id, JSON.stringify(snapshot), JSON.stringify(commandEntries), maybeUuid(context.actorUid, 'actorUid'),
+    recordedAt, clinical, provenance, token);
+  if (rows.length !== 1) throw AppError.conflict('The case lifecycle changed; reload before writing', 'CATH_LAB_LIFECYCLE_STALE');
   const updated = unwrap(rows);
   const startedWithPending = gate.blocking.length > 0;
   const event = await writeCanonicalEvent(tx, {
@@ -1092,7 +1354,7 @@ async function startCaseTx(tx, { tenantId, cathCase, reason = null, via, command
     actorUid: context.actorUid, actorRole: context.actorRole,
     summary: `Cath-lab case in_progress: ${updated.requested_procedure}`,
     payload: { status: 'in_progress', reason: cleanReason, via, procedure_attempt: Number(cathCase.procedure_attempt), command_id: command, started_with_readiness_pending: startedWithPending, readiness_at_start: snapshot },
-    beforeState: { status: cathCase.status }, afterState: { status: 'in_progress' }
+    occurredAt: recordedAt, beforeState: { status: cathCase.status }, afterState: { status: 'in_progress' }
     // + visibleToPatient: false if Task 0 Survey C found the writer defaults it on
   });
   await updateCaseCanonicalRefs(tx, { tenantId, caseId: updated.id, event });
@@ -1124,16 +1386,20 @@ async function reopenCaseTx(tx, { tenantId, cathCase, reason, context = {} }) {
   const cleanReason = cleanText(reason, 500);                  // the PARAMETER (owner point 2b), not input.reason
   if (!cleanReason) throw AppError.badRequest('A reason is required to reopen a cancelled case', 'CATH_LAB_REOPEN_REASON_REQUIRED', { case_status: 'cancelled' });
   const cancelledAt = cathCase.actual_end_at ?? null;
-  const previousAttemptStartedAt = cathCase.attempt_started_at ?? null;
+  const previousAttemptRecordedAt = cathCase.attempt_start_recorded_at ?? null;
   const previousAttempt = Number(cathCase.procedure_attempt);
-  const newAttempt = previousAttemptStartedAt ? previousAttempt + 1 : previousAttempt;   // an attempt that never started is not a new attempt
+  const newAttempt = previousAttemptRecordedAt ? previousAttempt + 1 : previousAttempt;
+  const nextLifecycleToken = crypto.randomUUID();
   const cancelReason = await latestCancelReasonTx(tx, tenantId, cathCase.id);
   const rows = await tx.$queryRawUnsafe(
     `UPDATE cath_lab_cases
         SET status = 'readiness_pending',
             actual_end_at = NULL,
+            attempt_start_recorded_at = NULL,
             attempt_started_at = NULL,
+            attempt_start_time_provenance = NULL,
             procedure_attempt = $4::int,
+            lifecycle_token = $5::uuid,
             metadata = (COALESCE(metadata, '{}'::jsonb) - 'readiness_at_start')
                        || jsonb_build_object('readiness_at_start_history',
                             COALESCE(metadata->'readiness_at_start_history', '[]'::jsonb)
@@ -1143,19 +1409,14 @@ async function reopenCaseTx(tx, { tenantId, cathCase, reason, context = {} }) {
             updated_at = NOW()
       WHERE tenant_id = $1::uuid AND id = $2::bigint
       RETURNING *`,
-    tenantOr(tenantId), cathCase.id, maybeUuid(context.actorUid, 'actorUid'), newAttempt);
+    tenantOr(tenantId), cathCase.id, maybeUuid(context.actorUid, 'actorUid'), newAttempt, nextLifecycleToken);
   const updated = unwrap(rows);
   let checksReset = [];
   if (newAttempt > previousAttempt) {
     await tx.$executeRawUnsafe(
       `UPDATE cath_lab_readiness_checks
           SET status = 'pending', completed_at = NULL, completed_by = NULL,
-              metadata = (COALESCE(metadata, '{}'::jsonb) - 'consent' - 'timeout')
-                         || jsonb_build_object('previous_attempts',
-                              COALESCE(metadata->'previous_attempts', '[]'::jsonb)
-                              || jsonb_build_array(jsonb_build_object(
-                                   'procedure_attempt', $3::int, 'status', status, 'completed_at', completed_at, 'completed_by', completed_by,
-                                   'consent', metadata->'consent', 'timeout', metadata->'timeout'))),
+              metadata = COALESCE(metadata, '{}'::jsonb) - 'consent' - 'timeout',
               updated_at = NOW()
         WHERE tenant_id = $1::uuid AND case_id = $2::bigint AND check_type IN ('consent', 'timeout')`,
       tenantOr(tenantId), cathCase.id, previousAttempt);
@@ -1172,7 +1433,7 @@ async function reopenCaseTx(tx, { tenantId, cathCase, reason, context = {} }) {
   await recordReadinessAudit(tx, {   // ALWAYS: the audit row IS the decision
     tenantId: tenantOr(tenantId), action: 'cath_lab.case.reopened', resource: 'cath_lab_cases', resourceId: updated.id, context,
     metadata: { case_id: normalizeDbValue(updated.id), facility_id: updated.facility_id ?? null, reason: cleanReason, previous_status: 'cancelled', cancelled_at: cancelledAt, cancel_reason: cancelReason,
-      urgency: updated.urgency ?? null, previous_attempt: previousAttempt, procedure_attempt: newAttempt, previous_attempt_started_at: previousAttemptStartedAt, checks_reset: checksReset }
+      urgency: updated.urgency ?? null, previous_attempt: previousAttempt, procedure_attempt: newAttempt, previous_attempt_start_recorded_at: previousAttemptRecordedAt, lifecycle_token_rotated: true, checks_reset: checksReset }
   });
   return { updated: normalizeDbValue(updated), procedureAttempt: newAttempt, checksReset };
 }
@@ -1194,6 +1455,9 @@ export async function reopenCase(caseId, input = {}, context = {}) {
 Inside the transaction, in this order:
 
 ```js
+    const target = normalizeStatus(input.status, CASE_STATUSES, 'status');
+    const commandId = normalizeCommandId(input.command_id);
+    const expectedLifecycleToken = normalizeLifecycleToken(input.expected_lifecycle_token);
     const cathCase = await caseById(tx, tenantId, caseId, { lock: true });
     // Decision 15 (owner point 2a): a cancelled case has ONE door, and it is not
     // this endpoint — for ANY target, readiness_pending included. Refused BEFORE
@@ -1204,13 +1468,15 @@ Inside the transaction, in this order:
       throw AppError.conflict('This case was cancelled. Reopen it (POST /cath-lab/cases/:id/reopen) with a reason before changing its status.',
         'CATH_LAB_CASE_CANCELLED_REOPEN_REQUIRED', { case_status: 'cancelled', requested_status: input.status, reopen_path: '/api/v1/cath-lab/cases/:id/reopen' });
     }
-    const target = validateCaseTransition(cathCase.status, input.status);
     if (target === 'in_progress') {
-      const { updated } = await startCaseTx(tx, { tenantId, cathCase, reason: input.reason, via: 'status', commandId: input.command_id, context });
+      const { updated } = await startCaseTx(tx, { tenantId, cathCase, reason: input.reason, via: 'status', commandId, expectedLifecycleToken, context });
       startedPatientUid = updated.patient_uid;   // closure variable read after commit
       return updated;
     }
-    … the generic UPDATE as today MINUS its dead `actual_start_at = CASE … END` branch; SLA handling unchanged …
+    validateCaseTransition(cathCase.status, target);
+    // Run the existing generic UPDATE with its start branch removed. When
+    // target is cancelled, the same UPDATE assigns lifecycle_token =
+    // gen_random_uuid(); all existing SLA fields retain their measured binds.
 ```
 
 and **after** `setTenantTx` resolves: `if (startedPatientUid) scheduleReadinessRefresh({ tenantId, patientUid: startedPatientUid, source: 'cath_case_start' });` — synchronous, never awaited, never throws. Delete the `assertReadinessComplete` call. If the SLA tests break, the generic UPDATE's parameter numbering shifted — keep `$3`/`$4`.
@@ -1222,6 +1488,20 @@ and **after** `setTenantTx` resolves: `if (startedPatientUid) scheduleReadinessR
   let startedPatientUid = null;
   const procedure = await setTenantTx(tenantId, async (tx) => {
     const cathCase = await caseById(tx, tenantId, caseId, { lock: true });
+    const token = normalizeLifecycleToken(input.expected_lifecycle_token);
+    const logCommandId = normalizeCommandId(input.log_command_id);
+    if (!token || !logCommandId) throw AppError.badRequest('log_command_id and expected_lifecycle_token are required', 'CATH_LAB_PROCEDURE_LOG_COMMAND_REQUIRED');
+    if (String(cathCase.lifecycle_token) !== token) throw AppError.conflict('The case lifecycle changed; reload before writing', 'CATH_LAB_LIFECYCLE_STALE');
+    const requestHash = stableSha256(normalizeProcedureLogCommand(input));
+    const existing = unwrapOrNull(await tx.$queryRawUnsafe(
+      `SELECT *, metadata->>'server_command_hash' AS server_command_hash
+         FROM cath_procedure_logs
+        WHERE tenant_id = $1::uuid AND case_id = $2::bigint AND log_command_id = $3`,
+      tenantId, cathCase.id, logCommandId));
+    if (existing) {
+      if (existing.server_command_hash !== requestHash) throw AppError.conflict('The log command was reused with different content', 'CATH_LAB_PROCEDURE_LOG_COMMAND_CONFLICT');
+      return normalizeDbValue(existing);
+    }
     // Decision 13: cancelled → refuse, name the door. BEFORE the insert.
     if (cathCase.status === 'cancelled') {
       throw AppError.conflict('This case was cancelled. Reopen the case (POST /cath-lab/cases/:id/reopen) with a reason before recording the procedure.',
@@ -1234,15 +1514,18 @@ and **after** `setTenantTx` resolves: `if (startedPatientUid) scheduleReadinessR
       throw AppError.conflict('A procedure cannot be recorded on this case until it is scheduled', 'CATH_LAB_CASE_START_NOT_ELIGIBLE',
         { case_status: cathCase.status, next_action: cathCase.status === 'requested' ? { path: '/api/v1/cath-lab/cases/:id/status', body: { status: 'scheduled' } } : null });
     }
-    … INSERT the log exactly as today, with status = logStatus …
+    // Extend the existing INSERT with procedure_attempt, lifecycle_token and
+    // log_command_id. Store server_command_hash under a reserved metadata key;
+    // strip that key from client metadata before merging.
     const row = unwrap(rows);
     // Decision 16: a FINALIZED log on a start-eligible case starts it — same function,
     // same block, same snapshot. A draft or an amendment is recorded and starts nothing.
     if (startEligible && START_LOG_STATUSES.includes(logStatus)) {
-      const { updated } = await startCaseTx(tx, { tenantId, cathCase, reason: input.start_reason, via: 'procedure_log', commandId: input.command_id, procedureLogId: row.id, context });
+      const { updated } = await startCaseTx(tx, { tenantId, cathCase, reason: input.start_reason, via: 'procedure_log', commandId: input.command_id, expectedLifecycleToken: token, procedureLogId: row.id, clinicalStartedAt: optionalTimestamp(input.started_at || input.startedAt, 'started_at'), clinicalStartProvenance: input.started_at || input.startedAt ? 'retrospective_staff_supplied' : 'retrospective_time_unknown', context });
       startedPatientUid = updated.patient_uid;
     }
-    … the rest as today (log-id refs, complication registry) …
+    // Keep the measured canonical-event, log-reference and complication-
+    // registry writes unchanged and inside this transaction.
     return row;
   });
   if (startedPatientUid) scheduleReadinessRefresh({ tenantId, patientUid: startedPatientUid, source: 'cath_case_start' });
@@ -1323,8 +1606,9 @@ describe('the cath case has exactly one start path', () => {
     … collect lines matching /actual_start_at\s*=/, /attempt_started_at\s*=/, /status\s*=\s*'in_progress'/ and the SET status = CASE … 'in_progress' … END shape …
     expect(sites.map((s) => `${s.at} :: ${s.line}`)).toEqual([
       `${SERVICE}:reopenCaseTx :: attempt_started_at = NULL,`,
-      `${SERVICE}:startCaseTx :: actual_start_at = COALESCE(actual_start_at, NOW()),`,
-      `${SERVICE}:startCaseTx :: attempt_started_at = NOW(),`,
+      `${SERVICE}:startCaseTx :: actual_start_at = COALESCE(actual_start_at, $6::timestamptz),`,
+      `${SERVICE}:startCaseTx :: attempt_start_recorded_at = $6::timestamptz,`,
+      `${SERVICE}:startCaseTx :: attempt_started_at = $7::timestamptz,`,
       `${SERVICE}:startCaseTx :: SET status = 'in_progress',`,
     ]);
   });
@@ -1343,6 +1627,20 @@ describe('the cath case has exactly one start path', () => {
     expect(upserts).toEqual([]);                       // no upsert on the case table; one would have to be argued for
     expect(updates.sort()).toEqual([...UPDATE_SITES]);  // nine — the COUNT is the assertion
     expect(inserts.sort()).toEqual([...INSERT_SITES]);  // two
+  });
+  test('a synthetic new writer makes the population assertion fail', () => {
+    const synthetic = { path: 'services/clinical/__syntheticWriter.js', text: "async function syntheticWriter(tx) { return tx.$executeRawUnsafe(`UPDATE cath_lab_cases SET updated_at = NOW() WHERE id = $1`, 1); }" };
+    const measured = measureWritePopulation([...FILES, synthetic]);
+    expect(measured.updates).toContain('services/clinical/__syntheticWriter.js:syntheticWriter');
+    expect(() => expect(measured.updates.sort()).toEqual([...UPDATE_SITES])).toThrow();
+  });
+  test('a synthetic ORM create/update/upsert is also rejected by name', () => {
+    for (const method of ['create', 'update', 'updateMany', 'upsert']) {
+      const synthetic = { path: 'services/clinical/__syntheticOrmWriter.js', text: `async function syntheticOrmWriter(tx) { return tx.cath_lab_cases.${method}({ data: {} }); }` };
+      const measured = measureWritePopulation([...FILES, synthetic]);
+      expect(measured.ormWriters).toEqual([`services/clinical/__syntheticOrmWriter.js:syntheticOrmWriter:${method}`]);
+      expect(() => expect(measured.ormWriters).toEqual([])).toThrow();
+    }
   });
   test('ordinary creation normalises against CREATABLE_STATUSES, and STEMI creates readiness_pending (decision 14)', () => {
     const createCaseSrc = functionSource(service.text, 'createCase');
@@ -1369,7 +1667,7 @@ describe('the cath case has exactly one start path', () => {
 });
 ```
 
-`functionSource(text, name)` returns the text from `function <name>(` to the next top-level `function` declaration — good enough for these three textual assertions. **Measure before you trust**: run the pin on the base commit first; it reports the pre-lane population (eight UPDATE sites including `recordProcedureLog`, the start shapes in `recordProcedureLog` and `transitionCaseStatus`, `STATUS_WRITERS` with `recordProcedureLog` in place of `startCaseTx` / `reopenCaseTx`, `CASE_TRANSITIONS.cancelled` = `[]`). If `enclosingFunction` names an inner helper for the recovery UPDATE, the measured name goes in the list — the list is a snapshot, not a guess.
+`measureWritePopulation(files)` contains the SQL loop shown above plus a scan for `.<cath case model>.(create|update|updateMany|upsert|delete|deleteMany)(`; it returns sorted `updates`, `inserts`, `upserts`, `ormWriters` and `unclassified`. The production assertion and both synthetic tests call the same function. **Measure before trusting constants:** current `github/main` has exactly eight UPDATE literals, two INSERT literals, zero case-table upserts and zero ORM writers; after this design it should have nine UPDATE and two INSERT sites and still zero upsert/ORM sites. A shorter as well as longer population fails.
 
 - [ ] **Step 12: Run the pin** — `npm test -- --testPathPatterns unit/cathLabStartPathPin`. Expected: PASS. A tenth UPDATE site or a third INSERT site is a write path this plan did not know about: stop, read it, and either route it or report it.
 
@@ -1400,9 +1698,21 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `apps/backend/scripts/openapi/schemas/cathLabReadiness.mjs` (decision 9 KEPT edits only — the rest in Task 5)
 - Test: `apps/backend/src/tests/unit/cathLabReadinessServiceOrders.test.js`, `apps/backend/src/tests/unit/cathLabReadinessService.test.js`, `apps/backend/src/tests/cath-lab-readiness.deep.test.js`
 
+Revision 3 splits refresh into two functions. `resolveCaseLabReadinessCandidate` reads the case token/generation, tenant settings, results, orders and accepted evidence **without any case-row lock** and returns a candidate containing both fingerprints. `publishCaseLabReadinessCandidate` starts a tenant transaction, locks only the case `FOR NO KEY UPDATE`, rechecks `lifecycle_token`, `lab_readiness_generation`, and `policy_fingerprint`, then upserts projections/attempt evidence and increments the generation. A mismatch discards and retries from resolution; expensive evidence queries never run while the case lock is held. `getCase` and Staff loading read the cached projection immediately and enqueue refresh after the response; they never await resolution.
+
+Add a real two-connection integration test: connection A pauses evidence resolution after its initial generation read; connection B posts a valid Start and must commit within 2 seconds while A remains paused; then A resumes, detects the generation/token mismatch and discards/retries without overwriting the started lifecycle. A companion test pauses A only inside the brief publish transaction and proves B may wait for that bounded lock. Use two independent pool connections—promises on one mocked transaction do not prove lock independence.
+
+The end-to-end history test creates attempt 1, records consent/time-out evidence, starts, adds a procedure log, cancels, reopens, proves token rotation and stale-token refusal, records new evidence, starts attempt 2, then amends time-out/procedure-log data after Start. Assert two immutable at-start records with distinct tokens/attempt numbers; mutable follow-up remains attached to its own attempt; every procedure log has the correct attempt/token; the monthly report returns one row per start event joined to that attempt; no `metadata.previous_attempts` exists.
+
+Route-level replay coverage posts the same Start command/token twice through `POST /cases/:id/status` and asserts the second 200 returns the original snapshot with no additional case/event/audit write. A second sequence captures token A before any Start, cancels and reopens the never-started case (token B), then delivers the first Start with token A and receives `CATH_LAB_LIFECYCLE_STALE`. Repeat the stale matrix for consent, time-out, draft log and finalized log; each asserts zero attempt/check/log writes.
+
+Fingerprint tests use stable canonical JSON and cover: unchanged evidence ageing out (carry permitted); same-id status/timestamp/version correction (carry denied); withdrawal (denied); backwards version/timestamp (denied); policy-window or external-acceptance change (denied); bounded-lookback absence (`not_observed`, not withdrawal); and first population (`bootstrap`, not policy change). Preserve `last_accepted_evidence` independently when the live deciding row disappears.
+
+Mutation 15's permanent proof is direct: after reopen and second Start, query `cath_lab_cases` and assert `status = 'in_progress' AND actual_end_at IS NULL`. Do not compare the cleared end with preserved first-start history.
+
 - [ ] **Step 1: Write the failing unit tests for the late actions and the attempt discriminator**
 
-In `cathLabReadinessService.test.js`, `describe('orderPriorityForUrgency')`: a started case orders `STAT` whatever its booked urgency (`orderPriorityForUrgency(urgency, { started: true })` for every urgency and `undefined`); `orderPriorityForUrgency('elective')` stays `NORMAL`. New: `isAfterCaseStart({ actual_start_at: '2026-09-06T03:10:00Z', attempt_started_at: null })` is **false** (attempt 2 not started — history is not "started") and `isAfterCaseStart({ attempt_started_at: '…' })` is true.
+In `cathLabReadinessService.test.js`, `describe('orderPriorityForUrgency')`: a started case orders `STAT` whatever its booked urgency (`orderPriorityForUrgency(urgency, { started: true })` for every urgency and `undefined`); `orderPriorityForUrgency('elective')` stays `NORMAL`. New: `isAfterCaseStart({ actual_start_at: '2026-09-06T03:10:00Z', attempt_start_recorded_at: null })` is **false** (attempt 2 not yet recorded as started) and `isAfterCaseStart({ attempt_start_recorded_at: '2026-09-06T03:10:00Z' })` is true even when clinical time is unknown.
 
 In `cathLabReadinessServiceOrders.test.js`: invert the started-case refusal — with `case_started: true` in the refresh stub, `createInvestigationOrder` is called with `priority: 'STAT'` and `recordReadinessAudit` with `metadata: expect.objectContaining({ ordered_after_start: true })`; invert the outside-result refusal (if the suite has one): the row is written and the audit metadata carries `recorded_after_start: true`.
 
@@ -1419,12 +1729,12 @@ export function orderPriorityForUrgency(urgency, { started = false } = {}) {
 // "After start" is the ACTIVE attempt's start (decision 17): a reopened case
 // whose attempt 2 has not started is pre-start again, whatever actual_start_at says.
 function isAfterCaseStart(cathCase, at = Date.now()) {
-  const startedMs = toMs(cathCase?.attempt_started_at_epoch_ms ?? cathCase?.attempt_started_at);
+  const startedMs = toMs(cathCase?.attempt_start_recorded_at_epoch_ms ?? cathCase?.attempt_start_recorded_at);
   return Number.isFinite(startedMs) && at > startedMs;
 }
 ```
 
-`orderMissingLabs`: delete the `if (before.case_started) throw …` block; `priority = orderPriorityForUrgency(urgency, { started: before.case_started })`; the note gains `' — ordered after procedure start'` when started; audit metadata `{ created, skipped, ordered_after_start: before.case_started }`. `recordExternalLabResult`: delete the `if (cathCase.actual_start_at) throw …` block; `recorded_after_start: isAfterCaseStart(cathCase)` on the `CATH_LAB_EXTERNAL_RESULT_RECORDED` audit metadata. Every `caseById`-style read these functions make must now select `attempt_started_at` (and the twin where one exists). Delete the parenthetical in `isAfterCaseStart`'s comment that says the two operations still refuse.
+`orderMissingLabs`: remove the old started-case refusal; use `priority = orderPriorityForUrgency(urgency, { started: before.case_started })`, append the after-start note, and audit `ordered_after_start`. `recordExternalLabResult` likewise remains open and audits `recorded_after_start: isAfterCaseStart(cathCase)`. Every case read selects `attempt_start_recorded_at` and its epoch twin for operational lateness, plus nullable clinical `attempt_started_at` and provenance for clinical display.
 
 - [ ] **Step 4: Implement the refresh** (spec §4.9 reads, §5.1, §5.6)
 
@@ -1432,8 +1742,9 @@ function isAfterCaseStart(cathCase, at = Date.now()) {
 
 ```sql
 SELECT id, tenant_id, patient_uid, encounter_id, facility_id, status, urgency,
-       actual_start_at, attempt_started_at, procedure_attempt,
-       (EXTRACT(EPOCH FROM attempt_started_at) * 1000)::bigint AS attempt_started_at_epoch_ms,
+       actual_start_at, attempt_start_recorded_at, attempt_started_at,
+       attempt_start_time_provenance, procedure_attempt, lifecycle_token,
+       (EXTRACT(EPOCH FROM attempt_start_recorded_at) * 1000)::bigint AS attempt_start_recorded_at_epoch_ms,
        metadata->'readiness_at_start' AS readiness_at_start
   FROM cath_lab_cases …
 ```
@@ -1445,10 +1756,10 @@ SELECT id, tenant_id, patient_uid, encounter_id, facility_id, status, urgency,
       values.window_days = windowDays;
 ```
 
-where `resultsForItem` is the candidate rows the resolver was given for this item and `windowDays` the window it was given (both already in scope). `caseStartedAt: cathCase.attempt_started_at_epoch_ms ?? cathCase.attempt_started_at`. `computeCheckDecision` receives the items **with** the cause (it reads `item.unavailability_cause`). The `auto_pass` audit metadata gains `passed_after_start: decision.nextStatus === 'pass' && Boolean(cathCase.attempt_started_at)`. The return gains / changes:
+where `resultsForItem` is the candidate rows the resolver was given for this item and `windowDays` the window it was given. `caseStartedAt` is the active attempt's recording-time epoch twin. `computeCheckDecision` receives cause, both live fingerprints and independently retained accepted evidence. The `auto_pass` audit records whether `attempt_start_recorded_at` was present.
 
 ```js
-      case_started: Boolean(cathCase.attempt_started_at),
+      case_started: Boolean(cathCase.attempt_start_recorded_at),
       procedure_attempt: Number(cathCase.procedure_attempt ?? 1),
       attempt_started_at: cathCase.attempt_started_at ?? null,
       first_started_at: cathCase.actual_start_at ?? null,
@@ -1462,7 +1773,7 @@ where `resultsForItem` is the candidate rows the resolver was given for this ite
 
 - [ ] **Step 6: Decision 9 — KEPT** (Task 0 Step 2 confirmed it)
 
-In `cathLabReadiness.mjs`: remove the 409 `errorResponse` from the order-missing and external-result operations and the sentence "Refused once the procedure has started." from both; rewrite `case_started`: "True once the ACTIVE attempt has started (`attempt_started_at`; a reopened case is pre-start again until its next attempt starts). Nothing on this surface is refused after it except lifting a waiver (#1018, record-yes / lift-no): ordering, outside results and waivers stay open and are marked as after start." `CATH_LAB_READINESS_CASE_STARTED` stays in `ERROR_CODES` (one thrower, `unwaiveLabItem`). `cathLabRouteGuards.test.js`'s deterministic-409 probe is untouched. Run `npm test -- --testPathPatterns "unit/cathLabReadinessOpenApiSource|unit/cathLabRouteGuards"` — green.
+In `cathLabReadiness.mjs`, remove the order-missing/external-result started-case 409s. Define `case_started` from active `attempt_start_recorded_at`; nullable clinical `attempt_started_at` is not the operational discriminator. The record-yes/lift-no waiver exception remains the sole `CATH_LAB_READINESS_CASE_STARTED` thrower.
 
 - [ ] **Step 7: Deep helpers** (append to `cath-lab-readiness.deep.test.js`; every new test seeds its own case so #1018's fixture on `CASE_ID` is untouched)
 
@@ -1486,7 +1797,8 @@ async function seedCase({ status = 'scheduled', consent = 'pass', labs = 'pendin
   return id;
 }
 const caseRow = (id) => prisma.$queryRawUnsafe(
-  `SELECT status, actual_start_at, attempt_started_at, procedure_attempt, actual_end_at,
+  `SELECT status, actual_start_at, attempt_start_recorded_at, attempt_started_at,
+          attempt_start_time_provenance, lifecycle_token, procedure_attempt, actual_end_at,
           metadata->'readiness_at_start' AS snapshot, metadata->'readiness_at_start_history' AS history, metadata->'start_commands' AS commands
      FROM cath_lab_cases WHERE tenant_id = $1::uuid AND id = $2::bigint`, TENANT, id).then((rows) => rows[0]);
 const startAudits = (id) => prisma.$queryRawUnsafe(
@@ -1551,7 +1863,7 @@ Add `pollForItemOnCase(id, code, predicate)` and `labsCheckFor(id)` as case-para
     expect(row.metadata.timeout.documented_at).toBe(new Date(row.completed_at).toISOString());
     const block = await getCase(id, { tenantId: TENANT }, ctx());                // whichever read surfaces the check's derived timing
     const timeout = block.readiness.find((c) => c.check_type === 'timeout');
-    expect(['performed_after_start', 'performed_before_start']).toContain(timeout.timing);
+    expect(['performed_after_clinical_start', 'performed_before_clinical_start', 'performance_unknown']).toContain(timeout.timing);
     expect(timeout.documented_after_start).toBe(true);
   }, 60000);
 
@@ -1627,17 +1939,17 @@ Add `pollForItemOnCase(id, code, predicate)` and `labsCheckFor(id)` as case-para
     const id = await seedCase({ status: 'scheduled', labs: 'pending', patientUid: patient });
     expect((await refreshCaseLabReadiness({ tenantId: TENANT, caseId: id, context: ctx() })).check_status).toBe('pass');   // auto-passed, all seven fresh
     await start(id);
-    const firstStart = (await caseRow(id)).attempt_started_at;
+    const firstStart = (await caseRow(id)).attempt_start_recorded_at;
     expect(new Date((await caseRow(id)).actual_start_at).getTime()).toBe(new Date(firstStart).getTime());
     await transitionCaseStatus(id, { tenantId: TENANT, status: 'cancelled', reason: 'Abandoned — access failed' }, ctx());
     await ageHgb(45, patient);
     await reopenCase(id, { tenantId: TENANT, reason: 'Second attempt via radial' }, ctx());
     const reopened = await caseRow(id);
-    expect(reopened).toMatchObject({ status: 'readiness_pending', procedure_attempt: 2, attempt_started_at: null, snapshot: null });
+    expect(reopened).toMatchObject({ status: 'readiness_pending', procedure_attempt: 2, attempt_start_recorded_at: null, attempt_started_at: null, snapshot: null });
     expect(new Date(reopened.actual_start_at).getTime()).toBe(new Date(firstStart).getTime());     // history kept
     expect(reopened.history).toHaveLength(1); expect(reopened.history[0].procedure_attempt).toBe(1);
     expect((await checkRow(id, 'consent')).status).toBe('pending');                               // reset on a NEW attempt
-    expect((await checkRow(id, 'consent')).metadata.previous_attempts[0]).toMatchObject({ procedure_attempt: 1, status: 'pass' });
+    expect(await attemptCheckRow(id, 1, 'consent')).toMatchObject({ procedure_attempt: 1, current_status: 'pass', at_start_status: 'pass' });
     expect((await checkRow(id, 'timeout')).status).toBe('pending');
     // PRE-start regime again: the aged value RETRACTS the labs check (Plan 3's rule) — exactly right for a patient going back on the table
     const block = await refreshCaseLabReadiness({ tenantId: TENANT, caseId: id, context: ctx() });
@@ -1648,7 +1960,7 @@ Add `pollForItemOnCase(id, code, predicate)` and `labsCheckFor(id)` as case-para
     await start(id, { reason: 'Radial attempt; repeat Hb sent' });
     const second = await caseRow(id);
     expect(second.status).toBe('in_progress');
-    expect(new Date(second.attempt_started_at).getTime()).toBeGreaterThan(new Date(firstStart).getTime());
+    expect(new Date(second.attempt_start_recorded_at).getTime()).toBeGreaterThan(new Date(firstStart).getTime());
     expect(new Date(second.actual_start_at).getTime()).toBe(new Date(firstStart).getTime());
     expect(second.snapshot).toMatchObject({ procedure_attempt: 2, missing_lab_items: ['hb'] });
     expect(second.snapshot.blocking.map((b) => b.check_type)).toContain('labs');
@@ -1724,6 +2036,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ---
 ## Task 5: The readiness picture — day list (tri-state), projection, OpenAPI (+ lifecycle error codes), canary (+ CSV, three sentinels)
 
+**Privacy release condition.** Re-run a repository-wide function/caller search for `readCanonicalPatientTimeline`, canonical-event copying, notification rendering, JSON/CSV exports and nested projections. At the revision-3 reference SHA there are exactly two route callers—`emr/clinicalTimelineRoutes.js` and `patient/patientSearchRoutes.js`—both behind `patientAccessGuard`; there is no current encounter-route caller. Pin that known count and fail if a synthetic third reader is added without classification. Sentinel-test nested `reason`, emergency justification, evidence references and provenance for every admitted role and export shape. `visible_to_patient = false` is necessary but not sufficient.
+
 **Files:**
 - Modify: `apps/backend/src/services/clinical/cathLabService.js` (`listCases`)
 - Modify: `apps/backend/src/services/clinical/cathLabReadinessProjection.js`
@@ -1736,7 +2050,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 - [ ] **Step 3: Day list — two columns and the TRI-state fold** (spec §6.2)
 
-`listCases` SELECT gains `c.procedure_attempt, c.attempt_started_at,` and, beside `c.updated_at,`:
+`listCases` SELECT gains `c.procedure_attempt, c.lifecycle_token, c.attempt_start_recorded_at, c.attempt_started_at, c.attempt_start_time_provenance, c.lab_readiness_generation,` and, beside `c.updated_at,`:
 
 ```sql
             CASE WHEN jsonb_typeof(c.metadata->'readiness_at_start'->'blocking') = 'array'
@@ -1750,17 +2064,17 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 - [ ] **Step 4: OpenAPI overlay** (`cathLabReadiness.mjs`)
 
-- `CathLabCase`: `procedure_attempt` (integer, minimum 1) and `attempt_started_at` (date-time, nullable) — required.
+- `CathLabCase`: required `procedure_attempt`, server `lifecycle_token`, nullable `attempt_start_recorded_at`, nullable clinical `attempt_started_at`, nullable provenance, and integer `lab_readiness_generation`.
 - `item.required` gains `'ordered_after_start', 'received_after_start', 'finalised_after_start', 'unavailability_cause'`; properties: three booleans with the spec's descriptions (**`received_after_start` = the deciding row was RECEIVED here after the active attempt's start; a row received before and signed after reads false — a receipt marker, transaction-start ordering**; `finalised_after_start` from `signed_off_at`, false unless signed); `unavailability_cause: { type: 'string', enum: UNAVAILABILITY_CAUSES, nullable: true }` imported from the rules module.
 - `missing[]` items: `required: ['item', 'state', 'cause']`, `cause` the same nullable enum.
-- `readiness.required` gains `'procedure_attempt', 'attempt_started_at', 'first_started_at', 'started_with_readiness_pending', 'readiness_at_start'`; `started_with_readiness_pending: { type: 'boolean', nullable: true, description: 'true / false / null — null means no snapshot (a case started before the checklist recorded starts, or an attempt not yet started); never read null as "no pending checks".' }`; `readiness_at_start: { type: 'object', nullable: true, additionalProperties: false, required: [...START_SNAPSHOT_KEYS], properties: { recorded_at, procedure_attempt (integer), via (enum START_VIAS), command_id (string nullable), procedure_log_id (integer nullable), urgency (nullable), reason (nullable, 'Projected: null for roles outside the serology audience.'), blocking (array of { check_type: enum CHECK_TYPES, reason }), missing_lab_items: { type: 'array', items: { enum: ITEMS }, nullable: true, description: 'null = lab picture unavailable at start (unknown), never []' }, readiness_picture_at (date-time nullable), lab_component_status (enum LAB_COMPONENT_STATUSES), consent_authority (enum CONSENT_AUTHORITIES nullable) } }`.
+- `readiness.required` gains `procedure_attempt`, server-issued `lifecycle_token`, `attempt_start_recorded_at`, nullable clinical `attempt_started_at`, `attempt_start_time_provenance`, `first_started_at`, `started_with_readiness_pending`, and `readiness_at_start`. The snapshot declares exactly the 15 `START_SNAPSHOT_KEYS`, including both clocks/provenance and lifecycle token. `started_with_readiness_pending` remains tri-state; null is unknown, never clean.
 - `case_started` description: Task 4 Step 6's text.
-- Readiness-check write operation prose: a `consent` pass requires `metadata.consent = { authority ∈ CONSENT_AUTHORITIES, mode ∈ CONSENT_MODES }` (400 `CATH_LAB_CONSENT_AUTHORITY_REQUIRED`; authority outside the tenant policy → 400 `CATH_LAB_CONSENT_AUTHORITY_NOT_PERMITTED` with `details.permitted`); `emergency_basis` is an authority to proceed, **not** consent, and is never rendered as "consent obtained"; a `timeout` pass requires `metadata.timeout.performed_at` (400 `CATH_LAB_TIMEOUT_PERFORMED_AT_REQUIRED`) and the server stamps `completed_at` itself. Document the derived `timing` / `documented_after_start` on the check row.
+- Readiness-check write prose requires `expected_lifecycle_token` for consent/time-out. Patient/representative consent uses approved mode+evidence+scope; representative adds `representative_ref`; emergency basis uses approved `document_ref` or `justification`+`attested` and rejects `mode`. Server-owned provenance/policy/time/history fields are rejected. A time-out pass requires `{ outcome: 'performed', performed_at }`; `{ outcome: 'not_performed', attested: true }` stays non-pass; absence is `not_documented` / `performance_unknown`.
 - `operations` gains **four** prose-only entries (`pathParameters: { id: BIGINT_WIRE }` where applicable, no `request` / `response`):
   - `'POST /api/v1/cath-lab/cases'` — `status` must be one of `CREATABLE_STATUSES` (400 `CATH_LAB_CASE_STATUS_NOT_CREATABLE`); a case is never created running or finished; `procedure_attempt` / `attempt_started_at` are not accepted; reserved metadata keys are stripped. (If the creation operation is already documented elsewhere in the overlay set, add the prose there and keep the pin's `PROSE_ONLY` count honest.)
-  - `'POST /api/v1/cath-lab/cases/{id}/status'` — `in_progress` from `scheduled|readiness_pending|ready`; **`command_id` required** (400 `CATH_LAB_START_COMMAND_REQUIRED`), stable per user decision, replay-safe (same attempt → the started case; another attempt → 409 `CATH_LAB_START_COMMAND_STALE`); `reason` required when the gate is not clear (400 `CATH_LAB_START_REASON_REQUIRED`); authority not documented → 400 `CATH_LAB_CONSENT_REQUIRED`; **any** status on a cancelled case → 409 `CATH_LAB_CASE_CANCELLED_REOPEN_REQUIRED` naming the reopen operation; the snapshot on `metadata.readiness_at_start`; the start never waits on the lab rail (a refresh is scheduled after commit).
-  - `'POST /api/v1/cath-lab/cases/{id}/procedure-logs'` — the exhaustive table in prose: finalized log on a start-eligible case starts it through the same path (`start_reason` and `command_id` optional); a **draft or amended** log never starts a case; `in_progress` / `completed` → recorded, case untouched; `cancelled` → 409 `CATH_LAB_CASE_CANCELLED_REOPEN_REQUIRED`; `requested` or unexpected → 409 `CATH_LAB_CASE_START_NOT_ELIGIBLE` with `details.next_action`.
-  - `'POST /api/v1/cath-lab/cases/{id}/reopen'` — **cancelled only** (any other status → `INVALID_STATE_TRANSITION`); `reason` required (400 `CATH_LAB_REOPEN_REASON_REQUIRED`); `Idempotency-Key` required, one per user decision (scope `cath_lab_case_reopen`); clears `actual_end_at` and the active attempt, keeps `actual_start_at`; **if the previous attempt had started, opens attempt N+1, moves the snapshot to `readiness_at_start_history`, and resets `consent` and `timeout` to pending (previous documentation kept in `metadata.previous_attempts`)**; starts nothing.
+  - `'POST /api/v1/cath-lab/cases/{id}/status'` — Start requires `command_id` and `expected_lifecycle_token`; same-command/same-token replay is checked before transition eligibility, token mismatch is 409, and cancellation rotates the token. The response exposes the next server token. The start reads cached readiness and never awaits evidence resolution.
+  - `'POST /api/v1/cath-lab/cases/{id}/procedure-logs'` — every log requires `log_command_id` and `expected_lifecycle_token`; duplicate detection precedes INSERT. A finalized log on a start-eligible case also requires an independent Start `command_id` and uses the one start path; its clinical `started_at` needs provenance or remains unknown. Draft/amended logs never start; the remaining status table is unchanged.
+  - `'POST /api/v1/cath-lab/cases/{id}/reopen'` — cancelled only; reason and idempotency key required; always rotates the lifecycle token; if server recording proves a prior Start, opens attempt N+1 and resets current consent/time-out while preserving server-owned attempt history. It never accepts history/provenance from a client and never starts.
 - Day-list prose: `started_with_readiness_pending` is the seventh summary key and is tri-state.
 - **`CASE_LIFECYCLE_ERROR_CODES`** (spec §9): a second exported enum listing `CATH_LAB_CONSENT_REQUIRED`, `CATH_LAB_CONSENT_AUTHORITY_REQUIRED`, `CATH_LAB_CONSENT_AUTHORITY_NOT_PERMITTED`, `CATH_LAB_TIMEOUT_PERFORMED_AT_REQUIRED`, `CATH_LAB_START_REASON_REQUIRED`, `CATH_LAB_START_COMMAND_REQUIRED`, `CATH_LAB_START_COMMAND_STALE`, `CATH_LAB_START_VIA_INVALID`, `CATH_LAB_CASE_STATUS_NOT_CREATABLE`, `CATH_LAB_CASE_CANCELLED_REOPEN_REQUIRED`, `CATH_LAB_CASE_START_NOT_ELIGIBLE`, `CATH_LAB_REOPEN_REASON_REQUIRED`, `CATH_LAB_REPORT_MONTH_INVALID`, `CATH_LAB_REPORT_FACILITY_INVALID` — documented on the four prose-only operations and (Task 6) the two report operations; exported through `ENUMS` for the pin.
 
@@ -1768,16 +2082,16 @@ In `cathLabReadinessOpenApiSource.test.js`: `PROSE_ONLY` gains the four keys; th
 
 Run `npm test -- --testPathPatterns unit/cathLabReadinessOpenApiSource` → PASS (it will list `CATH_LAB_REPORT_*` as documented-but-unraised until Task 6 — either add those two to the enum in Task 6 or accept a red here that Task 6 turns green; say which in the commit message). Then `npm run openapi:generate && npm run openapi:check`; commit the regenerated `src/docs/openapi.json` and `packages/vhhealth_core/swagger/openapi.json`.
 
-- [ ] **Step 5: Canary — three sentinels, CSV bodies, the write mirror** (spec §6.4, §6.5)
+- [ ] **Step 5: Canary — five free-text sentinels, CSV bodies, the write mirror** (spec §6.4, §6.5)
 
-- Sentinels: `START_REASON_SENTINEL = 'START-REASON-SENTINEL-7f3a'`, `HISTORY_REASON_SENTINEL = 'HISTORY-REASON-SENTINEL-5c1d'`, `REOPEN_REASON_SENTINEL = 'REOPEN-REASON-SENTINEL-9b2e'`.
-- `CASE_ROW` gains `procedure_attempt: 2, attempt_started_at: OBSERVED, attempt_started_at_epoch_ms: BigInt(…), actual_start_at: OBSERVED, first_started_at: OBSERVED, started_with_readiness_pending: true, readiness_at_start: { …12 keys…, reason: START_REASON_SENTINEL, missing_lab_items: ['hbsag'], lab_component_status: 'fresh', consent_authority: 'patient' }, metadata: { readiness_at_start: <same>, readiness_at_start_history: [{ …, procedure_attempt: 1, reason: HISTORY_REASON_SENTINEL }], start_commands: [...] }`; every item fixture gains the three booleans and `unavailability_cause`.
-- `disclosures(body, contentType)`: **if the response is `text/csv`, the body text itself is the serialised form**; otherwise `JSON.stringify` as today. Add the three sentinel substring checks; in the JSON walk add `readiness_at_start.reason` populated, `rows[i].reason` populated, and **any key named `readiness_at_start_history`** (it must never appear on a read surface — the block, the list and the report never select it).
+- Sentinels: distinct constants for start reason, prior-attempt start reason, reopen reason, copied cancel reason, and emergency-basis justification.
+- `CASE_ROW` includes attempt 2, server lifecycle token, recording and clinical clocks/provenance, generation, first-start history, tri-state flag and a complete 15-key current snapshot. Server-owned snapshot history carries the prior reason only on entitled write responses; every readiness item includes lateness booleans, cause, both fingerprints and retained accepted evidence.
+- `disclosures(body, contentType)`: for CSV, scan the response text; otherwise scan the serialized JSON and nested payloads. Assert each of the five sentinels appears only for its entitled positive control and never for any non-entitled role/export. Any `readiness_at_start_history` on a general read surface is also a failure.
 - Positive control (`'the poison really is in the persistence layer'`): CATH_LAB_STAFF on `GET /api/v1/cath-lab/cases/:id/readiness/labs` reads `readiness_at_start.reason === START_REASON_SENTINEL`, `started_with_readiness_pending: true`, `missing_lab_items: ['hbsag']`, `procedure_attempt: 2`, and every item has the four booleans and a cause key.
 - Liveness: RECEPTIONIST on the same route answers 200 with `readiness_at_start.reason === null`, the same `blocking`, `missing_lab_items`, `consent_authority` and `lab_component_status`, and the booleans on every item.
 - **Write mirror**: `POST /api/v1/cath-lab/cases/:id/reopen` as CATH_LAB_STAFF (with the case fixture `cancelled` for that call and an `Idempotency-Key`) answers 2xx whose `RETURNING *` body contains `HISTORY_REASON_SENTINEL` inside `metadata.readiness_at_start_history` — positive control that the history exists and is reachable by the **entitled** workflow role only; RECEPTIONIST on the same POST answers 403 (route role), never a body.
 - Summary key set (`'the case LIST really carries a readiness summary'`): + `started_with_readiness_pending`, asserted `true` for the fixture; a second list fixture with no snapshot asserts `null`.
-- Timeline reader: **per Task 0 Survey C's verdict** — if projection was required, a fourth positive/liveness pair on the timeline route with `START_REASON_SENTINEL` and `REOPEN_REASON_SENTINEL` in the event payload fixtures; otherwise a unit assertion on `writeCanonicalEvent`'s two cath events (`visible_to_patient` false) lives in `cathLabService.test.js`.
+- Timeline readers: pin the measured two route callers and drive their reachable role matrix. Positive/liveness pairs cover all five sentinels in direct and nested payloads; `visible_to_patient = false` remains separately asserted but cannot replace reader projection tests.
 
 Run: `npm test -- --testPathPatterns unit/serologyDisclosureCanary`. Expected: PASS with **no** reachable-set change yet (the report routes come in Task 6; the reopen route is a POST and adds none).
 
@@ -1785,7 +2099,7 @@ Run: `npm test -- --testPathPatterns unit/serologyDisclosureCanary`. Expected: P
 
 ```bash
 git add apps/backend/src/services/clinical/cathLabService.js apps/backend/src/services/clinical/cathLabReadinessProjection.js apps/backend/scripts/openapi/schemas/cathLabReadiness.mjs apps/backend/src/docs/openapi.json packages/vhhealth_core/swagger/openapi.json apps/backend/src/tests/unit/cathLabReadinessProjection.test.js apps/backend/src/tests/unit/cathLabReadinessOpenApiSource.test.js apps/backend/src/tests/unit/serologyDisclosureCanary.test.js apps/backend/src/tests/unit/cathLabReadinessService.test.js apps/backend/src/tests/cath-lab-readiness.deep.test.js
-git commit -m "feat(cath): readiness picture — attempt fields, tri-state started-with-pending, three markers and cause on the contract, lifecycle error codes machine-checked, canary reads CSV and three sentinels
+git commit -m "feat(cath): readiness picture — lifecycle and attempt clocks, fingerprinted items, five free-text sentinels and complete reader survey
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
@@ -1802,6 +2116,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 - Modify: `apps/backend/scripts/openapi/schemas/cathLabReadiness.mjs`
 - Create: `apps/backend/src/tests/unit/cathStartsWithPendingReportService.test.js`
 - Test: `apps/backend/src/tests/unit/cathLabReadinessOpenApiSource.test.js`, `apps/backend/src/tests/unit/serologyDisclosureCanary.test.js` + reachable fixture, `apps/backend/src/tests/unit/cathLabRouteGuards.test.js` (route probes), the roleHelpers unit test, `apps/backend/src/tests/cath-lab-readiness.deep.test.js`
+
+Revision-3 control: report rows are start events joined to `cath_lab_attempt_readiness_records` on tenant + case + `procedure_attempt` from the immutable event snapshot. They never join the mutable current timeout check. Report access uses a dedicated `recordCathReadinessReportAccessTx({ tenantId, ... })` that inserts an explicit `tenant_id` and propagates every failure; the existing best-effort `logAudit` helper is not admissible because current `logAudit` catches errors and its INSERT does not bind `tenant_id`. No response body or CSV bytes are sent until that audit transaction commits.
 
 - [ ] **Step 1: Failing unit tests** (`cathStartsWithPendingReportService.test.js`; mocks as revision 1)
 
@@ -1823,7 +2139,8 @@ describe('the query', () => {
     expect(sql).toContain("a.created_at <  ($3::timestamptz AT TIME ZONE 'UTC')");
     expect(sql).not.toMatch(/\(a\.created_at AT TIME ZONE/);           // mutation 27
     expect(sql).toContain("($4::int IS NULL OR NULLIF(a.metadata->>'facility_id', '')::int = $4::int)");
-    expect(sql).toMatch(/LEFT JOIN cath_lab_readiness_checks t/);
+    expect(sql).toMatch(/LEFT JOIN cath_lab_attempt_readiness_records t/);
+    expect(sql).toMatch(/t\.procedure_attempt = NULLIF\(a\.metadata->>'procedure_attempt'/);
     expect([tenant, start, end, facility]).toEqual([TENANT, '2026-08-31T18:30:00.000Z', '2026-09-30T18:30:00.000Z', 4]);
   });
   test('maps a row: start_event_id, procedure_attempt, lab_component_status, consent_authority, timeout_outcome; counts EVENTS and distinct cases; folds per facility with events and cases; breakdowns', async () => {
@@ -1835,10 +2152,10 @@ describe('the query', () => {
     const report = await startsWithPendingReport({ tenantId: TENANT, month: '2026-09' });
     expect(report).toMatchObject({ month: '2026-09', facility_id: null, total_events: 3, distinct_cases: 2 });
     expect(report.facilities).toEqual([{ facility_id: 4, facility_name: 'Main block', events: 2, cases: 1 }, { facility_id: 7, facility_name: 'Annexe', events: 1, cases: 1 }]);
-    expect(report.timeout_outcomes).toEqual({ not_pending_at_start: 1, performed_before_start_documented_late: 1, performed_after_start: 0, not_performed: 1, unknown: 0 });
+    expect(report.timeout_outcomes).toEqual({ not_pending_at_start: 1, performed_before_clinical_start_documented_late: 1, performed_after_clinical_start: 0, not_performed: 0, not_documented: 1, performance_unknown: 0 });
     expect(report.consent_authorities).toEqual({ patient: 1, legally_authorised_representative: 0, emergency_basis: 1, not_recorded: 1 });
-    expect(report.rows[0]).toMatchObject({ start_event_id: 88121, case_id: 1201, procedure_attempt: 2, timeout_outcome: 'performed_before_start_documented_late', consent_authority: 'emergency_basis' });
-    expect(report.rows[2]).toMatchObject({ missing_lab_items: null, lab_component_status: 'unavailable', timeout_outcome: 'not_performed', consent_authority: null });
+    expect(report.rows[0]).toMatchObject({ start_event_id: 88121, case_id: 1201, procedure_attempt: 2, timeout_outcome: 'performed_before_clinical_start_documented_late', consent_authority: 'emergency_basis' });
+    expect(report.rows[2]).toMatchObject({ missing_lab_items: null, lab_component_status: 'unavailable', timeout_outcome: 'not_documented', consent_authority: null });
   });
   test('a legacy audit row (revision-1 snapshot shape) reads procedure_attempt 1, lab_component_status unavailable, missing_lab_items null — never a clean start', …);
 });
@@ -1861,7 +2178,7 @@ roleHelpers test as revision 1.
 export const START_AUDIT_ACTION = 'cath_lab.case.started_with_readiness_pending';
 export const CSV_COLUMNS = Object.freeze(['month', 'start_event_id', 'case_id', 'procedure_attempt', 'facility_id', 'facility_name', 'urgency', 'via', 'started_at',
   'blocking_check_types', 'missing_lab_items', 'lab_component_status', 'consent_authority', 'timeout_outcome', 'reason', 'actor_uid', 'actor_role', 'actor_name']);
-const TIMEOUT_OUTCOMES = ['not_pending_at_start', 'performed_before_start_documented_late', 'performed_after_start', 'not_performed', 'unknown'];
+const TIMEOUT_OUTCOMES = ['not_pending_at_start', 'performed_before_clinical_start_documented_late', 'performed_after_clinical_start', 'not_performed', 'not_documented', 'performance_unknown'];
 
 function facilityFilter(value) {
   if (value == null || value === '') return null;
@@ -1874,11 +2191,17 @@ function facilityFilter(value) {
 function timeoutOutcomeFor(meta, row) {
   const blocking = Array.isArray(meta.blocking) ? meta.blocking.map((b) => b?.check_type) : [];
   if (!blocking.includes('timeout')) return 'not_pending_at_start';
-  if (row.timeout_status !== 'pass') return 'not_performed';
-  const performed = toMs(row.timeout_meta?.performed_at); const documented = toMs(row.timeout_documented_at); const started = toMs(meta.recorded_at);
-  if (!Number.isFinite(performed)) return 'unknown';
-  if (performed > started) return 'performed_after_start';
-  return documented > started ? 'performed_before_start_documented_late' : 'unknown';
+  const followup = row.timeout_meta ?? {};
+  const outcome = followup?.timeout?.outcome;
+  if (outcome === 'not_performed' && followup?.timeout?.attested === true) return 'not_performed';
+  if (outcome !== 'performed') return row.timeout_documented_at ? 'performance_unknown' : 'not_documented';
+  const performed = toMs(followup?.timeout?.performed_at);
+  const documented = toMs(row.timeout_documented_at);
+  const clinical = toMs(meta.clinical_started_at);
+  const recorded = toMs(meta.recorded_at);
+  if (!Number.isFinite(performed)) return 'performance_unknown';
+  if (Number.isFinite(clinical) && performed > clinical) return 'performed_after_clinical_start';
+  return Number.isFinite(documented) && documented > recorded ? 'performed_before_clinical_start_documented_late' : 'performance_unknown';
 }
 function rowFrom(row) {
   const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
@@ -1900,11 +2223,18 @@ export async function startsWithPendingReport({ tenantId, month, facilityId } = 
     `SELECT a.id AS start_event_id, a.created_at AS started_at, a.actor_uid, a.role AS actor_role, u.name AS actor_name,
             a.resource_id AS case_id, a.metadata,
             f.id AS facility_id, f.display_name AS facility_name,
-            t.status AS timeout_status, t.completed_at AS timeout_documented_at, t.metadata->'timeout' AS timeout_meta
+            t.at_start_status AS timeout_at_start_status,
+            t.current_status AS timeout_followup_status,
+            t.current_completed_at AS timeout_documented_at,
+            t.current_metadata->'timeout' AS timeout_meta
        FROM audit_logs a
        LEFT JOIN facilities f ON f.tenant_id = a.tenant_id AND f.id = NULLIF(a.metadata->>'facility_id', '')::int
        LEFT JOIN users u ON u.tenant_id = a.tenant_id AND u.uid = a.actor_uid
-       LEFT JOIN cath_lab_readiness_checks t ON t.tenant_id = a.tenant_id AND t.case_id = NULLIF(a.resource_id, '')::bigint AND t.check_type = 'timeout'
+       LEFT JOIN cath_lab_attempt_readiness_records t
+         ON t.tenant_id = a.tenant_id
+        AND t.case_id = NULLIF(a.resource_id, '')::bigint
+        AND t.procedure_attempt = NULLIF(a.metadata->>'procedure_attempt', '')::int
+        AND t.check_type = 'timeout'
       WHERE a.tenant_id = $1::uuid
         AND a.action = '${START_AUDIT_ACTION}'
         -- audit_logs.created_at is timestamp(6) WITHOUT time zone written by NOW() under UTC-pinned sessions.
@@ -1952,12 +2282,15 @@ export default function cathStartsWithPendingReportHandler({ mount }) {
       const role = req.user?.role || req.user?.rawRole || null;
       const format = String(req.query?.format || 'json').toLowerCase() === 'csv' ? 'csv' : 'json';
       const report = projectReportForRole(await startsWithPendingReport({ tenantId, month: req.query?.month, facilityId: req.query?.facility_id }), role);
-      // The cathDeviceHistoryHandler rule: the reader never receives the rows on a
-      // request whose access row was not even attempted. Shared writer, both mounts,
-      // format recorded so an export is distinguishable from a screen read.
-      await logAudit(req, 'cath_lab.report.starts_with_pending.read',
-        { month: report.month, facility_id: report.facility_id, format, total_events: report.total_events, distinct_cases: report.distinct_cases, mount },
-        { resource: 'cath_lab_report', resourceId: 'starts-with-pending' });
+      await recordCathReadinessReportAccessTx({
+        tenantId,
+        actorUid: req.user?.uid ?? null,
+        actorRole: role,
+        action: 'cath_lab.report.starts_with_pending.read',
+        resource: 'cath_lab_report',
+        resourceId: 'starts-with-pending',
+        metadata: { month: report.month, facility_id: report.facility_id, format, total_events: report.total_events, distinct_cases: report.distinct_cases, mount },
+      });
       if (format === 'csv') {
         res.setHeader('Content-Type', 'text/csv; charset=utf-8');
         res.setHeader('Content-Disposition', `attachment; filename="cath-starts-with-pending-${report.month}.csv"`);
@@ -1969,25 +2302,26 @@ export default function cathStartsWithPendingReportHandler({ mount }) {
 }
 ```
 
-Registration: cath router `router.get('/reports/starts-with-pending', requireRole(...CATH_READINESS_REPORT_ROLES), cathStartsWithPendingReportHandler({ mount: 'cath-lab' }))` **immediately before** `router.get('/reports/:id/pdf', …)`; governance router the same with `{ mount: 'cath-reprocessing' }` after the device-history registration. Read `logAudit`'s real option names off `utils/logAudit.js` before pasting.
+`recordCathReadinessReportAccessTx` uses `setTenantTx(tenantId, ...)` and a parameterized `INSERT INTO audit_logs (tenant_id, uid, role, action, resource, resource_id, metadata, actor_uid, created_at) VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7::jsonb, $2::uuid, NOW())`. It does not catch. Registration remains on both mounts, with the cath route placed before the parameterized report route.
 
-- [ ] **Step 6: Route-order, role and parameter probes** (`cathLabRouteGuards.test.js` or the sibling suite): ADMIN → 200 (not the report guard's 400/404); RECEPTIONIST → 403; `?month=2026-09&facility_id=abc` → 400 `CATH_LAB_REPORT_FACILITY_INVALID`; governance: QUALITY_OFFICER → 200, INFECTION_CONTROL_OFFICER → 403; each 200 leaves **one** `logAudit` call (mock it) with `format: 'json'` and the right `mount`; `?format=csv` → `text/csv` and `format: 'csv'` in the audit call.
+- [ ] **Step 6: Route-order, role, tenant and fail-closed probes**: admitted roles receive 200 only after one explicit-tenant audit insert; denied roles receive 403; malformed parameters receive 400; a forced audit INSERT rejection returns an error with no JSON or CSV body emitted; two tenants cannot observe each other's report-access rows. Cover both mounts and both formats.
 
 - [ ] **Step 7: OpenAPI** — `CathLabStartsWithPendingRow` (the 18 row keys, `missing_lab_items` nullable, `timeout_outcome` enum, `consent_authority` nullable enum, `lab_component_status` enum), `CathLabStartsWithPendingReport` (`month`, `facility_id` nullable, `total_events`, `distinct_cases`, `facilities[]` with `events` + `cases`, `timeout_outcomes`, `consent_authorities`, `rows[]`), envelope; both operations with `parameters: month (required, pattern), facility_id (optional, integer ≥ 1), format (json|csv)`; description states: **identifiable operational data** (case ids resolve to patients; actors named), counts start **events** not distinct cases, IST month, reason projected, every read audited (`cath_lab.report.starts_with_pending.read`, `format` recorded), 400 codes in prose; `READS` gains both; `CATH_LAB_REPORT_*` in `CASE_LIFECYCLE_ERROR_CODES`; add `cathStartsWithPendingReportService.js` to the lifecycle scan's file set. `npm run openapi:generate && npm run openapi:check`.
 
-- [ ] **Step 8: Canary** — `SEEDED` gains an `audit_logs` row (`START_AUDIT_ROW` with the 12-key snapshot flat in `metadata`, `reason: START_REASON_SENTINEL`) and a matching `cath_lab_readiness_checks` timeout row for the join; the walker appends `?month=2026-09` for the two report paths and probes each **twice**, JSON and `&format=csv` (`disclosures` reads the CSV text); regenerate the snapshot once, inspect the diff — exactly two new keys: `GET /api/v1/cath-lab/reports/starts-with-pending: [ADMIN, CATH_LAB_INCHARGE, SUPER_ADMIN]` and `GET /api/v1/cath-reprocessing/reports/starts-with-pending: [ADMIN, QUALITY_OFFICER, SUPER_ADMIN]`; positive control ADMIN reads the sentinel in `rows[0].reason` (JSON) and in the CSV text; liveness QUALITY_OFFICER on the governance mount answers 200 with `rows[0].reason === null`, `missing_lab_items: ['hbsag']`, `blocking_check_types: ['labs']`, and a CSV whose `reason` column is empty.
+- [ ] **Step 8: Canary** — seed a start audit with all 15 snapshot keys and a matching `cath_lab_attempt_readiness_records` timeout row for that exact attempt. Probe both report mounts as JSON and CSV, verify the same two reachable-route additions, positive-control the entitled reason, and prove non-entitled roles see projected nulls in nested JSON and empty CSV cells.
 
 - [ ] **Step 9: Deep** — after the point-4 test's second start (attempt 2, pending): `startsWithPendingReport({ tenantId: TENANT, month: clinicalDate(new Date()).slice(0, 7) })` contains a row with that `start_event_id` (the audit row's id), `procedure_attempt: 2`, `consent_authority: 'patient'`, a `timeout_outcome` in the enum, and `distinct_cases ≤ total_events`; `facilityId: FACILITY_ID` returns the same row, a non-existent facility returns none; through the route, one GET on each mount → **two** `audit_logs` rows with `action = 'cath_lab.report.starts_with_pending.read'`, `metadata.mount` differing, and a third with `format: 'csv'` after a CSV read; `reportToCsv` has ≥ 2 lines.
 
 - [ ] **Step 10: The EXPLAIN gate** (spec §7.2 — "a few hundred report rows ≠ a few hundred audit rows examined")
 
 ```bash
-# seed: ≥ 5 000 audit_logs rows across several actions and TWO tenants, ~300 of them the start action in the report month
+# seed: ≥ 100 000 audit_logs rows across several actions/months and TWO tenants;
+# target tenant-month selectivity 1–5%, followed by ANALYZE
 psql "$DATABASE_URL" -f "$SCRATCH/seed-audit-explain.sql"     # write it: generate_series inserts; keep it out of the repo
 psql "$DATABASE_URL" -c "EXPLAIN (ANALYZE, BUFFERS) <the exact query text with the bounds bound as literals and \$4 = NULL>"
 ```
 
-Acceptance: an Index Scan or Bitmap Index Scan on `idx_audit_logs_tenant_time_id` bounded by the month; **no** `Seq Scan on audit_logs`; rows examined of the order of the tenant's rows in that month. Paste the plan into the PR body. If the planner prefers the tenant-unaware single-column `action` index, the fix is a partial index `(tenant_id, created_at DESC, id DESC) WHERE action = 'cath_lab.case.started_with_readiness_pending'` in a **follow-up** migration numbered at push time — never a rewrite of the predicate (mutation 27 pins the predicate's text).
+Acceptance is bounded work, not a fixed plan-node name: the execution must touch no other tenant, return the independently counted events, use no spill/temp I/O, and keep shared hit+read blocks at no more than `max(64, ceil(relation_blocks × 0.10))`. A sequential scan is acceptable only when those bounds hold; an index scan is insufficient if it reads unbounded blocks. Paste `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)`, seed cardinalities and computed bounds into rollout evidence. If bounds fail, add the measured tenant/action/time index in a new free migration; never rewrite NNN after publication.
 
 - [ ] **Step 11: Commit**
 
@@ -2002,13 +2336,15 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ---
 ## Task 7: Staff app — Start / Reopen, live updates over `staff:lab`, consent authority, time-out instants, the picture
 
+**Revision-3 load/realtime contract.** Opening a case renders the server's cached readiness projection immediately and schedules refresh without awaiting it. After a publish transaction commits, the backend emits a case-scoped event carrying `case_id`, `lifecycle_token`, and monotonically increasing `lab_readiness_generation`. Staff coalesces bursts with a trailing debounce **and** a maximum 2-second wait, fetches the case, and applies a response only when its token matches and its generation is not older than the displayed generation. Reconnect performs an unconditional case reload before resubscribing. Tests cover commit → emission → delivery → fetch → render, a burst that cannot postpone refresh forever, disconnect/reconnect catch-up, and an older response arriving after a newer one.
+
 **Files:**
 - Modify: `apps/staff/lib/features/cath_lab/models/cath_readiness_models.dart`, `services/cath_lab_api_service.dart`, `widgets/cath_readiness_checklist.dart`, `widgets/cath_lab_readiness_panel.dart`, `screens/cath_lab_screen.dart`, `apps/staff/lib/l10n/app_strings.dart`
 - Test: `apps/staff/test/features/cath_lab/cath_readiness_checklist_test.dart`, `cath_lab_screen_test.dart`, `apps/staff/test/i18n_guard_test.dart`
 
-- [ ] **Step 1: Models — failing parse tests** — extend revision 1's test with the new shape: `procedure_attempt`, `attempt_started_at`, `first_started_at`, `started_with_readiness_pending: null` parses to `null` (tri-state `bool?`), the 12-key snapshot with `missing_lab_items: null`, item `finalised_after_start` and `unavailability_cause`, a check with `metadata.consent { authority, mode, documented_at }` and one with `metadata.timeout { performed_at, documented_at }` plus the server-derived `timing` / `documented_after_start`, `previous_attempts`, and `CathCaseReadiness` `started` true when `attempt_started_at` is set and **false** when only `actual_start_at` is (attempt 2 not started).
+- [ ] **Step 1: Models — failing parse tests** — cover `procedure_attempt`, server `lifecycle_token`, `attempt_start_recorded_at`, nullable clinical `attempt_started_at`, provenance, generation, tri-state snapshot with all 15 keys, fingerprints, conditional consent records, time-out outcome plus clinical/recording instants, and server-owned attempt history. `started` is true from `attempt_start_recorded_at`, not historical `actual_start_at` or nullable clinical time.
 
-- [ ] **Step 2: Models — implement** — `CathReadinessBlocking`; `CathReadinessStartSnapshot` (recordedAt, procedureAttempt, via, commandId, procedureLogId, urgency, reason, blocking, `List<String>? missingLabItems`, readinessPictureAt, labComponentStatus, consentAuthority); `CathConsentRecord { authority, mode, documentedAt }`; `CathTimeoutRecord { performedAt, documentedAt, timing, documentedAfterStart }`; `CathReadinessCheck.completedAt / .consent / .timeout / .previousAttempts`; `CathLabReadinessItem.orderedAfterStart / .receivedAfterStart / .finalisedAfterStart / .unavailabilityCause`; `CathLabReadiness.procedureAttempt / .attemptStartedAt / .firstStartedAt / .startedWithReadinessPending (bool?) / .readinessAtStart`; `CathLabReadinessSummary.startedWithReadinessPending (bool?)`; `CathCaseReadiness.caseStatus / .procedureAttempt / .attemptStartedAt / .blocking` with `started => attemptStartedAt != null || caseStatus == 'in_progress'`, `startable => {'scheduled','readiness_pending','ready'}.contains(caseStatus)`, `consentPassed`.
+- [ ] **Step 2: Models — implement** — include both attempt clocks/provenance, lifecycle token, generation, 15-key snapshot, conditional consent evidence, time-out outcome, item fingerprints and read-only server attempt history. Attempt history has no client serializer. `started` derives from `attemptStartRecordedAt` (with `caseStatus == in_progress` only as a defensive inconsistency warning), and every attempt-specific API call posts the latest token as `expected_lifecycle_token`.
 
 - [ ] **Step 3: API**
 
@@ -2018,7 +2354,13 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
   /// REQUIRED without it; CATH_LAB_START_COMMAND_STALE if the case was reopened
   /// since). Mint it ONCE per confirmation with IdempotencyKey.generate() and
   /// reuse it on every retry — the caller owns it, this method never mints.
-  static Future<void> startCase(int caseId, {required String commandId, String? reason}) async { … body: {'status': 'in_progress', 'command_id': commandId, if (reason?.trim().isNotEmpty == true) 'reason': reason!.trim()} … }
+  static Future<void> startCase(int caseId, {required String commandId, required String expectedLifecycleToken, String? reason}) async {
+    await apiClient.post('/api/v1/cath-lab/cases/$caseId/status', body: {
+      'status': 'in_progress', 'command_id': commandId,
+      'expected_lifecycle_token': expectedLifecycleToken,
+      if (reason?.trim().isNotEmpty == true) 'reason': reason!.trim(),
+    });
+  }
   /// POST /cath-lab/cases/:id/reopen. Idempotency-Key REQUIRED server-side; the
   /// caller mints it through IdempotencyAttempt (one per user decision).
   static Future<void> reopenCase(int caseId, {required String reason, required String idempotencyKey}) async { … }
@@ -2042,9 +2384,11 @@ Mirror `waiveLabItem`'s error handling (`_successfulData`).
   testWidgets('409 CATH_LAB_START_COMMAND_STALE reloads and shows the stale message', …);
   testWidgets('started-with-pending banner (true); muted "not documented" line (null); nothing (false)', …);
   testWidgets('critical banner on a started case; item chip when any of the three item booleans is true; time-out chip reads Documented-after-start vs Performed-after-start', …);
-  testWidgets('consent pass: authority and mode choosers (from the policy list, in order); sends metadata.consent; caption for emergency_basis never contains "consent"', (tester) async {
-    … choose 'Emergency basis for proceeding' + 'Verbal' → expect(updates.single.metadata?['consent'], {'authority': 'emergency_basis', 'mode': 'verbal'});
-    … rebuild with the check passed emergency_basis → final caption = tester.widget<Text>(find.byKey(const ValueKey('cath-readiness-consent-caption'))).data!; expect(caption.toLowerCase(), isNot(contains('consent'))); expect(caption, contains('Emergency basis'));
+  testWidgets('consent form follows authority-conditional policy and emergency basis has no mode', (tester) async {
+    // Patient/representative require mode, evidence and scope; representative
+    // also requires representative_ref. Emergency hides mode and requires an
+    // approved document reference or justification plus attestation. Assert
+    // the posted map has no emergency mode and its caption never says consent.
   });
   testWidgets('a legacy consent pass shows "Authority not recorded" with a Record action that opens the same dialog', …);
   testWidgets('time-out pass requires performed_at; the row shows performed vs documented', …);
@@ -2074,12 +2418,12 @@ Mirror `waiveLabItem`'s error handling (`_successfulData`).
 - [ ] **Step 5: Checklist — implement**
 
 - `CathReadinessDependencies` gains `startCase` (`Future<void> Function(int caseId, {required String commandId, String? reason})`), `reopenCase` (`Future<void> Function(int caseId, {required String reason, required String idempotencyKey})`), `labEvents` (`Stream<RealtimeEvent> Function(String channel)?`, default `RealtimeClient.instance.events`), `connectionStates` (`Stream<RealtimeConnectionState>?` + a `connectionState` getter, default the client's). `CathReadinessCheckUpdater` gains `Map<String, dynamic>? metadata`.
-- **Start row** (`_StartRow`, key `cath-readiness-start`) when `readiness.startable`: label `start_procedure` / `start_anyway`; `onPressed: consentPassed ? _start : null`; `cath-readiness-start-consent-blocked` line when not. `_start`: dialog with the **Start definition line** (key `cath-readiness-start-definition`, string `start_definition`), the blocking line, `reasonRequired` when blocking; on confirm mint `final commandId = IdempotencyKey.generate();` **before** the first send; call `_startCase(caseId, commandId: commandId, reason: …)`; on a transport error retry once with the **same** `commandId`; on a `CATH_LAB_START_COMMAND_STALE` response show `start_command_stale` and `_reload()`; on success `_reload()`. The dialog shows `start_lab_picture` (`{time}` from `labs.liveEvidenceRefreshedAt`) or `start_lab_picture_unavailable` when the block has no item rows.
-- **Reopen row** (`cath-readiness-reopen`) when `caseStatus == 'cancelled'`: dialog body `reopen_body` + `reopen_new_attempt_note` when `readiness.attemptStartedAt != null || readiness.firstStartedAt != null` (the server decides; the note states the consequence when it applies); the key is `_reopenAttempt.keyFor({'reason': reason})` with `late final IdempotencyAttempt _reopenAttempt = IdempotencyAttempt('cath-lab-reopen-${widget.caseId}')`, `reset()` after success — the panel's convention.
+- **Start row** (`_StartRow`, key `cath-readiness-start`) uses a command id minted once per confirmation and the lifecycle token captured from the same displayed server response. Retries reuse both. `CATH_LAB_LIFECYCLE_STALE` or command conflict forces reload and a fresh review; the client never invents or edits a token. Reason/Start-definition/picture behavior remains as specified above.
+- **Reopen row** (`cath-readiness-reopen`) when `caseStatus == 'cancelled'`: dialog body `reopen_body` + `reopen_new_attempt_note` when `readiness.attemptStartRecordedAt != null || readiness.firstStartedAt != null`; the server remains authoritative. Reopen keeps its existing idempotency-attempt convention and refreshes the returned server lifecycle token.
 - **Banners**: `startedWithReadinessPending == true` → amber `cath-readiness-started-pending-banner` (checks from `readinessAtStart.blocking` + `missingLabItems`, `· lab picture unavailable at start` when `missingLabItems == null`); `== null && started` → muted `cath-readiness-start-undocumented`; `false` → nothing. Critical banner as revision 1.
-- **Chips**: check row `cath-readiness-check-after-start-<type>` when `completedAt` is after `attemptStartedAt`; for `timeout` the chip text is `timeout_documented_after_start` when `timeout.timing == 'performed_before_start'` else `timeout_performed_after_start`; row caption `timeout_timing` with `{performed}` / `{documented}`.
-- **Consent choosers** in `_setStatus` for `consent` + `pass`: two `DropdownButtonFormField<String>` (keys `cath-readiness-consent-authority`, `cath-readiness-consent-mode`), authorities in the order `patient`, `legally_authorised_representative`, `emergency_basis` (filtered by a `permittedAuthorities` list the dependencies expose; default all three), modes `written` / `verbal` / `telephone`; sends `metadata: {'consent': {'authority': a, 'mode': m}}`. Caption (key `cath-readiness-consent-caption`): `consent_caption_obtained` (`{authority}`, `{mode}`) or, for `emergency_basis`, `consent_caption_emergency` (`{mode}`) — **the English string must not contain the word "consent"**; the widget test pins it. Legacy pass → "Authority not recorded" + `Record` (opens the same dialog with status pass).
-- **Time-out** in `_setStatus` for `timeout` + `pass`: a `performed_at` field (key `cath-readiness-timeout-performed-at`, a time picker defaulting to now, never pre-passed), sent as `metadata: {'timeout': {'performed_at': iso}}`.
+- **Chips**: documentation lateness compares server `documentedAt` with `attemptStartRecordedAt`; clinical performance compares `performedAt` with nullable `attemptStartedAt`. The UI presents `performed_before_clinical_start`, `performed_after_clinical_start`, `not_documented`, explicit `not_performed`, or `performance_unknown` without collapsing the two clocks.
+- **Consent form** is built from the approved server policy with no client default. Patient and representative show required mode, evidence reference and scope; representative also requires representative reference. Emergency basis hides/rejects mode and requires either an approved document reference or justification plus an attestation control. Every write sends `expected_lifecycle_token`; captions never call emergency basis “consent obtained.” Legacy server-marked rows display read-only provenance and require a fresh governed record to change.
+- **Time-out form** makes the outcome explicit. Performed sends `{ outcome: 'performed', performed_at }`; not performed sends `{ outcome: 'not_performed', attested: true }` and does not mark the check passed. Empty/pending displays “not documented / performance unknown,” never “not performed.” Show clinical occurrence separately from server recording/documentation time and send `expected_lifecycle_token`.
 - **Picture line** `cath-readiness-picture-as-of` (`picture_as_of` `{time}`) + `picture_paused` suffix when `connectionState != connected` (subscribed through `connectionStates`).
 - **Live updates**: in `initState` / when the loaded case is started, `_labSub = _labEvents('staff:lab').listen(_onLabEvent)` with a 400 ms debounce into `_reload()`; cancel on dispose and when the case is no longer started. Pre-start: no subscription.
 
@@ -2089,7 +2433,7 @@ Mirror `waiveLabItem`'s error handling (`_successfulData`).
 
 - [ ] **Step 6: Strings (five locales; hi/ta/te/ml carry `// REVIEW: AI first-pass cath readiness never-restricts (rev 2) - confirm wording before production.`)**
 
-Under `s4.lib.cath_lab.readiness.` — **40 keys**: revision 1's 18 kept (`start_procedure`, `start_anyway`, `start_title`, `start_body`, `start_anyway_body` `{checks}`, `start_reason`, `start_consent_blocked`, `started_pending_banner` `{checks}`, `started_pending_reason` `{reason}`, `critical_banner` `{items}`, `critical_banner_unnamed`, `recorded_after_start`, `after_start`, `header.started_pending`, `reopen_case`, `reopen_title`, `reopen_body`, `reopen_reason`) plus 22: `start_definition`, `start_command_stale`, `start_lab_picture` `{time}`, `start_lab_picture_unavailable`, `consent_authority_label`, `consent_authority.patient`, `consent_authority.legally_authorised_representative`, `consent_authority.emergency_basis`, `consent_mode_label`, `consent_mode.written`, `consent_mode.verbal`, `consent_mode.telephone`, `consent_caption_obtained` `{authority}` `{mode}`, `consent_caption_emergency` `{mode}`, `timeout_performed_at`, `timeout_timing` `{performed}` `{documented}`, `timeout_documented_after_start`, `timeout_performed_after_start`, `picture_as_of` `{time}`, `picture_paused`, `start_undocumented`, `reopen_new_attempt_note`. English `start_definition`: "Start records the beginning of the invasive procedure — vascular access or the first invasive act. Room entry and preparation are not Start." English `consent_caption_emergency`: "Emergency basis for proceeding documented — {mode}". `i18n_guard_test.dart`'s cath-readiness test scans the widget files for the prefix (so every used key must exist in all five locales); add the placeholder-bearing keys to its dynamic-placeholder check; if the screen's header chip key lives in `cath_lab_screen.dart`, that file is already in the guard's other scan.
+Under `s4.lib.cath_lab.readiness.`, implement exactly **53 keys × 5 locales**: revision 2's 40 with the emergency caption's `{mode}` placeholder removed, plus 13 keys for evidence reference, scope, representative reference, emergency document reference, emergency justification, emergency attestation, `not_documented`, `performance_unknown`, `not_performed`, clinical start time, server recording time, reconnecting, and stale-response suppression. The guard pins the exact key set and placeholder signatures in all locales.
 
 - [ ] **Step 7: Run and commit**
 
@@ -2133,6 +2477,8 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 Plan 3 Task 7 / Plan 2 Task 8 are the template. Merge authority is dev-1b; **draft PR only; do not mark ready; do not merge.**
 
+**Deployment gate (not authorized by this plan/PR).** A later authorized rollout must: save the read-only inconsistency/writer inventory; block cath mutations and prove zero old writers; execute NNN's internal expand → classified backfill → enforcement sequence as one controlled migration run with no application started between phases; deploy only the token-aware backend; verify non-default-tenant audit, cached load, token rotation and attempt joins; then reopen ingress and deploy clients. A failure before NNN commits rolls the migration back. After it commits, keep the schema and roll forward; never restart an incompatible old writer. Dev/test fixture repair follows fixture ownership, and production-like rows require approved per-row disposition.
+
 - [ ] **Step 1: Merge main; re-check the migration number**
 
 ```bash
@@ -2174,23 +2520,34 @@ Read `Suites failed` separately from `Tests passed`.
 12. A stray `UPDATE cath_lab_cases SET actual_start_at = NOW()` in another service → SQL-shape pin red **and** population pin red (ten sites); both caller counts green — the point.
 13. Delete the `cancelled` refusal in `recordProcedureLog` → unit + deep red.
 14. Make `reopenCaseTx` write `in_progress` → SQL-shape pin red on its exact list and the `readiness_pending` literal test red.
-15. Drop `actual_end_at = NULL` from the reopen → deep red with 23514 (`cath_lab_cases_actual_time_check`) on the **next** start.
+15. Drop `actual_end_at = NULL` from reopen, then Start attempt 2 → the direct end-state assertion (`in_progress` implies `actual_end_at IS NULL`) and lifecycle CHECK red; no comparison with preserved first-start history.
 16. Restore `CASE_STATUSES` in `createCase` → the creation unit test, the route-level deep test **and** the INSERT pin red.
 17. Delete the `=== 'cancelled'` short-circuit in `transitionCaseStatus` → the generic-status unit loop (`scheduled` → `INVALID_STATE_TRANSITION`), the generic-bypass deep test, and the order pin red.
 18. Replace the explicit `!== 'cancelled'` in `reopenCaseTx` with the table check alone → the `scheduled` iteration of the reopen loop (unit + deep) red.
 19. Let a draft log start the case (`START_LOG_STATUSES = ['draft','finalized']`) → the draft unit and deep tests red.
 20. Do not increment `procedure_attempt` on reopen of a started attempt → the owner's point-4 deep test red (snapshot attempt 1; history; audit row).
-21. Compare markers / regime / `isAfterCaseStart` against `actual_start_at` → the point-4 deep test red (labs held pre-attempt-2; `case_started` true while `readiness_pending`; markers true pre-start).
-22. Await `refreshCaseLabReadiness` inside the start → the never-settling unit test red (the 2 s race wins).
+21. Compare operational markers/regime against `actual_start_at` or nullable clinical `attempt_started_at` instead of `attempt_start_recorded_at` → the pre-attempt-2 and clinical-time-unknown cases red.
+22. Acquire the case row lock before lab evidence resolution → the real two-connection test exceeds the 2-second Start bound.
 23. Return `[]` instead of `null` for missing item rows → the unknown-picture unit test red and the report legacy-row test red.
-24. `cause === 'aged_out'` → `state === 'stale'` → the policy-change and future-dated tests red; the repeat-order-open test red the other way.
-25. Drop the attempt from the command binding → the point-7 deep test red (attempt 2 started by command A).
+24. Decide age-only from cause/state without matching both fingerprints to retained accepted evidence → same-id correction, policy-change and withdrawal tests red.
+25. Drop lifecycle token from the command binding → delayed attempt-1 delivery starts or mutates the reopened lifecycle; sequence test red.
 26. Say "Consent obtained" for `emergency_basis` → the Staff caption test red.
 27. Transform the column instead of the bounds in the report predicate → the SQL-text unit test red **and** the EXPLAIN gate fails (seq scan).
-28. Remove `logAudit` from the governance mount registration → the report audit deep test red (one row where two are expected).
+28. Use best-effort `logAudit`, omit explicit tenant binding, or catch the audit error → fail-closed audit and cross-tenant tests red.
 29. Skip the consent/time-out reset on reopen → the attempt-2 `CATH_LAB_CONSENT_REQUIRED` assertion red.
 30. Persist no `unavailability_cause` → the two-refresh stability assertion red.
 31. Splice the table name into `startCaseTx`'s UPDATE through `${…}` → the population pin red (eight UPDATE sites, not nine) **and** the SQL-shape pin red (three lines, not four) — the drift an exact-list assertion catches and a subset check cannot.
+32. Validate the ordinary transition before dispatching `in_progress` → same-command replay on an already-running case returns invalid transition; replay-reachability test red.
+33. Reuse Start `command_id` as log idempotency or insert before checking `log_command_id` → duplicate-log/conflict tests red.
+34. Omit lifecycle fencing from consent, time-out or draft logs → stale-token matrix red for the mutated writer.
+35. Stamp snapshot/event/case with separate clock reads → exact-instant equality test red.
+36. Infer clinical start from retrospective log insertion time → clinical-time-unknown provenance test red.
+37. Map a pending time-out to `not_performed` → outcome unit/report test red.
+38. Permit emergency consent `mode`, or omit evidence/scope for patient/representative → conditional-policy matrix red.
+39. Treat bounded-lookback absence as withdrawal or bootstrap as policy change → fingerprint classifier tests red.
+40. Join the report to current readiness checks rather than the event attempt record → attempt-1-after-attempt-2-amendment report test red.
+41. Remove maximum-wait/reconnect/stale-generation guards from Staff realtime → burst, reconnect or out-of-order widget test red.
+42. Add a synthetic cath case writer or `ON CONFLICT` site without updating the exact population inventory → new-writer pin red.
 
 - [ ] **Step 5: Staff and Admin gates**
 
@@ -2209,31 +2566,25 @@ git commit --allow-empty -m "chore(ci): [full-ci] cath readiness never restricts
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 git push -u github feat/cath-readiness-never-restricts
 gh pr create --repo Bahuleyandr/VH-Health-Platform --draft --base main --head feat/cath-readiness-never-restricts \
-  --title "feat(cath): the pre-cath readiness checklist informs and records, never restricts (owner decisions 2026-09-06, revision 2)" \
+  --title "feat(cath): the pre-cath readiness checklist informs and records, never restricts (owner decisions 2026-09-06, revision 3)" \
   --body-file "$SCRATCH/rr-pr-body.md"
 ```
 
-The PR body states: the spec path and revision; the owner principle verbatim and the five decisions; **migration NNN** (what it adds, why revision 1's "no migration" was withdrawn — the owner's point 4 — the four CHECKs, the number re-checked at push time); the hard block = the documented authority to proceed, in `assertConsentDocumented` reached only through `startCaseTx`, with the pin's four families (callers, SQL shapes, `SET status =` list, **write-site population** 9 + 2); `CREATABLE_STATUSES` and the route-level proof that creation cannot manufacture a running case; the exhaustive procedure-log table in one line per row; the door: cancelled-only, generic `/status` refuses everything on a cancelled case, attempt N+1 with consent/time-out reset and history, `actual_start_at` preserved; the command id bound to the attempt and the replay sequence proved; the non-blocking start (last committed picture, refresh after commit, never-settling test); the regime by cause with the repeat-order case; the three markers and what `received_after_start` does **not** claim; consent authority/mode and the tenant policy (emergency basis never rendered as consent); the time-out's two instants and the three outcomes; the report: identifiable, start events with attempt id, facility scope default (tenant-wide by precedent — the one owner confirmation, §10.2), `logAudit` on both mounts, the bounds predicate with the pasted EXPLAIN plan; the four free-text fields and their sentinels incl. CSV; Survey C's finding on the timeline reader; the reader survey for `cancelled`; the deep counts from both fresh-DB runs; the canary diff (two entries); OpenAPI regeneration; Staff strings pending OPEN-21 (40 keys); `Merge Gate` / `Full Merge Gate` by name with the head SHA **from the tier-verifying poller** once the canonical run lands (not `gh run watch`). **Open items: one owner confirmation with a decided default (report scope), nothing blocking.** End with `🤖 Generated with [Claude Code](https://claude.com/claude-code)`. Hand back to dev-1b.
+The implementation PR body records the exact migration number and fetched base SHA; the seven owner-review rows plus further corrections; the measured writer population (including INSERT/upsert); replay/lifecycle-token order; two-connection lock proof; attempt-history and report join proof; both clocks and one recording instant; fingerprint matrix; conditional consent policy approval; staged migration receipts; fail-closed tenant audit; realtime/reconnect evidence; bounded-work EXPLAIN evidence; and privacy-reader survey. It remains draft and explicitly says implementation awaits owner design approval; merge authority stays outside this lane.
 
 - [ ] **Step 8: Drop the scratch DBs** — `dropdb -h 127.0.0.1 -p 55432 vh_crr_<initials>` (and `_1`, `_2`).
 
 ---
 
-## Self-review against the spec (revision 2)
+## Self-review against the spec (revision 3)
 
-- **§0 / owner point 1** — `CREATABLE_STATUSES` (Task 3 Step 3), `createCase` refusal before any read (Step 9), the creation route's validation, the INSERT pin, the **population pin** (Step 11), the route-level deep test + 23514 (Task 4 Step 8), migration NNN's `cath_lab_cases_in_progress_attempt_check` (Task 1); mutations 16, 31.
-- **Point 2a** — the `=== 'cancelled'` short-circuit before `validateCaseTransition` (Task 3 Step 7), the unit loop over every target, the generic-bypass deep test, the order pin; mutation 17.
-- **Point 2b** — the explicit precondition and the parameter `reason` (Task 3 Step 6), the reopen loop over every non-cancelled status incl. `scheduled` (unit + deep); mutation 18.
-- **Point 3** — the exhaustive table with `requested` / unexpected refused before the insert and **a draft never starts** (`START_LOG_STATUSES`, Task 3 Step 8), the unit cells and the deep twin; mutation 19.
-- **Point 4** — migration NNN (Task 1); `attempt_started_at` as the discriminator everywhere (Task 2 Step 3, Task 4 Steps 3–4, Task 7 models), `actual_start_at` preserved (Task 3 Step 5's `COALESCE`, Step 6's UPDATE never naming it), attempt N+1 with history and `ATTEMPT_RESET_CHECKS` (Step 6), the owner's point-4 deep test (Task 4 Step 8), the report's attempt id (Task 6); mutations 20, 21, 29.
-- **Point 5** — `labsPictureForStartTx` on the stored rows (Task 3 Step 5), `scheduleReadinessRefresh` by the **caller after commit** (Steps 7–8), `readiness_picture_at` / `lab_component_status`, `missing_lab_items: null` never `[]` (Task 2 Step 15), the never-settling unit test (Task 3 Step 1); mutations 22, 23.
-- **Point 6** — `classifyUnavailability` with the full precedence table and persistence (Task 2 Steps 5–7, Task 4 Step 4), `agedOnly` on the cause (Task 2 Step 3), the repeat-order-open, policy-change, future-dated, unparseable, withdrawn and stability tests; mutations 2, 24, 30.
-- **Point 7** — `normalizeCommandId`, `start_commands[]` bound to the attempt, the three outcomes (Task 3 Step 5), the point-7 deep test, `IdempotencyKey.generate()` once per confirmation in Staff (Task 7); reopen key per user decision through `IdempotencyAttempt`; mutation 25.
-- **Point 8** — `CONSENT_AUTHORITIES` / `CONSENT_MODES` (Task 2), the check-write validation against `consentPolicyFor` (Task 3 Step 4), `consent_authority` on the snapshot and the report, Staff choosers and the caption that never says "consent" for `emergency_basis` (Task 7); time-out `performed_at` required, `completed_at` server-stamped, `timeoutTiming`, `timeout_outcome` in the report, the Staff chip wording; the Start definition line; mutation 26.
-- **Live updates** — `staff:lab` subscription with debounce, `RealtimeStatusBanner` watching it, picture-as-of + paused, the end-to-end widget test (Task 7 Steps 4–5).
-- **`received_after_start`** — renamed, receipt-only, `finalised_after_start` beside it, the received-before/signed-after unit case (Task 2 Step 9), the overlay descriptions (Task 5 Step 4).
-- **Report** — identifiable header, facility scope default with the `facility_id` filter, `logAudit` awaited on both mounts with `format`, the bounds-converted predicate pinned by text and by EXPLAIN, `start_event_id` + `procedure_attempt`, `distinct_cases`, the tri-state / legacy-row handling (Task 6); mutations 11, 27, 28.
-- **Free text** — the four fields, three sentinels, CSV bodies read as text, the history never on a read surface, the write mirror, Survey C's verdict on the timeline reader (Task 0 Step 9, Task 5 Step 5); mutation 6.
-- **Error codes** — `CASE_LIFECYCLE_ERROR_CODES` and the bidirectional scan (Task 5 Step 4, Task 6 Step 7); the base-tree scan in Task 0 Step 10.
-- **Baseline** — `github/main` `5857298dc`, #1018 KEPT branch confirmed in Task 0 Step 2, the ledger re-run in Step 3.
-- **Type consistency** — `startCaseTx(tx, { tenantId, cathCase, reason, via, commandId, procedureLogId, context })` → `{ updated, snapshot, replayed }` from both callers; `reopenCaseTx(tx, { tenantId, cathCase, reason, context })` → `{ updated, procedureAttempt, checksReset }` with one caller (`reopenCase`); `assertConsentDocumented(db, tenantId, caseId)` → `{ gate, checks, consent }`; `labsPictureForStartTx(tx, tenantId, caseId, checks)` → `{ missing, picture_at, lab_component_status }`; `classifyUnavailability({ previous, resolved, results, settings, windowDays, asOf })`; `computeCheckDecision({ items, settings, check, caseRow })` reading `caseRow.attempt_started_at` and `item.unavailability_cause`; `buildStartSnapshot` / `START_SNAPSHOT_KEYS` (12) the same names in the rules module, the service, the overlay, the report and the tests; `timeoutTiming({ performedAt, documentedAt, attemptStartedAt })`; `startsWithPendingReport({ tenantId, month, facilityId })`, `projectReportForRole`, `reportToCsv` used identically by the handler, the unit test and the deep test; Staff `startCase(int, {required String commandId, String? reason})` and `reopenCase(int, {required String reason, required String idempotencyKey})` match `CathReadinessDependencies`.
+- **Owner 1:** status normalization and cancelled refusal precede Start dispatch; Start dispatch precedes ordinary transition validation; command replay precedes eligibility; lifecycle token fences Start/consent/time-out/log; log idempotency is separate; cancel/reopen rotate the token; delayed-first-delivery tests exist.
+- **Owner 2:** evidence resolution holds no case lock; publication is generation-checked and brief; cached GET/Staff loading does not await refresh; the proof uses two real database connections.
+- **Owner 3:** attempt evidence is server-owned and keyed by tenant/case/attempt; procedure logs store attempt/token; report joins the event attempt; the deep path covers attempt 1 → cancel/reopen → attempt 2 → amendment.
+- **Owner 4:** absence maps to `not_documented` / `performance_unknown`; explicit attestation alone yields `not_performed`; nullable clinical occurrence is distinct from server recording; one database instant feeds projection, snapshot, command, audit and event.
+- **Owner 5:** age-only carry requires both fingerprints to match retained accepted evidence; same-id correction, withdrawal, backwards change, bounded-lookback absence and bootstrap have named tests.
+- **Owner 6:** consent evidence is conditional on authority; emergency basis has no mode; provenance, policy, actor, recording and legacy markers are server-owned; clinical/legal policy approval gates release.
+- **Owner 7:** Task 0 inventories inconsistent rows and all writers; Task 1 expands, classifies/backfills and enforces only after old-writer quiescence; CHECK tests explicitly prove consent is not a database constraint.
+- **Further corrections:** mutation 15 directly asserts the final end-field invariant; report audit is explicit-tenant/fail-closed; realtime tests span commit through render, reconnect, maximum wait and stale response; EXPLAIN uses cardinality/buffer bounds rather than a fixed node; writer pins assert the known current population and catch a synthetic addition; privacy surveys all current readers and nested/exported projections.
+- **Baseline:** every code claim is rechecked by function name against fetched `github/main`; revision 3 was authored against `db30fe80bed25a66d25c9b9f75ab4996a87ca507`.
+- **Type consistency:** `startCaseTx` takes command plus expected lifecycle token and both clinical/provenance inputs; `buildStartSnapshot` has exactly 15 ordered keys; operational rules use `attempt_start_recorded_at`; report and Staff use the same lifecycle/attempt/outcome vocabulary.
