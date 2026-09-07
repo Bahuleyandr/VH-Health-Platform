@@ -4377,6 +4377,7 @@ model clinical_ai_biomed_devices {
   amc_contact_phone                String?   @db.VarChar(40)
 
   @@unique([tenant_id, device_code], map: "uniq_biomed_devices_tenant_code")
+  @@unique([tenant_id, id], map: "ux_clinical_ai_biomed_devices_tenant_id")
   @@index([tenant_id, device_type, status], map: "idx_biomed_devices_tenant_type_status")
 }
 
@@ -9197,53 +9198,63 @@ model dialysis_session_events {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model dialysis_sessions {
-  id                         Int       @id @default(autoincrement())
-  dialysis_patient_id        Int
-  vascular_access_id         Int?
-  session_date               DateTime  @default(dbgenerated("CURRENT_DATE")) @db.Date
-  machine_no                 String?   @db.VarChar(40)
-  station_no                 String?   @db.VarChar(20)
-  modality                   String    @db.VarChar(20)
-  dialyser                   String?   @db.VarChar(80)
-  reuse_count                Int?
-  scheduled_start_at         DateTime? @db.Timestamptz(6)
-  actual_start_at            DateTime? @db.Timestamptz(6)
-  actual_end_at              DateTime? @db.Timestamptz(6)
-  duration_min               Int?
-  pre_weight_kg              Decimal?  @db.Decimal(5, 2)
-  pre_bp_systolic            Int?
-  pre_bp_diastolic           Int?
-  pre_pulse                  Int?
-  pre_temp_c                 Decimal?  @db.Decimal(4, 1)
-  post_weight_kg             Decimal?  @db.Decimal(5, 2)
-  post_bp_systolic           Int?
-  post_bp_diastolic          Int?
-  post_pulse                 Int?
-  post_temp_c                Decimal?  @db.Decimal(4, 1)
-  prescribed_uf_l            Decimal?  @db.Decimal(4, 2)
-  actual_uf_l                Decimal?  @db.Decimal(4, 2)
-  anticoag                   String?   @db.VarChar(20)
-  anticoag_initial_dose      String?   @db.VarChar(40)
-  anticoag_maintenance       String?   @db.VarChar(40)
-  ktv_calculated             Decimal?  @db.Decimal(4, 2)
-  urea_pre_mg_dl             Int?
-  urea_post_mg_dl            Int?
-  urr_pct                    Int?
-  intra_dialytic_hypotension Boolean   @default(false)
-  cramps                     Boolean   @default(false)
-  bleeding                   Boolean   @default(false)
-  clotting                   Boolean   @default(false)
-  early_termination          Boolean   @default(false)
-  early_termination_reason   String?
-  status                     String    @default("scheduled") @db.VarChar(20)
-  conducted_by               String?   @db.Uuid
-  supervised_by              String?   @db.Uuid
-  notes                      String?
-  tenant_id                  String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  created_at                 DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at                 DateTime  @default(now()) @db.Timestamptz(6)
-  prescription_id            Int?
+  id                            Int       @id @default(autoincrement())
+  dialysis_patient_id           Int
+  vascular_access_id            Int?
+  session_date                  DateTime  @default(dbgenerated("CURRENT_DATE")) @db.Date
+  machine_no                    String?   @db.VarChar(40)
+  station_no                    String?   @db.VarChar(20)
+  modality                      String    @db.VarChar(20)
+  dialyser                      String?   @db.VarChar(80)
+  reuse_count                   Int?
+  scheduled_start_at            DateTime? @db.Timestamptz(6)
+  actual_start_at               DateTime? @db.Timestamptz(6)
+  actual_end_at                 DateTime? @db.Timestamptz(6)
+  duration_min                  Int?
+  pre_weight_kg                 Decimal?  @db.Decimal(5, 2)
+  pre_bp_systolic               Int?
+  pre_bp_diastolic              Int?
+  pre_pulse                     Int?
+  pre_temp_c                    Decimal?  @db.Decimal(4, 1)
+  post_weight_kg                Decimal?  @db.Decimal(5, 2)
+  post_bp_systolic              Int?
+  post_bp_diastolic             Int?
+  post_pulse                    Int?
+  post_temp_c                   Decimal?  @db.Decimal(4, 1)
+  prescribed_uf_l               Decimal?  @db.Decimal(4, 2)
+  actual_uf_l                   Decimal?  @db.Decimal(4, 2)
+  anticoag                      String?   @db.VarChar(20)
+  anticoag_initial_dose         String?   @db.VarChar(40)
+  anticoag_maintenance          String?   @db.VarChar(40)
+  ktv_calculated                Decimal?  @db.Decimal(4, 2)
+  urea_pre_mg_dl                Int?
+  urea_post_mg_dl               Int?
+  urr_pct                       Int?
+  intra_dialytic_hypotension    Boolean   @default(false)
+  cramps                        Boolean   @default(false)
+  bleeding                      Boolean   @default(false)
+  clotting                      Boolean   @default(false)
+  early_termination             Boolean   @default(false)
+  early_termination_reason      String?
+  status                        String    @default("scheduled") @db.VarChar(20)
+  conducted_by                  String?   @db.Uuid
+  supervised_by                 String?   @db.Uuid
+  notes                         String?
+  tenant_id                     String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  created_at                    DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                    DateTime  @default(now()) @db.Timestamptz(6)
+  prescription_id               Int?
+  isolation_warning_codes       String[]  @default([])
+  isolation_required_group      String?   @db.VarChar(40)
+  isolation_warn_only           Boolean   @default(true)
+  isolation_enforcement_enabled Boolean   @default(false)
+  isolation_override_reason     String?
+  isolation_override_by         String?   @db.Uuid
+  isolation_override_at         DateTime? @db.Timestamptz(6)
+  isolation_override_kind       String?   @db.VarChar(16)
+  isolation_evaluated_at        DateTime? @db.Timestamptz(6)
 
+  @@unique([tenant_id, id], map: "ux_dialysis_sessions_tenant_id")
   @@index([dialysis_patient_id, session_date(sort: Desc)], map: "idx_dialysis_sess_patient")
   @@index([tenant_id, status, session_date(sort: Desc)], map: "idx_dialysis_sess_status")
   @@index([tenant_id, session_date], map: "idx_dialysis_sess_today", where: raw("((status)::text = 'in_progress'::text)"))
@@ -9252,27 +9263,41 @@ model dialysis_sessions {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model dialyzer_reuse_register {
-  id                     BigInt   @id @default(autoincrement())
-  tenant_id              String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  session_id             Int
-  dialysis_patient_id    Int
-  patient_uid            String   @db.Uuid
-  dialyzer_serial        String   @db.VarChar(80)
-  reuse_cycle_count      Int
-  session_reuse_count    Int?
-  integrity_test_result  String   @default("pending") @db.VarChar(20)
-  integrity_test_method  String?  @db.VarChar(120)
-  disinfectant           String?  @db.VarChar(80)
-  processed_by           String?  @db.Uuid
-  processed_at           DateTime @default(now()) @db.Timestamptz(6)
-  status                 String   @default("in_use") @db.VarChar(20)
-  discard_reason         String?  @db.VarChar(255)
-  register_format_status String   @default("format_pending") @db.VarChar(30)
-  notes                  String?
-  created_at             DateTime @default(now()) @db.Timestamptz(6)
-  updated_at             DateTime @default(now()) @db.Timestamptz(6)
+  id                             BigInt   @id @default(autoincrement())
+  tenant_id                      String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  session_id                     Int
+  dialysis_patient_id            Int
+  patient_uid                    String   @db.Uuid
+  dialyzer_serial                String   @db.VarChar(80)
+  reuse_cycle_count              Int
+  session_reuse_count            Int?
+  integrity_test_result          String   @default("pending") @db.VarChar(20)
+  integrity_test_method          String?  @db.VarChar(120)
+  disinfectant                   String?  @db.VarChar(80)
+  processed_by                   String?  @db.Uuid
+  processed_at                   DateTime @default(now()) @db.Timestamptz(6)
+  status                         String   @default("in_use") @db.VarChar(20)
+  discard_reason                 String?  @db.VarChar(255)
+  register_format_status         String   @default("format_pending") @db.VarChar(30)
+  notes                          String?
+  created_at                     DateTime @default(now()) @db.Timestamptz(6)
+  updated_at                     DateTime @default(now()) @db.Timestamptz(6)
+  device_id                      BigInt?
+  device_usage_id                BigInt?
+  measured_tcv_ml                Decimal? @db.Decimal(6, 1)
+  baseline_tcv_ml                Decimal? @db.Decimal(6, 1)
+  tcv_pct_of_baseline            Decimal? @db.Decimal(5, 1)
+  reprocessing_agent             String?  @db.VarChar(24)
+  disinfectant_contact_minutes   Int?
+  disinfectant_concentration_pct Decimal? @db.Decimal(5, 2)
+  release_status                 String   @default("legacy") @db.VarChar(24)
+  missing_evidence               String[] @default([])
+  capture_provenance             String?  @db.VarChar(16)
+  protocol_id                    Int?
+  processing_event_id            BigInt?
 
   @@unique([tenant_id, session_id], map: "ux_dialyzer_reuse_register_session")
+  @@unique([tenant_id, id], map: "ux_dialyzer_reuse_register_tenant_id")
   @@index([tenant_id, dialysis_patient_id, processed_at(sort: Desc)], map: "idx_dialyzer_reuse_register_patient")
   @@index([tenant_id, dialyzer_serial, reuse_cycle_count(sort: Desc)], map: "idx_dialyzer_reuse_register_serial")
 }
@@ -12875,6 +12900,7 @@ model instrument_sets {
   current_sterilization_load_id BigInt?
   last_passed_load_id           BigInt?
 
+  @@unique([tenant_id, id], map: "ux_instrument_sets_tenant_id")
   @@index([tenant_id, current_sterilization_load_id], map: "idx_instrument_sets_current_load", where: raw("(current_sterilization_load_id IS NOT NULL)"))
   @@index([tenant_id, last_passed_load_id], map: "idx_instrument_sets_last_passed_load", where: raw("(last_passed_load_id IS NOT NULL)"))
   @@index([tenant_id, status, updated_at(sort: Desc)], map: "idx_instrument_sets_tenant_status")
@@ -17459,6 +17485,8 @@ model ot_schedules {
   updated_at         DateTime? @default(now()) @db.Timestamptz(6)
   tenant_id          String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
 
+  @@unique([tenant_id, id], map: "ux_ot_schedules_tenant_id")
+  @@unique([tenant_id, id, patient_uid], map: "ux_ot_schedules_tenant_id_patient")
   @@index([ot_room, scheduled_date, scheduled_time], map: "idx_ot_schedules_room_date_time", where: raw("((status)::text <> ALL (ARRAY[('cancelled'::character varying)::text, ('completed'::character varying)::text]))"))
   @@index([tenant_id], map: "idx_ot_schedules_tenant_id")
 }
@@ -21769,6 +21797,9 @@ model set_issue_log {
   updated_at             DateTime  @default(now()) @db.Timestamptz(6)
 
   @@unique([tenant_id, instrument_set_id], map: "ux_set_issue_log_open_set", where: raw("((status)::text = ANY ((ARRAY['issued'::character varying, 'in_theatre'::character varying, 'returned'::character varying, 'awaiting_sterilization'::character varying])::text[]))"))
+  @@unique([tenant_id, id], map: "ux_set_issue_log_tenant_id")
+  @@unique([tenant_id, id, ot_schedule_id], map: "ux_set_issue_log_tenant_id_schedule")
+  @@unique([tenant_id, id, instrument_set_id], map: "ux_set_issue_log_tenant_id_set")
   @@index([tenant_id, ot_schedule_id, status, issued_at(sort: Desc)], map: "idx_set_issue_log_ot_schedule")
   @@index([tenant_id, return_due_at], map: "idx_set_issue_log_overdue_returns", where: raw("(((status)::text = ANY ((ARRAY['issued'::character varying, 'in_theatre'::character varying])::text[])) AND (return_due_at IS NOT NULL))"))
   @@index([tenant_id, status, updated_at(sort: Desc)], map: "idx_set_issue_log_tenant_status")
@@ -23274,6 +23305,7 @@ model sterilization_loads {
   created_at                  DateTime  @default(now()) @db.Timestamptz(6)
   updated_at                  DateTime  @default(now()) @db.Timestamptz(6)
 
+  @@unique([tenant_id, id], map: "ux_sterilization_loads_tenant_id")
   @@index([set_ids], map: "idx_sterilization_loads_set_ids", type: Gin)
 }
 
@@ -23419,35 +23451,36 @@ model stroke_thrombolysis_decisions {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model surgical_implants {
-  id                Int       @id @default(autoincrement())
-  tenant_id         String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  ot_schedule_id    Int?
-  patient_uid       String?   @db.Uuid
-  implant_type      String    @db.VarChar(160)
-  manufacturer      String?   @db.VarChar(255)
-  brand_name        String?   @db.VarChar(255)
-  product_name      String?   @db.VarChar(255)
-  reference_number  String?   @db.VarChar(120)
-  lot_number        String?   @db.VarChar(120)
-  serial_number     String?   @db.VarChar(160)
-  udi               String?   @db.VarChar(255)
-  gudid_di          String?   @db.VarChar(120)
-  size              String?   @db.VarChar(80)
-  side              String?   @db.VarChar(20)
-  expiry_date       DateTime? @db.Date
-  sterilization_lot String?   @db.VarChar(120)
-  implanted_by      String?   @db.Uuid
-  implanted_at      DateTime? @db.Timestamptz(6)
-  removal_date      DateTime? @db.Timestamptz(6)
-  removal_reason    String?
-  status            String    @default("in_situ") @db.VarChar(20)
-  recall_reference  String?   @db.VarChar(255)
-  notes             String?
-  metadata          Json      @default("{}")
-  created_at        DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at        DateTime  @default(now()) @db.Timestamptz(6)
-  cath_case_id      BigInt?
-  cath_usage_id     BigInt?   @unique(map: "ux_surgical_implants_cath_usage_id", where: raw("(cath_usage_id IS NOT NULL)"))
+  id                    Int       @id @default(autoincrement())
+  tenant_id             String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  ot_schedule_id        Int?
+  patient_uid           String?   @db.Uuid
+  implant_type          String    @db.VarChar(160)
+  manufacturer          String?   @db.VarChar(255)
+  brand_name            String?   @db.VarChar(255)
+  product_name          String?   @db.VarChar(255)
+  reference_number      String?   @db.VarChar(120)
+  lot_number            String?   @db.VarChar(120)
+  serial_number         String?   @db.VarChar(160)
+  udi                   String?   @db.VarChar(255)
+  gudid_di              String?   @db.VarChar(120)
+  size                  String?   @db.VarChar(80)
+  side                  String?   @db.VarChar(20)
+  expiry_date           DateTime? @db.Date
+  sterilization_lot     String?   @db.VarChar(120)
+  implanted_by          String?   @db.Uuid
+  implanted_at          DateTime? @db.Timestamptz(6)
+  removal_date          DateTime? @db.Timestamptz(6)
+  removal_reason        String?
+  status                String    @default("in_situ") @db.VarChar(20)
+  recall_reference      String?   @db.VarChar(255)
+  notes                 String?
+  metadata              Json      @default("{}")
+  created_at            DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at            DateTime  @default(now()) @db.Timestamptz(6)
+  cath_case_id          BigInt?
+  cath_usage_id         BigInt?   @unique(map: "ux_surgical_implants_cath_usage_id", where: raw("(cath_usage_id IS NOT NULL)"))
+  sterilization_load_id BigInt?
 
   @@unique([tenant_id, cath_usage_id, cath_case_id, patient_uid], map: "ux_surgical_implants_cath_usage")
   @@index([tenant_id, cath_case_id, status], map: "idx_surgical_implants_cath_case", where: raw("(cath_case_id IS NOT NULL)"))
@@ -26855,6 +26888,482 @@ model cath_lab_readiness_settings {
   updated_by             String?  @db.Uuid
   created_at             DateTime @default(now()) @db.Timestamptz(6)
   updated_at             DateTime @default(now()) @db.Timestamptz(6)
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model bloodborne_exposure_applications {
+  id              BigInt   @id @default(autoincrement())
+  tenant_id       String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  outbox_id       BigInt
+  handler_id      String   @db.VarChar(120)
+  device_id       BigInt
+  hold_id         BigInt?
+  source_usage_id BigInt?
+  result          String   @db.VarChar(32)
+  applied_at      DateTime @default(now()) @db.Timestamptz(6)
+  metadata        Json     @default("{}")
+
+  @@unique([tenant_id, outbox_id, handler_id, device_id], map: "ux_bloodborne_exposure_applications_source")
+  @@unique([tenant_id, id], map: "ux_bloodborne_exposure_applications_tenant_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model bloodborne_exposure_deliveries {
+  id                           BigInt    @id @default(autoincrement())
+  tenant_id                    String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  outbox_id                    BigInt
+  handler_id                   String    @db.VarChar(120)
+  status                       String    @default("pending") @db.VarChar(16)
+  remaining_device_count       Int       @default(0)
+  remaining_alert_count        Int       @default(0)
+  remaining_notification_count Int       @default(0)
+  attempts                     Int       @default(0)
+  available_at                 DateTime  @default(now()) @db.Timestamptz(6)
+  lease_owner                  String?   @db.VarChar(120)
+  lease_expires_at             DateTime? @db.Timestamptz(6)
+  last_error                   String?
+  result                       Json      @default("{}")
+  completed_at                 DateTime? @db.Timestamptz(6)
+  created_at                   DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                   DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@unique([tenant_id, outbox_id, handler_id], map: "ux_bloodborne_exposure_deliveries_handler")
+  @@unique([tenant_id, id], map: "ux_bloodborne_exposure_deliveries_tenant_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model bloodborne_exposure_outbox {
+  id               BigInt    @id @default(autoincrement())
+  tenant_id        String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  marker_row_id    BigInt
+  patient_uid      String    @db.Uuid
+  marker           String    @db.VarChar(20)
+  tested_on        DateTime? @db.Date
+  event            Json
+  status           String    @default("pending") @db.VarChar(16)
+  attempts         Int       @default(0)
+  available_at     DateTime  @default(now()) @db.Timestamptz(6)
+  lease_owner      String?   @db.VarChar(120)
+  lease_expires_at DateTime? @db.Timestamptz(6)
+  last_error       String?
+  delivered_at     DateTime? @db.Timestamptz(6)
+  created_at       DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@unique([tenant_id, marker_row_id], map: "ux_bloodborne_exposure_outbox_marker")
+  @@unique([tenant_id, id], map: "ux_bloodborne_exposure_outbox_tenant_id")
+  @@index([status, available_at, id], map: "idx_bloodborne_exposure_outbox_drain")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model device_processing_event_revisions {
+  id                     BigInt   @id @default(autoincrement())
+  tenant_id              String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  processing_event_id    BigInt
+  device_id              BigInt
+  load_revision          Int
+  outcome                String   @db.VarChar(16)
+  reason                 String   @db.VarChar(40)
+  observed_at            DateTime @db.Timestamptz(6)
+  source_load_updated_at DateTime @db.Timestamptz(6)
+  recorded_by            String?  @db.Uuid
+  created_at             DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([tenant_id, processing_event_id, load_revision], map: "ux_device_processing_event_revisions_event_revision")
+  @@unique([tenant_id, id], map: "ux_device_processing_event_revisions_tenant_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model device_processing_events {
+  id                         BigInt    @id @default(autoincrement())
+  tenant_id                  String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  domain                     String    @db.VarChar(16)
+  device_id                  BigInt
+  kind                       String    @db.VarChar(24)
+  sterilization_load_id      BigInt?
+  dialyzer_reuse_register_id BigInt?
+  attempt_id                 BigInt?
+  protocol_id                Int?
+  cycle_type                 String    @db.VarChar(20)
+  initial_outcome            String    @db.VarChar(16)
+  counts_cycle               Boolean   @default(true)
+  sterility_evidence         Json      @default("{}")
+  function_evidence          Json      @default("{}")
+  device_last_returned_at    DateTime? @db.Timestamptz(6)
+  cycle_before               Int
+  cycle_after                Int
+  device_version_before      Int
+  device_version_after       Int
+  recorded_at                DateTime  @default(now()) @db.Timestamptz(6)
+  recorded_by                String?   @db.Uuid
+  recorded_via               String    @db.VarChar(24)
+  metadata                   Json      @default("{}")
+
+  @@unique([tenant_id, device_id, sterilization_load_id], map: "ux_device_processing_events_device_load", where: raw("(sterilization_load_id IS NOT NULL)"))
+  @@unique([tenant_id, id, device_id], map: "ux_device_processing_events_tenant_device")
+  @@unique([tenant_id, id], map: "ux_device_processing_events_tenant_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model dialyser_reprocessing_attempts {
+  id                             BigInt   @id @default(autoincrement())
+  tenant_id                      String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  domain                         String   @default("dialysis") @db.VarChar(16)
+  device_id                      BigInt
+  device_usage_id                BigInt
+  dialyzer_reuse_register_id     BigInt
+  attempt_no                     Int
+  authorising_hold_id            BigInt?
+  protocol_id                    Int
+  integrity_test_result          String?  @db.VarChar(16)
+  measured_tcv_ml                Decimal? @db.Decimal(6, 1)
+  baseline_tcv_ml                Decimal? @db.Decimal(6, 1)
+  tcv_pct_of_baseline            Decimal? @db.Decimal(5, 1)
+  reprocessing_agent             String?  @db.VarChar(24)
+  disinfectant_concentration_pct Decimal? @db.Decimal(5, 2)
+  disinfectant_contact_minutes   Int?
+  process_parameters             Json     @default("{}")
+  verdict                        String   @db.VarChar(24)
+  missing_evidence               String[] @default([])
+  verdict_reason                 String?  @db.VarChar(40)
+  recorded_at                    DateTime @default(now()) @db.Timestamptz(6)
+  recorded_by                    String   @db.Uuid
+  notes                          String?
+
+  @@unique([tenant_id, dialyzer_reuse_register_id, attempt_no], map: "ux_dialyser_reprocessing_attempts_number")
+  @@unique([tenant_id, id], map: "ux_dialyser_reprocessing_attempts_tenant_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model dialysis_machines {
+  id               Int      @id @default(autoincrement())
+  tenant_id        String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  facility_id      Int?
+  machine_no       String   @db.VarChar(40)
+  display_name     String?  @db.VarChar(120)
+  biomed_device_id Int?
+  isolation_group  String?  @db.VarChar(40)
+  status           String   @default("active") @db.VarChar(20)
+  notes            String?
+  created_by       String   @db.Uuid
+  updated_by       String?  @db.Uuid
+  created_at       DateTime @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([tenant_id, machine_no], map: "ux_dialysis_machines_number")
+  @@unique([tenant_id, id], map: "ux_dialysis_machines_tenant_id")
+  @@index([tenant_id, isolation_group, status], map: "idx_dialysis_machines_isolation")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model reprocessable_device_dialysis_links {
+  device_id                BigInt    @id
+  tenant_id                String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  domain                   String    @default("dialysis") @db.VarChar(16)
+  dedicated_patient_uid    String    @db.Uuid
+  dedicated_at             DateTime  @default(now()) @db.Timestamptz(6)
+  dedicated_by             String    @db.Uuid
+  baseline_tcv_ml          Decimal?  @db.Decimal(6, 1)
+  baseline_tcv_measured_at DateTime? @db.Timestamptz(6)
+  baseline_tcv_source      String?   @db.VarChar(40)
+  baseline_approved_by     String?   @db.Uuid
+  baseline_approved_at     DateTime? @db.Timestamptz(6)
+  created_at               DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@unique([tenant_id, device_id], map: "ux_reprocessable_device_dialysis_links_tenant_id")
+  @@index([tenant_id, dedicated_patient_uid], map: "idx_reprocessable_device_dialysis_links_patient")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model reprocessable_device_holds {
+  id                          BigInt    @id @default(autoincrement())
+  tenant_id                   String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  domain                      String    @db.VarChar(16)
+  device_id                   BigInt
+  hold_type                   String    @db.VarChar(32)
+  reason_code                 String    @db.VarChar(40)
+  status                      String    @default("active") @db.VarChar(16)
+  pending_return              Boolean   @default(false)
+  source_marker_row_id        BigInt?
+  source_load_id              BigInt?
+  source_usage_id             BigInt?
+  note                        String?
+  placed_at                   DateTime  @default(now()) @db.Timestamptz(6)
+  placed_by                   String?   @db.Uuid
+  placed_via                  String    @db.VarChar(24)
+  released_at                 DateTime? @db.Timestamptz(6)
+  released_by                 String?   @db.Uuid
+  released_role               String?   @db.VarChar(50)
+  release_adjudication        String?
+  release_protocol_id         Int?
+  release_evidence            Json      @default("{}")
+  release_requires_processing Boolean   @default(true)
+  satisfied_at                DateTime? @db.Timestamptz(6)
+  metadata                    Json      @default("{}")
+  created_at                  DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@unique([tenant_id, device_id, hold_type], map: "ux_reprocessable_device_holds_active", where: raw("((status)::text = 'active'::text)"))
+  @@unique([tenant_id, id, device_id], map: "ux_reprocessable_device_holds_tenant_device")
+  @@unique([tenant_id, id], map: "ux_reprocessable_device_holds_tenant_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model reprocessable_device_operations {
+  tenant_id            String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  operation_id         String   @db.Uuid
+  device_id            BigInt
+  action               String   @db.VarChar(40)
+  idempotency_key_hash String   @db.VarChar(64)
+  version_before       Int
+  version_after        Int
+  audit_id             BigInt?
+  occurred_at          DateTime @default(now()) @db.Timestamptz(6)
+  result_summary       Json     @default("{}")
+
+  @@id([tenant_id, operation_id])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model reprocessable_device_usages {
+  id                           BigInt    @id @default(autoincrement())
+  tenant_id                    String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  domain                       String    @db.VarChar(16)
+  device_id                    BigInt
+  patient_uid                  String    @db.Uuid
+  dialysis_session_id          Int?
+  ot_schedule_id               Int?
+  instrument_set_id            BigInt?
+  set_issue_log_id             BigInt?
+  ready_processing_event_id    BigInt?
+  post_use_processing_event_id BigInt?
+  reuse_cycle                  Int
+  captured_at                  DateTime  @default(now()) @db.Timestamptz(6)
+  captured_by                  String    @db.Uuid
+  capture_source               String    @db.VarChar(24)
+  capture_provenance           String    @default("live") @db.VarChar(16)
+  actual_use_started_at        DateTime? @db.Timestamptz(6)
+  pre_use_residual_test        String?   @db.VarChar(16)
+  unopened_confirmation        String?   @db.VarChar(24)
+  reuse_screen                 Json?
+  post_use_screen              Json?
+  post_use_disposition         String?   @db.VarChar(40)
+  returned_at                  DateTime? @db.Timestamptz(6)
+  returned_by                  String?   @db.Uuid
+  acknowledgement_reason       String?
+  metadata                     Json      @default("{}")
+  created_at                   DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                   DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@unique([tenant_id, device_id, reuse_cycle], map: "ux_reprocessable_device_usages_cycle", where: raw("((post_use_disposition)::text IS DISTINCT FROM 'cancelled_before_use'::text)"))
+  @@unique([tenant_id, dialysis_session_id], map: "ux_reprocessable_device_usages_dialysis_session", where: raw("(dialysis_session_id IS NOT NULL)"))
+  @@unique([tenant_id, set_issue_log_id], map: "ux_reprocessable_device_usages_issue", where: raw("(set_issue_log_id IS NOT NULL)"))
+  @@unique([tenant_id, device_id], map: "ux_reprocessable_device_usages_open", where: raw("(returned_at IS NULL)"))
+  @@unique([tenant_id, id, device_id], map: "ux_reprocessable_device_usages_tenant_device")
+  @@unique([tenant_id, id], map: "ux_reprocessable_device_usages_tenant_id")
+  @@unique([tenant_id, id, dialysis_session_id], map: "ux_reprocessable_device_usages_tenant_session")
+  @@index([tenant_id, patient_uid, captured_at(sort: Desc)], map: "idx_reprocessable_device_usages_patient")
+  @@index([tenant_id, ready_processing_event_id], map: "idx_reprocessable_device_usages_ready_event", where: raw("(ready_processing_event_id IS NOT NULL)"))
+  @@index([tenant_id, ot_schedule_id], map: "idx_reprocessable_device_usages_schedule", where: raw("(ot_schedule_id IS NOT NULL)"))
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model reprocessable_devices {
+  id                         BigInt    @id @default(autoincrement())
+  tenant_id                  String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  domain                     String    @db.VarChar(16)
+  category                   String    @db.VarChar(40)
+  facility_id                Int?
+  device_tag                 String?   @default(dbgenerated("('RD'::text || lpad((id)::text, GREATEST(8, length((id)::text)), '0'::text))")) @db.VarChar(24)
+  manufacturer_serial        String?   @db.VarChar(120)
+  hospital_asset_id          String?   @db.VarChar(120)
+  manufacturer               String    @db.VarChar(120)
+  model_name                 String    @db.VarChar(120)
+  protocol_device_scope_id   BigInt
+  instrument_set_id          BigInt?
+  enrolled_via               String    @db.VarChar(24)
+  cycle_count                Int       @default(0)
+  max_cycles_snapshot        Int?
+  status                     String    @default("available") @db.VarChar(32)
+  current_usage_id           BigInt?
+  exposure_flag              Boolean   @default(false)
+  last_reprocessed_at        DateTime? @db.Timestamptz(6)
+  last_reprocessed_by        String?   @db.Uuid
+  last_cycle_type            String?   @db.VarChar(20)
+  last_function_check        String?   @db.VarChar(16)
+  last_sterilization_load_id BigInt?
+  last_processing_event_id   BigInt?
+  residual_test_pending      Boolean   @default(false)
+  version                    Int       @default(0)
+  quarantine_reason          String?   @db.VarChar(40)
+  quarantined_at             DateTime? @db.Timestamptz(6)
+  discard_reason             String?   @db.VarChar(40)
+  discard_note               String?
+  discarded_at               DateTime? @db.Timestamptz(6)
+  discarded_by               String?   @db.Uuid
+  created_by                 String    @db.Uuid
+  created_at                 DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                 DateTime  @default(now()) @db.Timestamptz(6)
+  metadata                   Json      @default("{}")
+
+  @@unique([tenant_id, domain, hospital_asset_id], map: "ux_reprocessable_devices_asset", where: raw("(hospital_asset_id IS NOT NULL)"))
+  @@unique([tenant_id, instrument_set_id], map: "ux_reprocessable_devices_instrument_set", where: raw("(instrument_set_id IS NOT NULL)"))
+  @@unique([tenant_id, domain, manufacturer_serial], map: "ux_reprocessable_devices_serial", where: raw("(manufacturer_serial IS NOT NULL)"))
+  @@unique([tenant_id, device_tag], map: "ux_reprocessable_devices_tag")
+  @@unique([tenant_id, id], map: "ux_reprocessable_devices_tenant_id")
+  @@unique([tenant_id, id, domain], map: "ux_reprocessable_devices_tenant_id_domain")
+  @@unique([tenant_id, id, instrument_set_id], map: "ux_reprocessable_devices_tenant_id_set")
+  @@index([tenant_id, domain, status], map: "idx_reprocessable_devices_domain_status")
+  @@index([tenant_id, facility_id, status], map: "idx_reprocessable_devices_facility_status", where: raw("(facility_id IS NOT NULL)"))
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model reprocessable_hold_satisfactions {
+  id                   BigInt   @id @default(autoincrement())
+  tenant_id            String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  hold_id              BigInt
+  device_id            BigInt
+  required_protocol_id Int
+  processing_event_id  BigInt
+  satisfied_at         DateTime @db.Timestamptz(6)
+  recorded_by          String?  @db.Uuid
+
+  @@unique([tenant_id, hold_id, processing_event_id], map: "ux_reprocessable_hold_satisfactions_hold_event")
+  @@unique([tenant_id, id], map: "ux_reprocessable_hold_satisfactions_tenant_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model reprocessing_domain_policies {
+  tenant_id               String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  domain                  String   @db.VarChar(16)
+  category                String   @db.VarChar(40)
+  reprocessable           Boolean  @default(false)
+  max_cycles              Int?
+  allowed_cycle_types     String[] @default([])
+  function_check_required Boolean  @default(false)
+  tcv_min_pct             Int?
+  protocol_id             Int?
+  updated_by              String?  @db.Uuid
+  created_at              DateTime @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime @default(now()) @db.Timestamptz(6)
+
+  @@id([tenant_id, domain, category])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model reprocessing_domain_settings {
+  tenant_id              String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  domain                 String    @db.VarChar(16)
+  reactive_patient_rule  String    @db.VarChar(24)
+  unknown_serology_rule  String    @default("warn") @db.VarChar(24)
+  serology_validity_days Int       @default(90)
+  isolation_enforcement  String    @default("warn") @db.VarChar(8)
+  isolation_revision_id  BigInt?
+  isolation_applied_by   String?   @db.Uuid
+  isolation_applied_role String?   @db.VarChar(50)
+  isolation_applied_at   DateTime? @db.Timestamptz(6)
+  reviewed_by            String?   @db.Uuid
+  reviewed_at            DateTime? @db.Timestamptz(6)
+  updated_by             String?   @db.Uuid
+  created_at             DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@id([tenant_id, domain])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model reprocessing_isolation_setting_revisions {
+  id                        BigInt   @id @default(autoincrement())
+  tenant_id                 String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  revision                  Int
+  supersedes_revision_id    BigInt?
+  approved_isolation_groups String[]
+  isolation_groups          Json
+  vocabulary_approved_by    String   @db.Uuid
+  vocabulary_approved_role  String   @db.VarChar(50)
+  vocabulary_approved_at    DateTime @db.Timestamptz(6)
+  mapping_approved_by       String   @db.Uuid
+  mapping_approved_role     String   @db.VarChar(50)
+  mapping_approved_at       DateTime @db.Timestamptz(6)
+  created_by                String   @db.Uuid
+  created_at                DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([tenant_id, revision], map: "ux_reprocessing_isolation_revisions_revision")
+  @@unique([tenant_id, id], map: "ux_reprocessing_isolation_revisions_tenant_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model reprocessing_protocol_device_scopes {
+  id             BigInt   @id @default(autoincrement())
+  tenant_id      String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  protocol_id    Int
+  category       String   @db.VarChar(40)
+  manufacturer   String   @db.VarChar(120)
+  model_name     String   @db.VarChar(120)
+  ifu_reference  String
+  nominal_tcv_ml Decimal? @db.Decimal(6, 1)
+  single_use     Boolean  @default(false)
+  approved_at    DateTime @db.Timestamptz(6)
+  created_by     String   @db.Uuid
+  created_at     DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([tenant_id, id], map: "ux_reprocessing_protocol_device_scopes_tenant_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model reprocessing_protocols {
+  id                                Int       @id @default(autoincrement())
+  tenant_id                         String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  protocol_key                      String    @db.Uuid
+  revision                          Int
+  supersedes_protocol_id            Int?
+  domain                            String    @db.VarChar(16)
+  category                          String?   @db.VarChar(40)
+  name                              String    @db.VarChar(160)
+  basis                             String    @db.VarChar(24)
+  reference                         String
+  approved_by                       String    @db.Uuid
+  approved_role                     String    @db.VarChar(50)
+  approved_at                       DateTime  @db.Timestamptz(6)
+  status                            String    @default("active") @db.VarChar(16)
+  retired_at                        DateTime? @db.Timestamptz(6)
+  retired_by                        String?   @db.Uuid
+  tcv_min_pct                       Int?
+  baseline_tcv_required             Boolean   @default(true)
+  mid_life_enrolment_rule           String    @default("refuse") @db.VarChar(40)
+  residual_test_required            Boolean   @default(true)
+  integrity_test_required           Boolean   @default(true)
+  agents                            Json      @default("[]")
+  reuse_matrix                      Json?
+  surveillance_intervals_days       Json      @default("{\"hcv\": 90, \"hiv\": 365, \"hbsag\": 90}")
+  surveillance_overdue_blocks_reuse Boolean   @default(true)
+  prion_rule                        String    @default("discard") @db.VarChar(16)
+  notes                             String?
+  created_by                        String    @db.Uuid
+  created_at                        DateTime  @default(now()) @db.Timestamptz(6)
+  updated_by                        String?   @db.Uuid
+  updated_at                        DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@unique([tenant_id, protocol_key, revision], map: "ux_reprocessing_protocols_key_revision")
+  @@unique([tenant_id, id], map: "ux_reprocessing_protocols_tenant_id")
 }
 
 enum transplant_organ_type {

@@ -1374,6 +1374,36 @@ describe('src/lib/prisma.js coverage completion', () => {
       // required.
       expect(mutableNoDelete[1]).toContain("'cath_lab_readiness_settings'");
       expect(mutableNoDelete[1]).toContain("'cath_case_lab_readiness_items'");
+      for (const relation of [
+        'reprocessing_domain_settings',
+        'reprocessing_domain_policies',
+        'reprocessable_devices',
+        'reprocessable_device_usages',
+        'reprocessable_device_dialysis_links',
+        'dialysis_machines',
+        'reprocessable_device_holds',
+        'bloodborne_exposure_outbox',
+        'bloodborne_exposure_deliveries',
+      ]) {
+        expect(mutableNoDelete[1]).toContain(`'${relation}'`);
+      }
+      const appendOnly = grantSql.match(
+        /runtime_append_only_relations CONSTANT TEXT\[\] := ARRAY\[([\s\S]*?)\n {2}\];/,
+      );
+      expect(appendOnly).not.toBeNull();
+      for (const relation of [
+        'reprocessing_isolation_setting_revisions',
+        'reprocessing_protocols',
+        'reprocessing_protocol_device_scopes',
+        'device_processing_events',
+        'device_processing_event_revisions',
+        'dialyser_reprocessing_attempts',
+        'reprocessable_hold_satisfactions',
+        'bloodborne_exposure_applications',
+        'reprocessable_device_operations',
+      ]) {
+        expect(appendOnly[1]).toContain(`'${relation}'`);
+      }
       const nextvalSequences = grantSql.match(
         /runtime_nextval_sequences CONSTANT TEXT\[\] := ARRAY\[([\s\S]*?)\n {2}\];/,
       );
@@ -1381,6 +1411,24 @@ describe('src/lib/prisma.js coverage completion', () => {
       expect(nextvalSequences[1]).toContain("'patient_bloodborne_markers_id_seq'");
       expect(nextvalSequences[1]).toContain("'cath_reprocessable_devices_id_seq'");
       expect(nextvalSequences[1]).toContain("'cath_case_lab_readiness_items_id_seq'");
+      for (const sequence of [
+        'reprocessing_protocols_id_seq',
+        'reprocessing_protocol_device_scopes_id_seq',
+        'reprocessing_isolation_setting_revisions_id_seq',
+        'reprocessable_devices_id_seq',
+        'reprocessable_device_usages_id_seq',
+        'device_processing_events_id_seq',
+        'device_processing_event_revisions_id_seq',
+        'reprocessable_device_holds_id_seq',
+        'dialyser_reprocessing_attempts_id_seq',
+        'reprocessable_hold_satisfactions_id_seq',
+        'dialysis_machines_id_seq',
+        'bloodborne_exposure_outbox_id_seq',
+        'bloodborne_exposure_deliveries_id_seq',
+        'bloodborne_exposure_applications_id_seq',
+      ]) {
+        expect(nextvalSequences[1]).toContain(`'${sequence}'`);
+      }
       expect(mockLogger.info).toHaveBeenCalledWith(
         'Tenant RLS runtime role grants ensured',
         { role: 'vhhealth_app' },

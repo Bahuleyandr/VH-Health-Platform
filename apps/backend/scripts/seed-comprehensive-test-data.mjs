@@ -1567,6 +1567,224 @@ const TABLE_COLUMN_SEED_OVERRIDES = {
     controlled_return_movement_id: null,
     controlled_return_register_id: null
   },
+  // Plan 4 schema foundation: seed one deliberately non-activating dialysis
+  // chain. The usage is closed, the hold is released (not readiness), the
+  // attempt remains not-established, and the outbox is already delivered.
+  reprocessing_protocols: {
+    protocol_key: ctx => ctx.generatedUuid,
+    revision: 1,
+    domain: 'dialysis',
+    category: 'dialyser',
+    name: 'Synthetic non-activating dialyser protocol',
+    basis: 'manufacturer_ifu',
+    reference: 'SYNTHETIC-IFU-NOT-FOR-CLINICAL-USE',
+    approved_by: ctx => ctx.staff.uid,
+    approved_role: 'ADMIN',
+    approved_at: () => new Date('2026-05-04T08:00:00.000Z'),
+    reuse_matrix: JSON.stringify({
+      hbsag: 'no_reuse',
+      hcv: 'no_reuse',
+      hiv: 'no_reuse',
+      isolation_mixed: 'no_reuse'
+    }),
+    created_by: ctx => ctx.staff.uid,
+    supersedes_protocol_id: null,
+    retired_at: null,
+    retired_by: null
+  },
+  reprocessing_protocol_device_scopes: {
+    category: 'dialyser',
+    manufacturer: 'Synthetic manufacturer',
+    model_name: 'Synthetic model',
+    ifu_reference: 'SYNTHETIC-IFU-NOT-FOR-CLINICAL-USE',
+    single_use: false,
+    approved_at: () => new Date('2026-05-04T08:00:00.000Z'),
+    created_by: ctx => ctx.staff.uid
+  },
+  reprocessing_isolation_setting_revisions: {
+    revision: 1,
+    approved_isolation_groups: ['Synthetic Bay'],
+    isolation_groups: JSON.stringify({
+      hbsag: 'Synthetic Bay',
+      hcv: 'Synthetic Bay',
+      hiv: 'Synthetic Bay',
+      isolation_mixed: 'Synthetic Bay'
+    }),
+    vocabulary_approved_by: ctx => ctx.staff.uid,
+    vocabulary_approved_role: 'INFECTION_CONTROL_OFFICER',
+    vocabulary_approved_at: () => new Date('2026-05-04T08:00:00.000Z'),
+    mapping_approved_by: ctx => ctx.staff.uid,
+    mapping_approved_role: 'INFECTION_CONTROL_OFFICER',
+    mapping_approved_at: () => new Date('2026-05-04T08:00:00.000Z'),
+    created_by: ctx => ctx.staff.uid,
+    supersedes_revision_id: null
+  },
+  reprocessing_domain_settings: {
+    domain: 'dialysis',
+    reactive_patient_rule: 'discard',
+    isolation_revision_id: null,
+    isolation_applied_by: null,
+    isolation_applied_role: null,
+    isolation_applied_at: null
+  },
+  reprocessing_domain_policies: {
+    domain: 'dialysis',
+    category: 'dialyser',
+    reprocessable: false,
+    max_cycles: null,
+    allowed_cycle_types: [],
+    function_check_required: false,
+    tcv_min_pct: null,
+    protocol_id: null
+  },
+  reprocessable_devices: {
+    domain: 'dialysis',
+    category: 'dialyser',
+    manufacturer_serial: 'SYNTHETIC-NOT-FOR-CLINICAL-USE',
+    hospital_asset_id: null,
+    manufacturer: 'Synthetic manufacturer',
+    model_name: 'Synthetic model',
+    instrument_set_id: null,
+    enrolled_via: 'console',
+    status: 'awaiting_reprocessing',
+    current_usage_id: null,
+    last_sterilization_load_id: null,
+    last_processing_event_id: null,
+    created_by: ctx => ctx.staff.uid
+  },
+  reprocessable_device_usages: {
+    domain: 'dialysis',
+    patient_uid: async () => {
+      const { rows } = await client.query(
+        `SELECT dp.patient_uid
+           FROM dialysis_sessions ds
+           JOIN dialysis_patients dp
+             ON dp.tenant_id = ds.tenant_id AND dp.id = ds.dialysis_patient_id
+          WHERE ds.tenant_id = $1::uuid
+          ORDER BY ds.id LIMIT 1`,
+        [DEFAULT_TENANT_ID]
+      );
+      return rows[0]?.patient_uid ?? null;
+    },
+    dialysis_session_id: async () => firstTenantValue('dialysis_sessions', 'id'),
+    ot_schedule_id: null,
+    instrument_set_id: null,
+    set_issue_log_id: null,
+    ready_processing_event_id: null,
+    post_use_processing_event_id: null,
+    reuse_cycle: 0,
+    captured_by: ctx => ctx.staff.uid,
+    capture_source: 'system',
+    capture_provenance: 'retrospective',
+    post_use_disposition: 'released_not_established',
+    returned_at: () => new Date('2026-05-04T09:00:00.000Z'),
+    returned_by: ctx => ctx.staff.uid
+  },
+  device_processing_events: {
+    domain: 'dialysis',
+    kind: 'chemical_reprocessing',
+    sterilization_load_id: null,
+    dialyzer_reuse_register_id: null,
+    attempt_id: null,
+    protocol_id: async () => firstTenantValue('reprocessing_protocols', 'id'),
+    cycle_type: 'chemical',
+    initial_outcome: 'held',
+    counts_cycle: false,
+    cycle_before: 0,
+    cycle_after: 0,
+    device_version_before: 0,
+    device_version_after: 0,
+    recorded_by: ctx => ctx.staff.uid,
+    recorded_via: 'manual_reprocessed'
+  },
+  reprocessable_device_holds: {
+    domain: 'dialysis',
+    hold_type: 'manual',
+    reason_code: 'manual_ic',
+    status: 'released',
+    pending_return: false,
+    source_marker_row_id: null,
+    source_load_id: null,
+    source_usage_id: async () => firstTenantValue('reprocessable_device_usages', 'id'),
+    placed_via: 'manual',
+    released_at: () => new Date('2026-05-04T10:00:00.000Z'),
+    released_by: ctx => ctx.staff.uid,
+    released_role: 'INFECTION_CONTROL_OFFICER',
+    release_adjudication: 'Synthetic released hold; processing remains required.',
+    release_protocol_id: async () => firstTenantValue('reprocessing_protocols', 'id'),
+    release_requires_processing: true,
+    satisfied_at: null
+  },
+  dialyser_reprocessing_attempts: {
+    domain: 'dialysis',
+    device_usage_id: async () => firstTenantValue('reprocessable_device_usages', 'id'),
+    dialyzer_reuse_register_id: async () => firstTenantValue('dialyzer_reuse_register', 'id'),
+    attempt_no: 1,
+    authorising_hold_id: async () => firstTenantValue('reprocessable_device_holds', 'id'),
+    protocol_id: async () => firstTenantValue('reprocessing_protocols', 'id'),
+    verdict: 'not_established',
+    missing_evidence: ['clinical_release_not_established'],
+    verdict_reason: 'synthetic_dark_fixture',
+    recorded_by: ctx => ctx.staff.uid
+  },
+  bloodborne_exposure_outbox: {
+    marker_row_id: async () => firstTenantValue('patient_bloodborne_markers', 'id'),
+    patient_uid: async () => firstTenantValue('patient_bloodborne_markers', 'patient_uid'),
+    marker: async () => firstTenantValue('patient_bloodborne_markers', 'marker'),
+    tested_on: async () => firstTenantValue('patient_bloodborne_markers', 'tested_on'),
+    event: JSON.stringify({ synthetic: true, clinicalActivation: false }),
+    status: 'delivered',
+    attempts: 1,
+    delivered_at: () => new Date('2026-05-04T10:00:00.000Z')
+  },
+  bloodborne_exposure_deliveries: {
+    handler_id: 'platform-reprocessable-devices.v1',
+    status: 'complete',
+    remaining_device_count: 0,
+    remaining_alert_count: 0,
+    remaining_notification_count: 0,
+    attempts: 1,
+    completed_at: () => new Date('2026-05-04T10:00:00.000Z')
+  },
+  bloodborne_exposure_applications: {
+    handler_id: 'platform-reprocessable-devices.v1',
+    hold_id: async () => firstTenantValue('reprocessable_device_holds', 'id'),
+    source_usage_id: async () => firstTenantValue('reprocessable_device_usages', 'id'),
+    result: 'hold_associated'
+  },
+  reprocessable_device_operations: {
+    operation_id: ctx => ctx.generatedUuid,
+    action: 'retrospective_fixture_recorded',
+    idempotency_key_hash: '0'.repeat(64),
+    version_before: 0,
+    version_after: 0,
+    audit_id: null,
+    result_summary: JSON.stringify({ synthetic: true, clinicalActivation: false })
+  },
+  device_processing_event_revisions: {
+    load_revision: 1,
+    outcome: 'invalidated',
+    reason: 'synthetic_fixture',
+    observed_at: () => new Date('2026-05-04T10:00:00.000Z'),
+    source_load_updated_at: () => new Date('2026-05-04T10:00:00.000Z'),
+    recorded_by: ctx => ctx.staff.uid
+  },
+  reprocessable_hold_satisfactions: {
+    required_protocol_id: async () => firstTenantValue('reprocessing_protocols', 'id'),
+    satisfied_at: () => new Date('2026-05-04T10:00:00.000Z'),
+    recorded_by: ctx => ctx.staff.uid
+  },
+  reprocessable_device_dialysis_links: {
+    domain: 'dialysis',
+    dedicated_patient_uid: async () => firstTenantValue('reprocessable_device_usages', 'patient_uid'),
+    dedicated_by: ctx => ctx.staff.uid
+  },
+  dialysis_machines: {
+    machine_no: 'SYNTHETIC-DIALYSIS-MACHINE',
+    isolation_group: null,
+    status: 'out_of_service',
+    created_by: ctx => ctx.staff.uid
+  },
   ward_indent_events: {
     ward_indent_id: async () => firstTenantValue('ward_indents', 'id'),
     state_version: async () => firstTenantValue('ward_indents', 'state_version'),

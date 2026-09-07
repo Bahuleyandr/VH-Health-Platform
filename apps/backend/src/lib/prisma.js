@@ -1288,7 +1288,16 @@ DECLARE
     'imaging_study_link_recovery_receipts',
     'scim_provisioning_commands',
     'hl7_inbound_clinical_receipts',
-    'fhir_allergy_intolerance_receipts'
+    'fhir_allergy_intolerance_receipts',
+    'reprocessing_isolation_setting_revisions',
+    'reprocessing_protocols',
+    'reprocessing_protocol_device_scopes',
+    'device_processing_events',
+    'device_processing_event_revisions',
+    'dialyser_reprocessing_attempts',
+    'reprocessable_hold_satisfactions',
+    'bloodborne_exposure_applications',
+    'reprocessable_device_operations'
   ];
   runtime_mutable_no_delete_relations CONSTANT TEXT[] := ARRAY[
     'clinical_continuity_incidents',
@@ -1310,7 +1319,16 @@ DECLARE
     'cath_reprocessing_category_policies',
     'cath_reprocessable_devices',
     'cath_lab_readiness_settings',
-    'cath_case_lab_readiness_items'
+    'cath_case_lab_readiness_items',
+    'reprocessing_domain_settings',
+    'reprocessing_domain_policies',
+    'reprocessable_devices',
+    'reprocessable_device_usages',
+    'reprocessable_device_dialysis_links',
+    'dialysis_machines',
+    'reprocessable_device_holds',
+    'bloodborne_exposure_outbox',
+    'bloodborne_exposure_deliveries'
   ];
   runtime_nextval_sequences CONSTANT TEXT[] := ARRAY[
     'care_pathway_reconciliation_checks_id_seq',
@@ -1324,7 +1342,21 @@ DECLARE
     'scheduled_job_runs_id_seq',
     'patient_bloodborne_markers_id_seq',
     'cath_reprocessable_devices_id_seq',
-    'cath_case_lab_readiness_items_id_seq'
+    'cath_case_lab_readiness_items_id_seq',
+    'reprocessing_protocols_id_seq',
+    'reprocessing_protocol_device_scopes_id_seq',
+    'reprocessing_isolation_setting_revisions_id_seq',
+    'reprocessable_devices_id_seq',
+    'reprocessable_device_usages_id_seq',
+    'device_processing_events_id_seq',
+    'device_processing_event_revisions_id_seq',
+    'reprocessable_device_holds_id_seq',
+    'dialyser_reprocessing_attempts_id_seq',
+    'reprocessable_hold_satisfactions_id_seq',
+    'dialysis_machines_id_seq',
+    'bloodborne_exposure_outbox_id_seq',
+    'bloodborne_exposure_deliveries_id_seq',
+    'bloodborne_exposure_applications_id_seq'
   ];
   runtime_guard_functions CONSTANT TEXT[] := ARRAY[
     'care_pathway_reconciliation_block_mutation()',
