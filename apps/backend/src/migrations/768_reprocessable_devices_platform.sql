@@ -793,7 +793,7 @@ CREATE TABLE public.bloodborne_exposure_outbox (
   CONSTRAINT fk_bloodborne_exposure_outbox_marker FOREIGN KEY (tenant_id, marker_row_id)
     REFERENCES public.patient_bloodborne_markers (tenant_id, id) ON DELETE RESTRICT,
   CONSTRAINT fk_bloodborne_exposure_outbox_patient FOREIGN KEY (tenant_id, patient_uid)
-    REFERENCES public.users (tenant_id, uid) ON DELETE RESTRICT,
+    REFERENCES public.users (tenant_id, uid) ON DELETE RESTRICT DEFERRABLE INITIALLY IMMEDIATE,
   CONSTRAINT bloodborne_exposure_outbox_marker_check CHECK (marker IN ('hbsag', 'hcv', 'hiv')),
   CONSTRAINT bloodborne_exposure_outbox_event_check CHECK (jsonb_typeof(event) = 'object'),
   CONSTRAINT bloodborne_exposure_outbox_status_check CHECK (status IN ('pending', 'processing', 'delivered', 'failed')),

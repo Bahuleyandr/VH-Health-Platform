@@ -55,5 +55,8 @@ describe('migration 768 Plan 4 schema foundation contract', () => {
     expect(migration).toContain('FOREIGN KEY (tenant_id, current_usage_id, id)');
     expect(migration).toContain('REFERENCES public.reprocessable_device_usages (tenant_id, id, device_id)');
     expect(migration).toContain('FOREIGN KEY (tenant_id, device_usage_id, session_id)');
+    expect(migration).toMatch(
+      /CONSTRAINT fk_bloodborne_exposure_outbox_patient[\s\S]*?ON DELETE RESTRICT DEFERRABLE INITIALLY IMMEDIATE/,
+    );
   });
 });
