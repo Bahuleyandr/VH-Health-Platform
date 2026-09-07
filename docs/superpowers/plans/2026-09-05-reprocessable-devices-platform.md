@@ -1,7 +1,7 @@
 # Reprocessable Devices Platform Implementation Plan
 
 - Date: 2026-09-05
-- Revision: **Revision 2.2 — final migration 767 §3 contract quoted verbatim 2026-09-07**, retaining Revision 2.1's accepted contract positions and Revision 2's owner-review closure
+- Revision: **Revision 2.2 — final migration 767 §3 contract quoted verbatim 2026-09-07, plus the platform RLS addendum**, retaining Revision 2.1's accepted contract positions and Revision 2's owner-review closure
 - Status: **awaits owner design approval; stage 1 of 3**
 - Spec: `docs/superpowers/specs/2026-09-05-reprocessable-devices-platform-design.md`
 - Verified base: `github/main` at `db30fe80b` on 2026-09-07; highest migration 766
@@ -204,7 +204,7 @@ Create one forward migration. Do not edit migrations 168, 418, 421-423, 565, 764
 - [ ] Validate protocol JSON as an exact object with all required keys and predicates that are `IS TRUE`; runtime-role probes for `{}`, missing keys and JSON nulls must fail.
 - [ ] Add baseline TCV provenance, measured TCV, integrity/process parameters, pre-use residual result, release verdict, missing-evidence list, device/protocol/time-pinned hold satisfaction, command version, append-only occurrence/revision/attempt/application/receipt identity. A first mid-life measurement is never a baseline; only manufacturer nominal or validated model basis may substitute.
 - [ ] Make all evidence/event/hold/attempt references device-pinned. Make schedule-patient consistency deferrable for the patient-merge transaction. Require Phase 1's `(tenant_id, id)` marker parent unique; never accept a single-column FK as an RLS substitute.
-- [ ] Apply tenant RLS, explicit tenant predicates, sequences, runtime grants, and append-only privilege revocation. Add Prisma scalars/indexes without relation fields, update runtime relation lists, schema tests, and seeder overrides.
+- [ ] Create every new relation with both policies from birth, per the binding platform RLS ruling of 2026-09-07: the existing PERMISSIVE `tenant_isolation` template for the tenant match and `tenant_context_required AS RESTRICTIVE FOR ALL USING (app_current_tenant_id_uuid() IS NOT NULL)` for closure. Also apply explicit tenant predicates, sequences, runtime grants, and append-only privilege revocation. Add Prisma scalars/indexes without relation fields, update runtime relation lists, schema tests, and seeder overrides. Do not add restrictive companions to existing tables in this lane.
 - [ ] Seed an inactive/dark-safe configuration: no active reprocessable category, conservative matrix, one closed usage, one released hold, one event, one not-established attempt, and one delivered outbox row.
 
 Verification:
@@ -212,6 +212,7 @@ Verification:
 - [ ] Run migration-number, immutable-migration, session-GUC, inline-check census, Prisma relation, schema-drift, RLS, grants, and seed-contract gates.
 - [ ] Apply all migrations twice to fresh databases. Run the comprehensive seed twice; the second run creates zero duplicates.
 - [ ] Probe the relationship constraints with deliberately mismatched device/use/session/issue/set/tenant fixtures.
+- [ ] Add the named `plan4NewRelationRlsContextMatrix.test.js` under the real `vhhealth_app` role: unset, empty, wrong-tenant and `'bypass'` contexts return no row; malformed context fails closed with SQLSTATE `22P02`; and the positive control proves the correct tenant can see the seeded row. Plan 4 deliberately accepts deny-by-error for malformed context because it exposes no row; changing the shared helper to map malformed input to NULL belongs to the platform RLS lane. A denial-only matrix over an empty table is not a passing test.
 
 ## Task 2: Pure rules, protocol validation, resolver adapter, and projection
 
@@ -453,6 +454,7 @@ Every review point and additional release condition appears in both the spec and
 | A4 | D10 per role plus actual-assignment check | Tasks 6 and 9 | §2 D10, §7.6, §9 |
 | Approval | Three stages and clinical activation boundary | §1 and Task 9 | §1.2 |
 | Baseline | Re-verify current main by function name, including #1025 | §2 and Task 0 | document header and §11 |
+| RLS addendum | Both policies on every new relation from birth; five-context real-app-role matrix plus positive control | Task 1 | §4.11 |
 
 ## 6. Revision 2 coverage ledger
 
