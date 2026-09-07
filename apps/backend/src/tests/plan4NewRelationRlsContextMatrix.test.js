@@ -4,6 +4,7 @@ import { Client } from 'pg';
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const describeIfDb = databaseUrl ? describe : describe.skip;
+const REQUIRED_CONTEXT_QUAL = '(app_current_tenant_id_uuid() IS NOT NULL)';
 
 const PLAN4_RELATIONS = [
   'reprocessing_domain_settings',
@@ -57,7 +58,7 @@ describeIfDb('Plan 4 new-relation tenant isolation', () => {
     await client.end();
   });
 
-  async function countAsRuntime(context) {
+  async function countAsRuntime(context, domain = 'dialysis') {
     await client.query('SAVEPOINT plan4_rls_case');
     try {
       await client.query('SET LOCAL ROLE vhhealth_app');
@@ -69,8 +70,9 @@ describeIfDb('Plan 4 new-relation tenant isolation', () => {
       const result = await client.query(
         `SELECT COUNT(*)::int AS count
            FROM reprocessing_domain_settings
-          WHERE tenant_id = $1::uuid`,
-        [tenantId],
+          WHERE tenant_id = $1::uuid
+            AND domain = $2::text`,
+        [tenantId, domain],
       );
       return result.rows[0].count;
     } finally {
@@ -87,11 +89,25 @@ describeIfDb('Plan 4 new-relation tenant isolation', () => {
     expect(await countAsRuntime(otherTenantId)).toBe(0);
     await expect(countAsRuntime('not-a-uuid')).rejects.toMatchObject({ code: '22P02' });
 
+    await client.query('SAVEPOINT plan4_rls_insert');
+    await client.query('SET LOCAL ROLE vhhealth_app');
+    await client.query('RESET app.current_tenant_id');
+    await expect(client.query(
+      `INSERT INTO reprocessing_domain_settings (tenant_id, domain, reactive_patient_rule)
+       VALUES ($1::uuid, 'ot', 'discard')`,
+      [tenantId],
+    )).rejects.toMatchObject({ code: '42501' });
+    await client.query('ROLLBACK TO SAVEPOINT plan4_rls_insert');
+    await client.query('RELEASE SAVEPOINT plan4_rls_insert');
+    expect(await countAsRuntime(tenantId, 'ot')).toBe(0);
+
     expect(PLAN4_RELATIONS).toHaveLength(18);
     const result = await client.query(
       `SELECT tablename,
               COUNT(*) FILTER (WHERE policyname = 'tenant_isolation' AND permissive = 'PERMISSIVE')::int AS tenant_match,
-              COUNT(*) FILTER (WHERE policyname = 'tenant_context_required' AND permissive = 'RESTRICTIVE')::int AS context_required
+              COUNT(*) FILTER (WHERE policyname = 'tenant_context_required' AND permissive = 'RESTRICTIVE')::int AS context_required,
+              MAX(qual) FILTER (WHERE policyname = 'tenant_context_required') AS context_qual,
+              MAX(with_check) FILTER (WHERE policyname = 'tenant_context_required') AS context_with_check
          FROM pg_policies
         WHERE schemaname = 'public'
           AND tablename = ANY($1::text[])
@@ -99,8 +115,14 @@ describeIfDb('Plan 4 new-relation tenant isolation', () => {
       [PLAN4_RELATIONS],
     );
     expect(result.rows).toHaveLength(18);
+    const contextQualByRelation = {};
     for (const row of result.rows) {
       expect(row).toMatchObject({ tenant_match: 1, context_required: 1 });
+      expect(row.context_with_check === null || row.context_with_check === row.context_qual).toBe(true);
+      contextQualByRelation[row.tablename] = row.context_qual;
     }
+    expect(contextQualByRelation).toEqual(Object.fromEntries(
+      PLAN4_RELATIONS.map((relation) => [relation, REQUIRED_CONTEXT_QUAL]),
+    ));
   });
 });
