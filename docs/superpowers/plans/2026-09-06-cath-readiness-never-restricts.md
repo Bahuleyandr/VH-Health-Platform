@@ -87,6 +87,7 @@ All of Plan 3's conventions apply (tenant transactions, raw SQL, `AppError`, npm
 - **Never widen the picture with a value.** New payload keys are booleans, codes, causes, enums or instants. There are exactly **five** free-text fields (spec §6.5), including emergency-basis justification; each has an explicit reader matrix, projection and sentinel.
 - **migration NNN is claimed.** Reserve it in Task 1, re-check before the first push (Task 9), `NNN = max(highest number on any github/* branch, 767) + 1` - never 767 (reserved for the Phase 1 lane even before its file exists); never edit a migration after it is on a remote (add a new number instead).
 - **Fixtures with `<col>_at` carry `<col>_at_epoch_ms`** (`epochTwinFixtureFidelity.test.js`), derived from the same instant.
+- **Documentation examples use a zeroed UUID (`00000000-0000-4000-8000-000000000000`) or a `<lifecycle-token>` marker, never a random-looking token, so no future allowlist entry is needed.**
 - **Every new error code** in the `CATH_LAB_(CONSENT|TIMEOUT|START|LIFECYCLE|PROCEDURE_LOG|CASE_STATUS|CASE_CANCELLED|CASE_START|REOPEN|REPORT)_*` family must be in `CASE_LIFECYCLE_ERROR_CODES` (Task 5) — the scan is bidirectional, so an undocumented code and a documented-but-unraised code both fail.
 - **Every verdict over a set proves population first.** Assert the expected size and that it is non-zero before iterating, folding, or applying `every`/`some`; an empty population is a failing fixture, never evidence that a control passed.
 - **No `git stash`, no `git restore`; commit with pathspecs.**

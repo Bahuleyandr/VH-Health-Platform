@@ -125,6 +125,12 @@ regexes = [
   # PR range scan inspects the introducing commit (127f0e8f1), so the exact
   # historical value stays allowlisted. An opaque test token, not a credential.
   '''cath-unwaive-key-1''',
+  # Synthetic lifecycle token in a JSON example in
+  # docs/superpowers/specs/2026-09-06-cath-readiness-never-restricts-design.md;
+  # introduced at commit 65439d1caf78dbd4d6ee22127d7b93ef820902f5,
+  # absent at HEAD, and pinned by the range scan because --no-ff keeps the
+  # commit; allowlisted 2026-09-07 by ruling of the merge authority; not a credential.
+  '''2ccb17df-17b6-463f-8af8-45f321871ee0''',
   # Documentation phrase describing PostgreSQL application-role and sequence
   # privileges. The generic-api-key rule classified the historical slash form
   # as a credential, so retain an exact history-only exception.
