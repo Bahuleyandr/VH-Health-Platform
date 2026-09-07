@@ -253,15 +253,17 @@ class _CathCaseConsumablesPanelState extends State<CathCaseConsumablesPanel> {
       if (!mounted) return;
       final s = AppStrings.of(context);
       final alreadyDiscarded = result.deviceAlreadyDiscarded;
+      final message = alreadyDiscarded
+          ? s.format(
+              's4.lib.cath_lab.consumables.post_use_device_already_discarded',
+              {'status': cathDeviceStatusLabel(s, 'discarded')},
+            )
+          : s.lookup('s4.lib.cath_lab.consumables.post_use_saved');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             [
-              s.lookup(
-                alreadyDiscarded
-                    ? 's4.lib.cath_lab.consumables.post_use_device_already_discarded'
-                    : 's4.lib.cath_lab.consumables.post_use_saved',
-              ),
+              message,
               if (result.deviceTags.isNotEmpty) result.deviceTags.join(', '),
             ].join(' - '),
           ),

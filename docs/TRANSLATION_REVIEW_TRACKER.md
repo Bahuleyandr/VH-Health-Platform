@@ -1,6 +1,6 @@
 # Translation Human Review Tracker
 
-> **Last structurally reconciled: 2026-09-02.** Structural i18n coverage is
+> **Last structurally reconciled: 2026-09-07.** Structural i18n coverage is
 > 100%; human clinical, linguistic, finance, and legal review remains PENDING.
 > This tracker does not block technical development, but the named human
 > reviews remain fail-closed activation gates.
@@ -13,10 +13,10 @@ queue before production rollout in Tamil, Telugu, Malayalam, or Hindi.
 
 | App | Locale | Structural coverage | Human clinical review |
 |---|---:|---:|---:|
-| Staff | Hindi | 100% | Partial — B1 cath (96 keys) reviewed 2026-09-05 + B1.1 owner review applied 2026-09-06, owner approval pending |
-| Staff | Tamil | 100% | Partial — B1 cath (96 keys) reviewed 2026-09-05 + B1.1 owner review applied 2026-09-06, owner approval pending |
-| Staff | Telugu | 100% | Partial — B1 cath (96 keys) reviewed 2026-09-05 + B1.1 owner review applied 2026-09-06, owner approval pending |
-| Staff | Malayalam | 100% technical parity (4,008 English-source placeholders) | Partial — B1 cath (96 keys) reviewed 2026-09-05 + B1.1 owner review applied 2026-09-06, owner approval pending |
+| Staff | Hindi | 100% | Partial — B1 cath (96 keys) reviewed 2026-09-05 + B1.1 owner review applied 2026-09-06; B1.2 device-status labels pending review |
+| Staff | Tamil | 100% | Partial — B1 cath (96 keys) reviewed 2026-09-05 + B1.1 owner review applied 2026-09-06; B1.2 device-status labels pending review |
+| Staff | Telugu | 100% | Partial — B1 cath (96 keys) reviewed 2026-09-05 + B1.1 owner review applied 2026-09-06; B1.2 device-status labels pending review |
+| Staff | Malayalam | 100% technical parity (4,008 English-source placeholders) | Partial — B1 cath (96 keys) reviewed 2026-09-05 + B1.1 owner review applied 2026-09-06; B1.2 device-status labels pending review |
 | Patient | Hindi | 100% | Pending |
 | Patient | Tamil | 100% | Pending |
 | Patient | Telugu | 100% | Pending |
@@ -47,16 +47,11 @@ Work items surfaced by a review but deliberately not done in the batch that surf
 priority queue (those are review queues); this is a queue of engineering/process work a review
 identified as needed later.
 
-- **Shared localised device-status formatter used by device cards and messages** — added 2026-09-06
-  (Batch 1.1 owner decision, §3). The Staff app has no localised device-status label: the only place
-  a CSSD device status reaches the screen is `cathHumanize(_lookup!.device.status)` in
-  `cath_consumable_capture_sheet.dart`, which renders the raw backend enum as English (e.g.
-  "Discarded") in every locale. The ta/te/ml `post_use_device_already_discarded` messages quote the
-  recorded status in the target language even though the on-screen device-card label stays English —
-  accepted 2026-09-06 as a TEMPORARY EXCEPTION, not closed. This item is to build one shared
-  formatter that both the device cards and the post-use messages call, so the quoted status always
-  matches the on-screen label in every locale. Not scheduled; no owner sign-off yet on scope or
-  timing.
+- **CLOSED 2026-09-07 — shared localised device-status formatter used by device cards and messages.**
+  Batch 1.2 added one formatter for the complete backend lifecycle vocabulary and routed both the
+  lookup card and `post_use_device_already_discarded` through it. The Batch 1.1 temporary exception
+  is closed because the quoted status and card label now have one source. The 24 new non-English
+  labels remain in the normal linguistic-review queue and are not activation-approved.
 
 ## Priority queue — added 2026-08-25 (re-audit lane L)
 
@@ -685,6 +680,35 @@ ACCEPTED TEMPORARY EXCEPTION, not as satisfying the original "quote the exact ap
 requirement, with a linked follow-up tracked below. Batch 1's own base approval (the 96-key review
 noted above) remains separately pending. This 2026-09-06 approval does not introduce or expand the
 `override_allowed` policy: it approves wording for a backend behaviour that already exists.
+
+---
+
+## Batch 1.2 — shared CSSD device-status labels (2026-09-07)
+
+The backend CHECK and `DEVICE_STATUSES` export agree on six lifecycle values:
+`awaiting_reprocessing`, `in_cssd`, `available`, `in_case`, `quarantined`, and `discarded`.
+This batch gives that complete vocabulary one Staff formatter. Unknown future values still use
+`cathHumanize` so an additive backend status cannot crash the card.
+
+| New key | en | hi | ta | te | ml |
+|---|---|---|---|---|---|
+| `s4.lib.cath_lab.device_status.awaiting_reprocessing` | Awaiting reprocessing | पुनःसंसाधन की प्रतीक्षा में | மறுசெயலாக்கத்திற்காகக் காத்திருக்கிறது | పునఃప్రాసెసింగ్ కోసం వేచి ఉంది | പുനഃസംസ്കരണത്തിനായി കാത്തിരിക്കുന്നു |
+| `s4.lib.cath_lab.device_status.in_cssd` | In CSSD | CSSD में | CSSD-இல் | CSSDలో | CSSD-യിൽ |
+| `s4.lib.cath_lab.device_status.available` | Available | उपलब्ध | கிடைக்கிறது | అందుబాటులో ఉంది | ലഭ്യമാണ് |
+| `s4.lib.cath_lab.device_status.in_case` | In case | केस में | செயல்முறையில் | కేసులో | കേസിൽ |
+| `s4.lib.cath_lab.device_status.quarantined` | Quarantined | क्वारंटीन में | தனிமைப்படுத்தப்பட்டது | క్వారంటైన్‌లో | ക്വാറന്റൈനിൽ |
+| `s4.lib.cath_lab.device_status.discarded` | Discarded | डिस्कार्ड | அப்புறப்படுத்தப்பட்டது | పారవేయబడింది | ഉപേക്ഷിച്ചു |
+
+All 24 new hi/ta/te/ml entries carry `// REVIEW:` and enter the normal linguistic-review flow.
+Malayalam uses real text in `app_strings.dart`; no generated parity placeholder was added.
+The existing five-locale
+`s4.lib.cath_lab.consumables.post_use_device_already_discarded` family now contains `{status}` and
+receives the formatter's `discarded` label. Parameterised widget coverage renders the actual lookup
+card and the actual snackbar in all five locales and requires the same quoted label in both.
+
+**Batch 1.1 exception status: CLOSED for engineering drift.** The independently worded status token
+has been removed. Human review of this batch's new non-English labels remains pending, so closure of
+the implementation exception is not linguistic or activation approval.
 
 ---
 
