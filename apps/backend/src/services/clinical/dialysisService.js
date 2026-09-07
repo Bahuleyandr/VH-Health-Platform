@@ -236,8 +236,8 @@ export async function enrolPatient({ tenantId, ...body }) {
     VALUES ($1, COALESCE($2, 'hd'), $3, $4, $5, $6::numeric,
             CASE WHEN $6::numeric IS NOT NULL THEN NOW() ELSE NULL END,
             COALESCE($7, 'heparin'),
-            COALESCE($8,  'negative'), COALESCE($9,  'negative'),
-            COALESCE($10, 'negative'),
+            COALESCE($8,  'unknown'), COALESCE($9,  'unknown'),
+            COALESCE($10, 'unknown'),
             $11, $12)
     RETURNING *`;
   const rows = await prisma.$queryRawUnsafe(sql,
