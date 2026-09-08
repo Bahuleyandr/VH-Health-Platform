@@ -238,6 +238,24 @@ export function assertTablePin(actual, expected) {
     );
 }
 
+export function serializePin(pin) {
+  const fields = Object.entries(pin)
+    .filter(([, value]) => value !== undefined)
+    .map(([key, value]) => {
+      if (key === 'tables') {
+        const rows = value.map(
+          ({ entries, ...table }) =>
+            `    {\n      ${JSON.stringify(table).slice(1, -1)},\n      "entries": [\n${entries.map(entry => `        ${JSON.stringify(entry)}`).join(',\n')}\n      ]\n    }`
+        );
+        return `  "tables": [\n${rows.join(',\n')}\n  ]`;
+      }
+      if (Array.isArray(value))
+        return `  ${JSON.stringify(key)}: [\n${value.map(row => `    ${JSON.stringify(row)}`).join(',\n')}\n  ]`;
+      return `  ${JSON.stringify(key)}: ${JSON.stringify(value)}`;
+    });
+  return `{\n${fields.join(',\n')}\n}\n`;
+}
+
 const cell = value =>
   String(value ?? '')
     .replaceAll('|', '\\|')
@@ -258,7 +276,7 @@ export function renderPin(pin) {
     '',
     '- ENTRY POINTS: actual AST call expressions named runWithSuperAdmin, withJobLock or withReplicaLocalJobGuard. Definitions and comments do not count. A callback argument may be forwarded by a helper; registered jobs supply the concrete callback roots.',
     '- JOBS: every registerCron call in src/utils/scheduler.js, across all feature guards, with its unique literal job name and resolved callback. These are potential source registrations, not simultaneously active jobs. Registration in a loop or function fails generation until expanded; this source has neither. No invoked-job count is claimed.',
-    '- RUNTIME REACHING STATEMENTS: distinct table + SQL origin (line and column), through registered jobs, explicit bypass callbacks, bare transaction callbacks, timers, module initialization/startup, and read-only clients. Repeated paths/contexts are merged into one entry. Tenant-switched and timer-inherited paths remain candidates pending proof. Plain request-path receiver calls alone are not census roots.',
+    '- RUNTIME REACHING STATEMENTS: distinct table + SQL origin (line and column), through registered jobs, explicit bypass callbacks, bare transaction callbacks, timers, module initialization/startup, public routes mounted before global tenant middleware, and read-only clients. Repeated paths/contexts are merged into one entry. Tenant-switched, dedicated pre-auth middleware and timer-inherited paths remain candidates pending proof. Plain request-path receiver calls alone are not census roots. Dynamic Prisma model selectors resolve through their literal caller arguments and model maps.',
     '- ADMINISTRATIVE STATEMENTS: expand the migration runner using its actual splitStatements parser. One SQL statement is one entry; deferred function bodies are conservative candidates, not claimed executions at CREATE FUNCTION time. Catalog-driven EXECUTE statements expand to every target table pending ledger/role proof. This administrative set is shown separately from runtime jobs and included in N so unknown migration dispatch cannot create a false empty pin.',
     '- SQL tables: resolve FROM/JOIN/UPDATE/INTO/LOCK/TRUNCATE relation tokens and target Prisma model operations, including SQL passed through wrappers. Dynamic fragments retain every possible target; CTE names do not count as relations. Generation-specific projector handlers are expanded to all imported handlers; generation/event filtering remains pending proof.',
     '',

@@ -16,9 +16,30 @@ import { recordCanonicalClinicalEvent } from './canonicalClinicalPlatformService
 import { requireTenantId } from '../tenant/tenantService.js';
 import { addInvoiceItem, createDraftInvoice } from '../billing/billingV2Service.js';
 import { epochMsOrNull } from '../../utils/dbInstant.js';
+import {
+  lockDialysisSessionTx, onSessionStartingTx, onSessionEndedTx, onSessionCancelledTx,
+  recordPlatformReuseRegisterTx,
+} from './dialysisDeviceLifecycleService.js';
+import { planIsolationTx, admitIsolationTx } from './dialysisIsolationRoutingService.js';
+import { bindIsolationEmergencyTx, consumeIsolationEmergencyTx } from './dialysisIsolationEmergencyService.js';
 
 function tenantOr(t) { return requireTenantId(t); }
 function unwrap(rows) { return Array.isArray(rows) ? rows[0] : rows; }
+
+function operationalIsolation(isolation) {
+  if (!isolation) return isolation;
+  const { audit_summary: _audit, ...operational } = isolation;
+  const { reason: _reason, ...override } = isolation.isolation_override ?? {};
+  return { ...operational, isolation_override: isolation.isolation_override ? override : null };
+}
+
+function operationalSession(session) {
+  if (!session) return session;
+  const result = { ...session };
+  if (Object.hasOwn(result, 'isolation_override_reason')) result.isolation_override_reason = null;
+  if (Object.hasOwn(result, 'isolation')) result.isolation = operationalIsolation(result.isolation);
+  return result;
+}
 
 const REUSE_INTEGRITY_RESULTS = ['pending', 'pass', 'fail', 'not_done'];
 const REUSE_STATUSES = ['in_use', 'discarded', 'quarantined'];
@@ -76,7 +97,7 @@ export function buildMachineQaWarnings(log, machineNo) {
 // Session status walk
 const SESSION_TRANSITIONS = {
   scheduled:  ['in_progress', 'cancelled', 'no_show'],
-  in_progress:['completed',   'cancelled'],
+  in_progress:['completed'],
   completed:  [],
   cancelled:  [],
   no_show:    [],
@@ -285,7 +306,7 @@ export async function getPatient({ tenantId, id }) {
     `SELECT * FROM dialysis_adequacy_30d WHERE dialysis_patient_id = $1`,
     pat.id);
 
-  return { ...pat, access: accessRows, recent_sessions: recentSessions, serology, adequacy_30d: unwrap(adequacyRows) };
+  return { ...pat, access: accessRows, recent_sessions: recentSessions.map(operationalSession), serology, adequacy_30d: unwrap(adequacyRows) };
 }
 
 export async function updateDryWeight({ tenantId, id, dry_weight_kg }) {
@@ -443,7 +464,7 @@ export async function getPrescriptions({ tenantId, dialysis_patient_id }) {
 
 // ── Sessions ──────────────────────────────────────────────────────
 
-export async function scheduleSession({ tenantId, ...body }) {
+export async function scheduleSession({ tenantId, actor, ...body }) {
   if (!body.dialysis_patient_id) throw AppError.badRequest('dialysis_patient_id required');
   if (!body.session_date) throw AppError.badRequest('session_date required');
   const patient = await getDialysisPatientInTenant(tenantId, body.dialysis_patient_id);
@@ -480,7 +501,13 @@ export async function scheduleSession({ tenantId, ...body }) {
             $9::timestamptz, $10, $11, $12, $13,
             'scheduled', $14, $15, $16, $17)
     RETURNING *`;
-  const rows = await prisma.$queryRawUnsafe(sql,
+  return setTenantTx(tenantOr(tenantId), async (tx) => {
+    const isolation = await planIsolationTx(tx, {
+      tenantId: tenantOr(tenantId), patientUid: patient.patient_uid,
+      machineNo: body.machine_no, sessionDate: body.session_date, body,
+      actor,
+    });
+    const rows = await tx.$queryRawUnsafe(sql,
     patient.id, accessId,
     body.session_date, body.machine_no || null, body.station_no || null,
     body.modality || rx?.modality || 'hd',
@@ -490,21 +517,35 @@ export async function scheduleSession({ tenantId, ...body }) {
     body.anticoag || rx?.anticoag || null,
     body.anticoag_initial_dose || rx?.anticoag_loading || null,
     body.anticoag_maintenance || rx?.anticoag_maintenance || null,
-    body.conducted_by || null, body.supervised_by || null,
+    actor?.uid || null, body.supervised_by || null,
     rx?.id || null,
     tenantOr(tenantId));
-  return unwrap(rows);
+    const session = unwrap(rows);
+    if (isolation?.isolation_override?.kind === 'emergency') {
+      await bindIsolationEmergencyTx(tx, {
+        tenantId: tenantOr(tenantId), authorizationId: body.isolation_emergency_authorization_id, sessionId: session.id,
+      });
+    }
+    await persistIsolationTx(tx, tenantOr(tenantId), session.id, isolation, actor);
+    return operationalSession(isolation ? { ...session, isolation } : session);
+  });
 }
 
-export async function startSession({ tenantId, id, ...body }) {
-  const sessRows = await prisma.$queryRawUnsafe(
-    `SELECT status FROM dialysis_sessions WHERE id = $1 AND tenant_id = $2::uuid FOR UPDATE`,
-    parseInt(id, 10), tenantOr(tenantId));
-  const sess = unwrap(sessRows);
-  if (!sess) throw AppError.notFound('Session not found');
+export async function startSession({ tenantId, id, actor, ...body }) {
+  return setTenantTx(tenantOr(tenantId), async (tx) => {
+  const { session: sess, lockedPatientUids } = await lockDialysisSessionTx(tx, {
+    tenantId: tenantOr(tenantId), sessionId: id,
+  });
   if (!SESSION_TRANSITIONS[sess.status]?.includes('in_progress')) {
     throw AppError.invalidTransition(sess.status, 'in_progress', SESSION_TRANSITIONS[sess.status] || []);
   }
+  await onSessionStartingTx(tx, { tenantId: tenantOr(tenantId), session: sess, actor, body, lockedPatientUids });
+  let emergencyAuthorizationId;
+  const isolation = await admitIsolationTx(tx, {
+    tenantId: tenantOr(tenantId), patientUid: sess.patient_uid, machineNo: sess.machine_no,
+    session: sess, actor, body,
+    captureEmergencyAuthorizationId: (authorizationId) => { emergencyAuthorizationId = authorizationId; },
+  });
 
   const sql = `
     UPDATE dialysis_sessions
@@ -518,16 +559,24 @@ export async function startSession({ tenantId, id, ...body }) {
         updated_at = NOW()
     WHERE id = $6 AND tenant_id = $7::uuid
     RETURNING *`;
-  const rows = await prisma.$queryRawUnsafe(sql,
+  const rows = await tx.$queryRawUnsafe(sql,
     body.pre_weight_kg || null, body.pre_bp_systolic || null,
     body.pre_bp_diastolic || null, body.pre_pulse || null,
     body.pre_temp_c || null,
     parseInt(id, 10), tenantOr(tenantId));
-  return unwrap(rows);
+  if (isolation?.isolation_override?.kind === 'emergency') {
+    await consumeIsolationEmergencyTx(tx, {
+      tenantId: tenantOr(tenantId), sessionId: sess.id, authorizationId: emergencyAuthorizationId, actor,
+    });
+  }
+  await persistIsolationTx(tx, tenantOr(tenantId), sess.id, isolation, actor);
+  return operationalSession(isolation ? { ...unwrap(rows), isolation } : unwrap(rows));
+  });
 }
 
-export async function completeSession({ tenantId, id, completed_by, actorRole, ...body }) {
+export async function completeSession({ tenantId, id, actor, ...body }) {
   const completed = await setTenantTx(tenantOr(tenantId), async (tx) => {
+    await lockDialysisSessionTx(tx, { tenantId: tenantOr(tenantId), sessionId: id });
     const sessRows = await tx.$queryRawUnsafe(
       `SELECT s.*, p.patient_uid,
               (EXTRACT(EPOCH FROM s.actual_start_at) * 1000)::bigint AS actual_start_at_epoch_ms
@@ -541,6 +590,9 @@ export async function completeSession({ tenantId, id, completed_by, actorRole, .
     if (!sess) throw AppError.notFound('Session not found');
     if (!SESSION_TRANSITIONS[sess.status]?.includes('completed')) {
       throw AppError.invalidTransition(sess.status, 'completed', SESSION_TRANSITIONS[sess.status] || []);
+    }
+    if (body.early_termination === true && !String(body.early_termination_reason ?? '').trim()) {
+      throw AppError.badRequest('Early termination requires a reason', 'DIALYSIS_EARLY_TERMINATION_REASON_REQUIRED');
     }
 
     const startMs = epochMsOrNull(sess.actual_start_at_epoch_ms);
@@ -590,14 +642,19 @@ export async function completeSession({ tenantId, id, completed_by, actorRole, .
       parseInt(id, 10), tenantOr(tenantId));
     const row = unwrap(rows);
 
+    await onSessionEndedTx(tx, {
+      tenantId: tenantOr(tenantId), session: { ...row, patient_uid: sess.patient_uid },
+      actor,
+    });
+
     await recordCanonicalClinicalEvent({
       tenantId: tenantOr(tenantId),
       patientUid: sess.patient_uid,
       eventType: 'dialysis.completed',
       sourceTable: 'dialysis_sessions',
       sourceId: row.id,
-      actorUid: completed_by || null,
-      actorRole: actorRole || null,
+      actorUid: actor?.uid || null,
+      actorRole: actor?.role || null,
       summary: `Dialysis session completed${row.ktv_calculated ? `; Kt/V ${row.ktv_calculated}` : ''}`,
       payload: {
         session_id: row.id,
@@ -618,26 +675,30 @@ export async function completeSession({ tenantId, id, completed_by, actorRole, .
   const billingHook = await maybeEmitDialysisBillingLine({
     tenantId,
     session: completed,
-    actorUid: completed_by || null,
+    actorUid: actor?.uid || null,
   });
 
   return {
-    ...completed,
+    ...operationalSession(completed),
     machine_qa_warnings: machineQaWarnings,
     billing_hook: billingHook,
   };
 }
 
-export async function cancelSession({ tenantId, id, reason, mark_no_show }) {
+export async function cancelSession({ tenantId, id, reason, mark_no_show, actor, ...body }) {
   const target = mark_no_show ? 'no_show' : 'cancelled';
-  const sessRows = await prisma.$queryRawUnsafe(
-    `SELECT status FROM dialysis_sessions WHERE id = $1 AND tenant_id = $2::uuid`,
-    parseInt(id, 10), tenantOr(tenantId));
-  const sess = unwrap(sessRows);
-  if (!sess) throw AppError.notFound('Session not found');
+  return setTenantTx(tenantOr(tenantId), async (tx) => {
+  const { session: sess } = await lockDialysisSessionTx(tx, { tenantId: tenantOr(tenantId), sessionId: id });
+  if (sess.status === 'in_progress') {
+    throw AppError.conflict('In-progress dialysis must end by completion', 'RPD_RETURN_REQUIRED');
+  }
   if (!SESSION_TRANSITIONS[sess.status]?.includes(target)) {
     throw AppError.invalidTransition(sess.status, target, SESSION_TRANSITIONS[sess.status] || []);
   }
+  await onSessionCancelledTx(tx, {
+    tenantId: tenantOr(tenantId), session: sess, body,
+    actor,
+  });
   const sql = `
     UPDATE dialysis_sessions
     SET status = $1, notes = COALESCE(notes, '') || COALESCE($2, ''),
@@ -645,9 +706,49 @@ export async function cancelSession({ tenantId, id, reason, mark_no_show }) {
     WHERE id = $3 AND tenant_id = $4::uuid
     RETURNING *`;
   const note = reason ? `\n[${target}] ${reason}` : null;
-  const rows = await prisma.$queryRawUnsafe(sql, target, note,
+  const rows = await tx.$queryRawUnsafe(sql, target, note,
     parseInt(id, 10), tenantOr(tenantId));
-  return unwrap(rows);
+  return operationalSession(unwrap(rows));
+  });
+}
+
+async function persistIsolationTx(tx, tenantId, sessionId, isolation, actor) {
+  if (!isolation) return;
+  if (!actor?.uid || !actor?.role) {
+    throw AppError.forbidden('An authenticated dialysis actor is required', 'RPD_DOMAIN_ROLE_FORBIDDEN');
+  }
+  await tx.$executeRawUnsafe(
+    `UPDATE dialysis_sessions SET isolation_warning_codes = $3::text[],
+      isolation_required_group = $4, isolation_warn_only = $5,
+      isolation_enforcement_enabled = $6, isolation_evaluated_at = $7::timestamptz,
+      isolation_override_reason = $8, isolation_override_by = $9::uuid,
+      isolation_override_at = $10::timestamptz, isolation_override_kind = $11
+      WHERE tenant_id = $1::uuid AND id = $2::int`,
+    tenantId, Number(sessionId), isolation.codes ?? (isolation.isolation_warnings ?? []).map((warning) => warning.code),
+    isolation.required_group ?? null, isolation.warn_only ?? true, isolation.enforcement_enabled ?? false,
+    isolation.evaluated_at, isolation.isolation_override?.reason ?? null,
+    isolation.isolation_override?.by ?? null, isolation.isolation_override?.at ?? null,
+    isolation.isolation_override?.kind ?? null,
+  );
+  const metadata = JSON.stringify({
+    codes: isolation.codes, required_group: isolation.required_group,
+    enforcement: isolation.enforcement_enabled ? 'block' : 'warn',
+    ...isolation.audit_summary,
+  });
+  await tx.$executeRawUnsafe(
+    `INSERT INTO audit_logs (tenant_id, uid, actor_uid, role, action, resource, resource_id, metadata)
+     VALUES ($1::uuid, $2::uuid, $2::uuid, $3, 'dialysis.session.isolation_evaluated',
+             'dialysis_sessions', $4, $5::jsonb)`,
+    tenantId, actor.uid, actor.role, String(sessionId), metadata,
+  );
+  if (isolation.isolation_override) {
+    await tx.$executeRawUnsafe(
+      `INSERT INTO audit_logs (tenant_id, uid, actor_uid, role, action, resource, resource_id, metadata)
+       VALUES ($1::uuid, $2::uuid, $2::uuid, $3, 'dialysis.session.isolation_overridden',
+               'dialysis_sessions', $4, $5::jsonb)`,
+      tenantId, actor.uid, actor.role, String(sessionId), metadata,
+    );
+  }
 }
 
 export async function listSessions({ tenantId, date, status, dialysis_patient_id, limit = 200 }) {
@@ -666,12 +767,12 @@ export async function listSessions({ tenantId, date, status, dialysis_patient_id
     WHERE ${conds.join(' AND ')}
     ORDER BY session_date DESC, scheduled_start_at ASC
     LIMIT ${lim}`;
-  return prisma.$queryRawUnsafe(sql, ...args);
+  return (await prisma.$queryRawUnsafe(sql, ...args)).map(operationalSession);
 }
 
 export async function todayBoard({ tenantId }) {
   const sql = `SELECT * FROM dialysis_today WHERE tenant_id = $1::uuid ORDER BY scheduled_start_at`;
-  return prisma.$queryRawUnsafe(sql, tenantOr(tenantId));
+  return (await prisma.$queryRawUnsafe(sql, tenantOr(tenantId))).map(operationalSession);
 }
 
 // ── Intra-dialysis observations ───────────────────────────────────
@@ -940,12 +1041,21 @@ async function maybeEmitDialysisBillingLine({ tenantId, session, actorUid = null
   }
 }
 
-export async function recordReuseRegister({ tenantId, session_id, processed_by, ...body }) {
+export async function recordReuseRegister({ tenantId, session_id, actor, ...body }) {
   if (!session_id) throw AppError.badRequest('session_id required');
-  if (!body.dialyzer_serial) throw AppError.badRequest('dialyzer_serial required');
-  const normalized = validateReuseRegisterInput(body);
 
   return setTenantTx(tenantOr(tenantId), async (tx) => {
+    const { session } = await lockDialysisSessionTx(tx, { tenantId: tenantOr(tenantId), sessionId: session_id });
+    if (session.status !== 'completed' || !session.actual_end_at) {
+      throw AppError.conflict('Dialysis use must end before reprocessing', 'RPD_USE_NOT_ENDED');
+    }
+    const platform = await recordPlatformReuseRegisterTx(tx, {
+      tenantId: tenantOr(tenantId), session, body,
+      actor,
+    });
+    if (platform) return platform;
+    if (!body.dialyzer_serial) throw AppError.badRequest('dialyzer_serial required');
+    const normalized = validateReuseRegisterInput(body);
     const sessRows = await tx.$queryRawUnsafe(
       `SELECT s.id, s.reuse_count, s.dialysis_patient_id, p.patient_uid
          FROM dialysis_sessions s
@@ -1004,7 +1114,7 @@ export async function recordReuseRegister({ tenantId, session_id, processed_by, 
       normalized.integrity,
       body.integrity_test_method || null,
       body.disinfectant || null,
-      processed_by || null,
+      actor?.uid || null,
       normalized.status,
       normalized.discardReason,
       body.notes || null,

@@ -20,7 +20,10 @@ import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import { markerForResult } from '../lab/labAnalyteCodes.js';
+import { drainExposureOutbox, enqueueExposureEventTx } from './bloodborneExposureOutboxService.js';
+import { lockPatientExposureTx } from './patientExposureLock.js';
 import {
+  CORE_MARKERS,
   DEFAULT_VALIDITY_DAYS,
   MARKERS,
   RESULTS,
@@ -138,6 +141,19 @@ function exposureEventFrom(row) {
   };
 }
 
+async function deliverExposureFastPath(rows) {
+  const events = rows.filter(row => row.result === 'reactive').map(exposureEventFrom);
+  const tenants = [...new Set(events.filter(event => CORE_MARKERS.includes(event.marker)).map(event => event.tenantId))];
+  for (const tenantId of tenants) {
+    try {
+      await drainExposureOutbox({ tenantId });
+    } catch (error) {
+      logger.warn('Exposure fast path remains pending durable reconciliation', { tenantId, code: error?.code });
+    }
+  }
+  await notifyExposureHandlers(events.filter(event => !CORE_MARKERS.includes(event.marker)));
+}
+
 // Insert one marker row inside the caller's tenant transaction. Returns the
 // row, or null when a lab-result-linked active row already exists (idempotent
 // replay through ux_patient_bloodborne_markers_lab_result).
@@ -193,6 +209,8 @@ export async function recordMarkerTx(tx, {
   if (safeSource === 'clinical_declaration' && safeLabResultId != null) {
     throw AppError.badRequest('clinical_declaration markers do not reference a lab result', 'BLOODBORNE_MARKER_INVALID');
   }
+  const safeTestedOn = requireDate(testedOn, 'tested_on');
+  await lockPatientExposureTx(tx, { tenantId: tid, patientUid: uid });
   const rows = await tx.$queryRawUnsafe(
     `INSERT INTO patient_bloodborne_markers
        (tenant_id, patient_uid, marker, marker_label, result, tested_on, source,
@@ -208,14 +226,16 @@ export async function recordMarkerTx(tx, {
     safeMarker,
     label,
     safeResult,
-    requireDate(testedOn, 'tested_on'),
+    safeTestedOn,
     safeSource,
     safeLabResultId,
     JSON.stringify(evidence && typeof evidence === 'object' && !Array.isArray(evidence) ? evidence : {}),
     actor,
     cleanText(notes, 2000),
   );
-  return rows[0] ? normalizeMarkerRow(rows[0]) : null;
+  const row = rows[0] ? normalizeMarkerRow(rows[0]) : null;
+  if (row?.result === 'reactive') await enqueueExposureEventTx(tx, exposureEventFrom(row));
+  return row;
 }
 
 // Record one or more marker rows for a patient in one tenant transaction, then
@@ -259,7 +279,7 @@ export async function recordMarkers({ tenantId, patientUid, entries = [], actorU
     }
     return { recorded, skipped };
   });
-  await notifyExposureHandlers(outcome.recorded.filter((row) => row.result === 'reactive').map(exposureEventFrom));
+  await deliverExposureFastPath(outcome.recorded);
   return outcome;
 }
 
@@ -322,6 +342,7 @@ export async function voidMarker({ tenantId, patientUid, markerId, actorUid, rea
     throw AppError.badRequest('reason must be 500 characters or fewer', 'BLOODBORNE_MARKER_INVALID');
   }
   return setTenantTx(tid, async (tx) => {
+    await lockPatientExposureTx(tx, { tenantId: tid, patientUid: uid });
     const existing = await tx.$queryRawUnsafe(
       `SELECT ${MARKER_SELECT} FROM patient_bloodborne_markers
         WHERE tenant_id = $1::uuid AND id = $2::bigint AND patient_uid = $3::uuid
@@ -485,6 +506,8 @@ export async function recordMarkersFromSignedResults({ tenantId, resultIds = [],
         && row.signed_off_at
         && SIGNED_STATUSES.has(String(row.status || '').toLowerCase()));
     if (candidates.length === 0) return { recorded: [], voided: 0, skipped: [], failed: [] };
+    const patientUids = [...new Set(candidates.map(({ row }) => String(row.patient_uid)))].sort();
+    for (const patientUid of patientUids) await lockPatientExposureTx(tx, { tenantId: tid, patientUid });
     let voided = 0;
     const recorded = [];
     const skipped = [];
@@ -571,6 +594,6 @@ export async function recordMarkersFromSignedResults({ tenantId, resultIds = [],
     }
     return { recorded, voided, skipped, failed };
   });
-  await notifyExposureHandlers(outcome.recorded.filter((row) => row.result === 'reactive').map(exposureEventFrom));
+  await deliverExposureFastPath(outcome.recorded);
   return outcome;
 }

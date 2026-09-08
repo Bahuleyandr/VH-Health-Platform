@@ -9,6 +9,7 @@
 // Spec: docs/superpowers/specs/2026-09-04-cath-device-reuse-and-bloodborne-markers-design.md
 
 import prisma, { setTenantTx } from '../lib/prisma.js';
+import { exposureHandlerCount } from '../services/clinical/exposureHandlerBootstrap.js';
 import {
   getCase,
   listCaseConsumableUsage,
@@ -88,6 +89,13 @@ const captureNew = (idempotencyKey) => recordConsumableUsage(caseId, {
 }, ctx(ACTOR, { idempotencyKey }));
 
 async function cleanup() {
+  const exposureTables = ['bloodborne_exposure_applications', 'bloodborne_exposure_deliveries', 'bloodborne_exposure_outbox'];
+  expect(exposureTables).toHaveLength(3);
+  await setTenantTx(TENANT, async tx => {
+    for (const table of exposureTables) {
+      await tx.$executeRawUnsafe(`DELETE FROM ${table} WHERE tenant_id = $1::uuid`, TENANT);
+    }
+  });
   await prisma.$transaction(async (tx) => {
     // Teardown runs only on the disposable deep-test database. Disabling user
     // and constraint triggers for this one transaction is what lets the
@@ -306,6 +314,7 @@ async function mintAvailableDevices({
 
 describeIfDb('cath device reuse (deep)', () => {
   beforeAll(async () => {
+    expect(exposureHandlerCount()).toBe(2);
     await cleanup();
     await seed();
     await upsertCategoryPolicies({

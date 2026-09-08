@@ -7,7 +7,8 @@ import {
   assertTablePin,
   buildPin,
   migrationStatements,
-  renderPin
+  renderPin,
+  serializePin
 } from './lib/rlsBypassReacherPin.mjs';
 
 export const PIN_PATH = 'docs/security/rls-bypass-reacher-pin-2026-09-08.json';
@@ -107,7 +108,7 @@ if (invoked) {
     ).trim();
   const pin = collectPin(repoRoot, revision);
   if (args.includes('--write')) {
-    writeFileSync(expectedFile, `${JSON.stringify(pin, null, 2)}\n`);
+    writeFileSync(expectedFile, serializePin(pin));
     writeFileSync(path.join(repoRoot, REPORT_PATH), renderPin(pin));
   } else if (args.includes('--json')) {
     process.stdout.write(JSON.stringify(pin));

@@ -818,6 +818,15 @@ if (process.env.NODE_ENV !== 'test') {
     logger.info('cath-inventory-shortfall-assignment-recovery complete', result);
   }));
 
+  registerCron('*/2 * * * *', withJobLock('bloodborne-exposure-outbox-drain', async () => {
+    await import('../services/clinical/exposureHandlerBootstrap.js');
+    const { drainExposureOutboxForAllTenants } = await import(
+      '../services/clinical/bloodborneExposureOutboxService.js'
+    );
+    const result = await drainExposureOutboxForAllTenants();
+    logger.info('bloodborne-exposure-outbox-drain complete', result);
+  }));
+
   // Every 5 minutes — close counter-sale voids only after their exact bound
   // refund has durable PAID rail evidence. The service sweep is tenant-bound,
   // bounded, idempotent and isolates an individual request failure.
