@@ -167,7 +167,9 @@ FROM ${NGINX_IMAGE} AS runner
 # and never fetches packages published since (same trap as the backend/admin
 # Dockerfiles, where CVE-2026-14456 stuck on 2026-08-26). The echo makes the
 # epoch part of the layer's cache key.
-ARG SECURITY_PATCH_EPOCH=2026-09-01.1
+# util-linux (libblkid/libmount, 14 HIGH fixed in 2.42.3) stuck the same way
+# 2026-09-05..08 and blocked 26 consecutive deploys; bumped 2026-09-08.
+ARG SECURITY_PATCH_EPOCH=2026-09-08.1
 RUN apk upgrade --no-cache \
     && rm -f /etc/nginx/conf.d/default.conf \
     && rm -rf /usr/share/nginx/html/* \

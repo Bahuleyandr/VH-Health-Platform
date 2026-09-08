@@ -71,6 +71,8 @@ FROM ${NODE_IMAGE} AS runner
 # A STALE EPOCH is what wedges the blocking scan, and bumping it is the whole
 # remedy. CVE-2026-26740 in giflib stuck this way on 2026-08-31: the cached
 # layer kept replaying a resolve from before giflib 5.2.2-r2 was published.
+# util-linux (libblkid/libmount, 14 HIGH fixed in 2.42.3) stuck the same way
+# 2026-09-05..08 and blocked 26 consecutive deploys; bumped 2026-09-08.
 #
 # Be precise about what the upgrade can reach, because it is easy to get
 # backwards. It runs BEFORE the apk add below, so it covers ONLY the pinned
@@ -88,7 +90,7 @@ FROM ${NODE_IMAGE} AS runner
 # unpatchable behind a hand-maintained list. The pinned base carries HIGH
 # findings only this upgrade can reach. Do not re-narrow it to a package list;
 # check-infra-security-controls.mjs enforces that for all three images.
-ARG SECURITY_PATCH_EPOCH=2026-09-01.1
+ARG SECURITY_PATCH_EPOCH=2026-09-08.1
 RUN apk upgrade --no-cache && \
     apk add --no-cache curl && \
     rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx && \
