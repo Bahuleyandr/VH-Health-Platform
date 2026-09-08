@@ -24,6 +24,7 @@ import {
   getOrderDispensableContext, getCatalogDispensableBatches,
 } from '../controllers/pharmacy/pharmacyOrderController.js';
 import { grantPharmacyFacilityAuthority } from '../services/pharmacy/pharmacyFacilityAuthorityService.js';
+import { teardownTenantFixture } from './helpers/tenantTeardown.js';
 
 const TENANT = '00000000-0000-4000-8000-0000d15e0002';
 const OTHER = '00000000-0000-4000-8000-0000d15e0999';
@@ -88,32 +89,52 @@ describe('pharmacist dispense-substitution read endpoints', () => {
   let compId; let catalogId; let orderId; let prescriptionId; let itemId; let batchNear; let batchFar;
   let facilityId; let otherFacilityId; let storageLocationId; let patientId;
 
+  // Two-phase teardown, via helpers/tenantTeardown.js (the split PR #1048 made
+  // and PR #1050 shared). The statements below are phase 1: one short
+  // interactive transaction holding every child and evidence delete. The five
+  // fixture users and the two fixture tenants are phase 2, deleted afterwards
+  // as plain autocommit statements with no Prisma transaction budget over them.
+  //
+  // They used to sit in this transaction, and deleting the five users alone
+  // took 4,041 ms of the 5,000 ms budget on an idle box — one referential-
+  // integrity trigger fires per foreign key referencing `users`, and there are
+  // 466 of them at schema >= migration 790 (measured 2026-09-08). Under the
+  // six-lane parallelism the residue census used it took 7.2 to 9.3 s and the
+  // COMMIT was refused on an expired transaction, so Postgres rolled the whole
+  // teardown back and the fixture survived into the next suite. See the helper
+  // for the full rationale, including why session_replication_role='replica'
+  // is not the fix for the users/tenants deletes. Phase 1 is milliseconds.
+  //
+  // Errors are not swallowed: a teardown that fails must fail the suite.
   async function cleanup() {
-    await prisma.$executeRawUnsafe(`DELETE FROM e_prescriptions WHERE tenant_id=$1::uuid AND patient_uid=$2::uuid`, TENANT, PATIENT).catch(() => {});
-    for (const sql of [
-      `DELETE FROM pharmacy_inventory_batches WHERE tenant_id=$1::uuid AND batch_number LIKE 'DCTX-%'`,
-      `DELETE FROM pharmacy_inventory_items WHERE tenant_id=$1::uuid AND sku_code LIKE 'DCTX-%'`,
-      `DELETE FROM pharmacy_orders WHERE tenant_id=$1::uuid AND order_note='dctx-test'`,
-    ]) await prisma.$executeRawUnsafe(sql, TENANT).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM pharmacy_catalog WHERE name LIKE 'DCTXTEST %'`).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM drug_compositions WHERE composition_key=$1`, COMP_KEY).catch(() => {});
-    // Custody teardown, after everything that references a facility is gone.
-    // pharmacy_staff_facility_grant_events is append-only (migration 753's
-    // trg_pharmacy_staff_facility_grant_events_append_only_753), so the fixture
-    // drops its own rows under session_replication_role='replica' exactly the way
-    // ipd-support-money-authz.deep.test.js does — the guard stays live everywhere else.
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
-      await tx.$executeRawUnsafe(
-        `DELETE FROM pharmacy_staff_facility_grant_events WHERE grant_id IN (SELECT id FROM pharmacy_staff_facility_grants WHERE staff_uid = ANY($1::uuid[]))`,
-        FIXTURE_UIDS,
-      );
-      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'origin'");
-      await tx.$executeRawUnsafe(`DELETE FROM pharmacy_staff_facility_grants WHERE staff_uid = ANY($1::uuid[])`, FIXTURE_UIDS);
-      await tx.$executeRawUnsafe(`DELETE FROM staff WHERE user_id = ANY($1::uuid[])`, FIXTURE_UIDS);
-      await tx.$executeRawUnsafe(`DELETE FROM facility_locations WHERE facility_id IN (SELECT id FROM facilities WHERE facility_code = ANY($1::text[]))`, FACILITY_CODES);
-      await tx.$executeRawUnsafe(`DELETE FROM facilities WHERE facility_code = ANY($1::text[])`, FACILITY_CODES);
-      await tx.$executeRawUnsafe(`DELETE FROM users WHERE uid = ANY($1::uuid[])`, FIXTURE_UIDS);
+    await teardownTenantFixture(prisma, {
+      evidence: async (tx) => {
+        await tx.$executeRawUnsafe(`DELETE FROM e_prescriptions WHERE tenant_id=$1::uuid AND patient_uid=$2::uuid`, TENANT, PATIENT);
+        for (const sql of [
+          `DELETE FROM pharmacy_inventory_batches WHERE tenant_id=$1::uuid AND batch_number LIKE 'DCTX-%'`,
+          `DELETE FROM pharmacy_inventory_items WHERE tenant_id=$1::uuid AND sku_code LIKE 'DCTX-%'`,
+          `DELETE FROM pharmacy_orders WHERE tenant_id=$1::uuid AND order_note='dctx-test'`,
+        ]) await tx.$executeRawUnsafe(sql, TENANT);
+        await tx.$executeRawUnsafe(`DELETE FROM pharmacy_catalog WHERE name LIKE 'DCTXTEST %'`);
+        await tx.$executeRawUnsafe(`DELETE FROM drug_compositions WHERE composition_key=$1`, COMP_KEY);
+        // Custody teardown, after everything that references a facility is gone.
+        // pharmacy_staff_facility_grant_events is append-only (migration 753's
+        // trg_pharmacy_staff_facility_grant_events_append_only_753), so the fixture
+        // drops its own rows under session_replication_role='replica' exactly the way
+        // ipd-support-money-authz.deep.test.js does — the guard stays live everywhere else.
+        await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
+        await tx.$executeRawUnsafe(
+          `DELETE FROM pharmacy_staff_facility_grant_events WHERE grant_id IN (SELECT id FROM pharmacy_staff_facility_grants WHERE staff_uid = ANY($1::uuid[]))`,
+          FIXTURE_UIDS,
+        );
+        await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'origin'");
+        await tx.$executeRawUnsafe(`DELETE FROM pharmacy_staff_facility_grants WHERE staff_uid = ANY($1::uuid[])`, FIXTURE_UIDS);
+        await tx.$executeRawUnsafe(`DELETE FROM staff WHERE user_id = ANY($1::uuid[])`, FIXTURE_UIDS);
+        await tx.$executeRawUnsafe(`DELETE FROM facility_locations WHERE facility_id IN (SELECT id FROM facilities WHERE facility_code = ANY($1::text[]))`, FACILITY_CODES);
+        await tx.$executeRawUnsafe(`DELETE FROM facilities WHERE facility_code = ANY($1::text[])`, FACILITY_CODES);
+      },
+      tenantIds: [TENANT, OTHER],
+      userUids: FIXTURE_UIDS,
     });
   }
 
@@ -169,8 +190,14 @@ describe('pharmacist dispense-substitution read endpoints', () => {
   }, 120_000);
 
   afterAll(async () => {
-    await cleanup();
-    if (typeof prisma.$disconnect === 'function') await prisma.$disconnect();
+    // cleanup() now throws when the teardown fails instead of swallowing it, so
+    // $disconnect moves into a finally: the client must still be released on the
+    // failing path, and the throw must still reach jest.
+    try {
+      await cleanup();
+    } finally {
+      if (typeof prisma.$disconnect === 'function') await prisma.$disconnect();
+    }
     // Budgeted for the same reason as beforeAll below.
   }, 120_000);
 
