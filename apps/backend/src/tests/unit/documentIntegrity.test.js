@@ -30,6 +30,7 @@ describe('signable document registry', () => {
   test('covers the core clinical documents with volatile columns excluded', () => {
     expect(Object.keys(SIGNABLE_DOCUMENTS).sort()).toEqual(
       [
+        'cath_migration_approval',
         'clinical_note',
         'consent',
         'diagnostic_result_action',

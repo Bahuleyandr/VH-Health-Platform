@@ -10,8 +10,10 @@ const USER = '00000000-0000-4000-8000-000000000002';
 describe('erroneous hold release keeps processing obligation', () => {
   test('releasing one hold cannot authorise availability while independent obligations remain', async () => {
     const releaseResponses = [
-      [{ id: 11, device_id: 7, hold_type: 'sterilization_failed', status: 'active' }],
+      [{ device_id: 7 }],
       [{ id: 7, status: 'quarantined', version: 2 }],
+      [{ id: 11, device_id: 7, hold_type: 'sterilization_failed', status: 'active' }],
+      [{ uid: USER }],
       [{ id: 11, status: 'released' }],
       [{ id: 7, status: 'awaiting_reprocessing', version: 3 }],
     ];

@@ -1,7 +1,7 @@
 // apps/backend/src/tests/bloodborne-markers.deep.test.js
 import prisma, { ensureTenantRlsRuntimeRoleGrants, setTenantTx } from '../lib/prisma.js';
+import { exposureHandlerCount } from '../services/clinical/exposureHandlerBootstrap.js';
 import {
-  __clearExposureHandlersForTests,
   clinicalDate,
   listMarkersForPatient,
   recordMarkers,
@@ -47,6 +47,8 @@ const daysAgo = (n) => clinicalDate(new Date(Date.now() - n * 86400000));
 
 const resultIds = [];
 const investigationIds = [];
+const exposureProbes = [];
+const COMPLETE_EXPOSURE = { remaining_device_count: 0, remaining_alert_count: 0, remaining_notification_count: 0 };
 
 // Handlers fire AFTER the writing transaction commits, so a *separate*
 // connection must already see the row. The bare `prisma` client used here is
@@ -146,6 +148,17 @@ async function seedPreliminaryResult({ testCode, valueText, patientUid = PATIENT
 // IN-lists rather than `= ANY($n::uuid[])` because the repo lint rule reads an
 // array literal in a $queryRawUnsafe argument list as a missed spread.
 async function cleanup() {
+  const tenants = [TENANT, OTHER_TENANT];
+  const exposureTables = ['bloodborne_exposure_applications', 'bloodborne_exposure_deliveries', 'bloodborne_exposure_outbox'];
+  expect(tenants).toHaveLength(2);
+  expect(exposureTables).toHaveLength(3);
+  for (const tenantId of tenants) {
+    await setTenantTx(tenantId, async tx => {
+      for (const table of exposureTables) {
+        await tx.$executeRawUnsafe(`DELETE FROM ${table} WHERE tenant_id = $1::uuid`, tenantId);
+      }
+    });
+  }
   await prisma.$executeRawUnsafe(
     `DELETE FROM patient_bloodborne_markers WHERE tenant_id IN ($1::uuid, $2::uuid)`,
     TENANT, OTHER_TENANT,
@@ -202,6 +215,10 @@ async function cleanup() {
     ).catch(() => {});
   }
   await prisma.$executeRawUnsafe(
+    `DELETE FROM cds_alerts WHERE tenant_id IN ($1::uuid, $2::uuid)`,
+    TENANT, OTHER_TENANT,
+  );
+  await prisma.$executeRawUnsafe(
     `DELETE FROM users
       WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid, $5::uuid, $6::uuid)`,
     PATIENT, OTHER_PATIENT, SECOND_PATIENT, ACTOR, OTHER_ACTOR, PATHOLOGIST,
@@ -214,6 +231,7 @@ async function cleanup() {
 
 d('blood-borne markers (deep)', () => {
   beforeAll(async () => {
+    expect(exposureHandlerCount()).toBe(2);
     // Provision the sealed runtime roles the way the boot path does, so the
     // RLS assertions below actually execute instead of skipping on a rig whose
     // ci-setup-db never created vhhealth_runtime.
@@ -258,11 +276,13 @@ d('blood-borne markers (deep)', () => {
   }, 60000);
 
   afterAll(async () => {
-    __clearExposureHandlersForTests();
     await cleanup();
   }, 30000);
 
-  afterEach(() => __clearExposureHandlersForTests());
+  beforeEach(() => expect(exposureHandlerCount()).toBe(2));
+  afterEach(() => {
+    for (const unregister of exposureProbes.splice(0)) unregister();
+  });
 
   test('recordMarkers writes rows, ignores a label on a named marker, and the resolver reads them back', async () => {
     const recorded = await recordMarkers({
@@ -318,9 +338,11 @@ d('blood-borne markers (deep)', () => {
 
   test('a reactive entry fires exposure handlers after commit with the row identity', async () => {
     const events = [];
-    registerExposureHandler(async (event) => {
+    exposureProbes.push(registerExposureHandler({ id: 'marker-row-visibility.v1', apply: async (event) => {
       events.push({ ...event, visibleToOtherConnection: await rowVisibleToAnotherConnection(event) });
-    });
+      return { ...COMPLETE_EXPOSURE };
+    } }));
+    expect(exposureHandlerCount()).toBe(3);
     const testedOn = daysAgo(3);
     await recordMarkers({
       tenantId: TENANT, patientUid: PATIENT, actorUid: ACTOR,
@@ -373,9 +395,11 @@ d('blood-borne markers (deep)', () => {
     const hbsag = await seedSignedResult({ testCode: 'HBSAG', valueText: 'Reactive' });
     const hgb = await seedSignedResult({ testCode: 'HGB', valueText: '12.1' });
     const events = [];
-    registerExposureHandler(async (event) => {
+    exposureProbes.push(registerExposureHandler({ id: 'signed-marker-visibility.v1', apply: async (event) => {
       events.push({ ...event, visibleToOtherConnection: await rowVisibleToAnotherConnection(event) });
-    });
+      return { ...COMPLETE_EXPOSURE };
+    } }));
+    expect(exposureHandlerCount()).toBe(3);
 
     const first = await recordMarkersFromSignedResults({ tenantId: TENANT, resultIds: [hbsag, hgb], decision: 'verified', actorUid: ACTOR });
     expect(first.recorded).toHaveLength(1);
@@ -402,7 +426,11 @@ d('blood-borne markers (deep)', () => {
   test('the real lab sign-off path records the marker: signOffResults on a reactive HBSAG result writes one active lab-sourced row and fires the exposure handler', async () => {
     const { resultId } = await seedPreliminaryResult({ testCode: 'HBSAG', valueText: 'Reactive' });
     const events = [];
-    registerExposureHandler(async (event) => { events.push(event); });
+    exposureProbes.push(registerExposureHandler({ id: 'signoff-marker-probe.v1', apply: async (event) => {
+      events.push(event);
+      return { ...COMPLETE_EXPOSURE };
+    } }));
+    expect(exposureHandlerCount()).toBe(3);
 
     await signOffResults({
       tenantId: TENANT,
@@ -414,19 +442,19 @@ d('blood-borne markers (deep)', () => {
     });
 
     const rows = await prisma.$queryRawUnsafe(
-      `SELECT marker, result, source, patient_uid::text AS patient_uid
+      `SELECT id, tested_on::text AS tested_on, marker, result, source, patient_uid::text AS patient_uid
          FROM patient_bloodborne_markers
         WHERE tenant_id = $1::uuid AND lab_result_id = $2::int AND voided_at IS NULL`,
       TENANT, resultId,
     );
-    expect(rows).toEqual([
-      { marker: 'hbsag', result: 'reactive', source: 'lab_result', patient_uid: PATIENT },
-    ]);
+    expect(rows).toHaveLength(1);
+    expect(Number(rows[0].id)).toBeGreaterThan(0);
+    expect(rows[0]).toMatchObject({ marker: 'hbsag', result: 'reactive', source: 'lab_result', patient_uid: PATIENT });
     // The hook runs post-commit, so the handler must have fired by the time
     // signOffResults resolves — not on some later tick.
     expect(events).toHaveLength(1);
-    expect(events[0]).toMatchObject({
-      tenantId: TENANT, patientUid: PATIENT, marker: 'hbsag', result: 'reactive', labResultId: resultId,
+    expect(events[0]).toEqual({
+      tenantId: TENANT, patientUid: PATIENT, marker: 'hbsag', markerRowId: Number(rows[0].id), testedOn: rows[0].tested_on,
     });
   }, 60000);
 

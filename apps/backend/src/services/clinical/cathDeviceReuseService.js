@@ -1309,7 +1309,7 @@ async function flagDeviceExposureTx(tx, device, event, context) {
   });
 }
 
-export async function quarantineDevicesExposedToPatient(event) {
+export async function quarantineDevicesExposedToPatient(event, { previousResult = null } = {}) {
   const tid = tenantOr(event.tenantId);
   const marker = oneOf(event.marker, MARKERS, 'marker', 'CATH_DEVICE_EXPOSURE_MARKER_INVALID');
   const settings = await getReprocessingSettings({ tenantId: tid });
@@ -1340,7 +1340,7 @@ export async function quarantineDevicesExposedToPatient(event) {
         -- Postgres would coerce using the SESSION TimeZone — UTC on the server,
         -- so the boundary would sit 5h30m off the clinical day. Pin it to
         -- Asia/Kolkata, the same zone every other cath date window uses.
-        AND u.used_at >= (($3::date - ($4::int * INTERVAL '1 day'))::timestamp AT TIME ZONE 'Asia/Kolkata')
+        AND ($3::date IS NULL OR u.used_at >= (($3::date - ($4::int * INTERVAL '1 day'))::timestamp AT TIME ZONE 'Asia/Kolkata'))
       ORDER BY d.id`,
     tid, patientUid, event.testedOn, lookbackDays,
   ));
@@ -1377,21 +1377,38 @@ export async function quarantineDevicesExposedToPatient(event) {
       );
     }
   }
+  const deliveryDevicesById = new Map(affected.map(device => [String(device.id), device]));
+  if (previousResult?.remaining_alert_count > 0 || previousResult?.remaining_notification_count > 0) {
+    // Prior delivery identities survive discard without re-entering the device transition path.
+    for (const previous of previousResult.affected || []) {
+      if (!deliveryDevicesById.has(String(previous.id))) {
+        deliveryDevicesById.set(String(previous.id), { id: Number(previous.id), device_tag: previous.device_tag });
+      }
+    }
+  }
+  const deliveryDevices = [...deliveryDevicesById.values()].sort((a, b) => a.id - b.id);
   // The alert and the outbox are still raised for the devices that DID settle:
   // a partial sweep that infection control never hears about is a silent one.
-  if (affected.length === 0) return { affected: [], failed };
+  if (deliveryDevices.length === 0) return {
+    affected: [], failed,
+    remaining_device_count: failed.length, remaining_alert_count: 0, remaining_notification_count: 0,
+  };
 
-  const tags = affected.map((d) => d.device_tag).join(', ');
+  const tags = deliveryDevices.map((d) => d.device_tag).join(', ');
+  let remainingAlertCount = 1;
+  let remainingNotificationCount = 0;
   try {
-    await persistCdsAlert({
+    const alert = await persistCdsAlert({
       patientUid: event.patientUid,
       encounterId: null,
       alertType: 'bloodborne_reuse_exposure',
       severity: 'high',
       title: 'Reprocessable devices exposed to a reactive blood-borne marker',
       description: `Devices ${tags} were used on this patient and are now quarantined or flagged after a reactive ${marker} result dated ${event.testedOn}.`,
-      sourceData: { marker, tested_on: event.testedOn, device_ids: affected.map((d) => d.id), marker_row_id: event.markerRowId },
+      sourceData: { marker, tested_on: event.testedOn, device_ids: deliveryDevices.map((d) => d.id), marker_row_id: event.markerRowId },
     });
+    if (alert?.persisted === true) remainingAlertCount = 0;
+    else logger.error('CDS alert for blood-borne reuse exposure did not persist', { tenantId: tid });
   } catch (err) {
     logger.error(`CDS alert for blood-borne reuse exposure failed: ${err?.message}`, { tenantId: tid });
   }
@@ -1403,26 +1420,41 @@ export async function quarantineDevicesExposedToPatient(event) {
       tid,
     ));
     for (const officer of officers) {
-      await notificationOutbox.queue({
-        tenantId: tid,
-        type: 'bloodborne_reuse_exposure',
-        channel: 'inapp',
-        recipientId: officer.id,
-        recipientPhone: null,
-        title: 'Reprocessable devices quarantined after a reactive result',
-        body: `Devices ${tags}: reactive ${marker} result dated ${event.testedOn}. Review the CSSD device queue.`,
-        sourceEventKey: `bloodborne-reuse-exposure:${event.markerRowId}:${officer.uid}`,
-        templateVersion: 'bloodborne-reuse-exposure.v1',
-        data: { kind: 'bloodborne_reuse_exposure', marker, tested_on: event.testedOn, device_ids: affected.map((d) => d.id), deep_link: '/dashboard/cssd?tab=devices' },
-      }, { strict: false });
+      try {
+        const notification = await notificationOutbox.queue({
+          tenantId: tid,
+          type: 'bloodborne_reuse_exposure',
+          channel: 'inapp',
+          recipientId: officer.id,
+          recipientPhone: null,
+          title: 'Reprocessable devices quarantined after a reactive result',
+          body: `Devices ${tags}: reactive ${marker} result dated ${event.testedOn}. Review the CSSD device queue.`,
+          sourceEventKey: `bloodborne-reuse-exposure:${event.markerRowId}:${officer.uid}`,
+          templateVersion: 'bloodborne-reuse-exposure.v1',
+          data: { kind: 'bloodborne_reuse_exposure', marker, tested_on: event.testedOn, device_ids: deliveryDevices.map((d) => d.id), deep_link: '/dashboard/cssd?tab=devices' },
+        }, { strict: false });
+        if (!notification) {
+          remainingNotificationCount += 1;
+          logger.error('Infection-control notification for blood-borne reuse exposure did not persist', { tenantId: tid });
+        }
+      } catch (err) {
+        remainingNotificationCount += 1;
+        logger.error(`Infection-control notification for blood-borne reuse exposure failed: ${err?.message}`, { tenantId: tid });
+      }
     }
   } catch (err) {
+    remainingNotificationCount += 1;
     logger.error(`Infection-control notification for blood-borne reuse exposure failed: ${err?.message}`, { tenantId: tid });
   }
-  return { affected: affected.map(normalizeDevice), failed };
+  return {
+    affected: deliveryDevices, failed,
+    remaining_device_count: failed.length,
+    remaining_alert_count: remainingAlertCount,
+    remaining_notification_count: remainingNotificationCount,
+  };
 }
 
 // Registered at module load: bloodborneMarkerService.notifyExposureHandlers
 // awaits every handler AFTER the marker transaction commits, so a reactive row
 // recorded anywhere in the platform sweeps the device register here.
-registerExposureHandler(quarantineDevicesExposedToPatient);
+registerExposureHandler({ id: 'cath-device-reuse.v1', apply: quarantineDevicesExposedToPatient });

@@ -984,6 +984,130 @@ d('patient merge execution (deep)', () => {
     expect(rows.map((row) => row.conname)).toEqual([]);
   });
 
+  test('compositeUserIdentityForeignKeyColumnNamesMatchClosedCatalog', async () => {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT child.attname::text AS child_column, COUNT(*)::integer AS foreign_key_count
+       FROM pg_constraint pc
+       JOIN LATERAL unnest(pc.conkey) WITH ORDINALITY AS ck(attnum, position) ON TRUE
+       JOIN pg_attribute child ON child.attrelid = pc.conrelid AND child.attnum = ck.attnum
+       JOIN pg_attribute target ON target.attrelid = pc.confrelid AND target.attnum = pc.confkey[ck.position]
+       WHERE pc.contype = 'f'
+         AND pc.confrelid = 'public.users'::regclass
+         AND cardinality(pc.conkey) = 2
+         AND (SELECT array_agg(parent.attname::text ORDER BY parent.attname)
+              FROM unnest(pc.confkey) AS pk(attnum)
+              JOIN pg_attribute parent ON parent.attrelid = pc.confrelid AND parent.attnum = pk.attnum)
+             = ARRAY['tenant_id', 'uid']::text[]
+         AND target.attname = 'uid'
+       GROUP BY child.attname
+       ORDER BY child.attname`,
+    );
+    expect(rows).toHaveLength(99);
+    expect(rows.reduce((total, row) => total + row.foreign_key_count, 0)).toBe(260);
+    // Existing dedication/matching patient aliases are pinned legacy names, not non-patient roles.
+    expect(Object.fromEntries(rows.map((row) => [row.child_column, row.foreign_key_count]))).toEqual({
+      accepted_by_uid: 1,
+      accepted_owner_uid: 1,
+      acknowledgement_classified_by: 1,
+      activated_by: 1,
+      actor_uid: 30,
+      addendum_by: 1,
+      admin_signed_by: 1,
+      allocated_by: 2,
+      applied_by: 2,
+      approved_by: 8,
+      assigned_by_uid: 1,
+      assigned_pharmacist: 1,
+      assigned_prescriber_uid: 1,
+      assigned_to_uid: 5,
+      authenticated_actor_uid: 2,
+      authority_released_by: 1,
+      capture_actor_uid: 1,
+      cashier_uid: 1,
+      classification_signed_by: 2,
+      clinical_owner_uid: 1,
+      clinical_safety_lead_uid: 1,
+      clinically_verified_by: 1,
+      clinician_uid: 2,
+      closed_by: 1,
+      commander_uid: 1,
+      consultant_approved_by: 1,
+      consumed_by: 2,
+      created_by: 17,
+      created_by_uid: 1,
+      current_owner_uid: 1,
+      custodian_uid: 2,
+      decided_by: 2,
+      dedicated_patient_uid: 1,
+      delivery_assignee_uid: 2,
+      delivery_handoff_completed_by: 1,
+      first_verifier_uid: 1,
+      granted_by: 1,
+      handoff_actor_uid: 1,
+      held_by: 1,
+      hr_signed_by: 2,
+      imported_by: 3,
+      inbound_owner_uid: 1,
+      intended_recipient_uid: 1,
+      intended_releaser_uid: 1,
+      issued_by: 1,
+      linked_by: 1,
+      matched_patient_uid: 2,
+      missed_by: 1,
+      operational_owner_uid: 1,
+      ordering_owner_uid: 1,
+      original_actor_uid: 1,
+      original_releaser_uid: 1,
+      owner_actor_uid: 3,
+      owner_uid: 1,
+      owning_clinician_uid: 1,
+      paid_by: 1,
+      patient_uid: 37,
+      performed_by: 2,
+      physician_uid: 1,
+      prescriber_uid: 1,
+      proposed_by: 2,
+      proposer_uid: 1,
+      raised_by: 3,
+      received_by: 1,
+      reconciled_by: 4,
+      reconciliation_admin_by: 1,
+      reconciliation_hr_by: 1,
+      reconciliation_reviewed_by: 1,
+      recorded_by: 7,
+      recorded_by_uid: 4,
+      recovery_contract_owner_uid: 1,
+      recovery_owner_uid: 6,
+      rejected_by: 4,
+      rejection_resolved_by: 1,
+      release_hold_by: 1,
+      released_by: 3,
+      replay_actor_uid: 1,
+      requested_by: 1,
+      reserved_by: 2,
+      resolved_by: 3,
+      resolved_by_uid: 1,
+      retired_by: 3,
+      reversed_by: 2,
+      reviewed_by: 1,
+      revoked_by: 2,
+      second_verifier_uid: 1,
+      sender_uid: 1,
+      signed_by: 2,
+      signer_uid: 2,
+      source_ref_deactivated_by: 1,
+      staff_uid: 10,
+      subject_uid: 1,
+      submitted_by: 1,
+      substitution_acknowledged_by: 1,
+      updated_by: 10,
+      used_by: 1,
+      user_uid: 2,
+      voided_by: 1,
+      witness_uid: 1,
+    });
+  });
+
   test('FHIR receipt ownership rolls back with a failed merge and moves atomically on retry', async () => {
     const primary = await seedPatient('primary-fhir-receipt');
     const secondary = await seedPatient('secondary-fhir-receipt');

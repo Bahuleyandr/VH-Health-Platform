@@ -14,13 +14,26 @@ const d = DB_CONFIGURED ? describe : describe.skip;
 const TEST_NAME = 'D7TEST DialysisPatient';
 const MACHINE = `D7T-MACH-${String(Date.now()).slice(-5)}`;
 const MACHINE_2 = `${MACHINE}-B`;
-const TENANT = '00000000-0000-4000-8000-000000000001';
+const TENANT = '00000000-0000-4000-8000-00000000d7b1';
 const DECOY_TENANT = '00000000-0000-4000-8000-00000000d7b2';
 const DECOY_PATIENT = 'd7000000-0000-4000-8000-00000000b001';
 
 let patientUid;
 let dialysisPatientId;
 let sessionId;
+
+async function assertGenuinelyDarkTenant() {
+  const policies = await prisma.$queryRawUnsafe(
+    `SELECT category FROM reprocessing_domain_policies
+      WHERE tenant_id = $1::uuid AND domain = 'dialysis' AND category = 'dialyser'`, TENANT,
+  );
+  const devices = await prisma.$queryRawUnsafe(
+    `SELECT id FROM reprocessable_devices
+      WHERE tenant_id = $1::uuid AND domain = 'dialysis' AND category = 'dialyser'`, TENANT,
+  );
+  expect(policies).toHaveLength(0);
+  expect(devices).toHaveLength(0);
+}
 
 async function cleanup() {
   await prisma.$executeRawUnsafe(
@@ -89,16 +102,23 @@ async function cleanup() {
 }
 
 d('Dialysis depth — prescriptions, machine ingest, complications (roadmap D7)', () => {
-  const doctor = authClient('DOCTOR');
-  const nurse = authClient('NURSE');
+  const doctor = authClient('DOCTOR', { tenant_id: TENANT });
+  const nurse = authClient('NURSE', { tenant_id: TENANT });
 
   beforeAll(async () => {
     await cleanup();
+    await prisma.$executeRawUnsafe(
+      `INSERT INTO tenants (id, slug, name)
+       VALUES ($1::uuid, 'd7-dialysis-depth', 'D7 Dialysis Depth')
+       ON CONFLICT (id) DO NOTHING`, TENANT,
+    );
+    await assertGenuinelyDarkTenant();
     const u = await prisma.$queryRawUnsafe(
-      `INSERT INTO users (phone, name, role, is_active, updated_at)
-       VALUES ($1, $2, 'PATIENT', true, NOW()) RETURNING uid`,
+      `INSERT INTO users (phone, name, role, is_active, updated_at, tenant_id)
+       VALUES ($1, $2, 'PATIENT', true, NOW(), $3::uuid) RETURNING uid`,
       `+9198844${String(Date.now() % 10000).padStart(4, '0')}`,
       TEST_NAME,
+      TENANT,
     );
     patientUid = u[0].uid;
 
@@ -113,7 +133,7 @@ d('Dialysis depth — prescriptions, machine ingest, complications (roadmap D7)'
   afterAll(async () => {
     await cleanup();
     await prisma.$disconnect();
-  });
+  }, 30000);
 
   test('doctor writes a standing prescription; nurse cannot; supersession works', async () => {
     const denied = await nurse.post(`/api/v1/dialysis/patients/${dialysisPatientId}/prescription`).send({
@@ -278,7 +298,18 @@ d('Dialysis depth — prescriptions, machine ingest, complications (roadmap D7)'
   });
 
   test('dialyzer reuse register enforces cycle consistency with session reuse_count', async () => {
-    const good = await nurse.post(`/api/v1/dialysis/sessions/${sessionId}/reuse-register`).send({
+    const scheduled = await nurse.post('/api/v1/dialysis/sessions').send({
+      dialysis_patient_id: dialysisPatientId,
+      session_date: '2026-06-11',
+      machine_no: MACHINE_2,
+    });
+    expect(scheduled.status).toBe(200);
+    const reuseSessionId = scheduled.body.data.id;
+    const started = await nurse.post(`/api/v1/dialysis/sessions/${reuseSessionId}/start`).send({});
+    expect(started.status).toBe(200);
+    const completed = await nurse.post(`/api/v1/dialysis/sessions/${reuseSessionId}/complete`).send({});
+    expect(completed.status).toBe(200);
+    const good = await nurse.post(`/api/v1/dialysis/sessions/${reuseSessionId}/reuse-register`).send({
       dialyzer_serial: `DIALYZER-${MACHINE}`,
       reuse_cycle_count: 4,
       integrity_test_result: 'pass',
@@ -291,18 +322,18 @@ d('Dialysis depth — prescriptions, machine ingest, complications (roadmap D7)'
 
     const session = await prisma.$queryRawUnsafe(
       `SELECT reuse_count FROM dialysis_sessions WHERE id = $1::int`,
-      sessionId,
+      reuseSessionId,
     );
     expect(session[0].reuse_count).toBe(4);
 
-    const mismatch = await nurse.post(`/api/v1/dialysis/sessions/${sessionId}/reuse-register`).send({
+    const mismatch = await nurse.post(`/api/v1/dialysis/sessions/${reuseSessionId}/reuse-register`).send({
       dialyzer_serial: `DIALYZER-${MACHINE}`,
       reuse_cycle_count: 5,
       integrity_test_result: 'pass',
     });
     expect(mismatch.status).toBe(400);
 
-    const list = await nurse.get(`/api/v1/dialysis/sessions/${sessionId}/reuse-register`);
+    const list = await nurse.get(`/api/v1/dialysis/sessions/${reuseSessionId}/reuse-register`);
     expect(list.status).toBe(200);
     expect(list.body.data).toHaveLength(1);
   });
@@ -355,8 +386,9 @@ d('Dialysis depth — prescriptions, machine ingest, complications (roadmap D7)'
 
     const timeline = await prisma.$queryRawUnsafe(
       `SELECT event_type FROM clinical_timeline_events
-       WHERE patient_uid = $1::uuid AND event_type = 'dialysis.completed'`,
-      patientUid,
+       WHERE patient_uid = $1::uuid AND event_type = 'dialysis.completed'
+         AND source_table = 'dialysis_sessions' AND source_id = $2`,
+      patientUid, String(sessionId),
     );
     expect(timeline.length).toBe(1);
   });

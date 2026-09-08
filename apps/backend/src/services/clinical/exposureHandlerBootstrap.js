@@ -31,6 +31,7 @@
 // bottom. Nothing is named here on purpose — a named import would invite a
 // linter or a bundler to treat it as removable.
 import './cathDeviceReuseService.js';
+import './platformReprocessableExposureHandler.js';
 import { exposureHandlerCount } from './bloodborneMarkerRules.js';
 
 export { exposureHandlerCount };

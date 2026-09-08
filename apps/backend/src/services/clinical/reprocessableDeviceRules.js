@@ -36,6 +36,9 @@ export const DEVICE_ACTIONS = Object.freeze({
 
 const DIALYSIS_MATRIX_KEYS = Object.freeze(['hbsag', 'hcv', 'hiv', 'isolation_mixed']);
 const CORE_MARKERS = Object.freeze(['hbsag', 'hcv', 'hiv']);
+const COHORT_RESULT_PRECEDENCE = Object.freeze({
+  reactive: 4, indeterminate: 3, pending: 2, non_reactive: 1,
+});
 const BASES = new Set(['manufacturer_ifu', 'national_guideline', 'institutional']);
 const AGENTS = new Set(['peracetic_acid', 'formaldehyde', 'glutaraldehyde', 'renalin', 'other']);
 const ADMINISTRATIVE_ROLES = new Set(['ADMIN', 'SUPER_ADMIN']);
@@ -337,14 +340,19 @@ export function evaluateReleaseCriteria({ protocol, scope, evidence = {} }) {
   const minimumTcv = Math.max(80, Number(protocol?.tcv_min_pct ?? 80));
   const measured = Number(evidence.measured_tcv_ml);
   const baseline = Number(evidence.baseline_tcv_ml);
-  if (!(measured > 0) || !(baseline > 0) || (measured / baseline) * 100 < minimumTcv) {
+  if (!Number.isFinite(measured) || !Number.isFinite(baseline)
+    || !(measured > 0) || !(baseline > 0) || (measured / baseline) * 100 < minimumTcv) {
     missing.push('tcv_threshold');
   }
   const agent = protocol?.agents?.find((entry) => entry.agent === evidence.reprocessing_agent);
+  const concentration = Number(evidence.disinfectant_concentration_pct);
+  const contactMinutes = Number(evidence.disinfectant_contact_minutes);
   if (!agent
-    || Number(evidence.disinfectant_concentration_pct) < agent.min_concentration_pct
-    || Number(evidence.disinfectant_concentration_pct) > agent.max_concentration_pct
-    || Number(evidence.disinfectant_contact_minutes) < agent.min_contact_minutes) {
+    || !Number.isFinite(concentration) || concentration <= 0
+    || !Number.isFinite(contactMinutes) || contactMinutes <= 0
+    || concentration < agent.min_concentration_pct
+    || concentration > agent.max_concentration_pct
+    || contactMinutes < agent.min_contact_minutes) {
     missing.push('process_parameters');
   }
   const uniqueMissing = [...new Set(missing)];
@@ -422,13 +430,15 @@ export function evaluateReuseEligibility({
     if (matrixCell !== 'dedicated_reuse') {
       return { verdict: 'ineligible', reason_codes: ['RPD_REUSE_MATRIX_NO_REUSE'] };
     }
-    if (String(patientUid).toLowerCase() !== String(dedicatedPatientUid).toLowerCase()) {
+    if (typeof patientUid !== 'string' || !patientUid.trim()
+      || typeof dedicatedPatientUid !== 'string' || !dedicatedPatientUid.trim()
+      || patientUid.toLowerCase() !== dedicatedPatientUid.toLowerCase()) {
       return { verdict: 'ineligible', reason_codes: ['RPD_DIALYSER_DEDICATION_MISMATCH'] };
     }
     if (decision.isolation_class !== 'hcv'
       || hcvEvidence?.rna_result !== 'not_detected'
       || hcvEvidence?.recorded_independently !== true) {
-      return { verdict: 'not_established', reason_codes: ['RPD_HCV_RNA_EVIDENCE_REQUIRED'] };
+      return { verdict: 'not_established', reason_codes: ['RPD_REUSE_EVIDENCE_REQUIRED'] };
     }
   }
   if (protocol?.surveillance_overdue_blocks_reuse !== false) {
@@ -452,9 +462,14 @@ export function deriveIsolationProfile(decision) {
   for (const marker of decision?.markers ?? []) {
     if (!CORE_MARKERS.includes(marker.marker)) continue;
     const existing = latest.get(marker.marker);
+    if (existing?.result === 'reactive') continue;
     const markerDate = calendarDate(marker.tested_on) ?? '';
     const existingDate = calendarDate(existing?.tested_on) ?? '';
-    if (!existing || markerDate >= existingDate) latest.set(marker.marker, marker);
+    if (!existing || marker.result === 'reactive' || markerDate > existingDate
+      || (markerDate === existingDate
+        && COHORT_RESULT_PRECEDENCE[marker.result] > COHORT_RESULT_PRECEDENCE[existing.result])) {
+      latest.set(marker.marker, marker);
+    }
   }
   const values = Object.fromEntries(CORE_MARKERS.map((marker) => [
     marker,
@@ -465,7 +480,9 @@ export function deriveIsolationProfile(decision) {
 
 export function compatibilityVerdict(profiles) {
   if (!Array.isArray(profiles) || profiles.length === 0) return 'not_established';
-  if (profiles.some((profile) => CORE_MARKERS.some((marker) => profile[marker] === 'unknown'))) {
+  if (profiles.some((profile) => CORE_MARKERS.some((marker) => (
+    !['reactive', 'non_reactive'].includes(profile[marker])
+  )))) {
     return 'not_established';
   }
   const signatures = profiles.map((profile) => CORE_MARKERS

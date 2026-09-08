@@ -1,6 +1,7 @@
 import {
   DEVICE_ACTIONS,
   DEVICE_STATUSES,
+  deriveIsolationProfile,
   deviceTransition,
   evaluateDeviceEligibility,
   evaluateReleaseCriteria,
@@ -23,6 +24,47 @@ const protocol = {
 };
 
 describe('reprocessable device pure rules', () => {
+  test('cohortProfilePreservesHistoricalReactiveAcrossDatesAndInputOrder', () => {
+    const markers = ['hbsag', 'hcv', 'hiv'];
+    const orders = ['reactive_first', 'reactive_last'];
+    expect(markers).toHaveLength(3);
+    expect(orders).toHaveLength(2);
+    const cases = markers.flatMap((marker) => orders.map((order) => ({ marker, order })));
+    expect(cases).toHaveLength(6);
+    const profiles = cases.map(({ marker, order }) => {
+      const reactive = { marker, result: 'reactive', tested_on: '2026-09-01' };
+      const nonReactive = { marker, result: 'non_reactive', tested_on: '2026-09-07' };
+      return deriveIsolationProfile({
+        markers: order === 'reactive_first' ? [reactive, nonReactive] : [nonReactive, reactive],
+      })[marker];
+    });
+    expect(profiles).toEqual(cases.map(() => 'reactive'));
+  });
+
+  test('cohortProfileUsesConservativeSameDayPrecedenceInEveryInputOrder', () => {
+    const markers = ['hbsag', 'hcv', 'hiv'];
+    const results = ['reactive', 'indeterminate', 'pending', 'non_reactive'];
+    expect(markers).toHaveLength(3);
+    expect(results).toHaveLength(4);
+    const pairs = results.flatMap((stronger, index) => results.slice(index + 1)
+      .map((weaker) => ({ stronger, weaker })));
+    expect(pairs).toHaveLength(6);
+    const orders = ['stronger_first', 'stronger_last'];
+    expect(orders).toHaveLength(2);
+    const cases = markers.flatMap((marker) => pairs.flatMap((pair) => orders
+      .map((order) => ({ marker, ...pair, order }))));
+    expect(cases).toHaveLength(36);
+    const profiles = cases.map(({ marker, stronger, weaker, order }) => {
+      const evidence = [stronger, weaker].map((result) => ({
+        marker, result, tested_on: '2026-09-07',
+      }));
+      return deriveIsolationProfile({
+        markers: order === 'stronger_first' ? evidence : evidence.reverse(),
+      })[marker];
+    });
+    expect(profiles).toEqual(cases.map(({ stronger }) => stronger));
+  });
+
   test('pins every state transition and keeps quarantine out of in_case', () => {
     const cases = [
       ['available', 'reserve', 'in_case'],
@@ -105,6 +147,64 @@ describe('reprocessable device pure rules', () => {
     expect(validateProtocolDeviceScope(scope, protocol)).toMatchObject(scope);
     expect(() => validateProtocolDeviceScope({ ...scope, single_use: true }, protocol))
       .toThrow(expect.objectContaining({ code: 'RPD_PROTOCOL_SCOPE_INVALID' }));
+  });
+
+  test('releaseCriteriaRejectsMissingProcessMeasurements', () => {
+    const scope = { ifu_reference: 'IFU-1', single_use: false };
+    const complete = {
+      baseline_tcv_ml: 100,
+      baseline_tcv_source: 'pre_use',
+      measured_tcv_ml: 85,
+      integrity_test_result: 'pass',
+      residual_test_result: 'negative',
+      reprocessing_agent: 'peracetic_acid',
+      disinfectant_concentration_pct: 0.3,
+      disinfectant_contact_minutes: 11,
+    };
+    const fields = ['disinfectant_concentration_pct', 'disinfectant_contact_minutes'];
+    const invalidValues = [undefined, null, '', ' ', 'not measured', NaN, Infinity, -Infinity, -1, 0];
+    expect(fields).toHaveLength(2);
+    expect(invalidValues).toHaveLength(10);
+    const cases = fields.flatMap((field) => invalidValues.map((value) => ({ field, value })));
+    expect(cases).toHaveLength(20);
+    expect(evaluateReleaseCriteria({ protocol, scope, evidence: complete }))
+      .toEqual({ verdict: 'released', missing_evidence: [] });
+
+    const results = cases.map(({ field, value }) => evaluateReleaseCriteria({
+      protocol, scope, evidence: { ...complete, [field]: value },
+    }));
+    expect(results).toEqual(cases.map(() => ({
+      verdict: 'not_established', missing_evidence: ['process_parameters'],
+    })));
+  });
+
+  test('releaseCriteriaRejectsNonFiniteTcvMeasurements', () => {
+    const scope = { ifu_reference: 'IFU-1', single_use: false };
+    const complete = {
+      baseline_tcv_ml: 100,
+      baseline_tcv_source: 'pre_use',
+      measured_tcv_ml: 85,
+      integrity_test_result: 'pass',
+      residual_test_result: 'negative',
+      reprocessing_agent: 'peracetic_acid',
+      disinfectant_concentration_pct: 0.3,
+      disinfectant_contact_minutes: 11,
+    };
+    const cases = [
+      { measured_tcv_ml: Infinity },
+      { measured_tcv_ml: 'Infinity' },
+      { baseline_tcv_ml: Infinity, measured_tcv_ml: Infinity },
+      { baseline_tcv_ml: 'Infinity', measured_tcv_ml: 'Infinity' },
+    ];
+    expect(cases).toHaveLength(4);
+    expect(evaluateReleaseCriteria({ protocol, scope, evidence: complete }))
+      .toEqual({ verdict: 'released', missing_evidence: [] });
+    const results = cases.map((overrides) => evaluateReleaseCriteria({
+      protocol, scope, evidence: { ...complete, ...overrides },
+    }));
+    expect(results).toEqual(cases.map(() => ({
+      verdict: 'not_established', missing_evidence: ['tcv_threshold'],
+    })));
   });
 
   test('requires both immutable infection-control approvals and rejects clinical group tokens', () => {

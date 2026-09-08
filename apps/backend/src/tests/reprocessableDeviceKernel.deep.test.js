@@ -30,6 +30,11 @@ describeIfDb('reprocessable device decision and lifecycle kernel', () => {
       [tenantId, `plan4-kernel-${randomUUID()}`],
     );
     await client.query("SELECT set_config('app.current_tenant_id', $1::text, true)", [tenantId]);
+    await client.query(
+      `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, status, updated_at)
+       VALUES ($1, $2, $3, 'Kernel quality approver', 'QUALITY_OFFICER', TRUE, 'active', NOW())`,
+      [actorId, tenantId, randomUUID().replaceAll('-', '').slice(0, 14)],
+    );
   });
 
   afterAll(async () => {

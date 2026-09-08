@@ -24,6 +24,7 @@ const txStub = { $queryRawUnsafe: txQuery };
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: outerQuery },
   setTenantTx: async (_tenantId, fn) => fn(txStub),
+  setTenant: async (_tenantId, fn) => fn(txStub),
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({
@@ -32,6 +33,10 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 
 jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformService.js', () => ({
   recordCanonicalClinicalEvent,
+}));
+
+jest.unstable_mockModule('../../services/clinical/reprocessableDeviceProjection.js', () => ({
+  projectUsageForRole: (usage) => usage,
 }));
 
 jest.unstable_mockModule('../../services/billing/billingV2Service.js', () => ({
@@ -83,6 +88,8 @@ function mockSession({ startedMinutesAgo }) {
   txQuery.mockImplementation(async (sql, ...params) => {
     const text = String(sql);
     if (text.includes('FROM dialysis_sessions s')) return [session];
+    if (text.includes('FROM reprocessable_device_usages')) return [];
+    if (text.includes('pg_advisory_xact_lock')) return [];
     if (text.includes('UPDATE dialysis_sessions')) {
       updateParams = params;
       return [{ ...session, status: 'completed', duration_min: params[0] }];
@@ -94,7 +101,7 @@ function mockSession({ startedMinutesAgo }) {
 test('duration_min is the realised elapsed time, read from the instant twin', async () => {
   mockSession({ startedMinutesAgo: 240 });
 
-  const result = await completeSession({ tenantId: TENANT, id: 9, completed_by: 'nurse-1' });
+  const result = await completeSession({ tenantId: TENANT, id: 9, actor: { uid: 'nurse-1', role: 'NURSING_STAFF' } });
 
   // duration_min is bound as $1 of the UPDATE.
   expect(updateParams[0]).toBe(240);
@@ -106,8 +113,35 @@ test('a session with no recorded start stores a null duration rather than a bogu
   // is emphatically not the ~29,000,000 minutes an epoch-0 fallback would give.
   mockSession({ startedMinutesAgo: null });
 
-  const result = await completeSession({ tenantId: TENANT, id: 9, completed_by: 'nurse-1' });
+  const result = await completeSession({ tenantId: TENANT, id: 9, actor: { uid: 'nurse-1', role: 'NURSING_STAFF' } });
 
   expect(updateParams[0]).toBeNull();
   expect(result.duration_min).toBeNull();
+});
+
+test('completion attributes the canonical event to the explicit actor, not body aliases', async () => {
+  mockSession({ startedMinutesAgo: 240 });
+  const actor = { uid: 'trusted-nurse', role: 'NURSING_STAFF' };
+
+  await completeSession({
+    tenantId: TENANT, id: 9, actor,
+    completed_by: 'forged-admin', actorRole: 'SUPER_ADMIN', role: 'SUPER_ADMIN',
+  });
+
+  expect(recordCanonicalClinicalEvent).toHaveBeenCalledTimes(1);
+  expect(recordCanonicalClinicalEvent.mock.calls[0][0]).toMatchObject({
+    actorUid: actor.uid, actorRole: actor.role, eventType: 'dialysis.completed',
+  });
+});
+
+test('completion never invents attribution from untrusted body aliases', async () => {
+  mockSession({ startedMinutesAgo: 240 });
+
+  await completeSession({
+    tenantId: TENANT, id: 9,
+    completed_by: 'forged-admin', actorRole: 'SUPER_ADMIN', role: 'SUPER_ADMIN',
+  });
+
+  expect(recordCanonicalClinicalEvent).toHaveBeenCalledTimes(1);
+  expect(recordCanonicalClinicalEvent.mock.calls[0][0]).toMatchObject({ actorUid: null, actorRole: null });
 });

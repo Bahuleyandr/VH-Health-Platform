@@ -8,6 +8,7 @@ import {
   computeReuseStatus,
   normalizeSerologyValue,
   __clearExposureHandlersForTests,
+  exposureHandlerCount,
   notifyExposureHandlers,
   registerExposureHandler,
 } from '../../services/clinical/bloodborneMarkerRules.js';
@@ -250,17 +251,36 @@ describe('computeReuseStatus', () => {
 });
 
 describe('exposure handlers', () => {
+  const complete = { remaining_device_count: 0, remaining_alert_count: 0, remaining_notification_count: 0 };
+  beforeEach(() => __clearExposureHandlersForTests());
   afterEach(() => __clearExposureHandlersForTests());
 
   test('handlers are awaited in registration order for every event; a throwing handler does not stop the others', async () => {
     const seen = [];
-    registerExposureHandler(async (event) => {
+    registerExposureHandler({ id: 'unit-first.v1', apply: async (event) => {
       await new Promise((resolve) => setImmediate(resolve));
       seen.push(`a:${event.marker}`);
-    });
-    registerExposureHandler(async () => { throw new Error('boom'); });
-    registerExposureHandler(async (event) => { seen.push(`c:${event.marker}`); });
-    await notifyExposureHandlers([{ marker: 'hiv' }, { marker: 'hcv' }]);
+      return { ...complete };
+    } });
+    registerExposureHandler({ id: 'unit-throwing.v1', apply: async () => { throw new Error('boom'); } });
+    registerExposureHandler({ id: 'unit-third.v1', apply: async (event) => {
+      seen.push(`c:${event.marker}`);
+      return { ...complete };
+    } });
+    const events = [{ marker: 'hiv' }, { marker: 'hcv' }];
+    expect(exposureHandlerCount()).toBe(3);
+    expect(events).toHaveLength(2);
+    const outcome = await notifyExposureHandlers(events);
+    expect(outcome.deliveries).toHaveLength(6);
+    expect(outcome.complete).toBe(false);
+    expect(outcome.deliveries.map(delivery => ({ id: delivery.handler_id, complete: delivery.complete, error: delivery.error }))).toEqual([
+      { id: 'unit-first.v1', complete: true, error: null },
+      { id: 'unit-throwing.v1', complete: false, error: 'exposure_handler_failed' },
+      { id: 'unit-third.v1', complete: true, error: null },
+      { id: 'unit-first.v1', complete: true, error: null },
+      { id: 'unit-throwing.v1', complete: false, error: 'exposure_handler_failed' },
+      { id: 'unit-third.v1', complete: true, error: null },
+    ]);
     expect(seen).toEqual(['a:hiv', 'c:hiv', 'a:hcv', 'c:hcv']);
   });
 
@@ -270,13 +290,21 @@ describe('exposure handlers', () => {
 
   test('unregister removes a handler', async () => {
     const seen = [];
-    const off = registerExposureHandler(async (event) => { seen.push(event.marker); });
+    const off = registerExposureHandler({ id: 'unit-removable.v1', apply: async (event) => {
+      seen.push(event.marker);
+      return { ...complete };
+    } });
+    expect(exposureHandlerCount()).toBe(1);
+    const before = await notifyExposureHandlers([{ marker: 'hiv' }]);
+    expect(before.deliveries).toHaveLength(1);
+    expect(before.complete).toBe(true);
     off();
-    await notifyExposureHandlers([{ marker: 'hiv' }]);
-    expect(seen).toEqual([]);
+    expect(exposureHandlerCount()).toBe(0);
+    await expect(notifyExposureHandlers([{ marker: 'hiv' }])).resolves.toEqual({ deliveries: [], complete: false });
+    expect(seen).toEqual(['hiv']);
   });
 
   test('null events are a no-op', async () => {
-    await expect(notifyExposureHandlers(null)).resolves.toBeUndefined();
+    await expect(notifyExposureHandlers(null)).resolves.toEqual({ deliveries: [], complete: false });
   });
 });
