@@ -248,6 +248,17 @@ async function candidateIds(tenantId = TENANT, args = {}) {
 // rather than `= ANY($n::uuid[])`, matching the sibling suite: the repo lint
 // reads an array literal in a $queryRawUnsafe argument list as a missed spread.
 async function cleanup() {
+  const tenants = [TENANT, OTHER_TENANT];
+  const exposureTables = ['bloodborne_exposure_applications', 'bloodborne_exposure_deliveries', 'bloodborne_exposure_outbox'];
+  expect(tenants).toHaveLength(2);
+  expect(exposureTables).toHaveLength(3);
+  for (const tenantId of tenants) {
+    await setTenantTx(tenantId, async tx => {
+      for (const table of exposureTables) {
+        await tx.$executeRawUnsafe(`DELETE FROM ${table} WHERE tenant_id = $1::uuid`, tenantId);
+      }
+    });
+  }
   await prisma.$executeRawUnsafe(
     `DELETE FROM patient_bloodborne_markers WHERE tenant_id IN ($1::uuid, $2::uuid)`,
     TENANT, OTHER_TENANT,
@@ -318,6 +329,10 @@ async function cleanup() {
     TENANT, OTHER_TENANT, PATIENT, OTHER_PATIENT,
   ).catch(() => {});
   await prisma.$executeRawUnsafe(
+    `DELETE FROM cds_alerts WHERE tenant_id IN ($1::uuid, $2::uuid)`,
+    TENANT, OTHER_TENANT,
+  );
+  await prisma.$executeRawUnsafe(
     `DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid, $4::uuid)`,
     PATIENT, OTHER_PATIENT, SIGNER, OTHER_SIGNER,
   ).catch(() => {});
@@ -329,6 +344,7 @@ async function cleanup() {
 
 d('blood-borne marker reconciliation sweep (deep)', () => {
   beforeAll(async () => {
+    expect(HANDLERS_FROM_BOOTSTRAP).toBe(2);
     previousRuntimeRole = process.env.AUTH_TENANT_RLS_RUNTIME_ROLE;
     try {
       for (const role of RUNTIME_ROLES) {
@@ -756,7 +772,10 @@ d('blood-borne marker reconciliation sweep (deep)', () => {
     const seen = [];
 
     beforeAll(() => {
-      offProbe = registerExposureHandler(async (event) => { seen.push(event); });
+      offProbe = registerExposureHandler({ id: 'reconciliation-exposure-probe.v1', apply: async (event) => {
+        seen.push(event);
+        return { remaining_device_count: 0, remaining_alert_count: 0, remaining_notification_count: 0 };
+      } });
     });
 
     afterAll(() => {
@@ -772,7 +791,7 @@ d('blood-borne marker reconciliation sweep (deep)', () => {
       // makes this true here, exactly as it is in the operator script, and the
       // count was taken before this suite's own probe so it cannot be the
       // probe being counted.
-      expect(HANDLERS_FROM_BOOTSTRAP).toBeGreaterThanOrEqual(1);
+      expect(HANDLERS_FROM_BOOTSTRAP).toBe(2);
       expect(exposureHandlerCount()).toBe(HANDLERS_FROM_BOOTSTRAP + 1);
     });
 
@@ -788,8 +807,8 @@ d('blood-borne marker reconciliation sweep (deep)', () => {
         tenantId: TENANT,
         patientUid: PATIENT,
         marker: 'hbsag',
-        result: 'reactive',
-        labResultId: resultId,
+        markerRowId: Number(marker.id),
+        testedOn: isoDate(marker.tested_on),
       });
     }, 60000);
 
