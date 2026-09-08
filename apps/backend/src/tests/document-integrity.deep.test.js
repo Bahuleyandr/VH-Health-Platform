@@ -47,8 +47,14 @@ function testClient(role) {
  *  5 000 ms interactive-transaction budget is never in play here. `users` and
  *  `tenants` belong to the helper's phase 2 (autocommit): inside this
  *  transaction they expired the budget deterministically (5 023 ms fresh,
- *  7 091 ms seeded; 466 / 791 referential-integrity triggers per row), which
- *  rolled back every delete here too and left the whole fixture behind.
+ *  7 091 ms seeded, measured 2026-09-08 by #1048 at schema >= migration 770,
+ *  where 789 FKs referenced tenants), which rolled back every delete here too
+ *  and left the whole fixture behind. The fan-out behind those numbers is one
+ *  ON DELETE referential-integrity trigger per referencing FK per deleted row,
+ *  every ON DELETE action kind included: 466 users / 791 tenants referencing
+ *  FKs at schema >= migration 790, measured 2026-09-08 (migration 790 added
+ *  the two tenants FKs; helpers/tenantTeardown.js carries the breakdown by
+ *  confdeltype and the rest of the rationale).
  *
  *  Teardown is ordered correctly - every audit child is deleted before the
  *  tenant - but ordering alone cannot win a race against a write that has not

@@ -4,8 +4,17 @@
 //
 // WHY TWO PHASES. A Prisma interactive transaction carries a 5 000 ms budget
 // (the client default; nothing in this repo raises it). Deleting one `users`
-// row fires one referential-integrity trigger per foreign key that references
-// users (466 on this schema) and one `tenants` row fires 791, and each check
+// or `tenants` row fires one referential-integrity trigger per foreign key
+// that references the table, whatever the FK's ON DELETE action (NO ACTION
+// and RESTRICT check for children, CASCADE deletes them, SET NULL updates
+// them: every kind installs an ON DELETE trigger on the parent), so the
+// fan-out grows with every tenant-bearing table and cannot live inside a
+// 5 000 ms budget. Figures with their basis, measured 2026-09-08 at schema
+// >= migration 790: 466 FKs reference users (pg_constraint by confdeltype:
+// NO ACTION 190, RESTRICT 152, SET NULL 105, CASCADE 19) and 791 reference
+// tenants (NO ACTION 452, CASCADE 310, RESTRICT 29); pg_trigger shows the
+// same 466 / 791 internal ON DELETE triggers on the two tables, so the quoted
+// number is the trigger-call count per deleted row, not a subset. Each check
 // costs roughly 2-5 ms of per-session plan building even when the child table
 // is empty. Measured on a fresh CI-shaped database (2026-09-08): ~2 s for two
 // users, ~3 s for one tenant, 7.1 s for 27 users. Run inside the same
