@@ -226,6 +226,14 @@ export async function runSecurityStage() {
   run(process.execPath, ['--test', 'scripts/ci/check-inline-check-census.test.mjs']);
   run(process.execPath, ['scripts/ci/check-inline-check-census.mjs']);
 
+  // Migration-number registry: playbook §5 must cover every migration on disk.
+  // §5 is "the only allocation authority", yet it sat at "579+ UNASSIGNED"
+  // while main reached 790 because nothing read it. Same stage and reasoning as
+  // the migration gates above: repository-wide, no database, must not be
+  // skippable by tier routing; its mutation proof runs beside it.
+  run(process.execPath, ['--test', 'scripts/ci/check-migration-registry.test.mjs']);
+  run(process.execPath, ['scripts/ci/check-migration-registry.mjs']);
+
   run(process.execPath, ['scripts/check-forgejo-supply-chain-pins.mjs']);
   run(process.execPath, ['scripts/scan-secrets.mjs']);
   run(process.execPath, ['scripts/gitleaks-scan.mjs', 'worktree'], { env: gitleaksEnv });
