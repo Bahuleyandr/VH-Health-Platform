@@ -211,6 +211,8 @@ router.post('/sessions', requireStaffOrAdmin, guardDialysisSessionCreate, wrap(a
   const row = await svc.scheduleSession({
     ...req.body,
     tenantId, conducted_by: req.user?.uid,
+    actor: { uid: req.user?.uid, role: req.user?.role },
+    actorRole: req.user?.role, role: req.user?.role,
   });
   emitDialysisEvent('session-scheduled', { tenantId });
   return row;
@@ -231,7 +233,9 @@ router.post('/sessions/:id/start', requireStaffOrAdmin, guardDialysisSessionPara
   const tenantId = tenantOf(req);
   const row = await svc.startSession({
     ...req.body,
-    tenantId, id: req.params.id,
+    tenantId, id: req.params.id, started_by: req.user?.uid,
+    actor: { uid: req.user?.uid, role: req.user?.role },
+    actorRole: req.user?.role, role: req.user?.role,
   });
   emitDialysisEvent('session-started', { tenantId });
   return row;
@@ -242,6 +246,8 @@ router.post('/sessions/:id/complete', requireStaffOrAdmin, guardDialysisSessionP
   const row = await svc.completeSession({
     ...req.body,
     tenantId, id: req.params.id, completed_by: req.user?.uid, actorRole: req.user?.role,
+    actor: { uid: req.user?.uid, role: req.user?.role },
+    role: req.user?.role,
   });
   emitDialysisEvent('session-completed', { tenantId });
   return row;
@@ -254,6 +260,8 @@ router.post('/sessions/:id/reuse-register', requireStaffOrAdmin, guardDialysisSe
     tenantId,
     session_id: req.params.id,
     processed_by: req.user?.uid,
+    actor: { uid: req.user?.uid, role: req.user?.role },
+    actorRole: req.user?.role, role: req.user?.role,
   });
   emitDialysisEvent('reuse-register-updated', { tenantId });
   return row;
@@ -269,8 +277,10 @@ router.get('/sessions/:id/reuse-register', requireStaffOrAdmin, guardDialysisSes
 router.post('/sessions/:id/cancel', requireStaffOrAdmin, guardDialysisSessionParam, wrap(async (req) => {
   const tenantId = tenantOf(req);
   const row = await svc.cancelSession({
-    tenantId, id: req.params.id,
-    reason: req.body.reason, mark_no_show: req.body.mark_no_show,
+    ...req.body,
+    tenantId, id: req.params.id, cancelled_by: req.user?.uid,
+    actor: { uid: req.user?.uid, role: req.user?.role },
+    actorRole: req.user?.role, role: req.user?.role,
   });
   emitDialysisEvent('session-cancelled', { tenantId });
   return row;

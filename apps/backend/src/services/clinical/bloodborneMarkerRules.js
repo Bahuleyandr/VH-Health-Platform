@@ -222,14 +222,53 @@ export function computeReuseStatus(rows = [], { validityDays, asOf = new Date() 
 // Consumers register at module load (cath device reuse quarantines devices).
 // ---------------------------------------------------------------------------
 
-const exposureHandlers = new Set();
+const exposureHandlers = new Map();
+
+export const REQUIRED_EXPOSURE_HANDLER_IDS = Object.freeze([
+  'cath-device-reuse.v1', 'platform-reprocessable-devices.v1',
+]);
+
+export const EXPOSURE_OBLIGATION_KEYS = Object.freeze([
+  'remaining_device_count', 'remaining_alert_count', 'remaining_notification_count',
+]);
 
 export function registerExposureHandler(handler) {
-  if (typeof handler !== 'function') {
-    throw new TypeError('registerExposureHandler expects a function');
+  if (!handler || typeof handler.apply !== 'function'
+    || typeof handler.id !== 'string' || !/^[a-z][a-z0-9.-]{0,119}$/.test(handler.id)) {
+    throw new TypeError('registerExposureHandler expects a stable id and apply function');
   }
-  exposureHandlers.add(handler);
-  return () => exposureHandlers.delete(handler);
+  if (exposureHandlers.has(handler.id)) throw new TypeError('Exposure handler id is already registered');
+  exposureHandlers.set(handler.id, Object.freeze({ id: handler.id, apply: handler.apply }));
+  return () => exposureHandlers.delete(handler.id);
+}
+
+export function listExposureHandlers() {
+  return [...exposureHandlers.values()];
+}
+
+export function exposureResultComplete(result) {
+  return Boolean(result && EXPOSURE_OBLIGATION_KEYS.every(key => (
+    Number.isSafeInteger(result[key]) && result[key] === 0
+  )));
+}
+
+export async function applyExposureHandler(handler, event, context = {}) {
+  try {
+    const result = await handler.apply(event, context);
+    if (!result || EXPOSURE_OBLIGATION_KEYS.some(key => (
+      !Number.isSafeInteger(result[key]) || result[key] < 0
+    ))) throw new TypeError('Exposure handler did not return explicit remaining obligations');
+    return { handler_id: handler.id, result, complete: exposureResultComplete(result), error: null };
+  } catch (error) {
+    logger.error('Blood-borne exposure handler failed', {
+      handlerId: handler.id, tenantId: event?.tenantId, code: error?.code || null,
+    });
+    return {
+      handler_id: handler.id, complete: false,
+      result: { ...context.previousResult, remaining_device_count: 1, remaining_alert_count: 1, remaining_notification_count: 1 },
+      error: 'exposure_handler_failed',
+    };
+  }
 }
 
 export function __clearExposureHandlersForTests() {
@@ -253,20 +292,11 @@ export function exposureHandlerCount() {
 }
 
 export async function notifyExposureHandlers(events = []) {
+  const deliveries = [];
   for (const event of Array.isArray(events) ? events : []) {
-    for (const handler of exposureHandlers) {
-      try {
-        await handler(event);
-      } catch (err) {
-        logger.error(`Blood-borne exposure handler failed: ${err?.message}`, {
-          marker: event?.marker,
-          tenantId: event?.tenantId,
-          patientUid: event?.patientUid,
-          error: err?.message,
-          code: err?.code || null,
-          stack: err?.stack || null,
-        });
-      }
+    for (const handler of exposureHandlers.values()) {
+      deliveries.push(await applyExposureHandler(handler, event));
     }
   }
+  return { deliveries, complete: exposureHandlers.size > 0 && deliveries.every(row => row.complete) };
 }

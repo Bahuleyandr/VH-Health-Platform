@@ -50,6 +50,7 @@
 import { exposureHandlerCount } from '../src/services/clinical/exposureHandlerBootstrap.js';
 
 import prisma from '../src/lib/prisma.js';
+import { drainExposureOutboxForAllTenants } from '../src/services/clinical/bloodborneExposureOutboxService.js';
 import {
   DEFAULT_LIMIT,
   MAX_LIMIT,
@@ -121,11 +122,12 @@ async function main() {
   // concurrent dry runs are harmless, but a dry run that overlaps an --apply
   // reports candidates that are being repaired underneath it, which is a
   // misleading report rather than a harmless one.
-  const { ran, result: summary } = await withReconciliationJobLock(() => reconcileAllTenants({
-    since: since(),
-    limit: batchSize(),
-    dryRun,
-  }));
+  const { ran, result: summary } = await withReconciliationJobLock(async () => {
+    const exposure = await drainExposureOutboxForAllTenants({ dryRun: true });
+    say(`exposure_outbox: ${exposure.pending} pending / ${exposure.failed} failed / ${exposure.drained} drained`);
+    if (!dryRun) await drainExposureOutboxForAllTenants();
+    return reconcileAllTenants({ since: since(), limit: batchSize(), dryRun });
+  });
   if (!ran) {
     process.stderr.write(
       `[${RECONCILIATION_JOB_LABEL}] another run holds this job's lock; nothing was done\n`,

@@ -6,6 +6,7 @@ import {
   placeHoldTx,
   registerDeviceTx,
   releaseHoldTx,
+  releaseToAvailableTx,
   reserveDeviceTx,
   restoreUnusedCaptureTx,
   returnDeviceTx,
@@ -62,8 +63,10 @@ describe('reprocessable device lifecycle kernel', () => {
 
     const admitTx = txReturning(
       [{ id: 7, domain: 'dialysis', status: 'in_case', version: 1, current_usage_id: 9 }],
+      [{ id: 9, returned_at: null, actual_use_started_at: null }],
       [],
       [{ id: 9, actual_use_started_at: '2026-09-07T10:00:00.000Z' }],
+      [{ id: 7, status: 'in_case', version: 2 }],
     );
     await expect(admitActualUseTx(admitTx, {
       tenantId: TENANT, deviceId: 7, expectedVersion: 1,
@@ -102,8 +105,10 @@ describe('reprocessable device lifecycle kernel', () => {
 
   test('releaseHoldTx records accountable approval but never writes available', async () => {
     const tx = txReturning(
-      [{ id: 11, device_id: 7, hold_type: 'bloodborne_exposure', status: 'active' }],
+      [{ device_id: 7 }],
       [{ id: 7, status: 'quarantined', version: 2 }],
+      [{ id: 11, device_id: 7, hold_type: 'bloodborne_exposure', status: 'active' }],
+      [{ uid: '00000000-0000-4000-8000-000000000099' }],
       [{ id: 11, status: 'released' }],
       [{ id: 7, status: 'awaiting_reprocessing', version: 3 }],
     );
@@ -113,7 +118,7 @@ describe('reprocessable device lifecycle kernel', () => {
       expectedVersion: 2,
       actor: { uid: USER, role: 'ADMIN' },
       approval: {
-        approved_by: USER,
+        approved_by: '00000000-0000-4000-8000-000000000099',
         approved_role: 'INFECTION_CONTROL_OFFICER',
         approved_at: '2026-09-07T10:00:00.000Z',
         adjudication: 'Reviewed under protocol',
@@ -127,8 +132,9 @@ describe('reprocessable device lifecycle kernel', () => {
 
   test('refuses to attribute an accountable decision to a different clinical actor', async () => {
     const tx = txReturning(
-      [{ id: 11, device_id: 7, hold_type: 'inspection_failed', status: 'active' }],
+      [{ device_id: 7 }],
       [{ id: 7, status: 'quarantined', version: 2 }],
+      [{ id: 11, device_id: 7, hold_type: 'inspection_failed', status: 'active' }],
     );
     await expect(releaseHoldTx(tx, {
       tenantId: TENANT,
@@ -207,5 +213,32 @@ describe('reprocessable device lifecycle kernel', () => {
     expect(obligations).toEqual([
       'active_hold:1', 'released_hold_processing:2', 'residual_test_pending',
     ]);
+  });
+
+  test('prospectiveProcessingAtOrAboveCeilingRefusesBeforeAppend', async () => {
+    const counts = [1, 2];
+    expect(counts).toHaveLength(2);
+    const modes = [undefined, 'prospective'];
+    expect(modes).toHaveLength(2);
+    const cases = counts.flatMap((cycleCount) => modes.map((recordingMode) => ({ cycleCount, recordingMode })));
+    expect(cases).toHaveLength(4);
+    for (const { cycleCount, recordingMode } of cases) {
+      const tx = txReturning([{ id: 7, domain: 'dialysis', status: 'awaiting_reprocessing',
+        version: 0, cycle_count: cycleCount, max_cycles_snapshot: 1 }]);
+      const prepareOccurrence = jest.fn();
+      await expect(releaseToAvailableTx(tx, { tenantId: TENANT, deviceId: 7, expectedVersion: 0,
+        recordingMode, occurrence: { device_usage_id: 9 }, prepareOccurrence,
+      })).rejects.toMatchObject({ code: 'RPD_MAX_CYCLES_REACHED' });
+      expect(tx.$queryRawUnsafe).toHaveBeenCalledTimes(1);
+      expect(prepareOccurrence).not.toHaveBeenCalled();
+    }
+  });
+
+  test('processingRecordingModeCannotSilentlyDefaultUnknownValues', async () => {
+    const tx = txReturning();
+    await expect(releaseToAvailableTx(tx, { tenantId: TENANT, deviceId: 7, expectedVersion: 0,
+      recordingMode: 'unknown', occurrence: {},
+    })).rejects.toMatchObject({ code: 'RPD_PROCESSING_RECORDING_MODE_INVALID' });
+    expect(tx.$queryRawUnsafe).not.toHaveBeenCalled();
   });
 });
