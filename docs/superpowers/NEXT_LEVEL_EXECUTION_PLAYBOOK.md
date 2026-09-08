@@ -406,7 +406,7 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 769–779 | Plan 4 — reprocessable devices / dialysis exposure (Sol) | 769, 770 **on main** (#1041); **next free 771** |
 | 780–789 | RLS tranches (Astra) | none used |
 | 790–799 | Cath readiness train, 5 PRs (Sol) | 790 **on main** (#1043); **next free 791** |
-| 800–803 | Database-constraint restoration lane (assigned 2026-09-08) | none used |
+| 800–803 | Database-constraint restoration lane (assigned 2026-09-08) | 800 in local branch `fix/database-constraint-restoration-20260908` (draft PR pending); next free 801 |
 | 804+ | UNASSIGNED — **804 is next-free**; new blocks are assigned by dev-0e and recorded in this table before any file is created, never in chat alone (nor in a spec, plan or PR body alone) | — |
 
 Gaps below 368 (358, 360, 362–365) are released reservations — do not reuse; continue from the top.

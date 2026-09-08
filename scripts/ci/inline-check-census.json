@@ -5,7 +5,7 @@
     "ledger": "docs/FULL_REPOSITORY_AUDIT_2026_08.md",
     "generatedFromHead": "59a3d4db580823766c37d7da11a3a72544b25b1e"
   },
-  "expectedAbsentCount": 411,
+  "expectedAbsentCount": 408,
   "entries": [
     {
       "id": "001_create_beds_wards.sql#beds#beds_status_check",
@@ -4339,7 +4339,7 @@
       "constraintName": "maternity_pregnancies_edd_method_check",
       "clauseSha256": "3ef3123af362dcb54c9eedad844cfe59e778d478b031eab881aefa7a05fd7a87",
       "clause": "edd_method IS NULL OR edd_method IN ('lmp', 'usg', 'mixed')",
-      "enforced": false
+      "enforced": true
     },
     {
       "id": "155_maternity_workflow.sql#maternity_pregnancies#maternity_pregnancies_booking_status_check",
@@ -4350,7 +4350,7 @@
       "constraintName": "maternity_pregnancies_booking_status_check",
       "clauseSha256": "f83ac0c2900547142a188e9a72226400c3d575c660d0703b87ccdc7e561e0bbc",
       "clause": "booking_status IN ('booked', 'unbooked', 'transferred_in', 'transferred_out')",
-      "enforced": false
+      "enforced": true
     },
     {
       "id": "155_maternity_workflow.sql#maternity_pregnancies#maternity_pregnancies_status_check",
@@ -4361,7 +4361,7 @@
       "constraintName": "maternity_pregnancies_status_check",
       "clauseSha256": "df7bf1e370a59e70f325e4544e5221c7783e8e277bdeb062c40a8279502cb513",
       "clause": "status IN ('ongoing', 'delivered', 'aborted', 'still_birth', 'transferred')",
-      "enforced": false
+      "enforced": true
     },
     {
       "id": "155_maternity_workflow.sql#maternity_labor_admissions#maternity_labor_admissions_admission_reason_check",
