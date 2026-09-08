@@ -91,7 +91,9 @@ async function teardownOnce(prisma, { evidence, tenantIds, userUids }) {
  * @param {(tx: import('@prisma/client').Prisma.TransactionClient) => Promise<void>} [fixture.evidence]
  *   Phase 1: the suite's child/evidence deletes, children before parents, run
  *   inside one interactive transaction under `app.audit_bypass`. Must not
- *   delete from `users` or `tenants`; those belong to phase 2.
+ *   delete from `users` or `tenants`; those belong to phase 2. It is
+ *   re-invoked from the top on a 23503 retry, so it must be idempotent:
+ *   deletes only, no counting, no asserting, no non-idempotent writes.
  * @param {string[]} [fixture.tenantIds]
  *   Tenants the suite created. Phase 2 deletes their users, then the tenants.
  * @param {string[]} [fixture.userUids]
