@@ -1,10 +1,12 @@
 import { PAGINATION, INVESTIGATION_STATUS } from '../../config/investigationConfig.js';
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import * as investigationService from '../../services/investigation/investigationService.js';
 import { resolveDoctorFilterId } from '../../services/doctor/doctorRefService.js';
+import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { logAudit } from '../../utils/logAudit.js';
+import { AppError } from '../../utils/AppError.js';
 import { buildPagination, parseListQuery } from '../../utils/listQuery.js';
 import { getAuthenticatedActorRoles } from '../../utils/roleHelpers.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
@@ -408,6 +410,8 @@ export const getMyInvestigations = async (req, res) => {
 // Legacy: Get investigations by UID
 export const getInvestigationsByUID = async (req, res) => {
   try {
+    if (!req.tenantId) throw AppError.forbidden('Tenant context required', 'TENANT_CONTEXT_REQUIRED');
+    const tenantId = resolveTenantOrThrow(req);
     const { uid } = req.params;
     const userRole = req.user?.role?.toUpperCase();
     const requestedBy = req.user?.uid;
@@ -435,15 +439,6 @@ export const getInvestigationsByUID = async (req, res) => {
       return error(res, 'Access denied: Cannot view other patient records', 403);
     }
 
-    // Resolve UID to phone — explicit ::uuid cast avoids the "operator
-    // does not exist: uuid = text" error when Prisma binds the param.
-    const userResult = await prisma.$queryRawUnsafe('SELECT phone FROM users WHERE uid = $1::uuid', uid);
-    if (userResult.length === 0) {
-      return error(res, 'User not found', 404);
-    }
-    
-    const phone = userResult[0].phone;
-    
     // Pagination parameters
     const { page, limit, offset } = parseListQuery(req.query, {
       defaultLimit: 20,
@@ -451,8 +446,20 @@ export const getInvestigationsByUID = async (req, res) => {
       defaultSortBy: 'created_at',
     });
     
-    // Get paginated results
-    const result = await prisma.$queryRawUnsafe(
+    const lookup = await setTenantTx(tenantId, async (tx) => {
+      const users = await tx.$queryRawUnsafe(
+        'SELECT id, phone FROM users WHERE uid = $1::uuid AND tenant_id = $2::uuid', uid, tenantId,
+      );
+      if (!users.length) return null;
+      const patient = users[0];
+      // Phone is only a compatibility key for rows with no patient identifiers.
+      const patientWhere = `i.tenant_id = $1::uuid AND (
+        (i.patient_uid = $2::uuid AND (i.patient_id IS NULL OR i.patient_id = $3::int))
+        OR (i.patient_uid IS NULL AND i.patient_id = $3::int)
+        OR (i.patient_uid IS NULL AND i.patient_id IS NULL AND i.uid = $2::uuid)
+        OR (i.patient_uid IS NULL AND i.patient_id IS NULL AND i.uid IS NULL AND i.phone = $4)
+      )`;
+      const result = await tx.$queryRawUnsafe(
       `SELECT i.id, i.uid, i.phone,
         p.name AS patient_name,
         d.name AS requested_by_name,
@@ -468,18 +475,20 @@ export const getInvestigationsByUID = async (req, res) => {
         i.result_uploaded_at AS report_ready_at,
         i.created_at, i.updated_at
        FROM investigations i
-       LEFT JOIN users p ON i.patient_id = p.id
-       LEFT JOIN users d ON i.requested_by = d.uid
-       LEFT JOIN doctors doc ON d.id = doc.user_id
-       WHERE i.phone = $1
+       LEFT JOIN users p ON i.patient_id = p.id AND p.tenant_id = $1::uuid
+       LEFT JOIN users d ON i.requested_by = d.uid AND d.tenant_id = $1::uuid
+       LEFT JOIN doctors doc ON d.id = doc.user_id AND doc.tenant_id = $1::uuid
+       WHERE ${patientWhere}
        ORDER BY i.created_at DESC
-       LIMIT $2 OFFSET $3`, phone, limit, offset);
-    
-    // Get total count
-    const countResult = await prisma.$queryRawUnsafe(
-      'SELECT COUNT(*) FROM investigations WHERE phone = $1',
-      phone
-    );
+       LIMIT $5 OFFSET $6`, tenantId, uid, patient.id, patient.phone, limit, offset);
+      const countResult = await tx.$queryRawUnsafe(
+        `SELECT COUNT(*) FROM investigations i WHERE ${patientWhere}`,
+        tenantId, uid, patient.id, patient.phone,
+      );
+      return { result, countResult };
+    });
+    if (!lookup) return error(res, 'User not found', 404);
+    const { result, countResult } = lookup;
     
     const totalInvestigations = parseInt(countResult[0].count);
     const pagination = buildPagination(totalInvestigations, page, limit);
@@ -489,7 +498,7 @@ export const getInvestigationsByUID = async (req, res) => {
       count: result.length,
       page,
       limit 
-    });
+    }, { tenantId });
     
     success(res, {
       investigations: result,
@@ -498,6 +507,7 @@ export const getInvestigationsByUID = async (req, res) => {
     }, 'Investigations retrieved by UID');
     
   } catch (err) {
+    if (err.code === 'TENANT_CONTEXT_REQUIRED') return relayAppError(res, err);
     logger.error('Get by UID Error:', err);
     error(res, 'Failed to retrieve investigations by UID', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
@@ -563,6 +573,8 @@ export const upsertTestCatalog = async (req, res) => {
 
 export const getInvestigationSLADashboard = async (req, res) => {
   try {
+    if (!req.tenantId) throw AppError.forbidden('Tenant context required', 'TENANT_CONTEXT_REQUIRED');
+    const tenantId = resolveTenantOrThrow(req);
     const { from_date, to_date } = req.query;
     const from = from_date || new Date(Date.now() - 7*24*60*60*1000).toISOString().split('T')[0];
     const to = to_date || new Date().toISOString().split('T')[0];
@@ -570,41 +582,48 @@ export const getInvestigationSLADashboard = async (req, res) => {
     // Aligned to canonical `investigations` schema: requested_at / completed_at
     // (not ordered_date / completed_date), requested_by UUID → users.uid
     // (not doctor_id int → users.id).
-    const [summary, byStatus, byPriority, urgentPending, recentCompleted] = await Promise.all([
-      prisma.$queryRawUnsafe(
+    const [summary, byStatus, byPriority, urgentPending, recentCompleted] = await setTenantTx(tenantId, (tx) => Promise.all([
+      tx.$queryRawUnsafe(
         `SELECT COUNT(*) as total,
           COUNT(CASE WHEN status IN ('completed','COMPLETED','result_ready') THEN 1 END) as completed,
           COUNT(CASE WHEN status='PENDING' THEN 1 END) as pending,
           COUNT(CASE WHEN priority IN ('URGENT','STAT') AND status NOT IN ('completed','COMPLETED') THEN 1 END) as urgent_pending,
           AVG(CASE WHEN result_uploaded_at IS NOT NULL THEN EXTRACT(EPOCH FROM (result_uploaded_at-requested_at))/3600 END) as avg_tat_hours
-        FROM investigations WHERE DATE(requested_at) BETWEEN $1::date AND $2::date`, from, to
+        FROM investigations WHERE DATE(requested_at) BETWEEN $1::date AND $2::date AND tenant_id = $3::uuid`, from, to, tenantId
       ),
-      prisma.$queryRawUnsafe(
-        `SELECT status, COUNT(*) as count FROM investigations WHERE DATE(requested_at) BETWEEN $1::date AND $2::date GROUP BY status`, from, to
+      tx.$queryRawUnsafe(
+        `SELECT status, COUNT(*) as count FROM investigations WHERE DATE(requested_at) BETWEEN $1::date AND $2::date AND tenant_id = $3::uuid GROUP BY status`, from, to, tenantId
       ),
-      prisma.$queryRawUnsafe(
-        `SELECT priority, COUNT(*) as count FROM investigations WHERE DATE(requested_at) BETWEEN $1::date AND $2::date GROUP BY priority`, from, to
+      tx.$queryRawUnsafe(
+        `SELECT priority, COUNT(*) as count FROM investigations WHERE DATE(requested_at) BETWEEN $1::date AND $2::date AND tenant_id = $3::uuid GROUP BY priority`, from, to, tenantId
       ),
-      prisma.$queryRawUnsafe(
-        `SELECT i.*, u.name as patient_name, u.phone as patient_phone,
+      tx.$queryRawUnsafe(
+        `SELECT i.id, i.uid, i.patient_id, i.patient_uid, i.phone, i.test_name, i.test_code,
+          i.test_type, i.investigation_type, i.type, i.status, i.priority,
+          i.requested_by, i.requested_at, i.completed_at, i.result_uploaded_at,
+          i.turnaround_target_hours, i.created_at, i.updated_at,
+          u.name as patient_name, u.phone as patient_phone,
           d.name as requested_by_name, d.role as requested_by_role,
           CASE WHEN doc.id IS NOT NULL THEN d.name ELSE NULL END as doctor_name,
           doc.id as doctor_id,
           ROUND(EXTRACT(EPOCH FROM (NOW()-i.requested_at))/3600) as hours_waiting
         FROM investigations i
-        LEFT JOIN users u ON i.patient_id=u.id
-        LEFT JOIN users d ON i.requested_by=d.uid
-        LEFT JOIN doctors doc ON d.id=doc.user_id
-        WHERE i.priority IN ('URGENT','STAT') AND i.status NOT IN ('completed','COMPLETED')
-        ORDER BY i.requested_at ASC LIMIT 20`
+        LEFT JOIN users u ON i.patient_id=u.id AND u.tenant_id = $1::uuid
+        LEFT JOIN users d ON i.requested_by=d.uid AND d.tenant_id = $1::uuid
+        LEFT JOIN doctors doc ON d.id=doc.user_id AND doc.tenant_id = $1::uuid
+        WHERE i.tenant_id = $1::uuid AND i.priority IN ('URGENT','STAT') AND i.status NOT IN ('completed','COMPLETED')
+        ORDER BY i.requested_at ASC LIMIT 20`, tenantId
       ),
-      prisma.$queryRawUnsafe(
-        `SELECT i.*, u.name as patient_name,
+      tx.$queryRawUnsafe(
+        `SELECT i.id, i.uid, i.patient_id, i.patient_uid, i.phone, i.test_name, i.test_code,
+          i.test_type, i.investigation_type, i.type, i.status, i.priority,
+          i.requested_by, i.requested_at, i.completed_at, i.result_uploaded_at,
+          i.turnaround_target_hours, i.created_at, i.updated_at, u.name as patient_name,
           ROUND(EXTRACT(EPOCH FROM (COALESCE(i.result_uploaded_at,i.completed_at)-i.requested_at))/3600,1) as tat_hours
-        FROM investigations i LEFT JOIN users u ON i.patient_id=u.id
-        WHERE i.status IN ('completed','COMPLETED') ORDER BY COALESCE(i.completed_at,i.updated_at) DESC LIMIT 20`
+        FROM investigations i LEFT JOIN users u ON i.patient_id=u.id AND u.tenant_id = $1::uuid
+        WHERE i.tenant_id = $1::uuid AND i.status IN ('completed','COMPLETED') ORDER BY COALESCE(i.completed_at,i.updated_at) DESC LIMIT 20`, tenantId
       )
-    ]);
+    ]));
 
     success(res, {
       summary: summary[0],
@@ -615,6 +634,7 @@ export const getInvestigationSLADashboard = async (req, res) => {
       date_range: { from, to }
     });
   } catch (err) {
+    if (err.code === 'TENANT_CONTEXT_REQUIRED') return relayAppError(res, err);
     logger.error('SLA Dashboard Error:', err);
     error(res, 'Failed to fetch SLA dashboard', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }

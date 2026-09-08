@@ -18,10 +18,11 @@ import { X509Certificate, createPrivateKey, sign, verify } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const helpersDir = path.resolve(import.meta.dirname, '..', 'test', 'helpers');
 const { installTestPrivateKey, testCertificatePath } = await import(
-  path.join(helpersDir, 'test-identity.mjs')
+  pathToFileURL(path.join(helpersDir, 'test-identity.mjs')).href
 );
 
 const MIN_REMAINING_VALIDITY_MS = 24 * 60 * 60 * 1000;

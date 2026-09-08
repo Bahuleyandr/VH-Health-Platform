@@ -21,6 +21,7 @@ jest.unstable_mockModule('../../lib/prisma.js', () => ({
   // to the same mock so any handler that does open a tenant transaction sees
   // the identical client — matching the sibling payroll suites.
   setTenant: jest.fn(async (_tenantId, fn) => fn(prismaMock)),
+  setTenantTx: jest.fn(async (_tenantId, fn) => fn(prismaMock)),
 }));
 
 jest.unstable_mockModule('../../logging/logger.js', () => ({
