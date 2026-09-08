@@ -20,6 +20,20 @@ const backendEnv = {
   FIELD_ENCRYPTION_KEY: 'ci-field-encryption-key-32-chars-minimum',
   TOTP_ENCRYPTION_KEY: 'ci-totp-encryption-key-32-chars-minimum',
   BACKUP_ENCRYPTION_KEY: 'ci-backup-encryption-key-32-chars-minimum',
+  // onnxruntime-node's postinstall (script/install.js) downloads the CUDA 12
+  // execution-provider .so files from api.nuget.org on linux/x64. No CI runner
+  // has a GPU, the CPU runtime (libonnxruntime.so.1 + onnxruntime_binding.node)
+  // is bundled in the npm tarball, and the only consumer
+  // (apps/backend/src/services/gamification/adherenceModelServing.js) uses the
+  // default CPU provider — so the download is dead weight that failed `npm ci`
+  // with ETIMEDOUT to 150.171.109.77:443 on PR #1023. `skip` makes install.js
+  // exit before any network call (parseInstallFlag in script/install-utils.js,
+  // v1.27.0). This is the single seat for every `run.mjs --install` caller
+  // (.forgejo/workflows/ci.yml, full-stack-sweep.yml, secret-scan.yml,
+  // security-sweep.yml); the .github workflows never pass --install and carry
+  // the same env on their own `npm ci` steps (PR #1045). Inert on `npm run ci`
+  // below: only install.js reads it.
+  ONNXRUNTIME_NODE_INSTALL: 'skip',
 };
 
 export function runBackendStage({ install = false } = {}) {
