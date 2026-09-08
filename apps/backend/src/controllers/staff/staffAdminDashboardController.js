@@ -1,13 +1,13 @@
 // src/controllers/staff/staffAdminDashboardController.js
-import { HTTP_STATUS } from '../../config/responseCodes.js';
-import prisma from '../../lib/prisma.js';
-import logger from '../../logging/logger.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { setTenantTx } from '../../lib/prisma.js';
+import { success, relayAppError } from '../../utils/responseHelper.js';
+import { requestTenantId } from './staffAdminTenant.js';
 
 // Staff Admin Dashboard
 export const getStaffAdminDashboard = async (req, res) => {
   try {
-    const dashboardData = await prisma.$queryRawUnsafe(`
+    const tenantId = requestTenantId(req);
+    const dashboardData = await setTenantTx(tenantId, tx => tx.$queryRawUnsafe(`
       WITH staff_stats AS (
         SELECT 
           COUNT(DISTINCT s.id) as total_staff,
@@ -18,6 +18,7 @@ export const getStaffAdminDashboard = async (req, res) => {
           COUNT(DISTINCT s.id) FILTER (WHERE s.department = 'lab') as lab_staff,
           COUNT(DISTINCT s.id) FILTER (WHERE s.department = 'administrative') as admin_staff
         FROM staff s
+        WHERE s.tenant_id = $1::uuid
       ),
       attendance_today AS (
         SELECT 
@@ -26,6 +27,7 @@ export const getStaffAdminDashboard = async (req, res) => {
           COUNT(DISTINCT staff_id) FILTER (WHERE check_out_time IS NULL) as currently_on_site
         FROM staff_attendance
         WHERE check_in_time::date = CURRENT_DATE
+          AND tenant_id = $1::uuid
       ),
       hr_pending AS (
         SELECT
@@ -33,11 +35,13 @@ export const getStaffAdminDashboard = async (req, res) => {
             SELECT COUNT(*)
             FROM staff_performance_reviews
             WHERE review_date IS NULL
+              AND tenant_id = $1::uuid
           ), 0) as pending_reviews,
           COALESCE((
             SELECT COUNT(*)
             FROM leave_applications
             WHERE status = 'pending'
+              AND tenant_id = $1::uuid
           ), 0) as pending_leaves
       )
       SELECT 
@@ -45,19 +49,21 @@ export const getStaffAdminDashboard = async (req, res) => {
         to_json(attendance_today.*) as attendance,
         to_json(hr_pending.*) as hr_actions
       FROM staff_stats, attendance_today, hr_pending
-    `);
+    `, tenantId));
 
-    const recentActivity = await prisma.$queryRawUnsafe(`
+    const recentActivity = await setTenantTx(tenantId, tx => tx.$queryRawUnsafe(`
       SELECT 
         'attendance' as type,
         CONCAT(s.name, ' checked in') as description,
         a.check_in_time as timestamp
       FROM staff_attendance a
-      JOIN staff s ON a.staff_id = s.id
+      JOIN users u ON a.staff_id = u.id AND u.tenant_id = $1::uuid
+      JOIN staff s ON s.user_id = u.uid AND s.tenant_id = $1::uuid
       WHERE a.check_in_time >= NOW() - INTERVAL '24 hours'
+        AND a.tenant_id = $1::uuid
       ORDER BY a.check_in_time DESC
       LIMIT 10
-    `);
+    `, tenantId));
 
     success(res, {
       overview: dashboardData[0],
@@ -65,7 +71,6 @@ export const getStaffAdminDashboard = async (req, res) => {
       lastUpdated: new Date()
     }, 'Staff admin dashboard loaded successfully');
   } catch (err) {
-    logger.error('Staff Admin Dashboard Error:', err);
-    error(res, 'Failed to load staff admin dashboard', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    relayAppError(res, err, 'Failed to load staff admin dashboard');
   }
 };
