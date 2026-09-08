@@ -3,8 +3,24 @@
 Design authority: owner design sign-off dated **2026-09-08**, design head
 **ae35b393f30e9d0bcfeca5c2e63842d63b4fff13**, scope **design only**.
 This is not implementation, activation, merge, deployment or tenant clinical/legal
-consent-policy approval. The five-PR split and its four binding conditions are
-recorded in the merge authority's `sol-brief-1023-revision9.md`.
+consent-policy approval. The confirmed five-PR split has four binding conditions,
+restated here as repository requirements:
+
+1. PR 2 proves disabled-path byte equality for every changed shared route and
+   function, covering serialized responses, persisted rows and emitted events.
+   Its generated manifest pins count and membership against an independent
+   enumeration of the Git diff. Generator and checker must not share their walk,
+   extension filter or parser; MJS files, barrel registrations and Prisma delegate
+   calls cannot silently fall outside the proof.
+2. The capability fails closed: absent, empty or malformed configuration means
+   disabled. A test evaluates the actual shipped configuration and proves disabled.
+3. PR 1 keeps the approval path unmounted until PR 5, proves existing callers cannot
+   reach the widened signer type through a counted caller census, and executes the
+   actual route, canonical audit writer, paired-ID signer, persisted signature and
+   verification chain in its own tests.
+4. PR 5 executes rollback demonstrations for missing signed manifests and changed
+   source hashes, refusing partial evidence. Both of its migrations claim fresh
+   numbers from 790–799 and name both numbers in the PR title.
 
 ## Main after this PR alone
 
@@ -19,7 +35,8 @@ The two new relations are `cath_lab_attempt_readiness_records` and
 `cath_lab_consent_policy_versions`. Both have ENABLE/FORCE RLS, the unchanged
 permissive platform tenant-match policy and restrictive `tenant_context_required`
 with exactly `app_current_tenant_id_uuid() IS NOT NULL`. No existing relation gains
-a restrictive policy. The actual application role is `vhhealth_app`; malformed
+a restrictive policy. Existing-table restrictive closures belong to the RLS tranche
+lane (Astra, migrations 780–789). The actual application role is `vhhealth_app`; malformed
 context deliberately denies by error 22P02, while unset/empty/bypass deny by policy.
 The literal `bypass` is unsupported. Runtime grant repair registers only the two new
 relations, preserving their no-delete/no-truncate grants after late role creation.
@@ -49,6 +66,47 @@ R7-5 in this PR covers the approval-material boundary, not the deferred full
 classifier/enforcement acceptance. Consent policy tables are empty; clinical/legal
 policy governance remains required before activation. Policy identity protection
 is a data invariant, not proof of Start consent enforcement.
+
+## Signed-design terms and physical schema names
+
+These are name mappings, not changes to the signed design's semantics. PRs 2–5,
+queries, Staff contracts and the report must use the same mapping; do not create a
+second physical column under the design term.
+
+| Signed design term | Physical column introduced by migration 790 | Meaning |
+| --- | --- | --- |
+| `start_recorded_at` on the Start audit row | `audit_logs.cath_start_recorded_at` | Bound server Start recording instant; nullable until a future Start writer supplies it; report month/index basis |
+| `last_accepted_evidence` | `cath_case_lab_readiness_items.accepted_evidence` | Retained full internal accepted evidence; server-only, not a public projection |
+| `supersedes_procedure_log_id` | `cath_procedure_logs.supersedes_log_id` | Same-tenant/case/attempt revision parent; not a cross-attempt reference |
+
+## Approval residency: current behavior and PR-5 precondition
+
+The signed design requires explicit platform-wide authority for every manifest
+tenant. It does **not** specify a platform storage tenant, per-manifest-tenant
+receipts, or the requesting tenant as the residency boundary. Platform authority
+must not be presented as approval to copy one tenant's clinical decision material
+into another tenant's audit/export domain.
+
+PR 1 currently chooses the **requesting token's tenant** in
+`approveCathMigrationDispositions`: `setTenantTx(context.tenantId)` stores both the
+approval audit and signature there. A multi-tenant manifest therefore puts tenant
+B's case IDs, source hashes and decision material in tenant A's
+`clinical_audit_events.after_state` when A is the requesting tenant. Those bytes
+are resident in A's audit/retention/export domain; the audience and export behavior
+of every future evidence-detail reader must be reviewed before mounting. There is
+no separate platform-tenant store in this implementation. Verification under A's
+scope succeeds; `verifyCathMigrationApprovalTx` under B's scope refuses that receipt.
+R7-5 tests both the multi-tenant approval and wrong-tenant receipt refusal. This is
+current behavior, not a claim that its residency model was signed off.
+
+The recommended PR-5 model is **per-manifest-tenant approvals**, retaining each
+tenant's decision material and receipt in that tenant's own scope while requiring
+the same stepped-up platform authority. This recommendation requires an explicit
+owner/governance scope decision before production mounting; it is not a new design
+approval. PR 5 must settle the residency, authorized readers, retention/export and
+cross-tenant orchestration contracts and test them through the real writer and
+verifier before any mount. Until then the zero-production-import/mount condition
+remains mandatory. No residency or verification code changes are made in PR 1.
 
 ## Caller census
 
