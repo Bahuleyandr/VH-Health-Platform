@@ -1300,6 +1300,8 @@ DECLARE
     'reprocessable_device_operations'
   ];
   runtime_mutable_no_delete_relations CONSTANT TEXT[] := ARRAY[
+    'cath_lab_attempt_readiness_records',
+    'cath_lab_consent_policy_versions',
     'clinical_continuity_incidents',
     'clinical_continuity_paper_ranges',
     'clinical_continuity_temporary_identities',

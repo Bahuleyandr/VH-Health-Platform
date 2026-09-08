@@ -1661,20 +1661,21 @@ model audit_log {
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 /// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
 model audit_logs {
-  id                  Int      @id @default(autoincrement())
-  uid                 String?  @db.Uuid
-  role                String?  @db.VarChar(50)
-  action              String   @db.VarChar(100)
-  resource            String?  @db.VarChar(100)
-  resource_id         String?  @db.VarChar(100)
-  metadata            Json?
-  ip_address          String?  @db.VarChar(45)
-  user_agent          String?
-  created_at          DateTime @default(now()) @db.Timestamp(6)
-  actor_uid           String?  @db.Uuid
-  subject_uid         String?  @db.Uuid
-  acting_as_dependent Boolean  @default(false)
-  tenant_id           String   @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  id                     Int       @id @default(autoincrement())
+  uid                    String?   @db.Uuid
+  role                   String?   @db.VarChar(50)
+  action                 String    @db.VarChar(100)
+  resource               String?   @db.VarChar(100)
+  resource_id            String?   @db.VarChar(100)
+  metadata               Json?
+  ip_address             String?   @db.VarChar(45)
+  user_agent             String?
+  created_at             DateTime  @default(now()) @db.Timestamp(6)
+  actor_uid              String?   @db.Uuid
+  subject_uid            String?   @db.Uuid
+  acting_as_dependent    Boolean   @default(false)
+  tenant_id              String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  cath_start_recorded_at DateTime? @db.Timestamptz(6)
 
   @@index([action])
   @@index([created_at])
@@ -1686,6 +1687,7 @@ model audit_logs {
   @@index([tenant_id, resource, resource_id, created_at(sort: Desc), id(sort: Desc)], map: "idx_audit_logs_tenant_resource_time", where: raw("(resource IS NOT NULL)"))
   @@index([tenant_id, role, created_at(sort: Desc), id(sort: Desc)], map: "idx_audit_logs_tenant_role_time", where: raw("(role IS NOT NULL)"))
   @@index([tenant_id, created_at(sort: Desc), id(sort: Desc)], map: "idx_audit_logs_tenant_time_id")
+  @@index([tenant_id, action, cath_start_recorded_at(sort: Desc), id(sort: Desc)], map: "idx_audit_cath_start_recording")
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
@@ -3659,31 +3661,39 @@ model cath_hemodynamic_summaries {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model cath_lab_cases {
-  id                  BigInt    @id @default(autoincrement())
-  tenant_id           String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  patient_uid         String    @db.Uuid
-  encounter_id        String?   @db.Uuid
-  appointment_id      Int?
-  requested_procedure String    @db.VarChar(160)
-  indication          String?
-  urgency             String    @default("routine") @db.VarChar(30)
-  lab_room            String?   @db.VarChar(120)
-  status              String    @default("scheduled") @db.VarChar(40)
-  planned_start_at    DateTime? @db.Timestamptz(6)
-  planned_end_at      DateTime? @db.Timestamptz(6)
-  actual_start_at     DateTime? @db.Timestamptz(6)
-  actual_end_at       DateTime? @db.Timestamptz(6)
-  team                Json      @default("{}")
-  timeline_event_id   String?   @db.Uuid
-  audit_event_id      String?   @db.Uuid
-  sla_rule_code       String?   @db.VarChar(100)
-  sla_instance_id     String?   @db.Uuid
-  created_by          String?   @db.Uuid
-  updated_by          String?   @db.Uuid
-  created_at          DateTime  @default(now()) @db.Timestamptz(6)
-  updated_at          DateTime  @default(now()) @db.Timestamptz(6)
-  metadata            Json      @default("{}")
-  facility_id         Int?
+  id                            BigInt    @id @default(autoincrement())
+  tenant_id                     String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  patient_uid                   String    @db.Uuid
+  encounter_id                  String?   @db.Uuid
+  appointment_id                Int?
+  requested_procedure           String    @db.VarChar(160)
+  indication                    String?
+  urgency                       String    @default("routine") @db.VarChar(30)
+  lab_room                      String?   @db.VarChar(120)
+  status                        String    @default("scheduled") @db.VarChar(40)
+  planned_start_at              DateTime? @db.Timestamptz(6)
+  planned_end_at                DateTime? @db.Timestamptz(6)
+  actual_start_at               DateTime? @db.Timestamptz(6)
+  actual_end_at                 DateTime? @db.Timestamptz(6)
+  team                          Json      @default("{}")
+  timeline_event_id             String?   @db.Uuid
+  audit_event_id                String?   @db.Uuid
+  sla_rule_code                 String?   @db.VarChar(100)
+  sla_instance_id               String?   @db.Uuid
+  created_by                    String?   @db.Uuid
+  updated_by                    String?   @db.Uuid
+  created_at                    DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                    DateTime  @default(now()) @db.Timestamptz(6)
+  metadata                      Json      @default("{}")
+  facility_id                   Int?
+  procedure_attempt             Int       @default(1)
+  lifecycle_token               String    @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  attempt_started_at            DateTime? @db.Timestamptz(6)
+  attempt_start_recorded_at     DateTime? @db.Timestamptz(6)
+  attempt_start_time_provenance String?
+  lab_readiness_generation      BigInt    @default(0)
+  lab_readiness_policy_revision BigInt    @default(0)
+  lab_readiness_dirty           Boolean   @default(true)
 
   @@unique([tenant_id, id, patient_uid], map: "ux_cath_lab_cases_usage_tenant_patient")
   @@unique([tenant_id, id, patient_uid, facility_id], map: "ux_cath_lab_cases_usage_facility_753")
@@ -3770,8 +3780,17 @@ model cath_procedure_logs {
   created_at              DateTime  @default(now()) @db.Timestamptz(6)
   updated_at              DateTime  @default(now()) @db.Timestamptz(6)
   metadata                Json      @default("{}")
+  procedure_attempt       Int?
+  lifecycle_token         String?   @db.Uuid
+  log_command_id          String?   @db.Uuid
+  start_command_id        String?   @db.Uuid
+  identity_source         String?
+  supersedes_log_id       BigInt?
 
   @@unique([tenant_id, id, case_id, patient_uid], map: "ux_cath_procedure_logs_usage_tenant_case_patient")
+  @@unique([tenant_id, case_id, procedure_attempt, id], map: "ux_cath_log_attempt_identity")
+  @@unique([tenant_id, case_id, log_command_id], map: "ux_cath_log_command")
+  @@unique([tenant_id, case_id, procedure_attempt, supersedes_log_id], map: "ux_cath_log_revision_child")
   @@index([tenant_id, case_id, created_at(sort: Desc)], map: "idx_cath_procedure_logs_case")
   @@index([tenant_id, case_id, ended_at(sort: Desc)], map: "idx_cath_procedure_logs_case_end", where: raw("(ended_at IS NOT NULL)"))
   @@index([tenant_id, patient_uid, created_at(sort: Desc)], map: "idx_cath_procedure_logs_patient")
@@ -26852,27 +26871,32 @@ model cath_reprocessing_settings {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model cath_case_lab_readiness_items {
-  id               BigInt    @id @default(autoincrement())
-  tenant_id        String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
-  case_id          BigInt
-  item_code        String    @db.VarChar(20)
-  required         Boolean   @default(true)
-  state            String    @db.VarChar(32)
-  value_text       String?   @db.VarChar(255)
-  value_numeric    Decimal?  @db.Decimal(15, 4)
-  unit             String?   @db.VarChar(40)
-  abnormal_flag    String?   @db.VarChar(10)
-  is_critical      Boolean   @default(false)
-  observed_at      DateTime? @db.Timestamptz(6)
-  source           String?   @db.VarChar(24)
-  lab_result_id    Int?
-  investigation_id Int?
-  specimen_id      Int?
-  ordered_at       DateTime? @db.Timestamptz(6)
-  waived_by        String?   @db.Uuid
-  waived_at        DateTime? @db.Timestamptz(6)
-  waive_reason     String?
-  refreshed_at     DateTime  @default(now()) @db.Timestamptz(6)
+  id                     BigInt    @id @default(autoincrement())
+  tenant_id              String    @default(dbgenerated("COALESCE((NULLIF(NULLIF(current_setting('app.current_tenant_id'::text, true), ''::text), 'bypass'::text))::uuid, '00000000-0000-4000-8000-000000000001'::uuid)")) @db.Uuid
+  case_id                BigInt
+  item_code              String    @db.VarChar(20)
+  required               Boolean   @default(true)
+  state                  String    @db.VarChar(32)
+  value_text             String?   @db.VarChar(255)
+  value_numeric          Decimal?  @db.Decimal(15, 4)
+  unit                   String?   @db.VarChar(40)
+  abnormal_flag          String?   @db.VarChar(10)
+  is_critical            Boolean   @default(false)
+  observed_at            DateTime? @db.Timestamptz(6)
+  source                 String?   @db.VarChar(24)
+  lab_result_id          Int?
+  investigation_id       Int?
+  specimen_id            Int?
+  ordered_at             DateTime? @db.Timestamptz(6)
+  waived_by              String?   @db.Uuid
+  waived_at              DateTime? @db.Timestamptz(6)
+  waive_reason           String?
+  refreshed_at           DateTime  @default(now()) @db.Timestamptz(6)
+  unavailability_cause   String?
+  evidence_fingerprint   String?
+  policy_fingerprint     String?
+  accepted_evidence      Json?
+  classifier_initialized Boolean   @default(false)
 
   @@unique([tenant_id, case_id, item_code], map: "ux_cath_case_lab_readiness_items")
 }
@@ -27364,6 +27388,60 @@ model reprocessing_protocols {
 
   @@unique([tenant_id, protocol_key, revision], map: "ux_reprocessing_protocols_key_revision")
   @@unique([tenant_id, id], map: "ux_reprocessing_protocols_tenant_id")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model cath_lab_attempt_readiness_records {
+  tenant_id                   String    @db.Uuid
+  case_id                     BigInt
+  procedure_attempt           Int
+  check_type                  String
+  lifecycle_token             String    @db.Uuid
+  attempt_started_at          DateTime? @db.Timestamptz(6)
+  attempt_start_recorded_at   DateTime? @db.Timestamptz(6)
+  current_status              String    @default("pending")
+  current_completed_at        DateTime? @db.Timestamptz(6)
+  current_completed_by        String?   @db.Uuid
+  current_metadata            Json      @default("{}")
+  current_evidence_refs       Json      @default("[]")
+  at_start_status             String?
+  at_start_completed_at       DateTime? @db.Timestamptz(6)
+  at_start_completed_by       String?   @db.Uuid
+  at_start_metadata           Json?
+  at_start_evidence_refs      Json?
+  at_start_recorded_at        DateTime? @db.Timestamptz(6)
+  server_provenance           String
+  policy_version              String?
+  legacy_historical_authority Json?
+  created_at                  DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at                  DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@id([tenant_id, case_id, procedure_attempt, check_type])
+  @@index([tenant_id, policy_version], map: "idx_cath_attempt_policy")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model cath_lab_consent_policy_versions {
+  tenant_id                     String    @db.Uuid
+  version                       String
+  state                         String    @default("draft")
+  authority_codes               String[]
+  scopes                        String[]
+  modes_by_authority            Json
+  ordinary_evidence_types       String[]
+  emergency_evidence_types      String[]
+  representative_evidence_types String[]
+  evidence_owner_roles          String[]
+  allow_prior_attempt_evidence  Boolean   @default(false)
+  approved_by                   String?   @db.Uuid
+  approved_at                   DateTime? @db.Timestamptz(6)
+  revoked_by                    String?   @db.Uuid
+  revoked_at                    DateTime? @db.Timestamptz(6)
+  created_at                    DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@id([tenant_id, version])
 }
 
 enum transplant_organ_type {

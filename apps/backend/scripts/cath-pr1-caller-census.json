@@ -1,0 +1,41 @@
+{
+  "schema": "cath-pr1-signer-census/v1",
+  "count": 7,
+  "calls": [
+    {
+      "path": "routes/clinical/encounterRoutes.js",
+      "function": "signDocument",
+      "documentType": "encounter"
+    },
+    {
+      "path": "routes/clinical/integrityRoutes.js",
+      "function": "signDocument",
+      "documentType": "<dynamic>"
+    },
+    {
+      "path": "services/clinical/cathMigrationApprovalService.js",
+      "function": "signDocumentTx",
+      "documentType": "cath_migration_approval"
+    },
+    {
+      "path": "services/clinical/documentIntegrityService.js",
+      "function": "signDocumentTx",
+      "documentType": "<dynamic>"
+    },
+    {
+      "path": "services/diagnostics/diagnosticResultActionService.js",
+      "function": "signDocumentTx",
+      "documentType": "diagnostic_result_action"
+    },
+    {
+      "path": "services/emr/inpatientPathwayDomainService.js",
+      "function": "signDocumentTx",
+      "documentType": "diagnostic_result_action"
+    },
+    {
+      "path": "services/referral/referralClosedLoopService.js",
+      "function": "signDocumentTx",
+      "documentType": "referral_response"
+    }
+  ]
+}
