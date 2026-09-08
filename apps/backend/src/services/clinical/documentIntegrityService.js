@@ -64,6 +64,11 @@ export const SIGNABLE_DOCUMENTS = Object.freeze({
     idType: 'uuid',
     exclude: [],
   },
+  cath_migration_approval: {
+    table: 'clinical_audit_events',
+    idType: 'uuid',
+    exclude: [],
+  },
 });
 
 /**
@@ -89,6 +94,21 @@ async function fetchDocumentFrom(db, documentType, documentId) {
       `Unknown document_type '${documentType}' — expected one of ${Object.keys(SIGNABLE_DOCUMENTS).join(', ')}`,
       'SIGN_UNKNOWN_DOCUMENT_TYPE',
     );
+  }
+  if (documentType === 'cath_migration_approval') {
+    const rows = await db.$queryRawUnsafe(
+      `SELECT after_state AS doc, after_state::text AS canonical_text,
+              tenant_id, patient_uid, actor_uid, actor_role
+         FROM clinical_audit_events
+        WHERE id = $1::uuid AND tenant_id = app_current_tenant_id_uuid()
+          AND action = 'cath_lab.migration_dispositions.approved'
+          AND action_status = 'success' AND patient_uid IS NULL
+          AND resource_table = 'cath_migration_dispositions'
+          AND chain_hash IS NOT NULL`,
+      String(documentId),
+    );
+    if (!rows.length) throw AppError.notFound('Approval not found', 'SIGN_DOCUMENT_NOT_FOUND');
+    return { spec, row: rows[0] };
   }
   const idParam = spec.idType === 'uuid' ? String(documentId) : Number.parseInt(documentId, 10);
   if (spec.idType === 'int' && (!Number.isInteger(idParam) || idParam <= 0)) {
@@ -182,7 +202,18 @@ export async function signDocumentTx({
     canonicalAuditResourceId,
   });
   const { spec, row } = await fetchDocumentFrom(tx, documentType, documentId);
-  const hash = contentHashOf(row.doc);
+  if (documentType === 'cath_migration_approval' && (
+    !signatureId || canonicalAuditEventId !== String(documentId)
+    || canonicalAuditResourceTable !== 'cath_migration_dispositions'
+    || canonicalAuditResourceId !== signatureId
+    || row.actor_uid !== context.actorUid || row.actor_role !== 'SUPER_ADMIN'
+    || context.actorRole !== 'SUPER_ADMIN'
+  )) {
+    throw AppError.forbidden('Approval requires its governed audit binding', 'SIGN_APPROVAL_PATH_REQUIRED');
+  }
+  const hash = documentType === 'cath_migration_approval'
+    ? createHash('sha256').update(row.canonical_text, 'utf8').digest('hex')
+    : contentHashOf(row.doc);
 
   if (canonicalAuditEventId) {
     const expectedAuditResourceTable = canonicalAuditResourceTable == null
@@ -288,6 +319,9 @@ export async function signDocument({
   documentType, documentId, statement = null, method = 'electronic_attestation',
   esignTxnRef = null, certificateRef = null,
 } = {}, context = {}) {
+  if (documentType === 'cath_migration_approval') {
+    throw AppError.forbidden('Approval requires the governed maintenance path', 'SIGN_APPROVAL_PATH_REQUIRED');
+  }
   if (!context.actorUid) throw AppError.unauthorized('Signer identity missing');
   validateSignatureInput({ method, signatureId: null, canonicalAuditEventId: null });
   const { row } = await fetchDocumentFrom(prisma, documentType, documentId);
@@ -315,18 +349,23 @@ export async function signDocument({
 }
 
 /** Re-fetch the document and compare against the signed content hash. */
-export async function verifyDocumentSignature(signatureId) {
-  const rows = await prisma.$queryRawUnsafe(
+async function verifyDocumentSignatureFrom(db, signatureId, allowApproval) {
+  const rows = await db.$queryRawUnsafe(
     `SELECT * FROM clinical_document_signatures WHERE id = $1::uuid LIMIT 1`,
     signatureId,
   );
   const sig = rows[0];
   if (!sig) throw AppError.notFound('Signature not found', 'SIGN_NOT_FOUND');
+  if (sig.document_type === 'cath_migration_approval' && !allowApproval) {
+    throw AppError.forbidden('Approval requires the governed maintenance path', 'SIGN_APPROVAL_PATH_REQUIRED');
+  }
   let currentHash = null;
   let documentExists = true;
   try {
-    const { row } = await fetchDocumentFrom(prisma, sig.document_type, sig.document_id);
-    currentHash = contentHashOf(row.doc);
+    const { row } = await fetchDocumentFrom(db, sig.document_type, sig.document_id);
+    currentHash = sig.document_type === 'cath_migration_approval'
+      ? createHash('sha256').update(row.canonical_text, 'utf8').digest('hex')
+      : contentHashOf(row.doc);
   } catch (err) {
     if (err?.code === 'SIGN_DOCUMENT_NOT_FOUND') documentExists = false;
     else throw err;
@@ -345,7 +384,21 @@ export async function verifyDocumentSignature(signatureId) {
   };
 }
 
+export async function verifyDocumentSignature(signatureId) {
+  return verifyDocumentSignatureFrom(prisma, signatureId, false);
+}
+
+export async function verifyDocumentSignatureTx(signatureId, { tx } = {}) {
+  if (!isTenantTransactionClient(tx)) {
+    throw AppError.internal('Verification requires a tenant transaction', 'SIGN_TENANT_TX_REQUIRED');
+  }
+  return verifyDocumentSignatureFrom(tx, signatureId, true);
+}
+
 export async function listDocumentSignatures(documentType, documentId) {
+  if (documentType === 'cath_migration_approval') {
+    throw AppError.forbidden('Approval requires the governed maintenance path', 'SIGN_APPROVAL_PATH_REQUIRED');
+  }
   const spec = SIGNABLE_DOCUMENTS[documentType];
   if (!spec) {
     throw AppError.badRequest(

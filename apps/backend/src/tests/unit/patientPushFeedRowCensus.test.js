@@ -216,6 +216,9 @@ const EMITTERS = Object.freeze({
   // Clinician delivery obligation, then the overdue recovery escalation — both
   // to the alert's clinical roster.
   'services/clinical/clinicalAlertDeliveryObligationService.js': { queue: ['staff', 'staff'] },
+  // Both recipient queries require the active infection-control officer role.
+  'services/clinical/dialysisIsolationEmergencyService.js': { queue: ['staff'] },
+  'services/clinical/platformReprocessableExposureHandler.js': { queue: ['staff'] },
   // Prescriber review of a held/missed dose: raised, overdue escalation, and
   // the administrator reassignment handoff.
   'services/clinical/marMedicationExceptionService.js': {

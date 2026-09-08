@@ -10,16 +10,13 @@ const {
 
 describe('Dialysis session status walk', () => {
   it('scheduled has three exits', () => {
-    expect(SESSION_TRANSITIONS.scheduled).toEqual(
-      expect.arrayContaining(['in_progress', 'cancelled', 'no_show']),
-    );
+    expect(SESSION_TRANSITIONS.scheduled).toHaveLength(3);
+    expect(SESSION_TRANSITIONS.scheduled).toEqual(['in_progress', 'cancelled', 'no_show']);
   });
 
-  it('in_progress can complete or cancel only', () => {
-    expect(SESSION_TRANSITIONS.in_progress).toEqual(
-      expect.arrayContaining(['completed', 'cancelled']),
-    );
-    expect(SESSION_TRANSITIONS.in_progress).not.toContain('no_show');
+  it('inProgressHasOnlyTheCompletedExitAndNeverCancellation', () => {
+    expect(SESSION_TRANSITIONS.in_progress).toHaveLength(1);
+    expect(SESSION_TRANSITIONS.in_progress).toEqual(['completed']);
   });
 
   it('completed/cancelled/no_show are terminal', () => {

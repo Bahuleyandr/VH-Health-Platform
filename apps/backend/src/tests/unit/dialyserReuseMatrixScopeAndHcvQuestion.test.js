@@ -72,6 +72,40 @@ describe('dialyser reuse matrix scope and HCV question', () => {
     })).toMatchObject({ verdict: 'ineligible', reason_codes: ['RPD_DIALYSER_DEDICATION_MISMATCH'] });
   });
 
+  test('dedicatedReuseRequiresBothPatientIdentifiers', () => {
+    const patientUid = '00000000-0000-4000-8000-00000000000a';
+    const input = {
+      protocol: validateProtocol({
+        ...baseProtocol,
+        reuse_matrix: { ...baseProtocol.reuse_matrix, hcv: 'dedicated_reuse' },
+        hcv_protocol: {
+          separated_processing_arrangements: 'Unit HCV reprocessing room',
+          rna_evidence_rule: 'independently_recorded',
+          infection_treatment_history_rule: 'documented_separately',
+        },
+      }),
+      decision: {
+        status: 'restricted', isolation_class: 'hcv', evidence_dated_on: '2026-09-07', markers: [],
+      },
+      device: { domain: 'dialysis', category: 'dialyser', id: 7, cycle_count: 1, max_cycles_snapshot: 4 },
+      asOf: '2026-09-07T12:00:00.000Z',
+      hcvEvidence: { rna_result: 'not_detected', recorded_independently: true },
+    };
+    const missingValues = [undefined, null, '', ' ', 7, true, [], {}];
+    expect(missingValues).toHaveLength(8);
+    const cases = missingValues.map((value) => ({
+      patientUid: value, dedicatedPatientUid: value,
+    }));
+    expect(cases).toHaveLength(8);
+    expect(evaluateReuseEligibility({
+      ...input, patientUid: patientUid.toUpperCase(), dedicatedPatientUid: patientUid,
+    })).toEqual({ verdict: 'eligible', reason_codes: [] });
+    const results = cases.map((identifiers) => evaluateReuseEligibility({ ...input, ...identifiers }));
+    expect(results).toEqual(cases.map(() => ({
+      verdict: 'ineligible', reason_codes: ['RPD_DIALYSER_DEDICATION_MISMATCH'],
+    })));
+  });
+
   test('never describes antibody reactivity as current viraemia and keeps RNA-negative safeguards independent', () => {
     expect(HCV_RNA_NOT_DETECTED_REPRESENTATION)
       .toBe('No evidence of current HCV infection on the available RNA evidence');

@@ -1,4 +1,7 @@
 export const INTENTIONALLY_EMPTY_SEED_TABLES = Object.freeze([
+  // Emergency routing requires a named consultant's expiring authorization.
+  // General seed coverage must not fabricate that clinical approval.
+  'dialysis_isolation_emergency_authorizations',
   // Scheduler receipts are operational facts. A seed must not fabricate a
   // discovery attempt, successful tick, or tenant failure merely to increase
   // a table-coverage count.

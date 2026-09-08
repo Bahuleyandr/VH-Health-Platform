@@ -6,7 +6,7 @@ const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const describeIfDb = databaseUrl ? describe : describe.skip;
 const REQUIRED_CONTEXT_QUAL = '(app_current_tenant_id_uuid() IS NOT NULL)';
 
-const PLAN4_RELATIONS = [
+const PLAN4_FOUNDATION_RELATIONS = [
   'reprocessing_domain_settings',
   'reprocessing_isolation_setting_revisions',
   'reprocessing_domain_policies',
@@ -26,6 +26,10 @@ const PLAN4_RELATIONS = [
   'bloodborne_exposure_applications',
   'reprocessable_device_operations',
 ];
+const PLAN4_RELATIONS = [
+  ...PLAN4_FOUNDATION_RELATIONS,
+  'dialysis_isolation_emergency_authorizations',
+];
 
 describeIfDb('Plan 4 new-relation tenant isolation', () => {
   const client = new Client({ connectionString: databaseUrl });
@@ -33,7 +37,8 @@ describeIfDb('Plan 4 new-relation tenant isolation', () => {
   const otherTenantId = randomUUID();
 
   beforeAll(async () => {
-    expect(PLAN4_RELATIONS).toHaveLength(18);
+    expect(PLAN4_FOUNDATION_RELATIONS).toHaveLength(18);
+    expect(PLAN4_RELATIONS).toHaveLength(19);
     await client.connect();
     await client.query('BEGIN');
     for (const [id, suffix] of [[tenantId, 'positive'], [otherTenantId, 'wrong']]) {
@@ -101,7 +106,8 @@ describeIfDb('Plan 4 new-relation tenant isolation', () => {
     await client.query('RELEASE SAVEPOINT plan4_rls_insert');
     expect(await countAsRuntime(tenantId, 'ot')).toBe(0);
 
-    expect(PLAN4_RELATIONS).toHaveLength(18);
+    expect(PLAN4_FOUNDATION_RELATIONS).toHaveLength(18);
+    expect(PLAN4_RELATIONS).toHaveLength(19);
     const result = await client.query(
       `SELECT tablename,
               COUNT(*) FILTER (WHERE policyname = 'tenant_isolation' AND permissive = 'PERMISSIVE')::int AS tenant_match,
@@ -114,13 +120,18 @@ describeIfDb('Plan 4 new-relation tenant isolation', () => {
         GROUP BY tablename`,
       [PLAN4_RELATIONS],
     );
-    expect(result.rows).toHaveLength(18);
+    expect(result.rows).toHaveLength(19);
+    const foundationRows = result.rows.filter((row) => PLAN4_FOUNDATION_RELATIONS.includes(row.tablename));
+    expect(foundationRows).toHaveLength(18);
     const contextQualByRelation = {};
     for (const row of result.rows) {
       expect(row).toMatchObject({ tenant_match: 1, context_required: 1 });
       expect(row.context_with_check === null || row.context_with_check === row.context_qual).toBe(true);
       contextQualByRelation[row.tablename] = row.context_qual;
     }
+    expect(Object.fromEntries(foundationRows.map((row) => [row.tablename, row.context_qual]))).toEqual(
+      Object.fromEntries(PLAN4_FOUNDATION_RELATIONS.map((relation) => [relation, REQUIRED_CONTEXT_QUAL])),
+    );
     expect(contextQualByRelation).toEqual(Object.fromEntries(
       PLAN4_RELATIONS.map((relation) => [relation, REQUIRED_CONTEXT_QUAL]),
     ));
