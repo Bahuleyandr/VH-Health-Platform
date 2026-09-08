@@ -439,9 +439,11 @@ export const getMyBookings = async (req, res) => {
 // GET /investigations/bookings/queue — all pending bookings for lab staff
 export const getBookingQueue = async (req, res) => {
   try {
+    if (!req.tenantId) throw AppError.forbidden('Tenant context required', 'TENANT_CONTEXT_REQUIRED');
+    const tenantId = resolveTenantOrThrow(req);
     const { status, collection_type, from_date, to_date } = req.query;
-    let where = 'WHERE 1=1';
-    const params = [];
+    let where = 'WHERE ib.tenant_id = $1::uuid';
+    const params = [tenantId];
     if (status) { params.push(status); where += ` AND ib.status=$${params.length}`; }
     if (collection_type) { params.push(collection_type); where += ` AND ib.collection_type=$${params.length}`; }
     if (from_date) { params.push(from_date); where += ` AND DATE(ib.created_at)>=$${params.length}`; }
@@ -477,6 +479,7 @@ export const getBookingQueue = async (req, res) => {
 
     success(res, bookings, 'Booking queue fetched');
   } catch (e) {
+    if (e.code === 'TENANT_CONTEXT_REQUIRED') return relayAppError(res, e);
     logger.error('getBookingQueue error:', e);
     error(res, 'Failed to fetch booking queue', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
