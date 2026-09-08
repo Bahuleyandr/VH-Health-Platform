@@ -679,7 +679,7 @@ export function collectBypassReachers(repoRoot, { sourceFiles = null } = {}) {
       if (!text) continue;
       const read = /^\s*(SELECT|WITH)\b/i.test(text) || /\bRETURNING\b/i.test(text);
       if (readDispatcher && read !== /^\$queryRaw/.test(q.method)) continue;
-      const id = `${rel(call.getSourceFile())}:${line(call)}:via:${q.id}`;
+      const id = `${key(call)}:via:${q.id}`;
       if (unique.has(id)) continue;
       unique.add(id);
       const owner = ownFunction(call);

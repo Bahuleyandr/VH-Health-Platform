@@ -260,6 +260,7 @@ const cell = value =>
   String(value ?? '')
     .replaceAll('|', '\\|')
     .replaceAll('\n', ' ');
+const sourceLink = row => `[${cell(row.id)}](../../${row.file}#L${row.line})`;
 export function renderPin(pin) {
   const lines = [
     '# RLS bypass-reacher census — 2026-09-08',
@@ -347,7 +348,7 @@ export function renderPin(pin) {
     )) {
       const row = statements.get(entry.statement);
       lines.push(
-        `| ${cell(row.id)}${row.sink ? ` (sink: ${cell(row.sink)})` : ''} | ${cell(row.contexts.join(', '))} | ${cell(row.origins.join('; '))} | ${entry.intendedDisposition}; ${cell(entry.reason)} |`
+        `| ${sourceLink(row)}${row.sink ? ` (sink: ${cell(row.sink)})` : ''} | ${cell(row.contexts.join(', '))} | ${cell(row.origins.join('; '))} | ${entry.intendedDisposition}; ${cell(entry.reason)} |`
       );
     }
     if (!table.runtimeCandidates)
@@ -360,7 +361,7 @@ export function renderPin(pin) {
       '',
       table.entries
         .filter(entry => entry.statement.startsWith('apps/backend/src/migrations/'))
-        .map(entry => `- \`${entry.statement}\``)
+        .map(entry => `- ${sourceLink(statements.get(entry.statement))}`)
         .join('\n')
     );
   }
@@ -375,7 +376,7 @@ export function renderPin(pin) {
     row.contexts.includes('administrative-migration-candidate')
   ))
     lines.push(
-      `| ${row.id} | ${row.line} | ${row.tables.join(', ')} | ${row.catalogExpansion ? 'all 22; pending proof' : 'resolved references'} | ${cell(row.sql.slice(0, 180))} |`
+      `| ${sourceLink(row)} | ${row.line} | ${row.tables.join(', ')} | ${row.catalogExpansion ? 'all 22; pending proof' : 'resolved references'} | ${cell(row.sql.slice(0, 180))} |`
     );
   lines.push(
     '',

@@ -21,7 +21,7 @@ export function connectionInventory() {
       role: 'explicit connectionString or DATABASE_URL or TEST_DATABASE_URL; actual connection role requires query',
       bypassrls: 'environment-dependent; unverified',
       evidence:
-        'Imported by pharmacyOrderController for its pure parser helper. Direct backfill calls at lines 5/21/30/43 only address drug_compositions, pharmacy_catalog and drug_composition_curation_queue; no target-table intersection. Source scan counts this separately from the four imports within src.'
+        'Imported by pharmacyOrderController for its pure parser helper. Direct backfill calls at lines 5/21/31/45 only address drug_compositions, pharmacy_catalog and drug_composition_curation_queue; no target-table intersection. Source scan counts this separately from the four imports within src.'
     },
     {
       consumer: 'prisma / bare transaction clients',
@@ -42,7 +42,7 @@ export function connectionInventory() {
       role: 'SCHEDULER_LOCK_DATABASE_URL override or DATABASE_URL (declared vhhealth_runtime)',
       bypassrls: 'unknown for override; false for declared primary fallback',
       evidence:
-        'withDbAdvisoryLock:109/124 only pg_try_advisory_lock/pg_advisory_unlock. Callback SQL is traced separately; no target-table SQL on the lock connection.'
+        'withDbAdvisoryLock:111/125 only pg_try_advisory_lock/pg_advisory_unlock. Callback SQL is traced separately; no target-table SQL on the lock connection.'
     },
     {
       consumer: 'direct pg: src/services/clinical/bloodborneMarkerReconciliationService.js:78',

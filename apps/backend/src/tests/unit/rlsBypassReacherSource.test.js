@@ -36,6 +36,7 @@ export async function job() {
   const { sql } = queryFor('patients'); await raw(prisma, sql);
   await prisma.$queryRawUnsafe('WITH users AS (SELECT id FROM staff) SELECT * FROM users');
   await dynamicWrite('users');
+  await raw(prisma, 'SELECT uid FROM users'); await raw(prisma, 'SELECT id FROM staff');
 }
 function dynamicWrite(realm) { return prisma[realm].create({ data: {} }); }
 export function requestOnly() { return prisma.$queryRawUnsafe('SELECT id FROM report_updates'); }
@@ -101,6 +102,11 @@ it('follows imported jobs and SQL dispatchers while preserving tenant and explic
   );
   expect(sameLine).toHaveLength(2);
   expect(new Set(sameLine.map(row => row.id)).size).toBe(2);
+  const sameLineWrappers = trace.sql.filter(
+    row => row.file.endsWith('/services/queries.js') && row.line === 12 && row.sink
+  );
+  expect(sameLineWrappers).toHaveLength(2);
+  expect(new Set(sameLineWrappers.map(row => row.id)).size).toBe(2);
 });
 
 it('resolves destructured SQL maps and excludes a shadowing CTE name', () => {
