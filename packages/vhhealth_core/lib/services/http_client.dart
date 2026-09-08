@@ -593,7 +593,7 @@ class VHHttpClient {
   /// after a successful token refresh. Multipart files must be re-read on
   /// retry, so callers pass a `fileBuilder` that returns fresh `MultipartFile`
   /// instances (the `files` param is kept for backward compat with non-401
-  /// paths).
+  /// paths). Each attempt's timeout covers sending and the complete response.
   static Future<ApiResponse> multipart(
     String path, {
     Map<String, String> fields = const {},
@@ -606,15 +606,17 @@ class VHHttpClient {
 
     Future<ApiResponse> send() async {
       final headers = await _headers(path: path, auth: auth);
-      final req = http.MultipartRequest('POST', uri)
-        ..headers.addAll(headers)
-        ..fields.addAll(fields)
-        ..files.addAll(fileBuilder != null ? await fileBuilder() : files);
-      final streamed = await _client
-          .send(req)
-          .timeout(timeout ?? _uploadTimeout);
-      final body = await streamed.stream.bytesToString();
-      return ApiResponse.fromStreamed(streamed, body);
+      final abort = Completer<void>();
+      final req =
+          http.AbortableMultipartRequest(
+              'POST',
+              uri,
+              abortTrigger: abort.future,
+            )
+            ..headers.addAll(headers)
+            ..fields.addAll(fields)
+            ..files.addAll(fileBuilder != null ? await fileBuilder() : files);
+      return _multipartResponse(req, abort, timeout ?? _uploadTimeout);
     }
 
     final parsed = await send();
@@ -630,6 +632,79 @@ class VHHttpClient {
 
     _checkUnauthorized(parsed);
     return parsed;
+  }
+
+  static Future<ApiResponse> _multipartResponse(
+    http.AbortableMultipartRequest request,
+    Completer<void> abort,
+    Duration timeout,
+  ) async {
+    final result = Completer<ApiResponse>();
+    StreamSubscription<String>? bodySubscription;
+
+    void cancelBody() {
+      final subscription = bodySubscription;
+      bodySubscription = null;
+      if (subscription != null) {
+        // Cleanup must not delay or replace the original transport failure.
+        unawaited(
+          Future<void>.sync(subscription.cancel).catchError((Object _) {}),
+        );
+      }
+    }
+
+    void fail(Object error, StackTrace stack) {
+      if (!result.isCompleted) result.completeError(error, stack);
+    }
+
+    final deadline = Timer(timeout, () {
+      if (result.isCompleted) return;
+      fail(
+        TimeoutException('Multipart response timed out', timeout),
+        StackTrace.current,
+      );
+      abort.complete();
+      cancelBody();
+    });
+
+    Future<void> receive() async {
+      try {
+        final streamed = await _client.send(request);
+        if (result.isCompleted) {
+          bodySubscription = streamed.stream.toStringStream().listen(
+            (_) {},
+            onError: (Object _, StackTrace _) {},
+          );
+          cancelBody();
+          return;
+        }
+        final body = StringBuffer();
+        bodySubscription = streamed.stream.toStringStream().listen(
+          body.write,
+          onError: (Object error, StackTrace stack) {
+            fail(error, stack);
+            cancelBody();
+          },
+          onDone: () {
+            if (!result.isCompleted) {
+              result.complete(
+                ApiResponse.fromStreamed(streamed, body.toString()),
+              );
+            }
+          },
+        );
+      } catch (error, stack) {
+        fail(error, stack);
+        cancelBody();
+      }
+    }
+
+    unawaited(receive());
+    try {
+      return await result.future;
+    } finally {
+      deadline.cancel();
+    }
   }
 
   // ── Retry with exponential backoff on network + 5xx ───────────────────

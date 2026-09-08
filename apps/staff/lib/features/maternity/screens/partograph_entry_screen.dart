@@ -31,7 +31,7 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
 
   // Labour progress
   final _cervixCtrl = TextEditingController();
-  final _descentCtrl = TextEditingController();
+  int? _descent;
   final _ctxCountCtrl = TextEditingController();
   final _ctxDurCtrl = TextEditingController();
   String? _ctxIntensity;
@@ -62,7 +62,6 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
       _tempCtrl,
       _urineCtrl,
       _cervixCtrl,
-      _descentCtrl,
       _ctxCountCtrl,
       _ctxDurCtrl,
       _fhrCtrl,
@@ -102,7 +101,7 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
           'urine_protein': _urineProtein,
           'urine_acetone': _urineAcetone,
           'cervix_dilation_cm': _num(_cervixCtrl),
-          'descent_fifths_above_brim': _num(_descentCtrl),
+          'descent_fifths_above_brim': _descent,
           'contractions_per_10min': _num(_ctxCountCtrl),
           'contractions_duration_sec': _num(_ctxDurCtrl),
           'contractions_intensity': _ctxIntensity,
@@ -238,7 +237,26 @@ class _PartographEntryScreenState extends State<PartographEntryScreen> {
                 s.partographCervixDilation,
                 hint: s.partographCervixDilationHint,
               ),
-              _numField(_descentCtrl, s.partographDescent),
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: DropdownButtonFormField<int>(
+                  initialValue: _descent,
+                  decoration: InputDecoration(
+                    labelText: s.partographDescent,
+                    border: const OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  items: [
+                    DropdownMenuItem<int>(
+                      value: null,
+                      child: Text(s.labelOptional),
+                    ),
+                    for (var value = 0; value <= 5; value++)
+                      DropdownMenuItem(value: value, child: Text('$value')),
+                  ],
+                  onChanged: (value) => setState(() => _descent = value),
+                ),
+              ),
               _numField(_ctxCountCtrl, s.partographCtxPer10min),
               _numField(_ctxDurCtrl, s.partographCtxDuration),
               _enumField(s.partographCtxIntensity, _ctxIntensity, {

@@ -1,6 +1,6 @@
 // src/utils/logAudit.js
 
-import prisma from '../lib/prisma.js';
+import prisma, { setTenantTx } from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 
 /**
@@ -42,7 +42,7 @@ export async function logAudit(req, action, metadata = {}, options = {}) {
       ...(metadata ?? {}),
     };
 
-    await prisma.$queryRawUnsafe(
+    const writeAudit = (db) => db.$queryRawUnsafe(
       `INSERT INTO audit_logs
          (uid, role, action, resource, resource_id, ip_address, user_agent, metadata,
           actor_uid, subject_uid, acting_as_dependent)
@@ -60,6 +60,11 @@ export async function logAudit(req, action, metadata = {}, options = {}) {
       subjectUid,
       actingAsDependent,
     );
+    if (options.tenantId) {
+      await setTenantTx(options.tenantId, writeAudit);
+    } else {
+      await writeAudit(prisma);
+    }
 
     logger.info(
       `[AUDIT] ${action} | actor=${actorUid} subject=${subjectUid} acting_as=${actingAsDependent} | Role: ${role} | IP: ${ip} | Meta: ${JSON.stringify(enrichedMetadata)}`

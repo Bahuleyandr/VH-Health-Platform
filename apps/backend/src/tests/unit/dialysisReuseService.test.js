@@ -26,7 +26,7 @@ const decision = (marker, result = 'reactive') => ({
   contract_version: 2,
   status: result === 'reactive' ? 'restricted' : 'clear',
   asOf: '2026-09-07T10:00:00.000Z',
-  reasons: [],
+  reasons: result === 'reactive' ? [`DIALYSIS_${marker.toUpperCase()}_POSITIVE`] : [],
   evidence: 'marker',
   evidence_dated_on: '2026-09-07',
   isolation_class: result === 'reactive' ? marker : null,
@@ -67,7 +67,7 @@ describe('dialysisReuseService Phase 1 adapter binding', () => {
   test('pins detail requester populations by function name and keeps both flags default-off elsewhere', () => {
     const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../services/clinical');
     const serviceFiles = fs.readdirSync(root).filter((name) => name.endsWith('.js'));
-    expect(serviceFiles).toHaveLength(64);
+    expect(serviceFiles).toHaveLength(70);
     expect(serviceFiles).toContain('cathMigrationApprovalService.js');
     const exportedFunctions = serviceFiles.flatMap((name) => {
       const source = fs.readFileSync(path.join(root, name), 'utf8');
@@ -75,7 +75,7 @@ describe('dialysisReuseService Phase 1 adapter binding', () => {
         /export async function\s+(\w+)[\s\S]*?(?=\nexport (?:async )?function|\nexport const|$)/g,
       )].map((match) => ({ name: match[1], source: match[0] }));
     });
-    expect(exportedFunctions).toHaveLength(433);
+    expect(exportedFunctions).toHaveLength(472);
     expect(exportedFunctions.map((entry) => entry.name)).toEqual(expect.arrayContaining([
       'approveCathMigrationDispositions', 'verifyCathMigrationApprovalTx', 'verifyDocumentSignatureTx',
     ]));
@@ -127,9 +127,122 @@ describe('dialysisReuseService Phase 1 adapter binding', () => {
     expect(isolationDecisionFingerprint(changed)).not.toBe(isolationDecisionFingerprint(original));
     expect(isolationDecisionFingerprint(original)).not.toMatch(/hbsag|hcv|hiv|isolation_mixed/);
   });
+
+  test('isolationDecisionFingerprintChangesForLegacyRestrictionChanges', () => {
+    const reasons = ['DIALYSIS_HBSAG_POSITIVE', 'DIALYSIS_HCV_POSITIVE', 'DIALYSIS_HIV_POSITIVE'];
+    expect(reasons).toHaveLength(3);
+    const base = {
+      contract_version: 2, status: 'restricted', evidence: 'legacy_declaration',
+      evidence_dated_on: null, markers: [], reasons: [],
+    };
+    const fingerprints = reasons.map((reason) => isolationDecisionFingerprint({
+      ...base, reasons: [reason],
+    }));
+    expect(new Set(fingerprints).size).toBe(3);
+    expect(isolationDecisionFingerprint({ ...base, reasons }))
+      .toBe(isolationDecisionFingerprint({ ...base, reasons: [...reasons].reverse() }));
+    expect(JSON.stringify(fingerprints)).not.toMatch(/hbsag|hcv|hiv|isolation_mixed/i);
+  });
 });
 
 describe('cohort compatibility verdict-only boundary', () => {
+  test('cohortCompatibilityRejectsIncompleteMarkerProfilesWithoutDerivingLegacyProfiles', async () => {
+    const markers = ['hbsag', 'hcv', 'hiv'];
+    const incompleteShapes = ['legacy_only', 'mixed_legacy_and_marker', 'wrong_reason'];
+    expect(markers).toHaveLength(3);
+    expect(incompleteShapes).toHaveLength(3);
+    const cases = markers.flatMap((marker, index) => incompleteShapes.map((shape) => ({
+      marker, otherMarker: markers[(index + 1) % markers.length], shape,
+    })));
+    expect(cases).toHaveLength(9);
+    const request = {
+      tenantId: TENANT, patientUid: PATIENT_A, cohortPatientUids: [PATIENT_B],
+      machine: { id: 7, active: true }, db,
+    };
+    const results = [];
+    for (const entry of cases) {
+      const complete = profileDecision(entry.marker);
+      resolveDialysisIsolation.mockResolvedValue(new Map([
+        [PATIENT_A, complete], [PATIENT_B, complete],
+      ]));
+      await expect(cohortCompatibilityTx(request)).resolves.toEqual({ verdict: 'compatible' });
+      const incomplete = {
+        ...complete,
+        evidence: entry.shape === 'legacy_only' ? 'legacy_declaration' : 'marker',
+        reasons: entry.shape === 'mixed_legacy_and_marker'
+          ? [...complete.reasons, `DIALYSIS_${entry.otherMarker.toUpperCase()}_POSITIVE`]
+          : [`DIALYSIS_${(entry.shape === 'wrong_reason' ? entry.otherMarker : entry.marker).toUpperCase()}_POSITIVE`],
+        markers: entry.shape === 'legacy_only'
+          ? complete.markers.map((marker) => ({ ...marker, result: 'non_reactive' }))
+          : complete.markers,
+      };
+      resolveDialysisIsolation.mockResolvedValue(new Map([
+        [PATIENT_A, incomplete], [PATIENT_B, incomplete],
+      ]));
+      results.push(await cohortCompatibilityTx(request));
+    }
+    expect(results).toEqual(cases.map(() => ({ verdict: 'not_established' })));
+    expect(JSON.stringify(results)).not.toMatch(/hbsag|hcv|hiv|isolation_mixed/);
+  });
+
+  test('cohortCompatibilityDoesNotEstablishPendingOrIndeterminate', async () => {
+    const markers = ['hbsag', 'hcv', 'hiv'];
+    const unresolvedResults = ['pending', 'indeterminate'];
+    expect(markers).toHaveLength(3);
+    expect(unresolvedResults).toHaveLength(2);
+    const clearDecision = {
+      contract_version: 2,
+      status: 'clear',
+      asOf: '2026-09-07T10:00:00.000Z',
+      reasons: [],
+      evidence: 'marker',
+      evidence_dated_on: '2026-09-07',
+      markers: markers.map((marker, index) => ({
+        marker,
+        result: 'non_reactive',
+        tested_on: '2026-09-07',
+        marker_row_id: index + 1,
+        source: 'lab_result',
+      })),
+    };
+    const request = {
+      tenantId: TENANT,
+      patientUid: PATIENT_A,
+      cohortPatientUids: [PATIENT_B],
+      machine: { id: 7, active: true },
+      db,
+    };
+    resolveDialysisIsolation.mockResolvedValue(new Map([
+      [PATIENT_A, clearDecision], [PATIENT_B, clearDecision],
+    ]));
+    await expect(cohortCompatibilityTx(request)).resolves.toEqual({ verdict: 'compatible' });
+
+    const orders = ['single', 'unresolved_first', 'unresolved_last'];
+    expect(orders).toHaveLength(3);
+    const cases = markers.flatMap((marker) => unresolvedResults.flatMap((result) => (
+      orders.map((order) => ({ marker, result, order }))
+    )));
+    expect(cases).toHaveLength(18);
+    const results = [];
+    for (const unresolved of cases) {
+      const unknownDecision = {
+        ...clearDecision,
+        status: 'unknown',
+        markers: clearDecision.markers.map((entry) => (
+          entry.marker === unresolved.marker ? { ...entry, result: unresolved.result } : entry
+        )),
+      };
+      const negative = clearDecision.markers.find((entry) => entry.marker === unresolved.marker);
+      if (unresolved.order === 'unresolved_first') unknownDecision.markers.push(negative);
+      if (unresolved.order === 'unresolved_last') unknownDecision.markers.unshift(negative);
+      resolveDialysisIsolation.mockResolvedValue(new Map([
+        [PATIENT_A, unknownDecision], [PATIENT_B, clearDecision],
+      ]));
+      results.push(await cohortCompatibilityTx(request));
+    }
+    expect(results).toEqual(cases.map(() => ({ verdict: 'not_established' })));
+  });
+
   test('cohortCompatibilityTx returns exactly a by-value verdict with no derived profile', async () => {
     resolveDialysisIsolation.mockResolvedValue(new Map([
       [PATIENT_A, profileDecision('hbsag')],
@@ -149,6 +262,55 @@ describe('cohort compatibility verdict-only boundary', () => {
       includeMarkers: true,
       includeIsolationClass: false,
     }));
+  });
+
+  test('cohortCompatibilityPreservesHistoricalReactiveEvidence', async () => {
+    const markers = ['hbsag', 'hcv', 'hiv'];
+    expect(markers).toHaveLength(3);
+    const clearDecision = {
+      contract_version: 2,
+      status: 'clear',
+      asOf: '2026-09-07T10:00:00.000Z',
+      reasons: [],
+      evidence: 'marker',
+      evidence_dated_on: '2026-09-07',
+      markers: markers.map((marker, index) => ({
+        marker, result: 'non_reactive', tested_on: '2026-09-07',
+        marker_row_id: index + 1, source: 'lab_result',
+      })),
+    };
+    const orders = ['ascending', 'descending'];
+    expect(orders).toHaveLength(2);
+    const cases = markers.flatMap((marker) => orders.map((order) => ({ marker, order })));
+    expect(cases).toHaveLength(6);
+    const results = [];
+    for (const entry of cases) {
+      const historicalMarker = {
+        marker: entry.marker, result: 'reactive', tested_on: '2026-09-01',
+        marker_row_id: 10, source: 'lab_result',
+      };
+      const restricted = {
+        ...clearDecision,
+        status: 'restricted',
+        reasons: [`DIALYSIS_${entry.marker.toUpperCase()}_POSITIVE`],
+        markers: entry.order === 'ascending'
+          ? [historicalMarker, ...clearDecision.markers]
+          : [...clearDecision.markers, historicalMarker],
+      };
+      const request = {
+        tenantId: TENANT, patientUid: PATIENT_A, cohortPatientUids: [PATIENT_B],
+        machine: { id: 7, active: true }, db,
+      };
+      resolveDialysisIsolation.mockResolvedValue(new Map([
+        [PATIENT_A, restricted], [PATIENT_B, restricted],
+      ]));
+      await expect(cohortCompatibilityTx(request)).resolves.toEqual({ verdict: 'compatible' });
+      resolveDialysisIsolation.mockResolvedValue(new Map([
+        [PATIENT_A, restricted], [PATIENT_B, clearDecision],
+      ]));
+      results.push(await cohortCompatibilityTx(request));
+    }
+    expect(results).toEqual(cases.map(() => ({ verdict: 'incompatible' })));
   });
 
   test('distinguishes mismatched profiles and refuses inactive selected machines', async () => {

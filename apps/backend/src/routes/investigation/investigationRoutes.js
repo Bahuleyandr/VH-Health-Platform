@@ -7,6 +7,8 @@ import * as investigationController from '../../controllers/investigation/invest
 import * as orderController from '../../controllers/investigation/orderController.js';
 import * as uploadController from '../../controllers/investigation/uploadController.js';
 import prisma from '../../lib/prisma.js';
+import { AppError } from '../../utils/AppError.js';
+import { relayAppError } from '../../utils/responseHelper.js';
 import { sanitizeInvestigationFields } from '../../middleware/sanitizeMiddleware.js';
 import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
 import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
@@ -186,6 +188,10 @@ const guardPatientUidParam = investigationGuard(
   (req) => (req.params?.uid ? { uid: req.params.uid } : null),
   { requirePatientContext: true },
 );
+function requireUidTenantContext(req, res, next) {
+  if (!req.tenantId) return relayAppError(res, AppError.forbidden('Tenant context required', 'TENANT_CONTEXT_REQUIRED'));
+  return next();
+}
 const guardOrderBodyPatient = investigationGuard(
   (req) => (req.body?.patient_id != null && req.body.patient_id !== '' ? { id: req.body.patient_id } : null),
   { requirePatientContext: true },
@@ -226,7 +232,7 @@ wrapAutoRBAC(router, 'investigationRoutes', {
     ['/patient/:patient_id', patientIdValidator, guardPatientIdParam, investigationController.getPatientInvestigations],
     ['/doctor/:doctor_id', doctorIdValidator, investigationController.getDoctorInvestigations],
     ['/type/:type', typeValidator, investigationController.getInvestigationsByType],
-    ['/uid/:uid', guardPatientUidParam, investigationController.getInvestigationsByUID],
+    ['/uid/:uid', requireUidTenantContext, guardPatientUidParam, investigationController.getInvestigationsByUID],
     ['/:id/files', guardInvestigationRow, uploadController.getFiles],
     ['/:id/files/:fileId', guardInvestigationRow, uploadController.getFileInfo],
     ['/:id/files/:fileId/download', guardInvestigationRow, uploadController.downloadFile],

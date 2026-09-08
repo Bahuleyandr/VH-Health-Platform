@@ -1,14 +1,13 @@
 import { jest } from '@jest/globals';
 
 const queryUnsafeMock = jest.fn();
+const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   circuitBreakerStatus: jest.fn(() => ({ open: false, consecutiveFailures: 0 })),
   default: {
     $queryRawUnsafe: queryUnsafeMock,
   },
-  // Sibling controller dependencies statically import both helpers, so the
-  // mock must provide them for ESM linking even though getTodayQueue calls neither.
   setTenant: jest.fn(async (_tenantId, cb) => cb({ $queryRawUnsafe: queryUnsafeMock })),
   setTenantTx: jest.fn(async (_tenantId, cb) => cb({ $queryRawUnsafe: queryUnsafeMock })),
   isTenantTransactionClient: () => true,
@@ -42,17 +41,19 @@ describe('appointmentWorkflowController.getTodayQueue IST date handling', () => 
     };
 
     await getTodayQueue({
+      tenantId: TENANT_ID,
       query: { doctor_id: '9' },
       params: {},
       user: { id: 20, role: 'RECEPTIONIST' },
     }, res);
 
     expect(queryUnsafeMock).toHaveBeenCalledTimes(1);
-    const [sql, today, doctorId] = queryUnsafeMock.mock.calls[0];
+    const [sql, tenantId, today, doctorId] = queryUnsafeMock.mock.calls[0];
+    expect(tenantId).toBe(TENANT_ID);
     expect(today).toBe('2026-05-22');
     expect(doctorId).toBe(9);
-    expect(sql).toContain('a.appointment_date::date = $1::date');
-    expect(sql).toContain("DATE(arrival_at AT TIME ZONE 'Asia/Kolkata') = $1::date");
+    expect(sql).toContain('a.appointment_date::date = $2::date');
+    expect(sql).toContain("DATE(arrival_at AT TIME ZONE 'Asia/Kolkata') = $2::date");
     expect(sql).not.toContain('CURRENT_DATE');
     expect(res.status).toHaveBeenCalledWith(200);
   });
@@ -68,18 +69,20 @@ describe('appointmentWorkflowController.getTodayQueue IST date handling', () => 
     };
 
     await getTodayQueue({
+      tenantId: TENANT_ID,
       query: { doctor_id: '99' },
       params: {},
       user: { id: 11, role: 'DOCTOR' },
     }, res);
 
     expect(queryUnsafeMock).toHaveBeenCalledTimes(2);
-    const [sql, _today, doctorId, department] = queryUnsafeMock.mock.calls[1];
+    const [sql, tenantId, _today, doctorId, department] = queryUnsafeMock.mock.calls[1];
+    expect(tenantId).toBe(TENANT_ID);
     expect(doctorId).toBe(11);
     expect(department).toBe('General Medicine');
-    expect(sql).toContain('a.doctor_id=$2');
+    expect(sql).toContain('a.doctor_id=$3');
     expect(sql).toContain('a.doctor_id IS NULL');
-    expect(sql).toContain("LOWER(COALESCE(a.department, '')) = LOWER($3)");
+    expect(sql).toContain("LOWER(COALESCE(a.department, '')) = LOWER($4)");
     expect(res.status).toHaveBeenCalledWith(200);
   });
 
@@ -91,6 +94,7 @@ describe('appointmentWorkflowController.getTodayQueue IST date handling', () => 
     };
 
     await getTodayQueue({
+      tenantId: TENANT_ID,
       query: {},
       params: {},
       user: { id: 12, role: 'HOUSEKEEPING_STAFF' },

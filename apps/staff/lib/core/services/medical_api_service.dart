@@ -92,6 +92,40 @@ class MedicalApiService {
     throw Exception(resp.failureMessage());
   }
 
+  static Future<Future<List<http.MultipartFile>> Function()>
+  _snapshotFileBuilder(
+    String field,
+    String filePath, {
+    String? filename,
+    int maxBytes = 10 * 1024 * 1024,
+  }) async {
+    final file = await ApiClient.multipartFileFromPath(
+      field,
+      filePath,
+      filename: filename,
+    );
+    if (file.length > maxBytes) {
+      throw const FileSystemException('File exceeds the upload size limit.');
+    }
+    // Refresh must replay the selected material, even if its source changes.
+    final buffer = BytesBuilder(copy: false);
+    await for (final chunk in file.finalize()) {
+      if (chunk.length > maxBytes - buffer.length) {
+        throw const FileSystemException('File exceeds the upload size limit.');
+      }
+      buffer.add(chunk);
+    }
+    final bytes = buffer.takeBytes();
+    return () async => [
+      http.MultipartFile.fromBytes(
+        file.field,
+        bytes,
+        filename: file.filename,
+        contentType: file.contentType,
+      ),
+    ];
+  }
+
   // ─── Consultations ──────────────────────────────────────────────────────────
 
   /// POST /staff/medical/consultations
@@ -154,17 +188,15 @@ class MedicalApiService {
         'notes': ?notes,
         'date': ?date,
       };
-      final files = [
-        await ApiClient.multipartFileFromPath(
-          'file',
-          filePath,
-          filename: fileName,
-        ),
-      ];
+      final fileBuilder = await _snapshotFileBuilder(
+        'file',
+        filePath,
+        filename: fileName,
+      );
       final resp = await ApiClient.multipart(
         '/staff/medical/investigations',
         fields: fields,
-        files: files,
+        fileBuilder: fileBuilder,
       );
       return _handle(resp);
     }
@@ -276,17 +308,15 @@ class MedicalApiService {
       if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
     };
     if (slipPath != null) {
-      final files = [
-        await ApiClient.multipartFileFromPath(
-          'slip_photo',
-          slipPath,
-          filename: slipFileName,
-        ),
-      ];
+      final fileBuilder = await _snapshotFileBuilder(
+        'slip_photo',
+        slipPath,
+        filename: slipFileName,
+      );
       final resp = await ApiClient.multipart(
         '/investigations/bookings/create',
         fields: fields,
-        files: files,
+        fileBuilder: fileBuilder,
       );
       return _handle(resp);
     }
@@ -348,17 +378,15 @@ class MedicalApiService {
     String? fileName,
   }) async {
     final fields = <String, String>{'result_notes': ?notes};
-    final files = [
-      await ApiClient.multipartFileFromPath(
-        'file',
-        filePath,
-        filename: fileName,
-      ),
-    ];
+    final fileBuilder = await _snapshotFileBuilder(
+      'file',
+      filePath,
+      filename: fileName,
+    );
     final resp = await ApiClient.multipart(
       '/investigations/bookings/$id/result',
       fields: fields,
-      files: files,
+      fileBuilder: fileBuilder,
     );
     return _handle(resp);
   }
@@ -465,13 +493,14 @@ class MedicalApiService {
           fields[key] = value is String ? value : jsonEncode(value);
         }
       });
-      final files = [
-        await ApiClient.multipartFileFromPath('handwritten_photo', photo.path),
-      ];
+      final fileBuilder = await _snapshotFileBuilder(
+        'handwritten_photo',
+        photo.path,
+      );
       final resp = await ApiClient.multipart(
         '/prescriptions/create',
         fields: fields,
-        files: files,
+        fileBuilder: fileBuilder,
       );
       return _handle(resp);
     }
@@ -1159,17 +1188,16 @@ class MedicalApiService {
       'record_date': ?recordDate,
       if (notes != null && notes.trim().isNotEmpty) 'notes': notes.trim(),
     };
-    final files = [
-      await ApiClient.multipartFileFromPath(
-        'file',
-        filePath,
-        filename: fileName,
-      ),
-    ];
+    final fileBuilder = await _snapshotFileBuilder(
+      'file',
+      filePath,
+      filename: fileName,
+      maxBytes: 25 * 1024 * 1024,
+    );
     final resp = await ApiClient.multipart(
       '/appointments/patient/records/upload',
       fields: fields,
-      files: files,
+      fileBuilder: fileBuilder,
     );
     return _handle(resp);
   }
@@ -1225,6 +1253,7 @@ class MedicalApiService {
     required Uint8List pngBytes,
     String? signerName,
   }) async {
+    final signatureBytes = Uint8List.fromList(pngBytes);
     final resp = await ApiClient.multipart(
       '/consent/$consentId/signatures',
       fields: {
@@ -1232,10 +1261,10 @@ class MedicalApiService {
         if (signerName != null && signerName.trim().isNotEmpty)
           'signer_name': signerName.trim(),
       },
-      files: [
+      fileBuilder: () async => [
         http.MultipartFile.fromBytes(
           'file',
-          pngBytes,
+          signatureBytes,
           filename: '$signatureRole-signature.png',
           contentType: MediaType('image', 'png'),
         ),

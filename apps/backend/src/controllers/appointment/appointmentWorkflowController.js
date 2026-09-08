@@ -54,16 +54,17 @@ function canViewFullOpQueue(role) {
   return FULL_OP_QUEUE_ROLES.has(String(role || '').toUpperCase());
 }
 
-async function resolveDoctorDepartmentForQueue(doctorId) {
+async function resolveDoctorDepartmentForQueue(db, doctorId, tenantId) {
   const parsed = Number.parseInt(doctorId, 10);
   if (!Number.isInteger(parsed) || parsed <= 0) return null;
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await db.$queryRawUnsafe(
     `SELECT COALESCE(dept.name, doc.department) AS department
        FROM doctors doc
-       LEFT JOIN departments dept ON dept.id = doc.department_id
-      WHERE doc.user_id = $1::int OR doc.id = $1::int
+       LEFT JOIN departments dept ON dept.id = doc.department_id AND dept.tenant_id = $2::uuid
+      WHERE (doc.user_id = $1::int OR doc.id = $1::int) AND doc.tenant_id = $2::uuid
       LIMIT 1`,
     parsed,
+    tenantId,
   );
   const department = rows[0]?.department;
   return department ? String(department).trim().slice(0, 100) : null;
@@ -133,13 +134,14 @@ async function logAppointmentWorkflowAudit(req, action, appointment, extra = {})
 
 export const getDoctorOptions = async (req, res) => {
   try {
+    const tenantId = requireTenantId(req);
     const listQuery = parseListQuery(req.query, {
       defaultLimit: 100,
       maxLimit: 500,
       defaultSortBy: 'name',
       defaultSortOrder: 'ASC',
     });
-    const params = [];
+    const params = [tenantId];
     // Picker endpoint — INNER JOIN with users.role='DOCTOR' so every option
     // is bookable. Pre-fix the LEFT JOIN returned rows whose linked user
     // was a PATIENT (or no user at all), and the receptionist's selection
@@ -150,6 +152,8 @@ export const getDoctorOptions = async (req, res) => {
     //   2026-05-10-emergency-walk-in-receptionist-doctor-handoff-id-mismatch
     //   2026-05-10-walk-in-opd-receptionist-doctor-roster-not-assignable
     const where = [
+      'd.tenant_id = $1::uuid',
+      'u.tenant_id = $1::uuid',
       'd.is_active = true',
       `u.role = 'DOCTOR'`,
       'u.is_active = true',
@@ -180,37 +184,40 @@ export const getDoctorOptions = async (req, res) => {
       where.push(`(COALESCE(d.age_range, 'all') = $${params.length} OR COALESCE(d.age_range, 'all') = 'all')`);
     }
 
-    const countRows = await prisma.$queryRawUnsafe(
-      `SELECT COUNT(*)::int AS total
-         FROM doctors d
-         INNER JOIN users u ON u.id = d.user_id
-        WHERE ${where.join(' AND ')}`,
-      ...params,
-    );
+    const { doctors, total } = await setTenantTx(tenantId, async (tx) => {
+      const countRows = await tx.$queryRawUnsafe(
+        `SELECT COUNT(*)::int AS total
+           FROM doctors d
+           INNER JOIN users u ON u.id = d.user_id
+          WHERE ${where.join(' AND ')}`,
+        ...params,
+      );
 
-    const total = countRows[0]?.total ?? 0;
-    params.push(listQuery.limit, listQuery.offset);
-    // `id` and `user_id` are both set to users.id — the canonical
-    // identifier the booking endpoint stores in appointments.doctor_id.
-    // `doctor_row_id` exposes the legacy doctors.id PK for admin pages
-    // that still key on it. Callers should submit `id` (== user_id).
-    const doctors = await prisma.$queryRawUnsafe(
-      `SELECT
-          u.id AS id,
-          u.uid AS uid,
-          u.id AS user_id,
-          d.id AS doctor_row_id,
-          COALESCE(u.name, d.name) AS name,
-          COALESCE(d.department, '') AS department,
-          COALESCE(d.specialty, '') AS specialization,
-          d.is_available
-         FROM doctors d
-         INNER JOIN users u ON u.id = d.user_id
-        WHERE ${where.join(' AND ')}
-        ORDER BY COALESCE(u.name, d.name) ASC
-        LIMIT $${params.length - 1} OFFSET $${params.length}`,
-      ...params,
-    );
+      const total = countRows[0]?.total ?? 0;
+      params.push(listQuery.limit, listQuery.offset);
+      // `id` and `user_id` are both set to users.id — the canonical
+      // identifier the booking endpoint stores in appointments.doctor_id.
+      // `doctor_row_id` exposes the legacy doctors.id PK for admin pages
+      // that still key on it. Callers should submit `id` (== user_id).
+      const doctors = await tx.$queryRawUnsafe(
+        `SELECT
+            u.id AS id,
+            u.uid AS uid,
+            u.id AS user_id,
+            d.id AS doctor_row_id,
+            COALESCE(u.name, d.name) AS name,
+            COALESCE(d.department, '') AS department,
+            COALESCE(d.specialty, '') AS specialization,
+            d.is_available
+           FROM doctors d
+           INNER JOIN users u ON u.id = d.user_id
+          WHERE ${where.join(' AND ')}
+          ORDER BY COALESCE(u.name, d.name) ASC
+          LIMIT $${params.length - 1} OFFSET $${params.length}`,
+        ...params,
+      );
+      return { doctors, total };
+    });
 
     success(res, {
       doctors,
@@ -218,7 +225,7 @@ export const getDoctorOptions = async (req, res) => {
     }, 'Appointment doctor options retrieved successfully');
   } catch (err) {
     logger.error('Error fetching appointment doctor options:', err);
-    error(res, 'Failed to retrieve doctor options', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to retrieve doctor options');
   }
 };
 
@@ -895,6 +902,7 @@ export const cancelAppointment = async (req, res) => {
  */
 export const getTodayQueue = async (req, res) => {
   try {
+    const tenantId = requireTenantId(req);
     const { department } = req.query;
     const role = String(req.user?.role || '').toUpperCase();
     const requesterIsDoctor = isDoctor(role);
@@ -939,124 +947,126 @@ export const getTodayQueue = async (req, res) => {
       doctorId = parsed;
     }
 
-    const doctorDepartment = requesterIsDoctor && doctorId !== null
-      ? await resolveDoctorDepartmentForQueue(doctorId)
-      : null;
+    const result = await setTenantTx(tenantId, async (tx) => {
+      const doctorDepartment = requesterIsDoctor && doctorId !== null
+        ? await resolveDoctorDepartmentForQueue(tx, doctorId, tenantId)
+        : null;
 
-    const today = istDateString();
-    let where = `WHERE a.appointment_date::date = $1::date AND a.status NOT IN ('CANCELLED')`;
-    const params = [today];
-    if (doctorId !== null) {
-      params.push(doctorId);
-      const doctorParamIndex = params.length;
-      if (requesterIsDoctor && doctorDepartment) {
-        params.push(doctorDepartment);
-        where += ` AND (a.doctor_id=$${doctorParamIndex} OR (a.doctor_id IS NULL AND LOWER(COALESCE(a.department, '')) = LOWER($${params.length})))`;
-      } else {
-        where += ` AND a.doctor_id=$${doctorParamIndex}`;
+      const today = istDateString();
+      let where = `WHERE a.tenant_id = $1::uuid AND a.appointment_date::date = $2::date AND a.status NOT IN ('CANCELLED')`;
+      const params = [tenantId, today];
+      if (doctorId !== null) {
+        params.push(doctorId);
+        const doctorParamIndex = params.length;
+        if (requesterIsDoctor && doctorDepartment) {
+          params.push(doctorDepartment);
+          where += ` AND (a.doctor_id=$${doctorParamIndex} OR (a.doctor_id IS NULL AND LOWER(COALESCE(a.department, '')) = LOWER($${params.length})))`;
+        } else {
+          where += ` AND a.doctor_id=$${doctorParamIndex}`;
+        }
       }
-    }
-    if (department) { params.push(department); where += ` AND a.department=$${params.length}`; }
+      if (department) { params.push(department); where += ` AND a.department=$${params.length}`; }
 
-    // Surface ER triage on the doctor's appointment queue.
-    // emergency_visits has no FK back to appointments; the canonical
-    // link is patient_uid + same-day arrival. The doctor's UI needs:
-    //   * triage_priority — the recorded ED scale code (esi_*, ats_*,
-    //     ctas_*, manchester_*), or an esi_N derived from the
-    //     appointment's integer triage_acuity (lower number = more urgent)
-    //   * emergency_visit_id — so the row can deep-link into the ED chart
-    //   * acuity_rank — a small integer for client-side sort hints
-    //   * is_emergent — boolean banner flag
-    // Sort rule: emergent acuity (rank 1-2 on ANY scale) first, then
-    // existing token + scheduled-time order. Rank 3-5 (or no ED row)
-    // fall back to the original order. Findings:
-    // 2026-05-10-emergency-walk-in-nurse-doctor-queue-missing-acuity,
-    // 2026-05-22-emergency-walk-in-nurse-2dd88574 (ATS-2 unranked).
-    //
-    // ACUITY_RANK_SQL maps every triage scale the ED accepts onto the
-    // shared 1..5 urgency rank (1 = most urgent). It mirrors
-    // edOperationsService.PRIORITY_RANK_SQL so the doctor queue and the
-    // ED board agree on what "emergent" means. `prio` is the COALESCE'd
-    // priority string injected by interpolation below (no user input).
-    const acuityRankCase = (prio) => `CASE LOWER(COALESCE(${prio}, ''))
-          WHEN 'esi_1' THEN 1 WHEN 'manchester_red' THEN 1 WHEN 'ctas_1' THEN 1 WHEN 'ats_1' THEN 1
-          WHEN 'esi_2' THEN 2 WHEN 'manchester_orange' THEN 2 WHEN 'ctas_2' THEN 2 WHEN 'ats_2' THEN 2
-          WHEN 'esi_3' THEN 3 WHEN 'manchester_yellow' THEN 3 WHEN 'ctas_3' THEN 3 WHEN 'ats_3' THEN 3
-          WHEN 'esi_4' THEN 4 WHEN 'manchester_green' THEN 4 WHEN 'ctas_4' THEN 4 WHEN 'ats_4' THEN 4
-          WHEN 'esi_5' THEN 5 WHEN 'manchester_blue' THEN 5 WHEN 'ctas_5' THEN 5 WHEN 'ats_5' THEN 5
-          ELSE NULL
-        END`;
-    // The COALESCE'd triage-priority expression, reused in every derived
-    // column so they stay in lock-step. No params — pure column SQL.
-    const triagePrioExpr = `COALESCE(
-          ed.triage_priority,
-          CASE WHEN a.triage_acuity BETWEEN 1 AND 5 THEN 'esi_' || a.triage_acuity::text ELSE NULL END
-        )`;
-    const result = await prisma.$queryRawUnsafe(`
-      WITH ed_today AS (
-        SELECT DISTINCT ON (patient_uid)
-          id AS emergency_visit_id,
-          patient_uid,
-          triage_priority,
-          status        AS ed_status,
-          chief_complaint AS ed_chief_complaint,
-          arrival_at
-        FROM emergency_visits
-        WHERE DATE(arrival_at AT TIME ZONE 'Asia/Kolkata') = $1::date
-          AND COALESCE(disposition, '') NOT IN ('discharged', 'lama', 'expired')
-        ORDER BY patient_uid, arrival_at DESC
-      ),
-      -- ANC context for the queue. One ongoing pregnancy per patient
-      -- (DISTINCT ON mirrors ed_today). lmp_date drives the GA the
-      -- receptionist confirms verbally at check-in. Finding:
-      -- 2026-05-09-obstetric-anc-receptionist-walkin-response-missing-ga.
-      anc_preg AS (
-        SELECT DISTINCT ON (patient_uid)
-          id AS pregnancy_id,
-          patient_uid,
-          lmp_date,
-          edd_date
-        FROM maternity_pregnancies
-        WHERE status = 'ongoing'
-        ORDER BY patient_uid, created_at DESC
-      )
-      SELECT a.id, a.patient_id, a.doctor_id, a.appointment_date, a.appointment_time,
-        a.status, a.reason, a.notes, a.token_number, a.department, a.confirmed_at, a.created_at, a.updated_at,
-        a.visit_type, a.triage_acuity, a.queue_id,
-        q.queue_kind, q.queue_label, q.status AS queue_status,
-        q.queue_date, q.department_name AS queue_department_name,
-        q.doctor_id AS queue_doctor_id,
-        p.name as patient_name, p.phone as patient_phone, p.blood_group, p.uid as patient_uid,
-        d.name as doctor_display_name, doc.specialty AS specialization,
-        doc.department as doctor_department,
-        mp.pregnancy_id,
-        mp.lmp_date  AS anc_lmp_date,
-        mp.edd_date  AS anc_edd_date,
-        ed.emergency_visit_id,
-        ${triagePrioExpr} AS triage_priority,
-        ed.ed_status,
-        ed.ed_chief_complaint,
-        ${acuityRankCase(triagePrioExpr)} AS acuity_rank,
-        CASE
-          WHEN ${acuityRankCase(triagePrioExpr)} IN (1, 2) THEN TRUE
-          ELSE FALSE
-        END AS is_emergent
-      FROM appointments a
-      LEFT JOIN users p ON a.patient_id = p.id
-      LEFT JOIN users d ON a.doctor_id = d.id
-      LEFT JOIN doctors doc ON doc.user_id = a.doctor_id
-      LEFT JOIN appointment_queues q ON q.id = a.queue_id
-      LEFT JOIN ed_today ed ON ed.patient_uid = p.uid
-      LEFT JOIN anc_preg mp ON mp.patient_uid = p.uid
-      ${where}
-      ORDER BY
-        -- Triaged ER rows (any scale, rank 1-5) jump ahead of routine
-        -- OPD tokens; everything else keeps its token/time order.
-        CASE WHEN ${acuityRankCase(triagePrioExpr)} IS NOT NULL THEN 0 ELSE 1 END,
-        COALESCE(${acuityRankCase(triagePrioExpr)}, 9),
-        a.token_number NULLS LAST,
-        a.appointment_time
-    `, ...params);
+      // Surface ER triage on the doctor's appointment queue.
+      // emergency_visits has no FK back to appointments; the canonical
+      // link is patient_uid + same-day arrival. The doctor's UI needs:
+      //   * triage_priority — the recorded ED scale code (esi_*, ats_*,
+      //     ctas_*, manchester_*), or an esi_N derived from the
+      //     appointment's integer triage_acuity (lower number = more urgent)
+      //   * emergency_visit_id — so the row can deep-link into the ED chart
+      //   * acuity_rank — a small integer for client-side sort hints
+      //   * is_emergent — boolean banner flag
+      // Sort rule: emergent acuity (rank 1-2 on ANY scale) first, then
+      // existing token + scheduled-time order. Rank 3-5 (or no ED row)
+      // fall back to the original order. Findings:
+      // 2026-05-10-emergency-walk-in-nurse-doctor-queue-missing-acuity,
+      // 2026-05-22-emergency-walk-in-nurse-2dd88574 (ATS-2 unranked).
+      //
+      // ACUITY_RANK_SQL maps every triage scale the ED accepts onto the
+      // shared 1..5 urgency rank (1 = most urgent). It mirrors
+      // edOperationsService.PRIORITY_RANK_SQL so the doctor queue and the
+      // ED board agree on what "emergent" means. `prio` is the COALESCE'd
+      // priority string injected by interpolation below (no user input).
+      const acuityRankCase = (prio) => `CASE LOWER(COALESCE(${prio}, ''))
+            WHEN 'esi_1' THEN 1 WHEN 'manchester_red' THEN 1 WHEN 'ctas_1' THEN 1 WHEN 'ats_1' THEN 1
+            WHEN 'esi_2' THEN 2 WHEN 'manchester_orange' THEN 2 WHEN 'ctas_2' THEN 2 WHEN 'ats_2' THEN 2
+            WHEN 'esi_3' THEN 3 WHEN 'manchester_yellow' THEN 3 WHEN 'ctas_3' THEN 3 WHEN 'ats_3' THEN 3
+            WHEN 'esi_4' THEN 4 WHEN 'manchester_green' THEN 4 WHEN 'ctas_4' THEN 4 WHEN 'ats_4' THEN 4
+            WHEN 'esi_5' THEN 5 WHEN 'manchester_blue' THEN 5 WHEN 'ctas_5' THEN 5 WHEN 'ats_5' THEN 5
+            ELSE NULL
+          END`;
+      // The COALESCE'd triage-priority expression, reused in every derived
+      // column so they stay in lock-step. No params — pure column SQL.
+      const triagePrioExpr = `COALESCE(
+            ed.triage_priority,
+            CASE WHEN a.triage_acuity BETWEEN 1 AND 5 THEN 'esi_' || a.triage_acuity::text ELSE NULL END
+          )`;
+      return tx.$queryRawUnsafe(`
+        WITH ed_today AS (
+          SELECT DISTINCT ON (patient_uid)
+            id AS emergency_visit_id,
+            patient_uid,
+            triage_priority,
+            status        AS ed_status,
+            chief_complaint AS ed_chief_complaint,
+            arrival_at
+          FROM emergency_visits
+          WHERE tenant_id = $1::uuid AND DATE(arrival_at AT TIME ZONE 'Asia/Kolkata') = $2::date
+            AND COALESCE(disposition, '') NOT IN ('discharged', 'lama', 'expired')
+          ORDER BY patient_uid, arrival_at DESC
+        ),
+        -- ANC context for the queue. One ongoing pregnancy per patient
+        -- (DISTINCT ON mirrors ed_today). lmp_date drives the GA the
+        -- receptionist confirms verbally at check-in. Finding:
+        -- 2026-05-09-obstetric-anc-receptionist-walkin-response-missing-ga.
+        anc_preg AS (
+          SELECT DISTINCT ON (patient_uid)
+            id AS pregnancy_id,
+            patient_uid,
+            lmp_date,
+            edd_date
+          FROM maternity_pregnancies
+          WHERE tenant_id = $1::uuid AND status = 'ongoing'
+          ORDER BY patient_uid, created_at DESC
+        )
+        SELECT a.id, a.patient_id, a.doctor_id, a.appointment_date, a.appointment_time,
+          a.status, a.reason, a.notes, a.token_number, a.department, a.confirmed_at, a.created_at, a.updated_at,
+          a.visit_type, a.triage_acuity, a.queue_id,
+          q.queue_kind, q.queue_label, q.status AS queue_status,
+          q.queue_date, q.department_name AS queue_department_name,
+          q.doctor_id AS queue_doctor_id,
+          p.name as patient_name, p.phone as patient_phone, p.blood_group, p.uid as patient_uid,
+          d.name as doctor_display_name, doc.specialty AS specialization,
+          doc.department as doctor_department,
+          mp.pregnancy_id,
+          mp.lmp_date  AS anc_lmp_date,
+          mp.edd_date  AS anc_edd_date,
+          ed.emergency_visit_id,
+          ${triagePrioExpr} AS triage_priority,
+          ed.ed_status,
+          ed.ed_chief_complaint,
+          ${acuityRankCase(triagePrioExpr)} AS acuity_rank,
+          CASE
+            WHEN ${acuityRankCase(triagePrioExpr)} IN (1, 2) THEN TRUE
+            ELSE FALSE
+          END AS is_emergent
+        FROM appointments a
+        LEFT JOIN users p ON a.patient_id = p.id AND p.tenant_id = $1::uuid
+        LEFT JOIN users d ON a.doctor_id = d.id AND d.tenant_id = $1::uuid
+        LEFT JOIN doctors doc ON doc.user_id = a.doctor_id AND doc.tenant_id = $1::uuid
+        LEFT JOIN appointment_queues q ON q.id = a.queue_id AND q.tenant_id = $1::uuid
+        LEFT JOIN ed_today ed ON ed.patient_uid = p.uid
+        LEFT JOIN anc_preg mp ON mp.patient_uid = p.uid
+        ${where}
+        ORDER BY
+          -- Triaged ER rows (any scale, rank 1-5) jump ahead of routine
+          -- OPD tokens; everything else keeps its token/time order.
+          CASE WHEN ${acuityRankCase(triagePrioExpr)} IS NOT NULL THEN 0 ELSE 1 END,
+          COALESCE(${acuityRankCase(triagePrioExpr)}, 9),
+          a.token_number NULLS LAST,
+          a.appointment_time
+      `, ...params);
+    });
 
     // Decorate ANC rows with computed GA so the receptionist queue can
     // render "GA 24+0" without each client repeating the LMP math.
@@ -1082,10 +1092,10 @@ export const getTodayQueue = async (req, res) => {
       };
     });
 
-    success(res, await attachTeleconsultState(enriched, prisma), "Today's queue fetched");
+    success(res, await attachTeleconsultState(enriched, prisma, tenantId), "Today's queue fetched");
   } catch (err) {
     logger.error('Get Queue Error:', err);
-    error(res, 'Failed to fetch queue', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to fetch queue');
   }
 };
 
@@ -1137,6 +1147,7 @@ export const getPendingAppointments = async (req, res) => {
  */
 export const getAvailableSlots = async (req, res) => {
   try {
+    const tenantId = requireTenantId(req);
     const { doctor_id, date } = req.query;
     if (!doctor_id || !date) {
       return error(res, 'doctor_id and date are required', HTTP_STATUS.BAD_REQUEST);
@@ -1149,13 +1160,13 @@ export const getAvailableSlots = async (req, res) => {
     if (!Number.isFinite(doctorIdInt)) {
       return error(res, 'doctor_id must be numeric', HTTP_STATUS.BAD_REQUEST);
     }
-    const doctorQuery = await prisma.$queryRawUnsafe(
+    const doctorQuery = await setTenantTx(tenantId, tx => tx.$queryRawUnsafe(
       `SELECT doc.id, doc.user_id, doc.department, doc.specialty AS specialization, doc.available_days, doc.available_hours, u.name as doctor_name
        FROM doctors doc
-       JOIN users u ON doc.user_id = u.id
-       WHERE doc.id = $1 OR doc.user_id = $1`,
-      doctorIdInt
-    );
+       JOIN users u ON doc.user_id = u.id AND u.tenant_id = $2::uuid
+       WHERE (doc.id = $1::int OR doc.user_id = $1::int) AND doc.tenant_id = $2::uuid`,
+      doctorIdInt, tenantId
+    ));
     if (!doctorQuery.length) {
       return error(res, 'Doctor not found', HTTP_STATUS.NOT_FOUND);
     }
@@ -1178,10 +1189,10 @@ export const getAvailableSlots = async (req, res) => {
     // Get booked slots for this doctor on this date
     const booked = await prisma.$queryRawUnsafe(`
       SELECT appointment_time FROM appointments
-      WHERE doctor_id = $1
+      WHERE doctor_id = $1 AND tenant_id = $3::uuid
         AND DATE(appointment_date) = DATE($2)
         AND status NOT IN ('CANCELLED', 'NO_SHOW', 'RESCHEDULED')
-    `, doctorUserId, date);
+    `, doctorUserId, date, tenantId);
 
     const bookedTimes = new Set(booked.map(r => r.appointment_time));
 
@@ -1224,7 +1235,7 @@ export const getAvailableSlots = async (req, res) => {
     }, 'Slots fetched');
   } catch (err) {
     logger.error('getAvailableSlots Error:', err);
-    error(res, 'Failed to fetch slots', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to fetch slots');
   }
 };
 

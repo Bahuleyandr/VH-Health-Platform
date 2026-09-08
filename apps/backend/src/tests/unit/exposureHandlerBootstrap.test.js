@@ -79,7 +79,7 @@ describe('exposure handler bootstrap', () => {
 
     const bootstrap = await import('../../services/clinical/exposureHandlerBootstrap.js');
 
-    expect(bootstrap.exposureHandlerCount()).toBeGreaterThanOrEqual(1);
+    expect(bootstrap.exposureHandlerCount()).toBe(2);
     // The bootstrap reports the registry's own count, not a count of its
     // imports — a module that imported an owner which had stopped registering
     // would otherwise still claim to be wired.
@@ -90,9 +90,9 @@ describe('exposure handler bootstrap', () => {
     const owners = registrationOwners();
     // If this is ever 0 the assertion below becomes vacuous, so state the
     // expectation about the tree itself.
-    expect(owners.length).toBeGreaterThanOrEqual(1);
+    expect(owners).toHaveLength(2);
     expect(owners.map((file) => path.basename(file)).sort())
-      .toEqual(['cathDeviceReuseService.js']);
+      .toEqual(['cathDeviceReuseService.js', 'platformReprocessableExposureHandler.js']);
 
     const bootstrap = read(BOOTSTRAP_PATH);
     for (const owner of owners) {

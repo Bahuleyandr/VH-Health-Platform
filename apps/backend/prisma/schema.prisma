@@ -26976,10 +26976,12 @@ model bloodborne_exposure_outbox {
   delivered_at     DateTime? @db.Timestamptz(6)
   created_at       DateTime  @default(now()) @db.Timestamptz(6)
   updated_at       DateTime  @default(now()) @db.Timestamptz(6)
+  occurred_at      DateTime? @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
 
   @@unique([tenant_id, marker_row_id], map: "ux_bloodborne_exposure_outbox_marker")
   @@unique([tenant_id, id], map: "ux_bloodborne_exposure_outbox_tenant_id")
   @@index([status, available_at, id], map: "idx_bloodborne_exposure_outbox_drain")
+  @@index([tenant_id, patient_uid, id], map: "idx_bloodborne_exposure_outbox_patient_event")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -27027,10 +27029,12 @@ model device_processing_events {
   recorded_by                String?   @db.Uuid
   recorded_via               String    @db.VarChar(24)
   metadata                   Json      @default("{}")
+  over_ceiling               Boolean   @default(false)
 
   @@unique([tenant_id, device_id, sterilization_load_id], map: "ux_device_processing_events_device_load", where: raw("(sterilization_load_id IS NOT NULL)"))
   @@unique([tenant_id, id, device_id], map: "ux_device_processing_events_tenant_device")
   @@unique([tenant_id, id], map: "ux_device_processing_events_tenant_id")
+  @@index([tenant_id, device_id, device_version_before, device_version_after, cycle_before, cycle_after], map: "idx_processing_events_over_ceiling_transition", where: raw("(over_ceiling AND counts_cycle)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -27041,7 +27045,7 @@ model dialyser_reprocessing_attempts {
   domain                         String   @default("dialysis") @db.VarChar(16)
   device_id                      BigInt
   device_usage_id                BigInt
-  dialyzer_reuse_register_id     BigInt
+  dialyzer_reuse_register_id     BigInt?
   attempt_no                     Int
   authorising_hold_id            BigInt?
   protocol_id                    Int
@@ -27062,6 +27066,7 @@ model dialyser_reprocessing_attempts {
 
   @@unique([tenant_id, dialyzer_reuse_register_id, attempt_no], map: "ux_dialyser_reprocessing_attempts_number")
   @@unique([tenant_id, id], map: "ux_dialyser_reprocessing_attempts_tenant_id")
+  @@unique([tenant_id, device_usage_id, attempt_no], map: "ux_dialyser_reprocessing_attempts_unused_number", where: raw("(dialyzer_reuse_register_id IS NULL)"))
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
@@ -27080,6 +27085,7 @@ model dialysis_machines {
   updated_by       String?  @db.Uuid
   created_at       DateTime @default(now()) @db.Timestamptz(6)
   updated_at       DateTime @default(now()) @db.Timestamptz(6)
+  revision         BigInt   @default(1)
 
   @@unique([tenant_id, machine_no], map: "ux_dialysis_machines_number")
   @@unique([tenant_id, id], map: "ux_dialysis_machines_tenant_id")
@@ -27284,6 +27290,7 @@ model reprocessing_domain_policies {
   updated_by              String?  @db.Uuid
   created_at              DateTime @default(now()) @db.Timestamptz(6)
   updated_at              DateTime @default(now()) @db.Timestamptz(6)
+  revision                BigInt   @default(1)
 
   @@id([tenant_id, domain, category])
 }
@@ -27306,6 +27313,7 @@ model reprocessing_domain_settings {
   updated_by             String?   @db.Uuid
   created_at             DateTime  @default(now()) @db.Timestamptz(6)
   updated_at             DateTime  @default(now()) @db.Timestamptz(6)
+  revision               BigInt    @default(1)
 
   @@id([tenant_id, domain])
 }
@@ -27442,6 +27450,38 @@ model cath_lab_consent_policy_versions {
   created_at                    DateTime  @default(now()) @db.Timestamptz(6)
 
   @@id([tenant_id, version])
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model dialysis_isolation_emergency_authorizations {
+  id                       String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenant_id                String    @db.Uuid
+  patient_uid              String    @db.Uuid
+  machine_id               Int
+  machine_revision         BigInt
+  scheduled_for            DateTime  @db.Timestamptz(6)
+  decision_fingerprint     String    @db.VarChar(64)
+  settings_revision        BigInt
+  policy_revision          BigInt
+  isolation_revision_id    BigInt
+  protocol_id              Int
+  consultant_approved_by   String    @db.Uuid
+  consultant_approved_role String    @db.VarChar(50)
+  consultant_approved_at   DateTime  @db.Timestamptz(6)
+  applied_by               String    @db.Uuid
+  applied_role             String    @db.VarChar(50)
+  purpose                  String
+  reason                   String
+  created_at               DateTime  @default(dbgenerated("clock_timestamp()")) @db.Timestamptz(6)
+  expires_at               DateTime  @db.Timestamptz(6)
+  bound_session_id         Int?
+  consumed_at              DateTime? @db.Timestamptz(6)
+  consumed_by              String?   @db.Uuid
+
+  @@unique([tenant_id, id], map: "ux_dialysis_emergency_authorizations_tenant_id")
+  @@index([tenant_id, bound_session_id], map: "idx_dialysis_emergency_bound_session", where: raw("(bound_session_id IS NOT NULL)"))
+  @@index([tenant_id, patient_uid, expires_at], map: "idx_dialysis_emergency_pending_patient", where: raw("(consumed_at IS NULL)"))
 }
 
 enum transplant_organ_type {

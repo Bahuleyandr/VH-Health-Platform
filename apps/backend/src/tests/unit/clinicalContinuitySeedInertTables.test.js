@@ -11,6 +11,19 @@ const seederPath = path.resolve(__dirname, '../../../scripts/seed-comprehensive-
 const contractsPath = path.resolve(__dirname, '../../db/schemaContracts.js');
 
 describe('clinical continuity comprehensive seed boundary', () => {
+  test('emergencyAuthorizationSeedExemptionDoesNotExemptOrdinaryDeviceTables', () => {
+    const tables = [
+      'dialysis_isolation_emergency_authorizations',
+      'reprocessable_devices',
+      'reprocessable_device_usages',
+    ];
+    expect(tables).toHaveLength(3);
+    expect(partitionSeedCoverageEmptyTables(tables)).toEqual({
+      intentionallyEmptyAppTables: ['dialysis_isolation_emergency_authorizations'],
+      unexpectedEmptyAppTables: ['reprocessable_devices', 'reprocessable_device_usages'],
+    });
+  });
+
   test('keeps every intentionally-empty table policy-listed and vice versa', () => {
     const partition = partitionSeedCoverageEmptyTables(INTENTIONALLY_EMPTY_SEED_TABLES);
 
