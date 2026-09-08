@@ -88,7 +88,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-        run: node scripts/ci/forgejo-liveness.mjs | tee liveness-report.txt
+        # `set -o pipefail` is load-bearing. GitHub runs `run:` under
+        # `bash -e {0}` with no pipefail, so `node ... | tee ...` reports
+        # tee's exit status and a FAILING detector concludes green. That is
+        # exactly the false-green this workflow exists to prevent, and the
+        # first run of this file hit it. Guarded by forgejo-liveness.test.mjs.
+        run: |
+          set -euo pipefail
+          node scripts/ci/forgejo-liveness.mjs 2>&1 | tee liveness-report.txt
 
       - name: Raise or update the alarm issue
         # Only on unattended runs. A branch push that goes red is already

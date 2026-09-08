@@ -174,6 +174,130 @@ test('CLI exits 0 on a healthy mirror and non-zero on every broken one', () => {
   }
 });
 
+/*
+ * WORKFLOW SHAPE.
+ *
+ * The detector is only as good as the step that runs it. The first run of
+ * forgejo-mirror-liveness.yml concluded green while the detector printed
+ * "FAILING", because `node ... | tee report.txt` under GitHub's `bash -e {0}`
+ * reports tee's exit status. An alarm that cannot go red is not an alarm.
+ */
+/**
+ * Extract the shell script of every `run:` step in a workflow.
+ *
+ * Deliberately NOT a regex over the whole file. The first attempt at this
+ * guard scanned the raw step text for /pipefail/ and was satisfied by the
+ * explanatory COMMENT above the step, so removing the real `set -o pipefail`
+ * left the guard green. Only the script body counts, so only the script body
+ * is returned.
+ */
+function extractRunScripts(yamlText) {
+  const lines = yamlText.split(/\r?\n/);
+  const scripts = [];
+  for (let i = 0; i < lines.length; i += 1) {
+    const m = /^(\s*)run:\s*(\S.*)?$/.exec(lines[i]);
+    if (!m) continue;
+    const indent = m[1].length;
+    const inline = m[2];
+    if (inline && !/^[|>][-+]?\d*$/.test(inline.trim())) {
+      scripts.push(inline);
+      continue;
+    }
+    const body = [];
+    for (let j = i + 1; j < lines.length; j += 1) {
+      const line = lines[j];
+      if (line.trim() === '') {
+        body.push('');
+        continue;
+      }
+      const lead = line.length - line.trimStart().length;
+      if (lead <= indent) break;
+      body.push(line.trim());
+    }
+    scripts.push(body.join('\n'));
+  }
+  return scripts;
+}
+
+test('the run-script extractor sees what it claims to see', () => {
+  // Positive control for the guard's own machinery. If extraction silently
+  // returned nothing, the guard below would pass vacuously forever.
+  const sample = [
+    'jobs:',
+    '  a:',
+    '    steps:',
+    '      # set -o pipefail is mentioned only in this comment',
+    '      - name: piped without pipefail',
+    '        run: |',
+    '          node thing.mjs | tee out.txt',
+    '      - name: inline',
+    '        run: echo hello',
+  ].join('\n');
+  const scripts = extractRunScripts(sample);
+  assert.deepEqual(scripts, ['node thing.mjs | tee out.txt', 'echo hello']);
+  // The comment above the step must NOT leak into the script body.
+  assert.ok(!scripts[0].includes('comment'));
+});
+
+test('every piped run step in the liveness workflow sets pipefail', () => {
+  const workflowPath = path.join(
+    here, '..', '..', '.github', 'workflows', 'forgejo-mirror-liveness.yml',
+  );
+  const scripts = extractRunScripts(readFileSync(workflowPath, 'utf8'));
+  assert.ok(scripts.length > 0, 'no run: steps found - the scan itself is broken');
+
+  const isPiped = (s) =>
+    s.split('\n').some((line) => /\S\s*\|\s*\S/.test(line) && !/\|\|/.test(line));
+  const piped = scripts.filter(isPiped);
+  assert.ok(
+    piped.length > 0,
+    'no piped run step found - this guard would pass vacuously, so it proves nothing',
+  );
+
+  for (const script of piped) {
+    assert.match(
+      script,
+      /^\s*set -[a-zA-Z]*o[a-zA-Z]*\s+pipefail|^\s*set -o pipefail/m,
+      `a run: step pipes without pipefail, so a failing command reports green:\n${script.slice(0, 300)}`,
+    );
+  }
+});
+
+test('the pipefail guard rejects a workflow that pipes without pipefail', () => {
+  // The guard's must-fail case, held in a synthetic workflow so it does not
+  // depend on anyone remembering to mutate the real file.
+  const bad = [
+    'jobs:',
+    '  a:',
+    '    steps:',
+    '      - name: bad',
+    '        run: |',
+    '          node scripts/ci/forgejo-liveness.mjs | tee out.txt',
+  ].join('\n');
+  const scripts = extractRunScripts(bad);
+  const piped = scripts.filter((s) =>
+    s.split('\n').some((line) => /\S\s*\|\s*\S/.test(line) && !/\|\|/.test(line)),
+  );
+  assert.equal(piped.length, 1);
+  assert.doesNotMatch(piped[0], /pipefail/);
+});
+
+test('the liveness workflow does not name a required status check', () => {
+  // Branch protection on main requires "Merge Gate" and "Full Merge Gate".
+  // This workflow is an alarm, not a gate; if it ever adopted one of those
+  // job names it would start blocking merges on mirror health.
+  const workflowPath = path.join(here, '..', '..', '.github', 'workflows', 'forgejo-mirror-liveness.yml');
+  const yaml = readFileSync(workflowPath, 'utf8');
+  const names = [...yaml.matchAll(/^\s{4}name:\s*(.+)$/gm)].map((m) => m[1].trim());
+  assert.ok(names.length >= 2, `expected job names, found ${JSON.stringify(names)}`);
+  for (const protectedContext of ['Merge Gate', 'Full Merge Gate']) {
+    assert.ok(
+      !names.includes(protectedContext),
+      `job name "${protectedContext}" is a required status check on main`,
+    );
+  }
+});
+
 test('every shipped fixture is exercised by this suite', () => {
   // Guards the reverse rot: a fixture added without a matching assertion.
   const shipped = readFileSync(fileURLToPath(import.meta.url), 'utf8');
