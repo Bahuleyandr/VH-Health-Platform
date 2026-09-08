@@ -1,8 +1,21 @@
 {
+  "now": "2026-09-08T12:00:00+05:30",
+  "collection": {
+    "ok": true
+  },
   "githubMainSha": "1f9696441d9a4a3e7faa9ba5976f9f0589a83f90",
   "forgejoMainSha": "1f9696441d9a4a3e7faa9ba5976f9f0589a83f90",
   "compare": null,
-  "now": "2026-09-08T12:00:00+05:30",
+  "githubBranches": [
+    "main",
+    "fix/document-integrity-teardown-budget",
+    "chore/dependency-currency-sweep"
+  ],
+  "forgejoBranches": [
+    "main",
+    "fix/document-integrity-teardown-budget",
+    "chore/dependency-currency-sweep"
+  ],
   "tasks": [
     {
       "id": 12099,
@@ -18,5 +31,13 @@
       "updated_at": "2026-09-08T10:00:00+05:30",
       "run_started_at": "2026-09-08T10:00:00+05:30"
     }
+  ],
+  "monitoredStages": [
+    "security",
+    "backend",
+    "fhir",
+    "admin",
+    "flutter",
+    "infra"
   ]
 }

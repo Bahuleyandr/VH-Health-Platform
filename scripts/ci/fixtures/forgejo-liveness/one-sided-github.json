@@ -9,7 +9,8 @@
   "githubBranches": [
     "main",
     "fix/document-integrity-teardown-budget",
-    "chore/dependency-currency-sweep"
+    "chore/dependency-currency-sweep",
+    "fix/forgejo-ci-image-liveness"
   ],
   "forgejoBranches": [
     "main",

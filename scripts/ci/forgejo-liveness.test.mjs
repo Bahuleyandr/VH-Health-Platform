@@ -1,123 +1,179 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 import {
   DEFAULT_MAX_RUN_AGE_HOURS,
-  REQUIRED_SCHEDULED_JOBS,
   SCHEDULED_WORKFLOW,
+  STATE,
+  deriveScheduledStages,
   evaluateLiveness,
   renderReport,
 } from './forgejo-liveness.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.join(here, '..', '..');
 const fixtureDir = path.join(here, 'fixtures', 'forgejo-liveness');
 const detector = path.join(here, 'forgejo-liveness.mjs');
 
-function fixture(name) {
-  return JSON.parse(readFileSync(path.join(fixtureDir, `${name}.json`), 'utf8'));
-}
-
-function failedIds(result) {
-  return result.checks.filter((c) => !c.ok).map((c) => c.id).sort();
-}
+const fixture = (name) => JSON.parse(readFileSync(path.join(fixtureDir, `${name}.json`), 'utf8'));
+const failed = (r) => r.checks.filter((c) => !c.ok);
+const states = (r) => [...new Set(failed(r).map((c) => c.state))].sort();
 
 /*
- * POSITIVE CONTROL FIRST.
+ * POSITIVE CONTROLS FIRST.
  *
- * The whole point of this detector is to break a silence. A detector that has
- * only ever been seen returning "ok" has not been shown to be capable of
- * returning anything else, so every assertion below is paired: one fixture
- * where the check must PASS, and at least one where the same check must FAIL.
- * If someone later guts evaluateLiveness into `return {ok: true}`, the
- * must-fail cases go red immediately.
+ * This detector exists to break a silence, so every state it can report has a
+ * fixture that must produce it. A detector only ever observed returning "ok"
+ * has not been shown capable of returning anything else. The healthy fixture
+ * is the matching negative control: without it, a detector hard-wired to fail
+ * would also pass every test below.
  */
 
 test('healthy mirror passes every check (negative control)', () => {
   const result = evaluateLiveness(fixture('healthy'));
   assert.equal(result.ok, true, renderReport(result));
-  assert.deepEqual(failedIds(result), []);
-  assert.equal(result.checks.length, 1 + REQUIRED_SCHEDULED_JOBS.length);
+  assert.equal(failed(result).length, 0);
+  // 1 drift + 1 parity + one per monitored stage.
+  assert.equal(result.checks.length, 2 + fixture('healthy').monitoredStages.length);
 });
 
-test('drift between github/main and origin/main fails loudly', () => {
+// ---------------------------------------------------------------- UNREACHABLE
+
+test('a failed collection reports MIRROR UNREACHABLE and names the failing step', () => {
+  const result = evaluateLiveness(fixture('unreachable-collection'));
+  assert.equal(result.ok, false);
+  assert.deepEqual(states(result), [STATE.UNREACHABLE]);
+  const c = result.checks[0];
+  assert.match(c.detail, /failing step: forgejo API over the tailnet/);
+  assert.match(c.detail, /timeout/);
+  assert.match(c.action, /tailnet/);
+  // Short-circuits: never emit drift or parity verdicts from data we do not have.
+  assert.equal(result.checks.length, 1);
+});
+
+test('an empty ref listing is UNREACHABLE, never a branch diff', () => {
+  // For ~90 seconds on 2026-09-08 two reviewers read an empty probe result as
+  // "the mirror has lost every branch". A real parity break never drops main.
+  for (const name of ['unreachable-empty-refs', 'unreachable-refs-without-main']) {
+    const result = evaluateLiveness(fixture(name));
+    assert.equal(result.ok, false, name);
+    assert.deepEqual(states(result), [STATE.UNREACHABLE], name);
+    assert.equal(result.checks.length, 1, name);
+    const detail = result.checks[0].detail;
+    assert.match(detail, /failed probe, not an empty set/, name);
+    // The decisive assertion: main must never be reported as one-sided.
+    assert.ok(!/one-sided/i.test(detail), name);
+    assert.ok(!/github-only: main|forgejo-only: main/.test(detail), name);
+  }
+});
+
+// ----------------------------------------------------------- DIVERGED/BEHIND
+
+test('drift between github/main and origin/main reports DIVERGED / BEHIND', () => {
   const result = evaluateLiveness(fixture('drifted'));
   assert.equal(result.ok, false);
-  assert.deepEqual(failedIds(result), ['mirror-drift']);
-  const drift = result.checks.find((c) => c.id === 'mirror-drift');
-  assert.match(drift.detail, /DRIFT/);
-  // The compare shape must reach the operator: "behind by N" and "diverged"
-  // have different fixes.
-  assert.match(drift.detail, /ahead_by=534/);
-  assert.match(drift.detail, /git push origin github\/main:main/);
+  assert.deepEqual(states(result), [STATE.DRIFT]);
+  const c = failed(result)[0];
+  assert.match(c.detail, /ahead_by=534/);
+  assert.match(c.action, /git push origin github\/main:main/);
 });
 
-test('failed scheduled backend and admin runs fail loudly', () => {
-  // This fixture is the real 2026-08-17..2026-09-08 outage: every
-  // runs-on: ubuntu-latest job died in ~2s at container setup.
-  const result = evaluateLiveness(fixture('runs-failing'));
+test('an unreadable main SHA is STALE, not a silent pass', () => {
+  const result = evaluateLiveness(fixture('unreadable-main-sha'));
   assert.equal(result.ok, false);
-  assert.deepEqual(failedIds(result), ['scheduled-run:admin', 'scheduled-run:backend']);
-  for (const c of result.checks.filter((x) => !x.ok)) {
-    assert.match(c.detail, /finished "failure"/);
-  }
+  assert.ok(states(result).includes(STATE.STALE));
 });
 
-test('a schedule that stopped firing fails even though the runs were green', () => {
+// --------------------------------------------------------------- ONE-SIDED
+
+test('a github-only branch is named with its direction', () => {
+  const result = evaluateLiveness(fixture('one-sided-github'));
+  assert.equal(result.ok, false);
+  assert.deepEqual(states(result), [STATE.ONE_SIDED]);
+  const c = failed(result)[0];
+  assert.match(c.detail, /github-only: fix\/forgejo-ci-image-liveness/);
+  assert.ok(!/forgejo-only:/.test(c.detail));
+});
+
+test('a forgejo-only branch is named with its direction', () => {
+  // The recurring one: GitHub's merge-time branch delete does not touch the
+  // mirror, so the leftover is always forgejo-only.
+  const result = evaluateLiveness(fixture('one-sided-forgejo'));
+  assert.equal(result.ok, false);
+  assert.deepEqual(states(result), [STATE.ONE_SIDED]);
+  const c = failed(result)[0];
+  assert.match(c.detail, /forgejo-only: feat\/cath-readiness-pr1-790/);
+  assert.ok(!/github-only:/.test(c.detail));
+});
+
+test('both directions are reported together, not just the first found', () => {
+  const result = evaluateLiveness(fixture('one-sided-both'));
+  assert.equal(result.ok, false);
+  const c = failed(result)[0];
+  assert.match(c.detail, /github-only: fix\/inf-006-release-authority/);
+  assert.match(c.detail, /forgejo-only: feat\/cath-readiness-pr1-790/);
+  assert.match(c.action, /Prune or push/);
+});
+
+// ------------------------------------------------- JOBS / STALE (population)
+
+test('failing scheduled stages report SCHEDULED JOBS NOT COMPLETING for every stage', () => {
+  // The real 2026-08-17..2026-09-08 outage: the whole ubuntu-latest population.
+  const fx = fixture('runs-failing');
+  const result = evaluateLiveness(fx);
+  assert.equal(result.ok, false);
+  assert.deepEqual(states(result), [STATE.JOBS]);
+  assert.equal(failed(result).length, fx.monitoredStages.length);
+  for (const stage of fx.monitoredStages) {
+    assert.ok(
+      failed(result).some((c) => c.id === `scheduled-run:${stage}`),
+      `stage ${stage} is not covered`,
+    );
+  }
+  assert.match(failed(result)[0].action, /rebuild vhhealth\/act-java17/);
+});
+
+test('a schedule that stopped firing is STALE even though the runs were green', () => {
   const result = evaluateLiveness(fixture('stale'));
   assert.equal(result.ok, false);
-  assert.deepEqual(failedIds(result), ['scheduled-run:admin', 'scheduled-run:backend']);
-  for (const c of result.checks.filter((x) => !x.ok)) {
-    assert.match(c.detail, /STALE/);
-  }
+  assert.deepEqual(states(result), [STATE.STALE]);
+  assert.match(failed(result)[0].detail, /stopped firing/);
 });
 
 test('missing scheduled runs fail rather than vacuously passing', () => {
-  // An empty candidate set must NOT read as success. This is the classic
-  // empty-population green: a verdict over nothing reporting "fine".
   const result = evaluateLiveness(fixture('missing-scheduled-runs'));
   assert.equal(result.ok, false);
-  assert.deepEqual(failedIds(result), ['scheduled-run:admin', 'scheduled-run:backend']);
-  for (const c of result.checks.filter((x) => !x.ok)) {
-    assert.match(c.detail, /No scheduled/);
-  }
+  assert.deepEqual(states(result), [STATE.STALE]);
+  assert.equal(failed(result).length, fixture('missing-scheduled-runs').monitoredStages.length);
 });
 
-test('an unreadable mirror is a failure, not a skip', () => {
-  const result = evaluateLiveness(fixture('unreadable-mirror'));
+test('an empty monitored population is a failure, not a green sweep', () => {
+  const result = evaluateLiveness(fixture('empty-population'));
   assert.equal(result.ok, false);
-  assert.deepEqual(failedIds(result), ['mirror-drift']);
-  assert.match(
-    result.checks.find((c) => c.id === 'mirror-drift').detail,
-    /unreadable/,
-  );
+  assert.ok(states(result).includes(STATE.STALE));
+  assert.match(failed(result)[0].detail, /EMPTY/);
 });
 
-test('push-event tasks with the same job names are not mistaken for the schedule', () => {
-  // ci.yml also has jobs literally named "backend" and "admin". If the filter
-  // ignored workflow_id/event, the healthy fixture's failing push tasks would
-  // flip the verdict and the detector would alarm on every merge.
+test('push-event tasks with the same stage names are not mistaken for the schedule', () => {
   const healthy = fixture('healthy');
-  const pushNoise = healthy.tasks.filter((t) => t.event === 'push');
-  assert.ok(pushNoise.length >= 2, 'fixture must contain push-event decoys');
-  assert.ok(
-    pushNoise.every((t) => t.status === 'failure'),
-    'the decoys must be failing, or this test proves nothing',
-  );
+  const decoys = healthy.tasks.filter((t) => t.event === 'push');
+  assert.ok(decoys.length >= 2, 'fixture must contain push-event decoys');
+  assert.ok(decoys.every((t) => t.status === 'failure'), 'decoys must be failing or this proves nothing');
   assert.equal(evaluateLiveness(healthy).ok, true);
 });
 
 test('the age budget is enforced at its boundary', () => {
   const base = fixture('healthy');
   const now = new Date(base.now).getTime();
-  const withAge = (hours) => ({
+  const withAge = (h) => ({
     ...base,
     tasks: base.tasks.map((t) =>
       t.workflow_id === SCHEDULED_WORKFLOW && t.event === 'schedule'
-        ? { ...t, updated_at: new Date(now - hours * 3600 * 1000).toISOString() }
+        ? { ...t, updated_at: new Date(now - h * 3600 * 1000).toISOString() }
         : t,
     ),
   });
@@ -126,70 +182,46 @@ test('the age budget is enforced at its boundary', () => {
 });
 
 test('an unusable "now" throws instead of silently comparing against NaN', () => {
+  assert.throws(() => evaluateLiveness({ ...fixture('healthy'), now: 'nope' }), /unusable "now"/);
+});
+
+// ------------------------------------------------- monitored population shape
+
+test('the monitored population is derived from the real workflow and is not empty', () => {
+  // PREDICATE: every entry of matrix.stage on the `runs-on: ubuntu-latest` job
+  // in .forgejo/workflows/full-stack-sweep.yml, the mirror's only scheduled
+  // workflow. Derived, not hard-coded, so a new stage is covered automatically.
+  const wf = readFileSync(
+    path.join(repoRoot, '.forgejo', 'workflows', 'full-stack-sweep.yml'), 'utf8',
+  );
+  const stages = deriveScheduledStages(wf);
+  assert.ok(stages.length > 0, 'empty population would make the sweep vacuous');
+  assert.deepEqual([...stages].sort(), ['admin', 'backend', 'fhir', 'flutter', 'infra', 'security']);
+  // It really is the ubuntu-latest population that is being watched.
+  assert.match(wf, /runs-on:\s*ubuntu-latest/);
+});
+
+test('deriving stages from a workflow with no stage list is a hard error', () => {
+  // Positive control for the derivation: it must be able to refuse.
   assert.throws(
-    () => evaluateLiveness({ ...fixture('healthy'), now: 'not-a-date' }),
-    /unusable "now"/,
+    () => deriveScheduledStages('jobs:\n  x:\n    runs-on: ubuntu-latest\n    steps: []\n'),
+    /EMPTY stage population/,
+  );
+  assert.throws(
+    () => deriveScheduledStages('jobs:\n  x:\n    runs-on: docker-builder\n'),
+    /no longer has a `runs-on: ubuntu-latest` job/,
   );
 });
 
-/*
- * END-TO-END EXIT CODES.
- *
- * The workflow gates on the process exit code, not on the returned object, so
- * the exit code itself needs a positive control.
- */
+// ------------------------------------------------------------- workflow shape
 
-function runDetector(fixtureName) {
-  const env = {
-    ...process.env,
-    LIVENESS_FIXTURE: path.join(fixtureDir, `${fixtureName}.json`),
-  };
-  delete env.GITHUB_STEP_SUMMARY;
-  try {
-    const stdout = execFileSync(process.execPath, [detector], {
-      env,
-      encoding: 'utf8',
-    });
-    return { code: 0, stdout };
-  } catch (err) {
-    return { code: err.status ?? 1, stdout: `${err.stdout ?? ''}${err.stderr ?? ''}` };
-  }
-}
-
-test('CLI exits 0 on a healthy mirror and non-zero on every broken one', () => {
-  const healthy = runDetector('healthy');
-  assert.equal(healthy.code, 0, healthy.stdout);
-  assert.match(healthy.stdout, /Forgejo mirror liveness: OK/);
-
-  for (const broken of [
-    'drifted',
-    'runs-failing',
-    'stale',
-    'missing-scheduled-runs',
-    'unreadable-mirror',
-  ]) {
-    const result = runDetector(broken);
-    assert.equal(result.code, 1, `${broken} should exit non-zero:\n${result.stdout}`);
-    assert.match(result.stdout, /FAILING/, `${broken} should say it is failing`);
-  }
-});
-
-/*
- * WORKFLOW SHAPE.
- *
- * The detector is only as good as the step that runs it. The first run of
- * forgejo-mirror-liveness.yml concluded green while the detector printed
- * "FAILING", because `node ... | tee report.txt` under GitHub's `bash -e {0}`
- * reports tee's exit status. An alarm that cannot go red is not an alarm.
- */
 /**
- * Extract the shell script of every `run:` step in a workflow.
+ * Extract the shell script of every `run:` step.
  *
- * Deliberately NOT a regex over the whole file. The first attempt at this
- * guard scanned the raw step text for /pipefail/ and was satisfied by the
- * explanatory COMMENT above the step, so removing the real `set -o pipefail`
- * left the guard green. Only the script body counts, so only the script body
- * is returned.
+ * Deliberately NOT a regex over the whole file. The first attempt at the
+ * pipefail guard scanned raw step text for /pipefail/ and was satisfied by the
+ * explanatory COMMENT above the step, so deleting the real `set -o pipefail`
+ * left it green. Only the script body counts, so only the body is returned.
  */
 function extractRunScripts(yamlText) {
   const lines = yamlText.split(/\r?\n/);
@@ -206,12 +238,8 @@ function extractRunScripts(yamlText) {
     const body = [];
     for (let j = i + 1; j < lines.length; j += 1) {
       const line = lines[j];
-      if (line.trim() === '') {
-        body.push('');
-        continue;
-      }
-      const lead = line.length - line.trimStart().length;
-      if (lead <= indent) break;
+      if (line.trim() === '') { body.push(''); continue; }
+      if (line.length - line.trimStart().length <= indent) break;
       body.push(line.trim());
     }
     scripts.push(body.join('\n'));
@@ -219,13 +247,12 @@ function extractRunScripts(yamlText) {
   return scripts;
 }
 
+const workflowPath = path.join(repoRoot, '.github', 'workflows', 'forgejo-mirror-liveness.yml');
+const isPiped = (s) => s.split('\n').some((l) => /\S\s*\|\s*\S/.test(l) && !/\|\|/.test(l));
+
 test('the run-script extractor sees what it claims to see', () => {
-  // Positive control for the guard's own machinery. If extraction silently
-  // returned nothing, the guard below would pass vacuously forever.
   const sample = [
-    'jobs:',
-    '  a:',
-    '    steps:',
+    'jobs:', '  a:', '    steps:',
     '      # set -o pipefail is mentioned only in this comment',
     '      - name: piped without pipefail',
     '        run: |',
@@ -233,93 +260,143 @@ test('the run-script extractor sees what it claims to see', () => {
     '      - name: inline',
     '        run: echo hello',
   ].join('\n');
-  const scripts = extractRunScripts(sample);
-  assert.deepEqual(scripts, ['node thing.mjs | tee out.txt', 'echo hello']);
-  // The comment above the step must NOT leak into the script body.
-  assert.ok(!scripts[0].includes('comment'));
-});
-
-test('every piped run step in the liveness workflow sets pipefail', () => {
-  const workflowPath = path.join(
-    here, '..', '..', '.github', 'workflows', 'forgejo-mirror-liveness.yml',
-  );
-  const scripts = extractRunScripts(readFileSync(workflowPath, 'utf8'));
-  assert.ok(scripts.length > 0, 'no run: steps found - the scan itself is broken');
-
-  const isPiped = (s) =>
-    s.split('\n').some((line) => /\S\s*\|\s*\S/.test(line) && !/\|\|/.test(line));
-  const piped = scripts.filter(isPiped);
-  assert.ok(
-    piped.length > 0,
-    'no piped run step found - this guard would pass vacuously, so it proves nothing',
-  );
-
-  for (const script of piped) {
-    assert.match(
-      script,
-      /^\s*set -[a-zA-Z]*o[a-zA-Z]*\s+pipefail|^\s*set -o pipefail/m,
-      `a run: step pipes without pipefail, so a failing command reports green:\n${script.slice(0, 300)}`,
-    );
-  }
+  assert.deepEqual(extractRunScripts(sample), ['node thing.mjs | tee out.txt', 'echo hello']);
 });
 
 test('the pipefail guard rejects a workflow that pipes without pipefail', () => {
-  // The guard's must-fail case, held in a synthetic workflow so it does not
-  // depend on anyone remembering to mutate the real file.
-  const bad = [
-    'jobs:',
-    '  a:',
-    '    steps:',
-    '      - name: bad',
-    '        run: |',
-    '          node scripts/ci/forgejo-liveness.mjs | tee out.txt',
-  ].join('\n');
-  const scripts = extractRunScripts(bad);
-  const piped = scripts.filter((s) =>
-    s.split('\n').some((line) => /\S\s*\|\s*\S/.test(line) && !/\|\|/.test(line)),
-  );
+  const bad = ['jobs:', '  a:', '    steps:', '      - name: bad', '        run: |',
+    '          node scripts/ci/forgejo-liveness.mjs | tee out.txt'].join('\n');
+  const piped = extractRunScripts(bad).filter(isPiped);
   assert.equal(piped.length, 1);
   assert.doesNotMatch(piped[0], /pipefail/);
 });
 
-test('the liveness workflow does not name a required status check', () => {
-  // Branch protection on main requires "Merge Gate" and "Full Merge Gate".
-  // This workflow is an alarm, not a gate; if it ever adopted one of those
-  // job names it would start blocking merges on mirror health.
-  const workflowPath = path.join(here, '..', '..', '.github', 'workflows', 'forgejo-mirror-liveness.yml');
-  const yaml = readFileSync(workflowPath, 'utf8');
-  const names = [...yaml.matchAll(/^\s{4}name:\s*(.+)$/gm)].map((m) => m[1].trim());
-  assert.ok(names.length >= 2, `expected job names, found ${JSON.stringify(names)}`);
-  for (const protectedContext of ['Merge Gate', 'Full Merge Gate']) {
-    assert.ok(
-      !names.includes(protectedContext),
-      `job name "${protectedContext}" is a required status check on main`,
+test('every piped run step in the liveness workflow sets pipefail', () => {
+  const scripts = extractRunScripts(readFileSync(workflowPath, 'utf8'));
+  assert.ok(scripts.length > 0, 'no run: steps found - the scan itself is broken');
+  const piped = scripts.filter(isPiped);
+  assert.ok(piped.length > 0, 'no piped step found - this guard would pass vacuously');
+  for (const s of piped) {
+    assert.match(
+      s, /^\s*set -[a-zA-Z]*o[a-zA-Z]*\s+pipefail|^\s*set -o pipefail/m,
+      `a run: step pipes without pipefail, so a failing command reports green:\n${s.slice(0, 300)}`,
     );
   }
 });
 
-test('every shipped fixture is exercised by this suite', () => {
-  // Guards the reverse rot: a fixture added without a matching assertion.
-  const shipped = readFileSync(fileURLToPath(import.meta.url), 'utf8');
-  const names = [
-    'healthy',
-    'drifted',
-    'runs-failing',
-    'stale',
-    'missing-scheduled-runs',
-    'unreadable-mirror',
-  ];
-  const onDisk = execFileSync(
-    process.execPath,
-    ['-e', `process.stdout.write(require('node:fs').readdirSync(${JSON.stringify(fixtureDir)}).join(','))`],
-    { encoding: 'utf8' },
-  )
-    .split(',')
-    .filter(Boolean)
+test('the live job never runs on push, and the self-test always does', () => {
+  // The live job is RED until the owner rebuilds the runner image. Left on
+  // push it would paint every PR head red and train reviewers to ignore it.
+  // The self-test must stay on push: it is the positive control for changes
+  // to the detector itself.
+  const yaml = readFileSync(workflowPath, 'utf8');
+  const liveJob = yaml.slice(yaml.indexOf('  mirror-liveness:'), yaml.indexOf('    steps:', yaml.indexOf('  mirror-liveness:')));
+  assert.match(liveJob, /if:\s*>?-?\s*[\s\S]*github\.event_name == 'schedule'/);
+  assert.match(liveJob, /github\.event_name == 'workflow_dispatch'/);
+  const selfTest = yaml.slice(yaml.indexOf('  detector-selftest:'), yaml.indexOf('  mirror-liveness:'));
+  assert.ok(!/^\s{4}if:/m.test(selfTest), 'the self-test must not be gated off any event');
+});
+
+test('the liveness workflow runs at least hourly', () => {
+  // Branch-set parity breaks per merge, not slowly. A daily cadence would let
+  // a post-merge lapse sit for a day.
+  const yaml = readFileSync(workflowPath, 'utf8');
+  const crons = [...yaml.matchAll(/cron:\s*'([^']+)'/g)].map((m) => m[1]);
+  assert.ok(crons.length > 0, 'no schedule found');
+  assert.ok(
+    crons.some((c) => /^(\S+)\s+\*(\/1)?\s/.test(c)),
+    `expected an hourly cron, found ${JSON.stringify(crons)}`,
+  );
+});
+
+test('the liveness workflow does not name a required status check', () => {
+  // Branch protection on main requires exactly "Merge Gate" and "Full Merge
+  // Gate". This workflow is an alarm, not a gate.
+  const yaml = readFileSync(workflowPath, 'utf8');
+  const names = [...yaml.matchAll(/^\s{4}name:\s*(.+)$/gm)].map((m) => m[1].trim());
+  assert.ok(names.length >= 2, `expected job names, found ${JSON.stringify(names)}`);
+  for (const ctx of ['Merge Gate', 'Full Merge Gate']) {
+    assert.ok(!names.includes(ctx), `job name "${ctx}" is a required status check on main`);
+  }
+});
+
+// -------------------------------------------------------------- exit codes
+
+function runDetector(name) {
+  const env = { ...process.env, LIVENESS_FIXTURE: path.join(fixtureDir, `${name}.json`) };
+  delete env.GITHUB_STEP_SUMMARY;
+  try {
+    return { code: 0, out: execFileSync(process.execPath, [detector], { env, encoding: 'utf8' }) };
+  } catch (err) {
+    return { code: err.status ?? 1, out: `${err.stdout ?? ''}${err.stderr ?? ''}` };
+  }
+}
+
+test('CLI exits 0 only on the healthy fixture, non-zero on every other', () => {
+  // The workflow gates on the exit code, not the returned object, so the exit
+  // code needs its own positive control.
+  const healthy = runDetector('healthy');
+  assert.equal(healthy.code, 0, healthy.out);
+  assert.match(healthy.out, /Forgejo mirror liveness: OK/);
+
+  const broken = readdirSync(fixtureDir)
     .map((f) => f.replace(/\.json$/, ''))
-    .sort();
-  assert.deepEqual(onDisk, [...names].sort());
-  for (const n of names) {
-    assert.ok(shipped.includes(`'${n}'`), `fixture ${n} is never asserted on`);
+    .filter((n) => n !== 'healthy');
+  assert.ok(broken.length >= 11, `expected the full state matrix, found ${broken.length}`);
+  for (const name of broken) {
+    const r = runDetector(name);
+    assert.equal(r.code, 1, `${name} should exit non-zero:\n${r.out}`);
+    assert.match(r.out, /FAILING|MIRROR UNREACHABLE/, `${name} should say it is failing`);
+  }
+});
+
+test('the LIVE collection path runs and degrades to MIRROR UNREACHABLE', () => {
+  /*
+   * Every other test drives the pure evaluator through LIVENESS_FIXTURE, so
+   * none of them execute collectSnapshot, the workflow read, or the CLI's
+   * non-fixture branch. That gap already hid a real bug: the collection
+   * branch called `require()` inside an ES module, which would have thrown
+   * ReferenceError on the first scheduled run while the whole fixture suite
+   * stayed green.
+   *
+   * Pointed at an unroutable address, so it is offline, fast and
+   * deterministic - it proves the code path executes and reports the right
+   * state, not that the network works.
+   */
+  const env = {
+    ...process.env,
+    FORGEJO_API: 'http://127.0.0.1:1/api/v1',
+    GITHUB_API_URL: 'http://127.0.0.1:1',
+    FORGEJO_TIMEOUT_MS: '1500',
+    SCHEDULED_WORKFLOW_PATH: path.join(
+      repoRoot, '.forgejo', 'workflows', 'full-stack-sweep.yml',
+    ),
+  };
+  delete env.LIVENESS_FIXTURE;
+  delete env.GITHUB_STEP_SUMMARY;
+  let out;
+  let code = 0;
+  try {
+    out = execFileSync(process.execPath, [detector], { env, encoding: 'utf8' });
+  } catch (err) {
+    code = err.status ?? 1;
+    out = `${err.stdout ?? ''}${err.stderr ?? ''}`;
+  }
+  assert.equal(code, 1, `live path should fail closed, got:\n${out}`);
+  assert.match(out, /MIRROR UNREACHABLE/, out);
+  assert.match(out, /failing step:/, out);
+  // The specific regression: an ESM/CJS mistake surfaces here, not as a state.
+  assert.ok(!/ReferenceError|is not defined/.test(out), `live path crashed:\n${out}`);
+});
+
+test('every alarm state has a fixture that produces it', () => {
+  // Guards the reverse rot: a state added without a fixture that fires it.
+  const produced = new Set();
+  for (const f of readdirSync(fixtureDir)) {
+    const r = evaluateLiveness(fixture(f.replace(/\.json$/, '')));
+    for (const c of r.checks) produced.add(c.state);
+  }
+  for (const state of Object.values(STATE)) {
+    assert.ok(produced.has(state), `no fixture ever produces state "${state}"`);
   }
 });

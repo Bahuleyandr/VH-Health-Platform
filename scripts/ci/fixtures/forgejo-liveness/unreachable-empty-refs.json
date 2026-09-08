@@ -11,11 +11,7 @@
     "fix/document-integrity-teardown-budget",
     "chore/dependency-currency-sweep"
   ],
-  "forgejoBranches": [
-    "main",
-    "fix/document-integrity-teardown-budget",
-    "chore/dependency-currency-sweep"
-  ],
+  "forgejoBranches": [],
   "tasks": [
     {
       "id": 12080,

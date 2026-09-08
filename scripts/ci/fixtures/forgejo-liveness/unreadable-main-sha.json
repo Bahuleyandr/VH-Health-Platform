@@ -4,7 +4,7 @@
     "ok": true
   },
   "githubMainSha": "1f9696441d9a4a3e7faa9ba5976f9f0589a83f90",
-  "forgejoMainSha": "1f9696441d9a4a3e7faa9ba5976f9f0589a83f90",
+  "forgejoMainSha": null,
   "compare": null,
   "githubBranches": [
     "main",

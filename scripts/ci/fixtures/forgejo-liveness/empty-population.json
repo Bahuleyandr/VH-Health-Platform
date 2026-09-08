@@ -130,12 +130,5 @@
       "run_started_at": "2026-09-08T14:18:46+05:30"
     }
   ],
-  "monitoredStages": [
-    "security",
-    "backend",
-    "fhir",
-    "admin",
-    "flutter",
-    "infra"
-  ]
+  "monitoredStages": []
 }

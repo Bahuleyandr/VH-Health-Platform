@@ -9,12 +9,14 @@
   "githubBranches": [
     "main",
     "fix/document-integrity-teardown-budget",
-    "chore/dependency-currency-sweep"
+    "chore/dependency-currency-sweep",
+    "fix/inf-006-release-authority"
   ],
   "forgejoBranches": [
     "main",
     "fix/document-integrity-teardown-budget",
-    "chore/dependency-currency-sweep"
+    "chore/dependency-currency-sweep",
+    "feat/cath-readiness-pr1-790"
   ],
   "tasks": [
     {

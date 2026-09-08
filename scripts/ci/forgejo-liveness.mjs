@@ -3,28 +3,41 @@
  * Forgejo disaster-recovery mirror liveness detector.
  *
  * The Forgejo mirror at forgejo.hippocampus-monitor.ts.net is the owner-ruled
- * disaster-recovery copy of this repository. Twice now it has rotted silently:
+ * disaster-recovery copy of this repository. It has rotted silently three
+ * different ways in a single night:
  *
  *   1. origin/main drifted 534 commits behind github/main because the
  *      post-merge "sync Forgejo main" step lapsed and nothing measured it.
- *   2. Every `runs-on: ubuntu-latest` job on the mirror began failing in ~2s
+ *   2. Branch sets diverged in BOTH directions - 24 branches the mirror had
+ *      and GitHub did not, one branch GitHub had and the mirror did not - and
+ *      it broke again six minutes after parity was restored, because GitHub's
+ *      merge-time branch delete does not touch the mirror. Parity breaks per
+ *      merge, not slowly.
+ *   3. Every `runs-on: ubuntu-latest` job on the mirror began failing in ~2s
  *      on 2026-08-17 (the runner's container image vanished from the runner
  *      host) and nothing noticed for three weeks.
  *
- * Both failures share one property: the mirror is not on anybody's critical
- * path, so a broken mirror produces silence rather than a red check. This
- * detector converts that silence into a loud failure.
+ * All three share one property: the mirror is not on anybody's critical path,
+ * so a broken mirror produces silence rather than a red check. This detector
+ * converts that silence into a loud, specific failure.
  *
  * It deliberately runs OUTSIDE Forgejo (GitHub Actions), because a detector
  * hosted on the thing it watches cannot report that the thing is dead - it
  * would simply not run, which is the exact failure mode being guarded.
  *
+ * Every alarm carries its own STATE and its own ACTION, because the fixes are
+ * unrelated: an unreachable host is not a drifted main is not a stale
+ * scheduler. Answering "something is wrong" would just move the diagnosis
+ * cost to whoever is woken up.
+ *
  * evaluateLiveness() is pure: it takes an already-collected snapshot and
  * returns verdicts. That separation is what lets the unit tests drive it with
- * fixtures and PROVE each assertion can fail (see forgejo-liveness.test.mjs).
+ * fixtures and PROVE each state can fire (see forgejo-liveness.test.mjs).
  * A detector that has only ever been observed returning "ok" has not been
  * shown to be capable of returning anything else.
  */
+
+import { readFileSync } from 'node:fs';
 
 export const DEFAULT_FORGEJO_API =
   'https://forgejo.hippocampus-monitor.ts.net/api/v1';
@@ -33,22 +46,51 @@ export const DEFAULT_FORGEJO_REPO = 'VH-Health-Platform';
 
 /**
  * The Forgejo workflow that runs on a schedule. .forgejo/workflows/ci.yml
- * only fires on push/pull_request, so it cannot answer "is the mirror still
+ * fires only on push/pull_request, so it cannot answer "is the mirror still
  * executing work on its own?" - full-stack-sweep.yml runs cron 30 1 * * 1-5
- * (Asia/Kolkata) and is the mirror's own heartbeat.
+ * (Asia/Kolkata) and is the mirror's only scheduled workflow.
  */
 export const SCHEDULED_WORKFLOW = 'full-stack-sweep.yml';
 
-/** Matrix stages required to have completed successfully on that schedule. */
-export const REQUIRED_SCHEDULED_JOBS = ['backend', 'admin'];
-
 /**
- * full-stack-sweep runs Monday-Friday only, so the newest scheduled run can
- * legitimately be ~72h old when this detector fires on a Monday morning.
- * 96h keeps a full weekend of slack without letting a genuinely dead mirror
- * hide for a second missed weekday.
+ * The mirror's sweep runs Monday-Friday only, so the newest scheduled run can
+ * legitimately be ~72h old when this fires on a Monday morning. 96h keeps a
+ * full weekend of slack without letting a dead scheduler hide for a second
+ * missed weekday.
  */
 export const DEFAULT_MAX_RUN_AGE_HOURS = 96;
+
+/**
+ * Distinct alarm states. Each names a different fault with a different fix.
+ * "MIRROR UNREACHABLE" and "STALE/UNKNOWN" exist as separate states on
+ * purpose: a monitor that answers from cache during an outage, or that treats
+ * "I could not tell" as "fine", is the mistake this file exists to prevent.
+ */
+export const STATE = {
+  OK: 'OK',
+  UNREACHABLE: 'MIRROR UNREACHABLE',
+  STALE: 'STALE/UNKNOWN',
+  DRIFT: 'DIVERGED / BEHIND',
+  ONE_SIDED: 'ONE-SIDED BRANCHES',
+  JOBS: 'SCHEDULED JOBS NOT COMPLETING',
+};
+
+const ACTION = {
+  [STATE.UNREACHABLE]:
+    'Check the Forgejo host and the tailnet. The failing step below says whether the ' +
+    'GitHub runner failed to join the tailnet or the host itself did not answer.',
+  [STATE.STALE]:
+    'The detector could not obtain fresh, complete data. Do NOT read this as healthy. ' +
+    'Confirm the mirror is answering and its scheduler is running before trusting any other verdict.',
+  [STATE.DRIFT]:
+    'Run the sync protocol: ancestry-check, then `git push origin github/main:main`.',
+  [STATE.ONE_SIDED]:
+    'Prune or push the named branches. GitHub merge-time branch deletes do not touch ' +
+    'the mirror, so `git push origin --delete <branch>` is the usual missing half.',
+  [STATE.JOBS]:
+    'The mirror runner cannot start jobs. See infra/forgejo/ci-image/README.md - ' +
+    'rebuild vhhealth/act-java17 on the runner host.',
+};
 
 const HOUR_MS = 60 * 60 * 1000;
 
@@ -56,94 +98,219 @@ function hoursBetween(laterMs, earlierMs) {
   return (laterMs - earlierMs) / HOUR_MS;
 }
 
+function check(id, title, state, detail) {
+  return {
+    id,
+    title,
+    state,
+    ok: state === STATE.OK,
+    detail,
+    action: state === STATE.OK ? '' : (ACTION[state] ?? ''),
+  };
+}
+
 /**
- * Pure verdict function.
+ * Derive the monitored job population from the mirror's scheduled workflow.
  *
- * @param {object} snapshot
- * @param {string} snapshot.githubMainSha    tip of main on GitHub
- * @param {string} snapshot.forgejoMainSha   tip of main on the Forgejo mirror
- * @param {object|null} [snapshot.compare]   GitHub compare API result, or null
- * @param {Array} snapshot.tasks             Forgejo Actions tasks
- * @param {string|number|Date} snapshot.now  evaluation instant
- * @param {number} [snapshot.maxRunAgeHours]
- * @param {string[]} [snapshot.requiredJobs]
- * @param {string} [snapshot.scheduledWorkflow]
- * @returns {{ok: boolean, checks: Array<{id: string, ok: boolean, title: string, detail: string}>}}
+ * PREDICATE: every entry of `matrix.stage` on the job whose `runs-on:` is
+ * `ubuntu-latest` in .forgejo/workflows/full-stack-sweep.yml.
+ *
+ * Derived rather than hard-coded because the whole ubuntu-latest population is
+ * what fails, and a hand-written list of two names would silently stop
+ * covering a stage the moment someone adds one.
+ */
+export function deriveScheduledStages(workflowText) {
+  const lines = workflowText.split(/\r?\n/);
+  const runsOnUbuntu = lines.some((l) => /^\s*runs-on:\s*ubuntu-latest\s*$/.test(l));
+  if (!runsOnUbuntu) {
+    throw new Error(
+      'full-stack-sweep.yml no longer has a `runs-on: ubuntu-latest` job; ' +
+        'the monitored population must be re-derived.',
+    );
+  }
+  const stages = [];
+  let inStageList = false;
+  let stageIndent = 0;
+  for (const line of lines) {
+    if (/^\s*stage:\s*$/.test(line)) {
+      inStageList = true;
+      stageIndent = line.length - line.trimStart().length;
+      continue;
+    }
+    if (!inStageList) continue;
+    const m = /^(\s*)-\s+(\S+)\s*$/.exec(line);
+    if (m && m[1].length > stageIndent) {
+      stages.push(m[2]);
+      continue;
+    }
+    if (line.trim() !== '') inStageList = false;
+  }
+  if (stages.length === 0) {
+    throw new Error(
+      'Derived an EMPTY stage population from full-stack-sweep.yml. A verdict over an ' +
+        'empty set reports success, so this is a hard failure rather than a pass.',
+    );
+  }
+  return stages;
+}
+
+/**
+ * Pure verdict function over an already-collected snapshot.
  */
 export function evaluateLiveness({
+  now,
+  collection = { ok: true },
   githubMainSha,
   forgejoMainSha,
   compare = null,
+  githubBranches = [],
+  forgejoBranches = [],
   tasks = [],
-  now,
+  monitoredStages = [],
   maxRunAgeHours = DEFAULT_MAX_RUN_AGE_HOURS,
-  requiredJobs = REQUIRED_SCHEDULED_JOBS,
   scheduledWorkflow = SCHEDULED_WORKFLOW,
 } = {}) {
-  const checks = [];
   const nowMs = new Date(now).getTime();
   if (!Number.isFinite(nowMs)) {
     throw new TypeError(`evaluateLiveness: unusable "now" value: ${String(now)}`);
   }
 
-  // ---- Check 1: mirror fast-forward drift must be zero -------------------
-  if (!githubMainSha || !forgejoMainSha) {
-    checks.push({
-      id: 'mirror-drift',
+  // ---- Gate 0: could we see anything at all? ----------------------------
+  // Short-circuits on purpose. An unreachable mirror must never be rendered
+  // as a parity diff: for ~90 seconds tonight two reviewers read an empty
+  // probe result as "the mirror has lost every branch".
+  if (collection && collection.ok === false) {
+    return {
       ok: false,
-      title: 'Forgejo main matches GitHub main',
-      detail:
-        'Could not read one of the two main SHAs ' +
-        `(github=${githubMainSha || '<unreadable>'}, forgejo=${forgejoMainSha || '<unreadable>'}). ` +
-        'An unreadable mirror is treated as a failing mirror.',
-    });
-  } else if (githubMainSha === forgejoMainSha) {
-    checks.push({
-      id: 'mirror-drift',
-      ok: true,
-      title: 'Forgejo main matches GitHub main',
-      detail: `both at ${githubMainSha}`,
-    });
-  } else {
-    // compare distinguishes "behind by N" (the sync step lapsed) from
-    // "diverged" (someone pushed to the mirror directly) - different fixes.
-    let shape = 'relationship unknown (compare unavailable)';
-    if (compare && typeof compare === 'object') {
-      const status = compare.status ?? 'unknown';
-      const behind = compare.behind_by ?? '?';
-      const ahead = compare.ahead_by ?? '?';
-      shape = `github/main is "${status}" relative to origin/main (ahead_by=${ahead}, behind_by=${behind})`;
-    }
-    checks.push({
-      id: 'mirror-drift',
-      ok: false,
-      title: 'Forgejo main matches GitHub main',
-      detail:
-        `DRIFT: github/main=${githubMainSha} origin/main=${forgejoMainSha}; ${shape}. ` +
-        'Fast-forward the mirror: git push origin github/main:main',
-    });
+      checks: [
+        check(
+          'mirror-reachable',
+          'Forgejo mirror answered',
+          STATE.UNREACHABLE,
+          `failing step: ${collection.failedStep ?? 'unknown'}; ` +
+            `${collection.url ? `url=${collection.url}; ` : ''}` +
+            `error=${collection.message ?? 'unknown'}; at ${new Date(nowMs).toISOString()}`,
+        ),
+      ],
+    };
   }
 
-  // ---- Check 2: the mirror's own scheduled runs still complete ----------
-  for (const jobName of requiredJobs) {
-    const id = `scheduled-run:${jobName}`;
-    const title = `Forgejo scheduled "${jobName}" run completed`;
+  // SANITY ASSERTION: a real parity break never removes `main`. If a ref
+  // listing is empty or is missing main, the probe failed - it is not an
+  // empty set.
+  for (const [side, names] of [
+    ['GitHub', githubBranches],
+    ['Forgejo', forgejoBranches],
+  ]) {
+    if (!Array.isArray(names) || names.length === 0 || !names.includes('main')) {
+      return {
+        ok: false,
+        checks: [
+          check(
+            'mirror-reachable',
+            'Branch listings are trustworthy',
+            STATE.UNREACHABLE,
+            `The ${side} branch listing came back with ${Array.isArray(names) ? names.length : 0} ` +
+              'refs and no `main`. A real parity break never removes main, so this is a failed ' +
+              'probe, not an empty set. Refusing to report a branch diff from it.',
+          ),
+        ],
+      };
+    }
+  }
+
+  const checks = [];
+
+  // ---- Check 1: fast-forward drift on main must be zero ------------------
+  if (!githubMainSha || !forgejoMainSha) {
+    checks.push(
+      check(
+        'mirror-drift',
+        'Forgejo main matches GitHub main',
+        STATE.STALE,
+        'Could not read one of the two main SHAs ' +
+          `(github=${githubMainSha || '<unreadable>'}, forgejo=${forgejoMainSha || '<unreadable>'}).`,
+      ),
+    );
+  } else if (githubMainSha === forgejoMainSha) {
+    checks.push(
+      check('mirror-drift', 'Forgejo main matches GitHub main', STATE.OK, `both at ${githubMainSha}`),
+    );
+  } else {
+    let shape = 'relationship unknown (compare unavailable)';
+    if (compare && typeof compare === 'object') {
+      shape =
+        `github/main is "${compare.status ?? 'unknown'}" relative to origin/main ` +
+        `(ahead_by=${compare.ahead_by ?? '?'}, behind_by=${compare.behind_by ?? '?'})`;
+    }
+    checks.push(
+      check(
+        'mirror-drift',
+        'Forgejo main matches GitHub main',
+        STATE.DRIFT,
+        `github/main=${githubMainSha} origin/main=${forgejoMainSha}; ${shape}`,
+      ),
+    );
+  }
+
+  // ---- Check 2: branch sets equal in BOTH directions ---------------------
+  const gh = new Set(githubBranches);
+  const fj = new Set(forgejoBranches);
+  const githubOnly = [...gh].filter((b) => !fj.has(b)).sort();
+  const forgejoOnly = [...fj].filter((b) => !gh.has(b)).sort();
+  if (githubOnly.length === 0 && forgejoOnly.length === 0) {
+    checks.push(
+      check(
+        'branch-parity',
+        'Branch sets match in both directions',
+        STATE.OK,
+        `${gh.size} branches on each side, zero one-sided`,
+      ),
+    );
+  } else {
+    const parts = [];
+    for (const b of githubOnly) parts.push(`github-only: ${b}`);
+    for (const b of forgejoOnly) parts.push(`forgejo-only: ${b}`);
+    checks.push(
+      check(
+        'branch-parity',
+        'Branch sets match in both directions',
+        STATE.ONE_SIDED,
+        `${parts.length} one-sided branch(es) (GitHub ${gh.size} / Forgejo ${fj.size}) -\n        ` +
+          parts.join('\n        '),
+      ),
+    );
+  }
+
+  // ---- Check 3: every monitored scheduled stage still completes ----------
+  if (!Array.isArray(monitoredStages) || monitoredStages.length === 0) {
+    checks.push(
+      check(
+        'scheduled-runs',
+        'Monitored scheduled stages',
+        STATE.STALE,
+        'The monitored stage population is EMPTY, so the per-stage checks below would ' +
+          'pass vacuously. Refusing to report success over an empty set.',
+      ),
+    );
+  }
+  for (const stage of monitoredStages) {
+    const id = `scheduled-run:${stage}`;
+    const title = `Forgejo scheduled "${stage}" run completed`;
     const candidates = tasks.filter(
       (t) =>
-        t &&
-        t.workflow_id === scheduledWorkflow &&
-        t.event === 'schedule' &&
-        t.name === jobName,
+        t && t.workflow_id === scheduledWorkflow && t.event === 'schedule' && t.name === stage,
     );
     if (candidates.length === 0) {
-      checks.push({
-        id,
-        ok: false,
-        title,
-        detail:
-          `No scheduled "${jobName}" task found for ${scheduledWorkflow} in the sampled task history. ` +
-          'Either the schedule stopped firing or the workflow was renamed.',
-      });
+      checks.push(
+        check(
+          id,
+          title,
+          STATE.STALE,
+          `No scheduled "${stage}" task found for ${scheduledWorkflow} in the sampled history. ` +
+            'Either the schedule stopped firing or the stage was renamed.',
+        ),
+      );
       continue;
     }
     const newest = candidates.reduce((a, b) => (Number(b.id) > Number(a.id) ? b : a));
@@ -152,37 +319,25 @@ export function evaluateLiveness({
     const url = newest.url ? ` ${newest.url}` : '';
 
     if (!Number.isFinite(ageH)) {
-      checks.push({
-        id,
-        ok: false,
-        title,
-        detail: `Newest scheduled "${jobName}" task ${newest.id} has an unreadable timestamp (${String(stamp)}).${url}`,
-      });
-    } else if (newest.status !== 'success') {
-      checks.push({
-        id,
-        ok: false,
-        title,
-        detail:
-          `Newest scheduled "${jobName}" task ${newest.id} finished "${newest.status}" ` +
-          `(${ageH.toFixed(1)}h ago).${url}`,
-      });
+      checks.push(
+        check(id, title, STATE.STALE, `task ${newest.id} has an unreadable timestamp (${String(stamp)}).${url}`),
+      );
     } else if (ageH > maxRunAgeHours) {
-      checks.push({
-        id,
-        ok: false,
-        title,
-        detail:
-          `Newest scheduled "${jobName}" task ${newest.id} succeeded but is STALE: ` +
-          `${ageH.toFixed(1)}h old, budget ${maxRunAgeHours}h. The schedule has stopped firing.${url}`,
-      });
+      checks.push(
+        check(
+          id,
+          title,
+          STATE.STALE,
+          `newest scheduled task ${newest.id} is ${ageH.toFixed(1)}h old, budget ${maxRunAgeHours}h - ` +
+            `the schedule has stopped firing (last status "${newest.status}").${url}`,
+        ),
+      );
+    } else if (newest.status !== 'success') {
+      checks.push(
+        check(id, title, STATE.JOBS, `task ${newest.id} finished "${newest.status}" ${ageH.toFixed(1)}h ago.${url}`),
+      );
     } else {
-      checks.push({
-        id,
-        ok: true,
-        title,
-        detail: `task ${newest.id} succeeded ${ageH.toFixed(1)}h ago${url}`,
-      });
+      checks.push(check(id, title, STATE.OK, `task ${newest.id} succeeded ${ageH.toFixed(1)}h ago${url}`));
     }
   }
 
@@ -191,15 +346,22 @@ export function evaluateLiveness({
 
 export function renderReport(result) {
   const lines = [];
+  const seenActions = new Set();
   for (const c of result.checks) {
-    lines.push(`${c.ok ? 'PASS' : 'FAIL'}  ${c.title}\n        ${c.detail}`);
+    lines.push(`${c.ok ? 'PASS' : 'FAIL'}  [${c.state}] ${c.title}`);
+    lines.push(`        ${c.detail}`);
   }
   lines.push('');
-  lines.push(
-    result.ok
-      ? 'Forgejo mirror liveness: OK'
-      : 'Forgejo mirror liveness: FAILING - see the failed checks above.',
-  );
+  if (result.ok) {
+    lines.push('Forgejo mirror liveness: OK');
+  } else {
+    lines.push('Forgejo mirror liveness: FAILING');
+    for (const c of result.checks) {
+      if (c.ok || seenActions.has(c.state)) continue;
+      seenActions.add(c.state);
+      lines.push(`  ${c.state} -> ${c.action}`);
+    }
+  }
   return lines.join('\n');
 }
 
@@ -207,81 +369,115 @@ export function renderReport(result) {
 // Collection (network) - kept out of evaluateLiveness so the tests stay pure.
 // --------------------------------------------------------------------------
 
-async function getJson(url, headers = {}) {
-  const res = await fetch(url, { headers: { accept: 'application/json', ...headers } });
-  if (!res.ok) {
-    throw new Error(`GET ${url} -> HTTP ${res.status} ${res.statusText}`);
-  }
+async function getJson(url, headers = {}, timeoutMs = 30000) {
+  const res = await fetch(url, {
+    headers: { accept: 'application/json', ...headers },
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
   return res.json();
 }
 
-export async function collectSnapshot(env = process.env) {
+async function listAllBranches(baseUrl, headers, pageParam, timeoutMs) {
+  const names = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const rows = await getJson(`${baseUrl}${pageParam}&page=${page}`, headers, timeoutMs);
+    if (!Array.isArray(rows) || rows.length === 0) break;
+    names.push(...rows.map((b) => b.name));
+    if (rows.length < 50) break;
+  }
+  return names;
+}
+
+export async function collectSnapshot(env = process.env, readWorkflow = null) {
+  const now = new Date().toISOString();
   const forgejoApi = (env.FORGEJO_API || DEFAULT_FORGEJO_API).replace(/\/+$/, '');
   const owner = env.FORGEJO_OWNER || DEFAULT_FORGEJO_OWNER;
   const repo = env.FORGEJO_REPO || DEFAULT_FORGEJO_REPO;
   const ghRepo = env.GITHUB_REPOSITORY || 'Bahuleyandr/VH-Health-Platform';
   const ghApi = (env.GITHUB_API_URL || 'https://api.github.com').replace(/\/+$/, '');
+  const timeoutMs = Number(env.FORGEJO_TIMEOUT_MS || 30000);
 
-  const ghHeaders = env.GITHUB_TOKEN
-    ? { authorization: `Bearer ${env.GITHUB_TOKEN}` }
-    : {};
+  const ghHeaders = env.GITHUB_TOKEN ? { authorization: `Bearer ${env.GITHUB_TOKEN}` } : {};
   // The Forgejo repo is public; a token is optional and only used if provided.
-  const fjHeaders = env.FORGEJO_TOKEN
-    ? { authorization: `token ${env.FORGEJO_TOKEN}` }
-    : {};
+  const fjHeaders = env.FORGEJO_TOKEN ? { authorization: `token ${env.FORGEJO_TOKEN}` } : {};
 
-  const githubBranch = await getJson(`${ghApi}/repos/${ghRepo}/branches/main`, ghHeaders);
-  const githubMainSha = githubBranch?.commit?.sha;
+  const fjRepo = `${forgejoApi}/repos/${owner}/${repo}`;
+  let step = 'github-api';
+  let url = `${ghApi}/repos/${ghRepo}/branches`;
+  try {
+    const githubBranches = await listAllBranches(
+      `${ghApi}/repos/${ghRepo}/branches?per_page=100`, ghHeaders, '', timeoutMs,
+    );
+    const githubMainSha = (
+      await getJson(`${ghApi}/repos/${ghRepo}/branches/main`, ghHeaders, timeoutMs)
+    )?.commit?.sha;
 
-  const forgejoBranch = await getJson(
-    `${forgejoApi}/repos/${owner}/${repo}/branches/main`,
-    fjHeaders,
-  );
-  const forgejoMainSha = forgejoBranch?.commit?.id;
+    step = 'forgejo-api';
+    url = `${fjRepo}/branches/main`;
+    const forgejoMainSha = (await getJson(url, fjHeaders, timeoutMs))?.commit?.id;
 
-  let compare = null;
-  if (githubMainSha && forgejoMainSha && githubMainSha !== forgejoMainSha) {
-    try {
-      compare = await getJson(
-        `${ghApi}/repos/${ghRepo}/compare/${forgejoMainSha}...${githubMainSha}`,
-        ghHeaders,
-      );
-    } catch {
-      // A mirror SHA GitHub has never seen (diverged history) 404s here.
-      // Drift is already established; the shape is a nicety, not the verdict.
-      compare = null;
+    url = `${fjRepo}/branches?limit=50`;
+    const forgejoBranches = await listAllBranches(url, fjHeaders, '', timeoutMs);
+
+    step = 'github-compare';
+    let compare = null;
+    if (githubMainSha && forgejoMainSha && githubMainSha !== forgejoMainSha) {
+      try {
+        compare = await getJson(
+          `${ghApi}/repos/${ghRepo}/compare/${forgejoMainSha}...${githubMainSha}`,
+          ghHeaders,
+          timeoutMs,
+        );
+      } catch {
+        // A mirror SHA GitHub has never seen (diverged history) 404s here.
+        // Drift is already established; the shape is a nicety, not the verdict.
+        compare = null;
+      }
     }
-  }
 
-  const requiredJobs = env.REQUIRED_JOBS
-    ? env.REQUIRED_JOBS.split(',').map((s) => s.trim()).filter(Boolean)
-    : REQUIRED_SCHEDULED_JOBS;
-  const pages = Number(env.FORGEJO_TASK_PAGES || 6);
-  const tasks = [];
-  for (let page = 1; page <= pages; page += 1) {
-    const batch = await getJson(
-      `${forgejoApi}/repos/${owner}/${repo}/actions/tasks?limit=50&page=${page}`,
-      fjHeaders,
-    );
-    const rows = batch?.workflow_runs ?? [];
-    tasks.push(...rows);
-    if (rows.length === 0) break;
-    const found = requiredJobs.every((j) =>
-      tasks.some(
-        (t) => t.workflow_id === SCHEDULED_WORKFLOW && t.event === 'schedule' && t.name === j,
-      ),
-    );
-    if (found) break;
-  }
+    step = 'forgejo-api';
+    const monitoredStages = readWorkflow ? deriveScheduledStages(readWorkflow()) : [];
+    const tasks = [];
+    for (let page = 1; page <= Number(env.FORGEJO_TASK_PAGES || 6); page += 1) {
+      url = `${fjRepo}/actions/tasks?limit=50&page=${page}`;
+      const batch = await getJson(url, fjHeaders, timeoutMs);
+      const rows = batch?.workflow_runs ?? [];
+      tasks.push(...rows);
+      if (rows.length === 0) break;
+      const found = monitoredStages.every((s) =>
+        tasks.some(
+          (t) => t.workflow_id === SCHEDULED_WORKFLOW && t.event === 'schedule' && t.name === s,
+        ),
+      );
+      if (found) break;
+    }
 
-  return {
-    githubMainSha,
-    forgejoMainSha,
-    compare,
-    tasks,
-    requiredJobs,
-    now: new Date().toISOString(),
-  };
+    return {
+      now,
+      collection: { ok: true },
+      githubMainSha,
+      forgejoMainSha,
+      compare,
+      githubBranches,
+      forgejoBranches,
+      tasks,
+      monitoredStages,
+    };
+  } catch (err) {
+    return {
+      now,
+      collection: {
+        ok: false,
+        failedStep:
+          step === 'forgejo-api'
+            ? 'forgejo API over the tailnet (host down, or the runner never joined the tailnet)'
+            : step,
+        url,
+        message: err?.message ?? String(err),
+      },
+    };
+  }
 }
 
 function invokedDirectly() {
@@ -297,7 +493,12 @@ if (invokedDirectly()) {
     ? import('node:fs/promises').then(async ({ readFile }) =>
         JSON.parse(await readFile(fixturePath, 'utf8')),
       )
-    : collectSnapshot();
+    : collectSnapshot(process.env, () =>
+        readFileSync(
+          process.env.SCHEDULED_WORKFLOW_PATH ?? '.forgejo/workflows/full-stack-sweep.yml',
+          'utf8',
+        ),
+      );
 
   load
     .then(async (snapshot) => {
@@ -319,9 +520,7 @@ if (invokedDirectly()) {
       process.exitCode = result.ok ? 0 : 1;
     })
     .catch((err) => {
-      // An unreachable mirror is a FAILURE, never a skip: "cannot tell" is the
-      // silence this detector exists to eliminate.
-      process.stderr.write(`Forgejo mirror liveness: collection failed - ${err.message}\n`);
+      process.stderr.write(`Forgejo mirror liveness: [${STATE.UNREACHABLE}] ${err.message}\n`);
       process.exitCode = 1;
     });
 }
