@@ -1,0 +1,38 @@
+{
+  "metadata": [{ "database": "rls_fixture", "session_user": "owner", "current_user": "owner", "server_version": "17.0", "read_only": "on", "server_address": "127.0.0.1", "server_port": 55432, "captured_at": "2026-09-08 00:00:00+00" }],
+  "roles": [
+    { "rolname": "owner", "rolsuper": true, "rolbypassrls": false, "rolcanlogin": true, "rolinherit": true, "rolcreaterole": true },
+    { "rolname": "vhhealth_app", "rolsuper": false, "rolbypassrls": false, "rolcanlogin": false, "rolinherit": true, "rolcreaterole": false },
+    { "rolname": "maintenance", "rolsuper": "f", "rolbypassrls": "t", "rolcanlogin": "f", "rolinherit": "t", "rolcreaterole": "f" },
+    { "rolname": "operator", "rolsuper": false, "rolbypassrls": false, "rolcanlogin": true, "rolinherit": true, "rolcreaterole": false },
+    { "rolname": "bridge", "rolsuper": false, "rolbypassrls": false, "rolcanlogin": false, "rolinherit": true, "rolcreaterole": false }
+  ],
+  "memberships": [
+    { "member": "operator", "role": "bridge", "grantor": "owner", "admin_option": false, "inherit_option": true, "set_option": true },
+    { "member": "bridge", "role": "maintenance", "grantor": "owner", "admin_option": false, "inherit_option": true, "set_option": true },
+    { "member": "vhhealth_app", "role": "maintenance", "grantor": "owner", "admin_option": false, "inherit_option": true, "set_option": false }
+  ],
+  "relations": [
+    { "schemaname": "public", "tablename": "open_rows" },
+    { "schemaname": "public", "tablename": "closed_rows" },
+    { "schemaname": "public", "tablename": "misleading_name" },
+    { "schemaname": "other", "tablename": "open_rows" },
+    { "schemaname": "public", "tablename": "insert_only" }
+  ],
+  "tables": [
+    { "schemaname": "public", "tablename": "open_rows", "owner": "owner", "rls_enabled": true, "force_rls": true, "kind": "r", "tenant_type": "uuid" },
+    { "schemaname": "public", "tablename": "closed_rows", "owner": "owner", "rls_enabled": true, "force_rls": true, "kind": "p", "tenant_type": "uuid" },
+    { "schemaname": "public", "tablename": "misleading_name", "owner": "owner", "rls_enabled": "t", "force_rls": "f", "kind": "r", "tenant_type": "uuid" },
+    { "schemaname": "other", "tablename": "open_rows", "owner": "owner", "rls_enabled": true, "force_rls": true, "kind": "r", "tenant_type": "uuid" },
+    { "schemaname": "public", "tablename": "insert_only", "owner": "owner", "rls_enabled": false, "force_rls": false, "kind": "r", "tenant_type": "uuid" }
+  ],
+  "policies": [
+    { "schemaname": "public", "tablename": "open_rows", "policyname": "tenant_isolation", "permissive": "PERMISSIVE", "roles": ["public"], "cmd": "ALL", "qual": "true", "with_check": null },
+    { "schemaname": "public", "tablename": "closed_rows", "policyname": "tenant_isolation", "permissive": "PERMISSIVE", "roles": ["public"], "cmd": "ALL", "qual": "true", "with_check": null },
+    { "schemaname": "public", "tablename": "closed_rows", "policyname": "explicit_tenant_context_753", "permissive": "RESTRICTIVE", "roles": ["public"], "cmd": "ALL", "qual": "(app_current_tenant_id_uuid() IS NOT NULL)", "with_check": null },
+    { "schemaname": "public", "tablename": "misleading_name", "policyname": "tenant_context_required", "permissive": "PERMISSIVE", "roles": ["public"], "cmd": "ALL", "qual": "true", "with_check": null },
+    { "schemaname": "other", "tablename": "open_rows", "policyname": "custom_companion", "permissive": "RESTRICTIVE", "roles": ["public"], "cmd": "ALL", "qual": "(app_current_tenant_id_uuid() IS NOT NULL)", "with_check": "(app_current_tenant_id_uuid() IS NOT NULL)" },
+    { "schemaname": "public", "tablename": "insert_only", "policyname": "limited_policy", "permissive": "RESTRICTIVE", "roles": ["vhhealth_app"], "cmd": "INSERT", "qual": null, "with_check": "true" }
+  ],
+  "migrations": [{ "name": "001_fixture.sql", "checksum": "fixture" }]
+}
