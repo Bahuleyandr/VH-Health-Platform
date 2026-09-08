@@ -21,7 +21,7 @@ class _ControlledClient extends http.BaseClient {
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     requests.add(request);
     if (request is http.Abortable) {
-      request.abortTrigger?.then((_) => aborts++);
+      unawaited(request.abortTrigger?.then<void>((_) => aborts++));
     }
     try {
       await request.finalize().toBytes();
@@ -530,8 +530,9 @@ void main() {
     var uploads = 0;
     var builds = 0;
     final client = _ControlledClient((request) async {
-      if (request.url.path.endsWith('/auth/refresh-token'))
+      if (request.url.path.endsWith('/auth/refresh-token')) {
         return refreshed.future;
+      }
       uploads++;
       return _response(
         uploads == 1 ? 401 : 200,
