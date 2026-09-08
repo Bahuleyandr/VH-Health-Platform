@@ -9,6 +9,7 @@ const updateDoctorAvailabilityMock = jest.fn();
 const deleteDoctorAccountMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  setTenantTx: jest.fn(),
   default: {
     $queryRawUnsafe: jest.fn(),
   },

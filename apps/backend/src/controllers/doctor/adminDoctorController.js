@@ -1,7 +1,8 @@
 // src/controllers/doctor/adminDoctorController.js
 import { validationResult } from 'express-validator';
 import { HTTP_STATUS, RESPONSE_MESSAGES } from '../../config/responseCodes.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
+import { AppError } from '../../utils/AppError.js';
 import logger from '../../logging/logger.js';
 import { maskPhoneForLog } from '../../utils/logMasking.js';
 import { adminDoctorService } from '../../services/doctor/adminDoctorService.js';
@@ -141,6 +142,10 @@ export const adminDoctorController = {
   // Update doctor profile (admin)
   updateDoctorProfile: async (req, res) => {
     try {
+      if (!(req.tenantId || req.user?.tenant_id || req.user?.tenantId)) {
+        throw AppError.forbidden('Tenant context required', 'TENANT_CONTEXT_REQUIRED');
+      }
+      const tenantId = adminTenantId(req);
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
         return error(res, 'Validation error', 400, errors.array());
@@ -148,53 +153,62 @@ export const adminDoctorController = {
 
       const { id } = req.params;
 
-      // Verify doctor exists — also accepts doctors with no user row (legacy)
-      const doctorCheck = await prisma.$queryRawUnsafe(
-        'SELECT d.id, COALESCE(u.name, d.name) as name FROM doctors d LEFT JOIN users u ON u.id = d.user_id WHERE (d.user_id = $1 OR d.id = $1) AND d.is_active = true',
-        parseInt(id)
-      );
+      const { doctorCheck, result } = await setTenantTx(tenantId, async (tx) => {
+        // Verify doctor exists — also accepts doctors with no user row (legacy)
+        const doctorCheck = await tx.$queryRawUnsafe(
+          `SELECT d.id, COALESCE(u.name, d.name) as name FROM doctors d
+             LEFT JOIN users u ON u.id = d.user_id AND u.tenant_id = $2::uuid
+             WHERE (d.user_id = $1::int OR d.id = $1::int) AND d.is_active = true
+               AND d.tenant_id = $2::uuid FOR UPDATE OF d`,
+          parseInt(id), tenantId
+        );
 
-      if (doctorCheck.length === 0) {
-        return error(res, 'Doctor not found', 404);
-      }
+        if (doctorCheck.length === 0) {
+          throw AppError.notFound('Doctor not found');
+        }
 
-      const doctorId = doctorCheck[0].id;
+        const doctorId = doctorCheck[0].id;
 
-      // Update doctors table using the actual schema. Older API payloads may
-      // include fee/schedule fields that are not present in this table.
-      const result = await prisma.$queryRawUnsafe(`
-        UPDATE doctors SET
-          name = COALESCE($1, name),
-          specialty = COALESCE($2, specialty),
-          department = COALESCE($3, department),
-          intro = COALESCE($4, intro),
-          updated_at = NOW()
-        WHERE id = $5
-        RETURNING id, name, department, specialty, intro, image_url,
-          NULL::numeric as consultation_fee,
-          NULL::text[] as available_days,
-          NULL::jsonb as available_hours,
-          is_available, is_active, created_at
-      `,
-        req.body.name || null,
-        req.body.specialization || null,
-        req.body.department || null,
-        req.body.bio || null,
-        doctorId
-      );
-
-      // Also update users table for name/email/phone if user row exists
-      if (req.body.email || req.body.phone || req.body.name) {
-        await prisma.$queryRawUnsafe(`
-          UPDATE users u SET
-            name = COALESCE($1, u.name),
-            email = COALESCE($2, u.email),
-            phone = COALESCE($3, u.phone),
+        // Update doctors table using the actual schema. Older API payloads may
+        // include fee/schedule fields that are not present in this table.
+        const result = await tx.$queryRawUnsafe(`
+          UPDATE doctors SET
+            name = COALESCE($1, name),
+            specialty = COALESCE($2, specialty),
+            department = COALESCE($3, department),
+            intro = COALESCE($4, intro),
             updated_at = NOW()
-          FROM doctors d
-          WHERE u.id = d.user_id AND d.id = $4 AND d.user_id IS NOT NULL
-        `, req.body.name || null, req.body.email || null, req.body.phone || null, doctorId);
-      }
+          WHERE id = $5 AND tenant_id = $6::uuid
+          RETURNING id, name, department, specialty, intro, image_url,
+            NULL::numeric as consultation_fee,
+            NULL::text[] as available_days,
+            NULL::jsonb as available_hours,
+            is_available, is_active, created_at
+        `,
+          req.body.name || null,
+          req.body.specialization || null,
+          req.body.department || null,
+          req.body.bio || null,
+          doctorId, tenantId
+        );
+
+        if (!result.length) throw AppError.notFound('Doctor not found');
+
+        // Also update users table for name/email/phone if user row exists
+        if (req.body.email || req.body.phone || req.body.name) {
+          await tx.$queryRawUnsafe(`
+            UPDATE users u SET
+              name = COALESCE($1, u.name),
+              email = COALESCE($2, u.email),
+              phone = COALESCE($3, u.phone),
+              updated_at = NOW()
+            FROM doctors d
+            WHERE u.id = d.user_id AND d.id = $4 AND d.user_id IS NOT NULL
+              AND d.tenant_id = $5::uuid AND u.tenant_id = $5::uuid
+          `, req.body.name || null, req.body.email || null, req.body.phone || null, doctorId, tenantId);
+        }
+        return { doctorCheck, result };
+      });
 
       logger.info(`[adminDoctorRoutes] Doctor profile updated: ${id} by ${req.user?.uid}`);
 
@@ -206,7 +220,7 @@ export const adminDoctorController = {
       }, 'Doctor profile updated successfully');
     } catch (err) {
       logger.error('Error updating doctor profile:', err);
-      error(res, 'Failed to update doctor profile');
+      return relayAppError(res, err, 'Failed to update doctor profile');
     }
   },
 
