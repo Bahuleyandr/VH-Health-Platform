@@ -342,7 +342,7 @@ describe('staff operational endpoint drift guards', () => {
 
     const res = makeRes();
 
-    await getStaffAdminDashboard({}, res);
+    await getStaffAdminDashboard({ tenantId: DEFAULT_TENANT_ID }, res);
 
     const sql = queryRawUnsafe.mock.calls[0][0];
     expect(sql).toContain('FROM staff_performance_reviews');
@@ -396,17 +396,19 @@ describe('staff operational endpoint drift guards', () => {
   it('spreads leave report filters and casts the year', async () => {
     queryRawUnsafe.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
 
-    await getLeavePatterns({ query: { year: '2026', department: 'nursing' } }, makeRes());
-    await getAllLeaveRequests({ query: { status: 'pending', department: 'nursing' } }, makeRes());
+    await getLeavePatterns({ tenantId: DEFAULT_TENANT_ID, query: { year: '2026', department: 'nursing' } }, makeRes());
+    await getAllLeaveRequests({ tenantId: DEFAULT_TENANT_ID, query: { status: 'pending', department: 'nursing' } }, makeRes());
 
     expect(queryRawUnsafe.mock.calls[0]).toEqual([
       expect.stringContaining('EXTRACT(YEAR FROM la.start_date)::int = $1::int'),
       '2026',
+      DEFAULT_TENANT_ID,
       'nursing',
     ]);
     expect(queryRawUnsafe.mock.calls[1]).toEqual([
       expect.any(String),
       'pending',
+      DEFAULT_TENANT_ID,
       'nursing',
     ]);
   });
@@ -531,7 +533,7 @@ describe('staff operational endpoint drift guards', () => {
     await getPayrollRunDetail({ params: { runId: '1' } }, makeRes());
     await getStaffSalaryConfig({ params: { staffUid } }, makeRes());
     await getRevisionDetail({ params: { id: '1' } }, makeRes());
-    await getReportAuditTrail({ params: { type: 'incident', id: '1' } }, makeRes());
+    await getReportAuditTrail({ tenantId: DEFAULT_TENANT_ID, params: { type: 'incident', id: '1' } }, makeRes());
     await getLeaveAuditTrail({ params: { id: '1' } }, makeRes());
 
     // getPayslipDetail gained an explicit tenant predicate — a payslip is now
@@ -547,9 +549,7 @@ describe('staff operational endpoint drift guards', () => {
     expect(queryRawUnsafe.mock.calls[0][0]).toContain('p.tenant_id = $3::uuid');
     // Both getPayrollRunDetail queries gained the same tenant predicate: a run
     // and its payslips are reachable only from inside the owning tenant, not by
-    // run id alone. calls[5] (getRevisionDetail) moved the same way; calls[3],
-    // [4], [6] and [7] come from controllers unchanged since 9cc8b8903 and keep
-    // their old shapes.
+    // run id alone. The report audit lookup also requires the authenticated tenant.
     expect(queryRawUnsafe.mock.calls[1]).toEqual([
       expect.stringContaining('p.payroll_run_id = $1::int'),
       1,
@@ -587,7 +587,9 @@ describe('staff operational endpoint drift guards', () => {
     expect(queryRawUnsafe.mock.calls[6]).toEqual([
       expect.stringContaining('ir.id = $1::int'),
       1,
+      DEFAULT_TENANT_ID,
     ]);
+    expect(queryRawUnsafe.mock.calls[6][0]).toContain('ir.tenant_id = $2::uuid');
     expect(queryRawUnsafe.mock.calls[7]).toEqual([
       expect.stringContaining('lr.id = $1::int'),
       1,
@@ -617,7 +619,7 @@ describe('staff operational endpoint drift guards', () => {
 
     const res = makeRes();
     await getReportAuditTrail(
-      { params: { type: 'incident', id: '1' }, user: { role: 'HR_STAFF' } },
+      { tenantId: DEFAULT_TENANT_ID, params: { type: 'incident', id: '1' }, user: { role: 'HR_STAFF' } },
       res
     );
 
@@ -660,7 +662,7 @@ describe('staff operational endpoint drift guards', () => {
 
     const res = makeRes();
     await getReportAuditTrail(
-      { params: { type: 'grievance', id: '1' }, user: { role: 'ADMIN' } },
+      { tenantId: DEFAULT_TENANT_ID, params: { type: 'grievance', id: '1' }, user: { role: 'ADMIN' } },
       res
     );
 

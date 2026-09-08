@@ -5,11 +5,12 @@
  * All queries are read-only — no mutations here.
  */
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { epochMsOrNull } from '../../utils/dbInstant.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { ADMIN, SUPER_ADMIN, normalizeRole } from '../../utils/roles.js';
+import { requestTenantId } from './staffAdminTenant.js';
 
 const canRevealAnonymousReporter = (user) => {
   const roles = [user?.role, user?.rawRole].map(normalizeRole).filter(Boolean);
@@ -143,6 +144,7 @@ export const getAuditDashboard = async (req, res) => {
 // ─── Full audit trail for a specific report ──────────────────────────────────
 export const getReportAuditTrail = async (req, res) => {
   try {
+    const tenantId = requestTenantId(req);
     const { type, id } = req.params;
     const reportId = Number.parseInt(id, 10);
 
@@ -154,40 +156,51 @@ export const getReportAuditTrail = async (req, res) => {
     }
 
     const reportQuery = type === 'incident'
-      ? `SELECT ir.*, u.name as reporter_name, u.name as actual_reporter_name, s.department as reporter_dept,
+      ? `SELECT ir.id, ir.tenant_id, ir.report_number, ir.reporter_id, ir.incident_type, ir.severity,
+                ir.title, ir.description, ir.location, ir.incident_date, ir.patient_involved,
+                ir.patient_uid, ir.patient_name, ir.witnesses, ir.immediate_action_taken,
+                ir.status, ir.assigned_to, ir.priority, ir.admin_notes, ir.resolution,
+                ir.resolved_at, ir.resolved_by, ir.is_anonymous, ir.attachments, ir.created_at, ir.updated_at,
+                u.name as reporter_name, u.name as actual_reporter_name, s.department as reporter_dept,
                 s.department as actual_reporter_dept,
                 u2.name as assigned_to_name, u3.name as resolved_by_name,
                 (EXTRACT(EPOCH FROM ir.created_at) * 1000)::bigint AS created_at_epoch_ms
          FROM incident_reports ir
-         LEFT JOIN users u ON ir.reporter_id = u.uid
-         LEFT JOIN staff s ON u.uid = s.user_id
-         LEFT JOIN users u2 ON ir.assigned_to = u2.uid
-         LEFT JOIN users u3 ON ir.resolved_by = u3.uid
-         WHERE ir.id = $1::int`
-      : `SELECT sg.*,
+         LEFT JOIN users u ON ir.reporter_id = u.uid AND u.tenant_id = $2::uuid
+         LEFT JOIN staff s ON u.uid = s.user_id AND s.tenant_id = $2::uuid
+         LEFT JOIN users u2 ON ir.assigned_to = u2.uid AND u2.tenant_id = $2::uuid
+         LEFT JOIN users u3 ON ir.resolved_by = u3.uid AND u3.tenant_id = $2::uuid
+         WHERE ir.id = $1::int AND ir.tenant_id = $2::uuid`
+      : `SELECT sg.id, sg.tenant_id, sg.grievance_number, sg.reporter_id, sg.grievance_type,
+                sg.subject, sg.description, sg.against_whom, sg.department, sg.incident_date,
+                sg.is_anonymous, sg.status, sg.priority, sg.assigned_to, sg.confidential,
+                sg.hr_notes, sg.resolution, sg.resolved_at, sg.resolved_by, sg.acknowledgement_sent,
+                sg.created_at, sg.updated_at,
                 CASE WHEN sg.is_anonymous THEN 'Anonymous' ELSE u.name END as reporter_name,
                 CASE WHEN sg.is_anonymous THEN NULL ELSE s.department END as reporter_dept,
                 u.name as actual_reporter_name, s.department as actual_reporter_dept,
                 u2.name as assigned_to_name, u3.name as resolved_by_name,
                 (EXTRACT(EPOCH FROM sg.created_at) * 1000)::bigint AS created_at_epoch_ms
          FROM staff_grievances sg
-         LEFT JOIN users u ON sg.reporter_id = u.uid
-         LEFT JOIN staff s ON u.uid = s.user_id
-         LEFT JOIN users u2 ON sg.assigned_to = u2.uid
-         LEFT JOIN users u3 ON sg.resolved_by = u3.uid
-         WHERE sg.id = $1::int`;
+         LEFT JOIN users u ON sg.reporter_id = u.uid AND u.tenant_id = $2::uuid
+         LEFT JOIN staff s ON u.uid = s.user_id AND s.tenant_id = $2::uuid
+         LEFT JOIN users u2 ON sg.assigned_to = u2.uid AND u2.tenant_id = $2::uuid
+         LEFT JOIN users u3 ON sg.resolved_by = u3.uid AND u3.tenant_id = $2::uuid
+         WHERE sg.id = $1::int AND sg.tenant_id = $2::uuid`;
 
-    const report = await prisma.$queryRawUnsafe(reportQuery, reportId);
+    const report = await setTenantTx(tenantId, tx => tx.$queryRawUnsafe(reportQuery, reportId, tenantId));
     if (report.length === 0) return error(res, 'Report not found', HTTP_STATUS.NOT_FOUND);
 
     // All updates including internal (audit view sees everything)
-    const trail = await prisma.$queryRawUnsafe(`
-      SELECT ru.*, u.name as author_name, u.role as author_db_role
+    const trail = await setTenantTx(tenantId, tx => tx.$queryRawUnsafe(`
+      SELECT ru.id, ru.report_type, ru.report_id, ru.author_id, ru.author_role,
+             ru.message, ru.is_internal, ru.created_at, ru.tenant_id,
+             u.name as author_name, u.role as author_db_role
       FROM report_updates ru
-      LEFT JOIN users u ON ru.author_id = u.uid
-      WHERE ru.report_type = $1 AND ru.report_id = $2::int
+      LEFT JOIN users u ON ru.author_id = u.uid AND u.tenant_id = $3::uuid
+      WHERE ru.report_type = $1 AND ru.report_id = $2::int AND ru.tenant_id = $3::uuid
       ORDER BY ru.created_at ASC
-    `, type, reportId);
+    `, type, reportId, tenantId));
 
     // SLA calculation
     const reportData = report[0];
@@ -243,8 +256,7 @@ export const getReportAuditTrail = async (req, res) => {
       sla: slaStatus,
     }, 'Audit trail fetched');
   } catch (err) {
-    logger.error('Audit Trail Error:', err);
-    error(res, 'Failed to fetch audit trail', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    relayAppError(res, err, 'Failed to fetch audit trail');
   }
 };
 
