@@ -1,6 +1,6 @@
 # Cath-lab readiness checklist never restricts — normative design
 
-Revision 9, 2026-09-09. Draft; awaits owner design sign-off. Docs only; no implementation, activation, deployment or merge approval. Verification base: github/main `bffdd82855ecb53d10395267778fc6ecad19c6f2`, inspected by function name on 2026-09-09.
+Revision 9, 2026-09-09. Draft; awaits owner design sign-off. Docs only; no implementation, activation, deployment or merge approval. Verification base: github/main `0aeb89239f5d95dacf94971e45e619f0f389078f`, inspected by function name on 2026-09-09.
 
 ## 0. Revision 9 — normative design and implementation acceptance (2026-09-09)
 
@@ -44,7 +44,7 @@ The owner's five decisions (2026-09-06), each confirmed with dev-1b, unchanged i
 4. **A monthly report** of starts-with-checks-pending (§7).
 5. **Consent is compulsory before the procedure** — the single hard block (§4.3).
 
-Facts, verified on `github/main` `bffdd82855ecb53d10395267778fc6ecad19c6f2` (§16 is the citation ledger):
+Facts, verified on `github/main` `0aeb89239f5d95dacf94971e45e619f0f389078f` (§16 is the citation ledger):
 
 **(a) The checklist blocks a normal start, and there is no bypass through the transition table today — but there is one through creation.** `CASE_TRANSITIONS` (`cathLabService.js`) reaches `in_progress` only from `ready`. `assertReadinessComplete` (throws 400 `CATH_LAB_READINESS_BLOCKED` unless `evaluateReadinessGate` finds every required check of `READINESS_TYPES` in `READINESS_CLEAR_STATES`) has **exactly two callers**: `transitionCaseStatus` (for the `in_progress` target) and `recordProcedureLog` (before its force-start). Both run before anything starts. **However** `createCase` accepts `input.status` against the whole `CASE_STATUSES` vocabulary (`const status = input.status ? normalizeStatus(input.status, CASE_STATUSES, 'status') : 'scheduled';`), inserts it directly and seeds the eight checks pending, and `router.post('/cases', requireCathWorkflow, guardCathCaseCreate, …)` passes `req.body` straight through. A `POST /cases { status: 'in_progress' }` therefore manufactures a running case with no `actual_start_at`, no consent assertion and no snapshot; `recordProcedureLog` then treats it as already running and never asserts consent. This is the owner's point 1 and is closed in §4.11.
 
@@ -762,7 +762,7 @@ Migration allocation uses the 790–799 cath block, lowest unused after fresh ma
 4. `recorded_after_start` stays #1018's; the three new markers sit beside it.
 5. Staff panel gates/imports and OpenAPI regeneration: compile the Staff models and dependency signatures, run the widget/i18n guards, regenerate both OpenAPI artifacts, and require the generated-artifact check to be clean.
 
-## 16. Verification ledger (re-verified on `github/main` `bffdd82855ecb53d10395267778fc6ecad19c6f2`, 2026-09-09; cite by function name)
+## 16. Verification ledger (re-verified on `github/main` `0aeb89239f5d95dacf94971e45e619f0f389078f`, 2026-09-09; cite by function name)
 
 | Claim | Where | Status |
 |---|---|---|

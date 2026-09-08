@@ -2,7 +2,7 @@
 
 Revision 9, 2026-09-09. Docs only; awaits owner design sign-off and merge-authority confirmation of the split. The six product decisions remain binding and are not implementation or merge approval. The normative design is `docs/superpowers/specs/2026-09-06-cath-readiness-never-restricts-design.md` (S). This plan (P) contains no verbatim implementation, SQL or test bodies. Removed examples are not fallback implementations. Workers implement and test the contracts in the real repository; scratch probes are not acceptance.
 
-Verification base: current `github/main` `bffdd82855ecb53d10395267778fc6ecad19c6f2`, inspected by function name on 2026-09-09. Relevant boundaries are `validateSignatureInput`, `signDocumentTx`, `recordClinicalAuditEvent`, `isItemAvailable`, `externalReportedMs`, `runTenantScopedTransaction`, `emitLabEvent`, the cancellation writer and the existing serology projections. Re-fetch and recheck at each implementation PR; do not transplant baseline assumptions without verification.
+Verification base: current `github/main` `0aeb89239f5d95dacf94971e45e619f0f389078f`, inspected by function name on 2026-09-09. Relevant boundaries are `validateSignatureInput`, `signDocumentTx`, `recordClinicalAuditEvent`, `isItemAvailable`, `externalReportedMs`, `runTenantScopedTransaction`, `emitLabEvent`, the cancellation writer and the existing serology projections. Re-fetch and recheck at each implementation PR; do not transplant baseline assumptions without verification.
 
 | Finding | Design rule and plan task | Named acceptance tests |
 |---|---|---|

@@ -125,7 +125,7 @@ export function reachableBypassRoles(roleName, roles, memberships) {
     .map((role) => role.rolname).sort();
 }
 
-function sourceInventory(root, roleNames, relations) {
+export function sourceInventory(root, roleNames, relations) {
   const files = execFileSync('git', ['ls-files', '-z', '--', 'apps/backend', 'infra', 'scripts', '.github', '.forgejo'], {
     cwd: root, encoding: 'utf8', maxBuffer: 8 * 1024 * 1024,
   }).split('\0').filter(Boolean);
@@ -177,8 +177,13 @@ export function renderInventory(catalog, source, { date, revision }) {
     return [name, capabilities, bypass.join(', ') || 'none',
       refs(memberships.filter((grant) => grant.member === name).map((grant) => grant.role)),
       refs(memberships.filter((grant) => grant.role === name).map((grant) => grant.member)),
-      refs(source.migrationRoles.get(name) || []), refs(source.roleUses.get(name) || []),
-      !role || bypass.length ? 'owner to decide' : 'no bypass observed; owner to decide on retention'];
+      refs(source.migrationRoles.get(name) || []), refs(source.roleUses.get(name) || [])];
+  });
+  const decisionRows = roles.flatMap((role) => {
+    const bypass = reachableBypassRoles(role.rolname, roles, memberships);
+    const unforced = tables.filter((table) => table.owner === role.rolname && !table.force_rls);
+    if (!bypass.length && !unforced.length) { return []; }
+    return [[role.rolname, bypass.join(', ') || 'none', refs(unforced.map((table) => table.key)), 'owner to decide']];
   });
   const grouped = new Map();
   for (const table of missing) {
@@ -204,26 +209,27 @@ export function renderInventory(catalog, source, { date, revision }) {
     'Tenant-bearing means a non-dropped `tenant_id` column on an ordinary, partitioned, or foreign table outside PostgreSQL internal schemas. The census tests `permissive = RESTRICTIVE`, independently of policy names. Presence alone does not prove that a predicate is correct or applies to every role/command; Tranche 2 must prove that separately.', '',
     '## Roles and bypass paths', '',
     'SUPERUSER and BYPASSRLS apply even with FORCE RLS. These role attributes are not inherited like ordinary privileges; the reachable-role column follows only membership edges that allow SET ROLE. Owner privileges and role administration still require owner review. Source references identify declared usage, including comments, rather than proving deployed connections.', '',
-    markdownTable(['Role', 'Observed capabilities', 'Reachable privileged roles via SET ROLE', 'Member of', 'Members', 'Literal migration creation', 'Repository references', 'DECISION'], roleRows), '',
+    markdownTable(['Role', 'Observed capabilities', 'Reachable privileged roles via SET ROLE', 'Member of', 'Members', 'Literal migration creation', 'Repository references'], roleRows), '',
+    '## Owner decisions for observed bypass paths', '',
+    'Decision rows are limited to SUPERUSER/BYPASSRLS roles, roles able to SET ROLE to them, and owners of tenant-bearing tables without FORCE RLS. Ordinary or absent roles and companion-census rows do not require a bypass replacement decision.', '',
+    markdownTable(['Role', 'Reachable SUPERUSER / BYPASSRLS roles', 'Owned tables without FORCE RLS', 'DECISION'], decisionRows), '',
     '## All observed role memberships', '',
-    markdownTable(['Member', 'Granted role', 'Grantor', 'ADMIN', 'INHERIT', 'SET ROLE', 'DECISION'], memberships.map((grant) => [
-      grant.member, grant.role, grant.grantor, yesNo(grant.admin_option), yesNo(grant.inherit_option), yesNo(grant.set_option), 'owner to decide',
+    markdownTable(['Member', 'Granted role', 'Grantor', 'ADMIN', 'INHERIT', 'SET ROLE'], memberships.map((grant) => [
+      grant.member, grant.role, grant.grantor, yesNo(grant.admin_option), yesNo(grant.inherit_option), yesNo(grant.set_option),
     ])), '',
     '## Every tenant-bearing table: ownership and FORCE coverage', '',
-    markdownTable(['Table', 'Owner', 'Owner SUPERUSER / BYPASSRLS', 'RLS', 'FORCE', 'RESTRICTIVE policies', 'DECISION'], tables.map((table) => {
+    markdownTable(['Table', 'Owner', 'Owner SUPERUSER / BYPASSRLS', 'RLS', 'FORCE', 'RESTRICTIVE policies'], tables.map((table) => {
       const owner = ownerByName.get(table.owner);
-      const bypass = owner.rolsuper || owner.rolbypassrls || !table.rls_enabled || !table.force_rls;
       return [table.key, table.owner, `${yesNo(owner.rolsuper)} / ${yesNo(owner.rolbypassrls)}`,
-        yesNo(table.rls_enabled), yesNo(table.force_rls), table.restrictive.map((policy) => policy.policyname).join(', ') || 'none',
-        bypass ? 'owner to decide' : 'owner exemption closed; privileged memberships need review'];
+        yesNo(table.rls_enabled), yesNo(table.force_rls), table.restrictive.map((policy) => policy.policyname).join(', ') || 'none'];
     })), '',
     '## Tables without a RESTRICTIVE companion, grouped by inferred owning module', '',
     'Module assignment uses directories of static SQL or Prisma delegate writers, preferring services, then controllers/routes, then other backend code. Unqualified table names are resolved as public. Multiple writer modules remain visible. Dynamic SQL/delegates and indirect stored-function writes can be missed; UNASSIGNED is unresolved ownership, never evidence of no callers. All callers must be hand-triaged before closure.', '',
   ];
   for (const [module, entries] of [...grouped].sort(([a], [b]) => a.localeCompare(b))) {
     lines.push(`### ${module} (${entries.length})`, '',
-      markdownTable(['Table', 'Writer evidence', 'DECISION'], entries.map(({ table, writers }) => [
-        table.key, refs(writers.map((writer) => `${writer.file}:${writer.line} (${writer.kind})`)), 'owner to decide',
+      markdownTable(['Table', 'Writer evidence'], entries.map(({ table, writers }) => [
+        table.key, refs(writers.map((writer) => `${writer.file}:${writer.line} (${writer.kind})`)),
       ])), '');
   }
   lines.push('## Confirmed audit symbol relocation', '',
@@ -233,7 +239,7 @@ export function renderInventory(catalog, source, { date, revision }) {
     ])), '',
     '## Bypass GUC and cross-tenant execution leads', '',
     'Source occurrences of the bypass literal, `superAdmin: true`, or `runWithSuperAdmin(...)` are leads, including comments and unrelated uses of the same literal. They do not establish a live dependency or authorize a replacement role. The restrictive companion makes the tenant GUC bypass literal inert; trace each relevant maintenance path before closing its tables.', '',
-    markdownTable(['Source lead', 'DECISION'], source.bypassUses.map((ref) => [ref, 'owner to decide'])), '',
+    markdownTable(['Source lead'], source.bypassUses.map((ref) => [ref])), '',
     '## Reproduction', '',
     'From `apps/backend`, with Node 26.5.0 and the repository test setup selecting the QA database:', '',
     '```powershell',
