@@ -179,6 +179,27 @@ describeIfDb('Plan 4 dialysis database boundaries', () => {
     }
   });
 
+  test('emergencyPatientForeignKeyIsDeferrableInitiallyImmediateAndKeepsTenantBinding', async () => {
+    const rows = (await client.query(
+      `SELECT pc.condeferrable,pc.condeferred,pc.confdeltype::text,
+              parent.relname AS parent_table,
+              ARRAY(SELECT attribute.attname::text FROM unnest(pc.conkey) WITH ORDINALITY key(attnum,position)
+                JOIN pg_attribute attribute ON attribute.attrelid=pc.conrelid AND attribute.attnum=key.attnum
+                ORDER BY key.position) AS child_columns,
+              ARRAY(SELECT attribute.attname::text FROM unnest(pc.confkey) WITH ORDINALITY key(attnum,position)
+                JOIN pg_attribute attribute ON attribute.attrelid=pc.confrelid AND attribute.attnum=key.attnum
+                ORDER BY key.position) AS parent_columns
+         FROM pg_constraint pc JOIN pg_class parent ON parent.oid=pc.confrelid
+        WHERE pc.conrelid='public.dialysis_isolation_emergency_authorizations'::regclass
+          AND pc.conname='fk_dialysis_emergency_patient' AND pc.contype='f'`,
+    )).rows;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toEqual({
+      condeferrable: true, condeferred: false, confdeltype: 'r', parent_table: 'users',
+      child_columns: ['tenant_id', 'patient_uid'], parent_columns: ['tenant_id', 'uid'],
+    });
+  });
+
   test('dialysisSafetyMigrationPinsPrivateBindingAndNullStatutorySchema', async () => {
     const columns = (await client.query(
       `SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns

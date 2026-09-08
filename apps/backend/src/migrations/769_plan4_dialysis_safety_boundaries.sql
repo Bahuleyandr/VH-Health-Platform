@@ -189,7 +189,7 @@ CREATE TABLE public.dialysis_isolation_emergency_authorizations (
   consumed_by UUID,
   CONSTRAINT ux_dialysis_emergency_authorizations_tenant_id UNIQUE (tenant_id, id),
   CONSTRAINT fk_dialysis_emergency_patient FOREIGN KEY (tenant_id, patient_uid)
-    REFERENCES public.users (tenant_id, uid) ON DELETE RESTRICT,
+    REFERENCES public.users (tenant_id, uid) ON DELETE RESTRICT DEFERRABLE INITIALLY IMMEDIATE,
   CONSTRAINT fk_dialysis_emergency_machine FOREIGN KEY (tenant_id, machine_id)
     REFERENCES public.dialysis_machines (tenant_id, id) ON DELETE RESTRICT,
   CONSTRAINT fk_dialysis_emergency_isolation_revision FOREIGN KEY (tenant_id, isolation_revision_id)
