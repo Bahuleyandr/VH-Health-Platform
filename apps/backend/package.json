@@ -187,7 +187,8 @@
     "jest": "^30.4.2",
     "nodemon": "^3.1.14",
     "prettier": "^3.9.6",
-    "supertest": "^7.2.2"
+    "supertest": "^7.2.2",
+    "typescript": "6.0.3"
   },
   "engines": {
     "node": ">=26.5.0 <27"
