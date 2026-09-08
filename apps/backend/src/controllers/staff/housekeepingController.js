@@ -35,9 +35,9 @@ function generateSignature(staffId, zoneId, timestamp, photoKey) {
     .digest('hex');
 }
 
-async function resolveCurrentUserRef(req) {
+async function resolveCurrentUserRef(req, db = prisma) {
   if (!req.user?.uid) return null;
-  return prisma.users.findUnique({
+  return db.users.findUnique({
     where: { uid: req.user.uid },
     select: { id: true, uid: true }
   });
@@ -646,10 +646,11 @@ export const completeRequest = async (req, res) => {
 // ─── ADMIN: GET all logs with filters ────────────────────────────────────────
 export const getAllCleaningLogs = async (req, res) => {
   try {
+    const tenantId = requestTenantId(req);
     const { staff_id, zone_id, status, from, to, limit = 100, offset = 0 } = req.query;
-    const conditions = [];
-    const params = [];
-    let idx = 1;
+    const conditions = ['hl.tenant_id = $1::uuid'];
+    const params = [tenantId];
+    let idx = 2;
 
     if (staff_id) {
       conditions.push(`hl.staff_id = $${idx++}::int`);
@@ -675,30 +676,41 @@ export const getAllCleaningLogs = async (req, res) => {
     const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
     params.push(Math.min(parseInt(limit), 500), parseInt(offset));
 
-    const logs = await prisma.$queryRawUnsafe(
-      `
-      SELECT hl.*, u.name as staff_name, s.department,
+    const { logs, total } = await setTenantTx(tenantId, async tx => {
+      const logs = await tx.$queryRawUnsafe(
+        `
+      SELECT hl.id, hl.log_number, hl.staff_id, hl.staff_uid, hl.zone_id,
+             hl.location_text, hl.latitude, hl.longitude, hl.cleaning_type, hl.notes,
+             hl.photo_key, hl.photo_url, hl.signature_hash, hl.status, hl.verified_by,
+             hl.verified_by_uid, hl.verified_at, hl.flag_reason, hl.logged_at,
+             hl.created_at, hl.updated_at, hl.tenant_id,
+             u.name as staff_name, s.department,
              hz.name as zone_name, hz.zone_type,
              u2.name as verified_by_name
       FROM housekeeping_logs hl
-      LEFT JOIN users u ON hl.staff_id = u.id
-      LEFT JOIN staff s ON u.uid = s.user_id
-      LEFT JOIN housekeeping_zones hz ON hl.zone_id = hz.id
-      LEFT JOIN users u2 ON hl.verified_by = u2.id
+      LEFT JOIN users u ON hl.staff_id = u.id AND u.tenant_id = $1::uuid
+      LEFT JOIN staff s ON u.uid = s.user_id AND s.tenant_id = $1::uuid
+      LEFT JOIN housekeeping_zones hz ON hl.zone_id = hz.id AND hz.tenant_id = $1::uuid
+      LEFT JOIN users u2 ON hl.verified_by = u2.id AND u2.tenant_id = $1::uuid
       ${where}
       ORDER BY hl.logged_at DESC
       LIMIT $${idx++}::int OFFSET $${idx}::int
     `,
-      ...params
-    );
+        ...params
+      );
 
-    const total = await prisma.$queryRawUnsafe(
-      `SELECT COUNT(*) FROM housekeeping_logs hl ${where}`,
-      ...params.slice(0, -2)
-    );
+      const total = await tx.$queryRawUnsafe(
+        `SELECT COUNT(*) FROM housekeeping_logs hl ${where}`,
+        ...params.slice(0, -2)
+      );
+      return { logs, total };
+    });
 
     success(res, { logs: logs, total: parseInt(total[0].count) }, 'Logs fetched');
   } catch (err) {
+    if (err.code === 'TENANT_CONTEXT_REQUIRED') {
+      return error(res, 'Tenant context required', HTTP_STATUS.FORBIDDEN);
+    }
     logger.error('Get All HK Logs Error:', err);
     error(res, 'Failed to fetch logs', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
@@ -1027,33 +1039,42 @@ export const delegateFloorAssignment = async (req, res) => {
 // ─── INCHARGE: end an active floor/zone assignment ──────────────────────────
 export const endFloorAssignment = async (req, res) => {
   try {
-    const incharge = await resolveCurrentUserRef(req);
-    if (!incharge) {
-      return error(res, 'Housekeeping incharge not found', HTTP_STATUS.NOT_FOUND);
-    }
-
+    const tenantId = requestTenantId(req);
     const { id } = req.params;
     const { reason } = req.body || {};
 
-    const result = await prisma.$queryRawUnsafe(
-      `UPDATE housekeeping_floor_assignments
+    const result = await setTenantTx(tenantId, async tx => {
+      const incharge = await resolveCurrentUserRef(req, tx);
+      if (!incharge) return null;
+      return tx.$queryRawUnsafe(
+        `UPDATE housekeeping_floor_assignments
           SET status = 'ended',
               effective_to = NOW(),
               reason = COALESCE($1, reason),
               updated_at = NOW()
         WHERE id = $2::int
           AND status = 'active'
-        RETURNING *`,
-      reason || null,
-      id
-    );
+          AND tenant_id = $3::uuid
+        RETURNING id, staff_id, staff_uid, zone_id, zone_name, floor, building,
+          shift_label, assigned_by, assigned_by_uid, reason, source_assignment_id,
+          is_temporary, effective_from, effective_to, status, created_at, updated_at,
+          roster_board_id, roster_assignment_id, assignment_kind, tenant_id`,
+        reason || null,
+        id,
+        tenantId
+      );
+    });
 
+    if (!result) return error(res, 'Housekeeping incharge not found', HTTP_STATUS.NOT_FOUND);
     if (!result.length) {
       return error(res, 'Active assignment not found', HTTP_STATUS.NOT_FOUND);
     }
 
     success(res, result[0], 'Housekeeping assignment ended');
   } catch (err) {
+    if (err.code === 'TENANT_CONTEXT_REQUIRED') {
+      return error(res, 'Tenant context required', HTTP_STATUS.FORBIDDEN);
+    }
     logger.error('End HK Floor Assignment Error:', err);
     error(res, 'Failed to end housekeeping assignment', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
@@ -1144,33 +1165,39 @@ export const assignRequest = async (req, res) => {
 // ─── ADMIN: Verify log ────────────────────────────────────────────────────────
 export const verifyLog = async (req, res) => {
   try {
+    const tenantId = requestTenantId(req);
     const { id } = req.params;
-    const verifier = await resolveCurrentUserRef(req);
-    if (!verifier) {
-      return error(res, 'Verifier not found', HTTP_STATUS.NOT_FOUND);
-    }
     const { flag_reason } = req.body;
     const action = flag_reason ? 'flagged' : 'verified';
 
-    const result = await prisma.$queryRawUnsafe(
-      `
+    const result = await setTenantTx(tenantId, async tx => {
+      const verifier = await resolveCurrentUserRef(req, tx);
+      if (!verifier) return null;
+      return tx.$queryRawUnsafe(
+        `
       UPDATE housekeeping_logs
       SET status = $1, verified_by = $2, verified_by_uid = $3::uuid,
         verified_at = NOW(), flag_reason = $4, updated_at = NOW()
-      WHERE id = $5::int
+      WHERE id = $5::int AND tenant_id = $6::uuid
       RETURNING id, staff_id, staff_uid, zone_id, status, verified_by, verified_at,
         flag_reason, logged_at, created_at
     `,
-      action,
-      verifier.id,
-      verifier.uid,
-      flag_reason || null,
-      id
-    );
+        action,
+        verifier.id,
+        verifier.uid,
+        flag_reason || null,
+        id,
+        tenantId
+      );
+    });
 
+    if (!result) return error(res, 'Verifier not found', HTTP_STATUS.NOT_FOUND);
     if (result.length === 0) return error(res, 'Log not found', HTTP_STATUS.NOT_FOUND);
     success(res, result[0], `Log ${action}`);
   } catch (err) {
+    if (err.code === 'TENANT_CONTEXT_REQUIRED') {
+      return error(res, 'Tenant context required', HTTP_STATUS.FORBIDDEN);
+    }
     logger.error('Verify HK Log Error:', err);
     error(res, 'Failed to verify log', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
@@ -1241,6 +1268,7 @@ export const verifyRequest = async (req, res) => {
 // ─── ADMIN: Stats dashboard ───────────────────────────────────────────────────
 export const getHousekeepingStats = async (req, res) => {
   try {
+    const tenantId = requestTenantId(req);
     const [logStats, requestStats, slaStats, topStaff, recentFlags] = await Promise.all([
       prisma.$queryRawUnsafe(`
         SELECT
@@ -1272,15 +1300,16 @@ export const getHousekeepingStats = async (req, res) => {
         FROM housekeeping_requests
         WHERE created_at >= NOW() - INTERVAL '30 days'
       `),
-      prisma.$queryRawUnsafe(`
+      setTenantTx(tenantId, tx => tx.$queryRawUnsafe(`
         SELECT u.id, u.name, COUNT(*) as completions,
                ROUND(AVG(EXTRACT(EPOCH FROM (hr.completed_at - hr.assigned_at))/60) FILTER (WHERE hr.completed_at IS NOT NULL)::NUMERIC, 0) as avg_minutes
         FROM housekeeping_requests hr
-        JOIN users u ON hr.assigned_to = u.id
+        JOIN users u ON hr.assigned_to = u.id AND u.tenant_id = $1::uuid
         WHERE hr.status IN ('completed','verified','closed')
           AND hr.created_at >= NOW() - INTERVAL '30 days'
+          AND hr.tenant_id = $1::uuid
         GROUP BY u.id, u.name ORDER BY completions DESC LIMIT 10
-      `),
+      `, tenantId)),
       prisma.$queryRawUnsafe(`
         SELECT hl.*, u.name as staff_name, hz.name as zone_name
         FROM housekeeping_logs hl
@@ -1303,6 +1332,9 @@ export const getHousekeepingStats = async (req, res) => {
       'Housekeeping stats fetched'
     );
   } catch (err) {
+    if (err.code === 'TENANT_CONTEXT_REQUIRED') {
+      return error(res, 'Tenant context required', HTTP_STATUS.FORBIDDEN);
+    }
     logger.error('HK Stats Error:', err);
     error(res, 'Failed to fetch stats', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
@@ -1427,15 +1459,18 @@ export const deleteZone = async (req, res) => {
   try {
     if (!requireZoneAdmin(req, res)) return;
 
+    const tenantId = requestTenantId(req);
     const { id } = req.params;
 
     const activeRequests = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*)::int AS count
          FROM housekeeping_requests
         WHERE zone_id = $1::int
-          AND COALESCE(status, 'open') = ANY($2::text[])`,
+          AND COALESCE(status, 'open') = ANY($2::text[])
+          AND tenant_id = $3::uuid`,
       id,
-      ACTIVE_REQUEST_STATUSES
+      ACTIVE_REQUEST_STATUSES,
+      tenantId
     );
     const activeAssignments = await prisma.$queryRawUnsafe(
       `SELECT COUNT(*)::int AS count
@@ -1443,8 +1478,10 @@ export const deleteZone = async (req, res) => {
         WHERE zone_id = $1::int
           AND status = 'active'
           AND effective_from <= NOW()
-          AND (effective_to IS NULL OR effective_to > NOW())`,
-      id
+          AND (effective_to IS NULL OR effective_to > NOW())
+          AND tenant_id = $2::uuid`,
+      id,
+      tenantId
     );
 
     const requestCount = Number(activeRequests[0]?.count || 0);
@@ -1460,15 +1497,19 @@ export const deleteZone = async (req, res) => {
     const result = await prisma.$queryRawUnsafe(
       `UPDATE housekeeping_zones
           SET is_active = false, updated_at = NOW()
-        WHERE id = $1::int
+        WHERE id = $1::int AND tenant_id = $2::uuid
         RETURNING id, name, zone_type, is_active, floor, building, created_at, updated_at`,
-      id
+      id,
+      tenantId
     );
 
     if (result.length === 0) return error(res, 'Zone not found', HTTP_STATUS.NOT_FOUND);
 
     success(res, result[0], 'Zone removed');
   } catch (err) {
+    if (err.code === 'TENANT_CONTEXT_REQUIRED') {
+      return error(res, 'Tenant context required', HTTP_STATUS.FORBIDDEN);
+    }
     logger.error('Delete Zone Error:', err);
     error(res, 'Failed to remove zone', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
