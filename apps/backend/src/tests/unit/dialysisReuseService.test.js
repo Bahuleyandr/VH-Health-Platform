@@ -67,14 +67,18 @@ describe('dialysisReuseService Phase 1 adapter binding', () => {
   test('pins detail requester populations by function name and keeps both flags default-off elsewhere', () => {
     const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../services/clinical');
     const serviceFiles = fs.readdirSync(root).filter((name) => name.endsWith('.js'));
-    expect(serviceFiles).toHaveLength(63);
+    expect(serviceFiles).toHaveLength(64);
+    expect(serviceFiles).toContain('cathMigrationApprovalService.js');
     const exportedFunctions = serviceFiles.flatMap((name) => {
       const source = fs.readFileSync(path.join(root, name), 'utf8');
       return [...source.matchAll(
         /export async function\s+(\w+)[\s\S]*?(?=\nexport (?:async )?function|\nexport const|$)/g,
       )].map((match) => ({ name: match[1], source: match[0] }));
     });
-    expect(exportedFunctions).toHaveLength(430);
+    expect(exportedFunctions).toHaveLength(433);
+    expect(exportedFunctions.map((entry) => entry.name)).toEqual(expect.arrayContaining([
+      'approveCathMigrationDispositions', 'verifyCathMigrationApprovalTx', 'verifyDocumentSignatureTx',
+    ]));
     const markerCallers = exportedFunctions
       .filter((entry) => /includeMarkers:\s*true/.test(entry.source))
       .map((entry) => entry.name);
