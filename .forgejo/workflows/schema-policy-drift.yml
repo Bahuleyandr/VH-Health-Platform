@@ -75,9 +75,41 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y postgresql-client
 
+      # onnxruntime-node's postinstall (script/install.js) downloads the CUDA 12
+      # execution-provider .so files from api.nuget.org on linux/x64. No CI
+      # runner has a GPU, the CPU runtime (libonnxruntime.so.1 +
+      # onnxruntime_binding.node) is bundled in the npm tarball, and the only
+      # consumer (src/services/gamification/adherenceModelServing.js) uses the
+      # default CPU provider — so the download is dead weight that failed
+      # `npm ci` with ETIMEDOUT to 150.171.109.77:443 on PR #1023 (run
+      # 34195814839). `skip` makes install.js exit before any network call
+      # (parseInstallFlag in script/install-utils.js, v1.27.0). The next step
+      # asserts the skip took effect; it is not inferred from a green install.
+      # Mirrors the guard PR #1045 put on every .github backend `npm ci`.
       - name: Install backend dependencies
         working-directory: apps/backend
         run: npm ci
+        env:
+          ONNXRUNTIME_NODE_INSTALL: skip
+
+      - name: Verify onnxruntime-node postinstall skipped the CUDA download
+        working-directory: apps/backend
+        run: |
+          ort=node_modules/onnxruntime-node/bin/napi-v6/linux/x64
+          for f in libonnxruntime_providers_cuda.so libonnxruntime_providers_shared.so libonnxruntime_providers_tensorrt.so; do
+            if [ -e "$ort/$f" ]; then
+              echo "::error::$ort/$f is present — the NuGet download ran despite ONNXRUNTIME_NODE_INSTALL=skip"
+              exit 1
+            fi
+          done
+          for f in libonnxruntime.so.1 onnxruntime_binding.node; do
+            if [ ! -e "$ort/$f" ]; then
+              echo "::error::$ort/$f is missing — the bundled CPU runtime did not install"
+              exit 1
+            fi
+          done
+          node --input-type=module -e "const ort = await import('onnxruntime-node'); if (typeof ort.InferenceSession?.create !== 'function') throw new Error('onnxruntime-node imported but InferenceSession.create is missing');"
+          echo "onnxruntime-node: CUDA provider download skipped; bundled CPU runtime present and importable"
 
       - name: Apply migrations and schema guardrails
         working-directory: apps/backend
