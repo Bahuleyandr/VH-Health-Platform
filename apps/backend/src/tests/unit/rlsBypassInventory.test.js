@@ -70,7 +70,17 @@ describe('RLS bypass catalog inventory', () => {
     expect(text).toContain('| Tenant-bearing tables | 5 |');
     expect(text).toContain('| Without any RESTRICTIVE policy | 2 |');
     expect(text).toContain('| vhhealth_runtime | ABSENT from target cluster |');
-    expect(text).toContain('| public.misleading_name | owner | yes / no | yes | no | none | owner to decide |');
+    expect(text).toContain('| public.misleading_name | owner | yes / no | yes | no | none |');
+    const decisions = text.split('## Owner decisions for observed bypass paths')[1].split('## All observed role memberships')[0];
+    expect(decisions).toContain('| owner | owner | `public.misleading_name`, `public.insert_only` | owner to decide |');
+    expect(decisions).toContain('| operator | maintenance | none located | owner to decide |');
+    expect(decisions).not.toContain('| vhhealth_app |');
+    expect(decisions).not.toContain('| vhhealth_runtime |');
+    expect(text.match(/\| DECISION \|/g)).toHaveLength(1);
+    expect(text.split('## Every tenant-bearing table:')[1]).not.toContain('owner to decide');
+    report.roles.find((role) => role.rolname === 'owner').rolsuper = false;
+    expect(renderInventory(report, source, { date: '2026-09-08', revision: 'fixture-sha' }))
+      .toContain('| owner | none | `public.misleading_name`, `public.insert_only` | owner to decide |');
     expect(text).toContain('UNASSIGNED — no static writer located (2)');
     expect(text).toContain('Presence alone does not prove');
     expect(text).not.toContain('postgresql://');
