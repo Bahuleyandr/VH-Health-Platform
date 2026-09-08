@@ -47,18 +47,19 @@ async function withAuditBypass(fn) {
 /** Teardown is ordered correctly - every audit child is deleted before the
  *  tenant - but ordering alone cannot win a race against a write that has not
  *  happened yet. Audit rows are written by triggers and by post-response
- *  loggers, so one can commit BETWEEN this transaction's `DELETE FROM
- *  audit_logs` and its `DELETE FROM tenants`, and the tenant delete then fails
- *  23503 on fk_audit_log_tenant. That is what made this suite flake in CI
- *  (audit row OPEN-26): it failed on shard 3/3 of a run whose only change was
- *  four admin-only files, and passed on a re-run with no code change.
+ *  loggers, so one can commit BETWEEN the `DELETE FROM audit_logs` and the
+ *  `DELETE FROM tenants`, and the tenant delete then fails 23503 on
+ *  fk_audit_log_tenant. That is what made this suite flake in CI (audit row
+ *  OPEN-26): it failed on shard 3/3 of a run whose only change was four
+ *  admin-only files, and passed on a re-run with no code change.
  *
  *  Retrying is deliberate rather than waiting for quiescence. The suite already
  *  waits for a KNOWN count of hipaa_access_log rows (waitForPhiAuditWrites),
  *  which works because the expected number is known. For audit_logs it is not:
  *  trigger-written rows depend on what each test touched, so any wait would be
  *  guessing at both a count and a deadline. A re-delete is deterministic - it
- *  cannot pass while a child still exists, and it cannot hang. */
+ *  cannot pass while a child still exists, and it cannot hang. Every statement
+ *  in cleanupOnce is idempotent, so re-running it from the top is safe. */
 const CLEANUP_FK_RETRIES = 3;
 
 async function cleanup() {
@@ -78,6 +79,32 @@ async function cleanup() {
   }
 }
 
+/** Two phases, on purpose.
+ *
+ *  Phase 1 deletes the append-only-guarded evidence (migration 324/599 guard,
+ *  which needs the transaction-local `app.audit_bypass` GUC) plus the note in
+ *  ONE short interactive transaction. Every statement is a narrow, indexed
+ *  delete on the fixture tenant: measured 0.2-211 ms each on this schema
+ *  (2026-09-08), so Prisma's 5 000 ms interactive-transaction budget is never
+ *  in play here.
+ *
+ *  Phase 2 deletes the two fixture users and the fixture tenant as plain
+ *  single-statement (autocommit) transactions, OUTSIDE any Prisma interactive
+ *  transaction. Neither table carries an append-only guard, so no bypass GUC
+ *  is needed. What makes them slow is the schema, not the data: deleting a
+ *  `users` row fires one referential-integrity trigger per referencing FK
+ *  (466 on this schema) and a `tenants` row fires 789, and each check costs
+ *  roughly 2-5 ms of per-call plan building even when the child table is
+ *  empty. On a fresh CI-shaped database that is ~2 s for the two users and
+ *  ~3 s for the tenant; on a seeded one ~3 s + ~4 s. Inside the phase-1
+ *  transaction they expired the budget deterministically (5 023 ms fresh,
+ *  7 091 ms seeded), which rolled back every phase-1 delete too and left the
+ *  whole fixture behind. Outside an interactive transaction there is no
+ *  budget to expire: each statement is bounded only by the primary client's
+ *  statement_timeout (STATEMENT_TIMEOUT_MS, 30 s default) and this hook's own
+ *  120 s timeout. `session_replication_role = 'replica'` was deliberately NOT
+ *  used: this suite has never skipped triggers, and the fan-out cost is real
+ *  work the schema asks for. */
 async function cleanupOnce() {
   await withAuditBypass(async (tx) => {
     await tx.$executeRawUnsafe(
@@ -111,15 +138,17 @@ async function cleanupOnce() {
       `DELETE FROM clinical_notes WHERE tenant_id = $1::uuid`,
       TENANT_ID,
     );
-    await tx.$executeRawUnsafe(
-      `DELETE FROM users WHERE tenant_id = $1::uuid`,
-      TENANT_ID,
-    );
-    await tx.$executeRawUnsafe(
-      `DELETE FROM tenants WHERE id = $1::uuid`,
-      TENANT_ID,
-    );
   });
+
+  // Phase 2 - fan-out deletes, one autocommit statement each (see above).
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM users WHERE tenant_id = $1::uuid`,
+    TENANT_ID,
+  );
+  await prisma.$executeRawUnsafe(
+    `DELETE FROM tenants WHERE id = $1::uuid`,
+    TENANT_ID,
+  );
 }
 
 /** phiAccessLogger writes hipaa_access_log rows AFTER the response. Wait for
