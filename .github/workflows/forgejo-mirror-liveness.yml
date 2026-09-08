@@ -1,0 +1,123 @@
+name: Forgejo Mirror Liveness
+
+# Watches the owner-ruled disaster-recovery mirror at
+# forgejo.hippocampus-monitor.ts.net and fails loudly when it rots.
+#
+# Why this lives in GitHub Actions rather than in .forgejo/workflows:
+#
+#   1. A detector hosted on the thing it watches cannot report that the thing
+#      is dead - it simply would not run, which is precisely the failure this
+#      guards. The mirror's own `runs-on: ubuntu-latest` jobs have been dying
+#      in ~2 seconds since 2026-08-17 and produced silence, not an alarm.
+#   2. The credentials for reaching the tailnet-only Forgejo host already live
+#      here: TS_OAUTH_CLIENT_ID / TS_OAUTH_SECRET are GitHub repository
+#      secrets, already used by .github/workflows/deploy-dalekdefender.yml.
+#
+# Neither job below is a required status check on main (branch protection
+# requires only "Merge Gate" and "Full Merge Gate"), so this workflow can go
+# red without blocking merges - it is an alarm, not a gate.
+
+on:
+  schedule:
+    # 05:15 UTC = 10:45 IST, well after full-stack-sweep.yml's 01:30 IST slot
+    # on the mirror, so a same-morning failure is caught the same morning.
+    - cron: '15 5 * * *'
+  workflow_dispatch:
+  push:
+    # Runs whenever the detector itself changes, so a change to the alarm is
+    # exercised before it is trusted.
+    paths:
+      - '.github/workflows/forgejo-mirror-liveness.yml'
+      - 'scripts/ci/forgejo-liveness.mjs'
+      - 'scripts/ci/forgejo-liveness.test.mjs'
+      - 'scripts/ci/fixtures/forgejo-liveness/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: forgejo-mirror-liveness-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detector-selftest:
+    # POSITIVE CONTROL. Runs before the live check, every single time, with no
+    # network and no tailnet. It drives the detector with fixtures that must
+    # trip it (drift, failed scheduled runs, a schedule that stopped firing,
+    # an empty result set, an unreachable mirror) and asserts each one exits
+    # non-zero. A detector that can only ever report "ok" is indistinguishable
+    # from a detector that is broken; this job is what tells them apart.
+    name: Forgejo liveness detector self-test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '26.5.0'
+
+      - name: Prove the detector can detect a failure
+        run: node --test scripts/ci/forgejo-liveness.test.mjs
+
+  mirror-liveness:
+    name: Forgejo mirror liveness
+    needs: [detector-selftest]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '26.5.0'
+
+      - name: Join the tailnet
+        uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
+        with:
+          oauth-client-id: ${{ secrets.TS_OAUTH_CLIENT_ID }}
+          oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
+          tags: tag:gha-deploy
+          version: latest
+
+      - name: Check mirror drift and scheduled-run health
+        id: liveness
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: node scripts/ci/forgejo-liveness.mjs | tee liveness-report.txt
+
+      - name: Raise or update the alarm issue
+        # Only on unattended runs. A branch push that goes red is already
+        # visible to the person who pushed it and does not need an issue.
+        if: >-
+          failure() &&
+          (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: 'Forgejo DR mirror liveness FAILING'
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          report="$(cat liveness-report.txt 2>/dev/null || echo '(detector produced no report - collection failed)')"
+          body="$(printf '%s\n\n```\n%s\n```\n\nDetected by %s\n' \
+            'The Forgejo disaster-recovery mirror is not healthy.' "$report" "$RUN_URL")"
+          existing="$(gh issue list --state open --search "$TITLE in:title" \
+            --json number,title --jq ".[] | select(.title == \"$TITLE\") | .number" | head -1)"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+            echo "Updated existing alarm issue #$existing"
+          else
+            gh issue create --title "$TITLE" --body "$body"
+          fi
+
+      - name: Publish the report
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: forgejo-liveness-report
+          path: liveness-report.txt
+          if-no-files-found: warn
