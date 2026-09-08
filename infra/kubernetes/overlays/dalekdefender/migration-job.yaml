@@ -30,12 +30,25 @@
 #     the owner/superuser connection, so `envFrom` alone gives migrations the
 #     DDL rights they need.
 #   * No `vhhealth-backend-config` configMapRef — the rig has no such ConfigMap.
-#   * RUNTIME_ROLE_GRANTS_OPTIONAL=true. The rig has no `vhhealth_runtime`
-#     login role (verified: only vhhealth, vhhealth_app, vhhealth_readonly) and
-#     no AUTH_TENANT_RLS_RUNTIME_ROLE in the Secret, which is exactly the
-#     single-DSN configuration the production Job's own comment blesses this
-#     knob for. It turns a configuration-absent skip into a loud exit-0 no-op;
-#     an unsafe role name, a grant error, or a bad posture still fails.
+#   * AUTH_TENANT_RLS_RUNTIME_ROLE=vhhealth_app is set in this Job's own env.
+#     Production carries it in the vhhealth-backend-migration-config ConfigMap;
+#     the rig has no ConfigMap, so the env entry is the only place the role
+#     name can live. It is the same value backend.yaml gives the Deployment,
+#     so the role this Job GRANTS to and the role request-scoped tenant
+#     transactions SET LOCAL ROLE to cannot drift apart.
+#   * RUNTIME_ROLE_GRANTS_OPTIONAL is deliberately NOT set (it was, until
+#     2026-09-08). While it was, ensure-runtime-role-grants.mjs found no role
+#     configured and skipped its grant and posture pass on EVERY deploy with a
+#     warning ("RLS runtime-role posture NOT verified"). Now the pass runs and
+#     fails closed exactly as the production Job does: a missing role, an
+#     unsafe role name, a grant error, or a bad posture fails this Job, which
+#     aborts the deploy with the previous images still pinned. Note what
+#     "posture" means to that script: it requires the NOBYPASSRLS LOGIN role
+#     `vhhealth_runtime` (rls-runtime-role.sql, audit finding M17) to exist
+#     and to be a member of vhhealth_app. Until an operator applies M17 on
+#     the rig (only vhhealth, vhhealth_app, vhhealth_readonly exist as of
+#     2026-09-08) this Job therefore FAILS every deploy — the intended
+#     fail-closed outcome, not a defect in this manifest.
 #
 # IDEMPOTENT AND SAFE TO RE-RUN: ci-setup-db.mjs is tracker-driven. It applies
 # each file in src/migrations/*.sql exactly once per database via `_migrations`
@@ -114,8 +127,10 @@ spec:
               value: "production"
             - name: CI_DB_SKIP_SEEDS
               value: "1"
-            - name: RUNTIME_ROLE_GRANTS_OPTIONAL
-              value: "true"
+            # The rig has no ConfigMap to carry this (see DIFFERENCES above);
+            # backend.yaml gives the Deployment the same value.
+            - name: AUTH_TENANT_RLS_RUNTIME_ROLE
+              value: "vhhealth_app"
           envFrom:
             - secretRef:
                 name: vhhealth-backend

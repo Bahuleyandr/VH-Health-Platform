@@ -84,10 +84,24 @@ test('the migration Job is tracker-driven, seedless, and cannot mask the Prisma 
   // environment; ci-setup-db's seed helpers must never be reached here.
   assert.doesNotMatch(manifest, /seed-|--seeds\b|seedDepartments|seed:/);
 
-  // The rig's single DSN is already the owner/superuser connection, and it has
-  // no vhhealth_runtime login role — the exact configuration the production
-  // Job's comment blesses this knob for.
-  assert.match(manifest, /name: RUNTIME_ROLE_GRANTS_OPTIONAL\n\s+value: "true"/);
+  // The grant pass must RUN and VERIFY, never skip. The rig has no ConfigMap to
+  // carry the canonical role name (production reads it from
+  // vhhealth-backend-migration-config), so the Job's own env names the role —
+  // the same value backend.yaml gives the Deployment, so the role the Job
+  // grants to and the role requests SET LOCAL ROLE to cannot drift apart.
+  assert.match(
+    manifest, /name: AUTH_TENANT_RLS_RUNTIME_ROLE\n\s+value: "vhhealth_app"/,
+    'the rig Job must name the canonical runtime role so ensure-runtime-role-grants.mjs runs its grant and posture pass',
+  );
+  // Until 2026-09-08 this Job opted into RUNTIME_ROLE_GRANTS_OPTIONAL=true and
+  // every deploy logged "Runtime role grant pass skipped ... RLS runtime-role
+  // posture NOT verified". A documenting comment may still name the knob; a
+  // live env entry may not — a missing role, an unsafe name, a grant error or
+  // a bad posture must fail this Job exactly as the production Job fails.
+  assert.doesNotMatch(
+    manifest, /name:\s*['"]?RUNTIME_ROLE_GRANTS_OPTIONAL/,
+    'the rig Job must not set RUNTIME_ROLE_GRANTS_OPTIONAL — with it the runtime-role posture is never verified',
+  );
   assert.match(manifest, /secretRef:\n\s+name: vhhealth-backend/);
 
   assert.match(manifest, /imagePullPolicy: IfNotPresent/);

@@ -86,7 +86,12 @@ spec:
             # local migrations, which would otherwise bypass Postgres RLS.
             # Request-scoped tenant transactions SET LOCAL ROLE to this
             # non-bypass role before applying app.current_tenant_id.
-            - name: AUTH_TENANT_RLS_TEST_ROLE
+            # Canonical name (prisma.js tenantRlsRuntimeRole). Until 2026-09-08
+            # this was the legacy alias AUTH_TENANT_RLS_TEST_ROLE, which the
+            # resolver honours identically, so the rename changes nothing at
+            # runtime; it makes the Deployment, migration-job.yaml and the base
+            # ConfigMap agree on one name for the one role.
+            - name: AUTH_TENANT_RLS_RUNTIME_ROLE
               value: vhhealth_app
             - name: PATHWAY_PROJECTOR_SHADOW_ENABLED
               value: "true"
