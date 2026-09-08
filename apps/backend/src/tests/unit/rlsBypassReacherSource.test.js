@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -74,6 +75,31 @@ afterAll(() => rmSync(fixtureRoot, { recursive: true, force: true }));
 let trace;
 beforeAll(() => {
   trace = collectBypassReachers(fixtureRoot, { sourceFiles: files });
+});
+
+it('enumerates production JavaScript without an external search executable', () => {
+  put('src/tests/excluded.js', "prisma.$queryRawUnsafe('SELECT uid FROM users');");
+  const discovered = JSON.parse(
+    execFileSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '--eval',
+        'const { collectBypassReachers } = await import(process.argv[1]); console.log(JSON.stringify(collectBypassReachers(process.argv[2])));',
+        new URL('../../../scripts/lib/rlsBypassReacherSource.mjs', import.meta.url).href,
+        fixtureRoot
+      ],
+      {
+        encoding: 'utf8',
+        env: {
+          ...Object.fromEntries(Object.entries(process.env).filter(([key]) => key.toLowerCase() !== 'path')),
+          PATH: ''
+        }
+      }
+    )
+  );
+  expect(discovered.sourceManifest).toEqual(trace.sourceManifest);
+  expect(discovered.sql.map(row => row.id).sort()).toEqual(trace.sql.map(row => row.id).sort());
 });
 
 it('counts literal registrations across feature guards, separately from wrapper calls', () => {

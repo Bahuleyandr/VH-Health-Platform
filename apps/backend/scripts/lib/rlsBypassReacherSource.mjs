@@ -1,5 +1,5 @@
-import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { globSync } from 'node:fs';
 import path from 'node:path';
 import ts from 'typescript';
 
@@ -7,13 +7,10 @@ export function collectBypassReachers(repoRoot, { sourceFiles = null } = {}) {
   const root = path.resolve(repoRoot).replaceAll('\\', '/');
   const files =
     sourceFiles ||
-    execFileSync(
-      'rg',
-      ['--files', 'apps/backend/src', 'apps/backend/admin', '-g', '*.js', '-g', '!**/tests/**'],
-      { cwd: root, encoding: 'utf8' }
-    )
-      .trim()
-      .split(/\r?\n/)
+    globSync(['apps/backend/src/**/*.js', 'apps/backend/admin/**/*.js'], {
+      cwd: root,
+      exclude: ['**/tests/**', '**/node_modules/**']
+    })
       .map(f => path.resolve(root, f))
       .sort();
   const compilerOptions = {
