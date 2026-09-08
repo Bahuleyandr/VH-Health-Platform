@@ -9,6 +9,8 @@
 import { randomUUID } from 'node:crypto';
 import prisma from '../lib/prisma.js';
 import { authClient } from './testClient.js';
+import { withAuditBypass } from './helpers/auditBypass.js';
+import { teardownTenantFixture } from './helpers/tenantTeardown.js';
 import { recordClinicalAuditEvent } from '../services/clinical/canonicalClinicalPlatformService.js';
 import { verifyAuditChain } from '../services/clinical/documentIntegrityService.js';
 
@@ -37,88 +39,74 @@ function testClient(role) {
   });
 }
 
-async function withAuditBypass(fn) {
-  return prisma.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe("SELECT set_config('app.audit_bypass', 'on', true)");
-    return fn(tx);
-  });
-}
-
-/** Teardown is ordered correctly - every audit child is deleted before the
+/** Phase 1 of the teardown (helpers/tenantTeardown.js): the append-only-guarded
+ *  evidence (migration 324/599 guard, which needs the transaction-local
+ *  `app.audit_bypass` GUC) plus the note, in the helper's ONE short interactive
+ *  transaction. Every statement is a narrow, indexed delete on the fixture
+ *  tenant: measured 0.2-211 ms each on this schema (2026-09-08), so Prisma's
+ *  5 000 ms interactive-transaction budget is never in play here. `users` and
+ *  `tenants` belong to the helper's phase 2 (autocommit): inside this
+ *  transaction they expired the budget deterministically (5 023 ms fresh,
+ *  7 091 ms seeded, measured 2026-09-08 by #1048 at schema >= migration 770,
+ *  where 789 FKs referenced tenants), which rolled back every delete here too
+ *  and left the whole fixture behind. The fan-out behind those numbers is one
+ *  ON DELETE referential-integrity trigger per referencing FK per deleted row,
+ *  every ON DELETE action kind included: 466 users / 791 tenants referencing
+ *  FKs at schema >= migration 790, measured 2026-09-08 (migration 790 added
+ *  the two tenants FKs; helpers/tenantTeardown.js carries the breakdown by
+ *  confdeltype and the rest of the rationale).
+ *
+ *  Teardown is ordered correctly - every audit child is deleted before the
  *  tenant - but ordering alone cannot win a race against a write that has not
  *  happened yet. Audit rows are written by triggers and by post-response
- *  loggers, so one can commit BETWEEN this transaction's `DELETE FROM
- *  audit_logs` and its `DELETE FROM tenants`, and the tenant delete then fails
- *  23503 on fk_audit_log_tenant. That is what made this suite flake in CI
- *  (audit row OPEN-26): it failed on shard 3/3 of a run whose only change was
- *  four admin-only files, and passed on a re-run with no code change.
- *
- *  Retrying is deliberate rather than waiting for quiescence. The suite already
- *  waits for a KNOWN count of hipaa_access_log rows (waitForPhiAuditWrites),
- *  which works because the expected number is known. For audit_logs it is not:
- *  trigger-written rows depend on what each test touched, so any wait would be
- *  guessing at both a count and a deadline. A re-delete is deterministic - it
- *  cannot pass while a child still exists, and it cannot hang. */
-const CLEANUP_FK_RETRIES = 3;
-
-async function cleanup() {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      await cleanupOnce();
-      return;
-    } catch (error) {
-      const isLateAuditChild =
-        String(error?.message || '').includes('23503') ||
-        String(error?.meta?.code || '') === '23503';
-      if (!isLateAuditChild || attempt >= CLEANUP_FK_RETRIES) throw error;
-      // A child reappeared after we deleted it. Let the writer commit, then
-      // delete again from the top - the earlier statements are idempotent.
-      await new Promise((r) => setTimeout(r, 100 * attempt));
-    }
-  }
+ *  loggers, so one can commit BETWEEN the `DELETE FROM audit_logs` and the
+ *  `DELETE FROM tenants`, and the tenant delete then fails 23503 on
+ *  fk_audit_log_tenant. That is what made this suite flake in CI (audit row
+ *  OPEN-26): it failed on shard 3/3 of a run whose only change was four
+ *  admin-only files, and passed on a re-run with no code change. The helper
+ *  retries a 23503 from the top rather than waiting for quiescence: the suite
+ *  already waits for a KNOWN count of hipaa_access_log rows
+ *  (waitForPhiAuditWrites), which works because the expected number is known;
+ *  for audit_logs it is not, so any wait would be guessing at both a count and
+ *  a deadline. Every statement here is idempotent, so re-running it is safe. */
+async function deleteTenantEvidence(tx) {
+  await tx.$executeRawUnsafe(
+    `DELETE FROM clinical_document_signatures WHERE tenant_id = $1::uuid`,
+    TENANT_ID,
+  );
+  await tx.$executeRawUnsafe(
+    `DELETE FROM clinical_timeline_events WHERE tenant_id = $1::uuid`,
+    TENANT_ID,
+  );
+  await tx.$executeRawUnsafe(
+    `DELETE FROM clinical_audit_events WHERE tenant_id = $1::uuid`,
+    TENANT_ID,
+  );
+  await tx.$executeRawUnsafe(
+    `DELETE FROM audit_log WHERE tenant_id = $1::uuid OR uid = $2::uuid`,
+    TENANT_ID,
+    ACTOR_UID,
+  );
+  await tx.$executeRawUnsafe(
+    `DELETE FROM audit_logs WHERE tenant_id = $1::uuid OR uid = $2::uuid`,
+    TENANT_ID,
+    ACTOR_UID,
+  );
+  await tx.$executeRawUnsafe(
+    `DELETE FROM hipaa_access_log WHERE tenant_id = $1::uuid OR accessed_by = $2::uuid`,
+    TENANT_ID,
+    ACTOR_UID,
+  );
+  await tx.$executeRawUnsafe(
+    `DELETE FROM clinical_notes WHERE tenant_id = $1::uuid`,
+    TENANT_ID,
+  );
 }
 
-async function cleanupOnce() {
-  await withAuditBypass(async (tx) => {
-    await tx.$executeRawUnsafe(
-      `DELETE FROM clinical_document_signatures WHERE tenant_id = $1::uuid`,
-      TENANT_ID,
-    );
-    await tx.$executeRawUnsafe(
-      `DELETE FROM clinical_timeline_events WHERE tenant_id = $1::uuid`,
-      TENANT_ID,
-    );
-    await tx.$executeRawUnsafe(
-      `DELETE FROM clinical_audit_events WHERE tenant_id = $1::uuid`,
-      TENANT_ID,
-    );
-    await tx.$executeRawUnsafe(
-      `DELETE FROM audit_log WHERE tenant_id = $1::uuid OR uid = $2::uuid`,
-      TENANT_ID,
-      ACTOR_UID,
-    );
-    await tx.$executeRawUnsafe(
-      `DELETE FROM audit_logs WHERE tenant_id = $1::uuid OR uid = $2::uuid`,
-      TENANT_ID,
-      ACTOR_UID,
-    );
-    await tx.$executeRawUnsafe(
-      `DELETE FROM hipaa_access_log WHERE tenant_id = $1::uuid OR accessed_by = $2::uuid`,
-      TENANT_ID,
-      ACTOR_UID,
-    );
-    await tx.$executeRawUnsafe(
-      `DELETE FROM clinical_notes WHERE tenant_id = $1::uuid`,
-      TENANT_ID,
-    );
-    await tx.$executeRawUnsafe(
-      `DELETE FROM users WHERE tenant_id = $1::uuid`,
-      TENANT_ID,
-    );
-    await tx.$executeRawUnsafe(
-      `DELETE FROM tenants WHERE id = $1::uuid`,
-      TENANT_ID,
-    );
+async function cleanup() {
+  await teardownTenantFixture(prisma, {
+    evidence: deleteTenantEvidence,
+    tenantIds: [TENANT_ID],
   });
 }
 
@@ -223,7 +211,7 @@ d('Document integrity — deep round-trip (roadmap C4)', () => {
   });
 
   test('tampering with a chained row is detected', async () => {
-    await withAuditBypass((tx) => tx.$executeRawUnsafe(
+    await withAuditBypass(prisma, (tx) => tx.$executeRawUnsafe(
       `UPDATE clinical_audit_events SET action = 'c4test.event_two_TAMPERED' WHERE id = $1::uuid`,
       tamperedAuditId,
     ));
@@ -233,7 +221,7 @@ d('Document integrity — deep round-trip (roadmap C4)', () => {
     expect(verdict.first_break_id).toBeTruthy();
 
     // Restore so later assertions (and other suites) see an intact chain.
-    await withAuditBypass((tx) => tx.$executeRawUnsafe(
+    await withAuditBypass(prisma, (tx) => tx.$executeRawUnsafe(
       `UPDATE clinical_audit_events SET action = 'c4test.event_two' WHERE id = $1::uuid`,
       tamperedAuditId,
     ));

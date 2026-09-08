@@ -1,0 +1,139 @@
+{
+  "now": "2026-09-08T12:00:00+05:30",
+  "collection": {
+    "ok": true
+  },
+  "githubMainSha": "1f9696441d9a4a3e7faa9ba5976f9f0589a83f90",
+  "forgejoMainSha": "1f9696441d9a4a3e7faa9ba5976f9f0589a83f90",
+  "compare": null,
+  "githubBranches": [
+    "main",
+    "fix/document-integrity-teardown-budget",
+    "chore/dependency-currency-sweep"
+  ],
+  "forgejoBranches": [
+    "fix/something"
+  ],
+  "tasks": [
+    {
+      "id": 12080,
+      "name": "security",
+      "head_branch": "main",
+      "head_sha": "1f9696441d9a4a3e7faa9ba5976f9f0589a83f90",
+      "run_number": 5804,
+      "event": "schedule",
+      "status": "success",
+      "workflow_id": "full-stack-sweep.yml",
+      "url": "https://forgejo.hippocampus-monitor.ts.net/bahuleyan/VH-Health-Platform/actions/runs/5804",
+      "created_at": "2026-09-08T01:30:12+05:30",
+      "updated_at": "2026-09-08T01:30:12+05:30",
+      "run_started_at": "2026-09-08T01:30:12+05:30"
+    },
+    {
+      "id": 12081,
+      "name": "backend",
+      "head_branch": "main",
+      "head_sha": "1f9696441d9a4a3e7faa9ba5976f9f0589a83f90",
+      "run_number": 5804,
+      "event": "schedule",
+      "status": "success",
+      "workflow_id": "full-stack-sweep.yml",
+      "url": "https://forgejo.hippocampus-monitor.ts.net/bahuleyan/VH-Health-Platform/actions/runs/5804",
+      "created_at": "2026-09-08T01:30:12+05:30",
+      "updated_at": "2026-09-08T01:30:12+05:30",
+      "run_started_at": "2026-09-08T01:30:12+05:30"
+    },
+    {
+      "id": 12082,
+      "name": "fhir",
+      "head_branch": "main",
+      "head_sha": "1f9696441d9a4a3e7faa9ba5976f9f0589a83f90",
+      "run_number": 5804,
+      "event": "schedule",
+      "status": "success",
+      "workflow_id": "full-stack-sweep.yml",
+      "url": "https://forgejo.hippocampus-monitor.ts.net/bahuleyan/VH-Health-Platform/actions/runs/5804",
+      "created_at": "2026-09-08T01:30:12+05:30",
+      "updated_at": "2026-09-08T01:30:12+05:30",
+      "run_started_at": "2026-09-08T01:30:12+05:30"
+    },
+    {
+      "id": 12083,
+      "name": "admin",
+      "head_branch": "main",
+      "head_sha": "1f9696441d9a4a3e7faa9ba5976f9f0589a83f90",
+      "run_number": 5804,
+      "event": "schedule",
+      "status": "success",
+      "workflow_id": "full-stack-sweep.yml",
+      "url": "https://forgejo.hippocampus-monitor.ts.net/bahuleyan/VH-Health-Platform/actions/runs/5804",
+      "created_at": "2026-09-08T01:30:12+05:30",
+      "updated_at": "2026-09-08T01:30:12+05:30",
+      "run_started_at": "2026-09-08T01:30:12+05:30"
+    },
+    {
+      "id": 12084,
+      "name": "flutter",
+      "head_branch": "main",
+      "head_sha": "1f9696441d9a4a3e7faa9ba5976f9f0589a83f90",
+      "run_number": 5804,
+      "event": "schedule",
+      "status": "success",
+      "workflow_id": "full-stack-sweep.yml",
+      "url": "https://forgejo.hippocampus-monitor.ts.net/bahuleyan/VH-Health-Platform/actions/runs/5804",
+      "created_at": "2026-09-08T01:30:12+05:30",
+      "updated_at": "2026-09-08T01:30:12+05:30",
+      "run_started_at": "2026-09-08T01:30:12+05:30"
+    },
+    {
+      "id": 12085,
+      "name": "infra",
+      "head_branch": "main",
+      "head_sha": "1f9696441d9a4a3e7faa9ba5976f9f0589a83f90",
+      "run_number": 5804,
+      "event": "schedule",
+      "status": "success",
+      "workflow_id": "full-stack-sweep.yml",
+      "url": "https://forgejo.hippocampus-monitor.ts.net/bahuleyan/VH-Health-Platform/actions/runs/5804",
+      "created_at": "2026-09-08T01:30:12+05:30",
+      "updated_at": "2026-09-08T01:30:12+05:30",
+      "run_started_at": "2026-09-08T01:30:12+05:30"
+    },
+    {
+      "id": 12099,
+      "name": "backend",
+      "head_branch": "main",
+      "head_sha": "1f9696441d9a4a3e7faa9ba5976f9f0589a83f90",
+      "run_number": 5806,
+      "event": "push",
+      "status": "failure",
+      "workflow_id": "ci.yml",
+      "url": "https://forgejo.hippocampus-monitor.ts.net/bahuleyan/VH-Health-Platform/actions/runs/5806",
+      "created_at": "2026-09-08T14:18:50+05:30",
+      "updated_at": "2026-09-08T14:18:50+05:30",
+      "run_started_at": "2026-09-08T14:18:50+05:30"
+    },
+    {
+      "id": 12097,
+      "name": "admin",
+      "head_branch": "main",
+      "head_sha": "1f9696441d9a4a3e7faa9ba5976f9f0589a83f90",
+      "run_number": 5806,
+      "event": "push",
+      "status": "failure",
+      "workflow_id": "ci.yml",
+      "url": "https://forgejo.hippocampus-monitor.ts.net/bahuleyan/VH-Health-Platform/actions/runs/5806",
+      "created_at": "2026-09-08T14:18:46+05:30",
+      "updated_at": "2026-09-08T14:18:46+05:30",
+      "run_started_at": "2026-09-08T14:18:46+05:30"
+    }
+  ],
+  "monitoredStages": [
+    "security",
+    "backend",
+    "fhir",
+    "admin",
+    "flutter",
+    "infra"
+  ]
+}

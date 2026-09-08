@@ -18,6 +18,7 @@ import * as refundRecovery from '../services/billing/gatewayRefundRecoveryServic
 import dryRunAdapter from '../services/billing/gatewayProviders/dryRunAdapter.js';
 import { toPaise } from '../utils/money.js';
 import { notificationOutbox } from '../utils/notifications/notificationOutbox.js';
+import { teardownTenantFixture } from './helpers/tenantTeardown.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -109,112 +110,129 @@ beforeAll(async () => {
   });
 });
 
+/** Teardown in two phases (helpers/tenantTeardown.js). Phase 1, below, is the
+ *  suite's own ledger / gateway / billing cleanup on the seeded tenant plus the
+ *  cross-tenant rows, in one short interactive transaction under
+ *  app.audit_bypass: 19 statements, 520 ms total measured 2026-09-08. Phase 2
+ *  is the helper's: the fixture users by uid and the cross-tenant row, one
+ *  autocommit statement each. Inside the same transaction the users delete
+ *  alone took 7.1 s (27 rows x 466 referential-integrity triggers), the
+ *  5 000 ms budget expired at 7.8 s, Prisma rolled everything back, and the
+ *  empty "best-effort" catch that used to wrap this hook let the suite report
+ *  21/21 green with the whole fixture still in the database.
+ *
+ *  A failed teardown now fails the suite; the env restore and disconnect run
+ *  in `finally` so they happen either way. The hook timeout is explicit
+ *  because the autocommit deletes are bounded by the client's
+ *  statement_timeout, not by Prisma's budget. */
 afterAll(async () => {
   if (!DB_CONFIGURED) { await prisma.$disconnect().catch(() => {}); return; }
   try {
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe("SELECT set_config('app.audit_bypass', 'on', true)");
-      const entryRows = await tx.$queryRawUnsafe(
-        `SELECT DISTINCT entry_id AS id FROM ledger_postings
-          WHERE invoice_id = ANY($1::int[]) OR patient_uid = ANY($2::uuid[])`,
-        cleanup.invoiceIds, cleanup.patientUids,
-      );
-      const entryIds = entryRows.map((r) => Number(r.id));
-      if (entryIds.length) {
-        await tx.$executeRawUnsafe(`DELETE FROM ledger_postings WHERE entry_id = ANY($1::bigint[])`, entryIds);
-        await tx.$executeRawUnsafe(`DELETE FROM ledger_entries WHERE id = ANY($1::bigint[])`, entryIds);
-      }
-      await tx.$executeRawUnsafe(`DELETE FROM payment_gateway_webhook_events WHERE tenant_id = $1::uuid`, TENANT);
-      if (cleanup.refundIds.length) {
-        await tx.$executeRawUnsafe(
-        `UPDATE billing_refunds
-            SET approval_status = CASE
-                  WHEN approval_status = 'PAID' THEN 'APPROVED'
-                  ELSE approval_status
-                END,
-                paid_by = NULL,
-                paid_at = NULL,
-                reference = NULL,
-                payout_rail = NULL,
-                payout_rail_claimed_at = NULL,
-                gateway_refund_id = NULL
-          WHERE id = ANY($1::int[])`,
-        cleanup.refundIds,
+    await teardownTenantFixture(prisma, {
+      evidence: async (tx) => {
+        const entryRows = await tx.$queryRawUnsafe(
+          `SELECT DISTINCT entry_id AS id FROM ledger_postings
+            WHERE invoice_id = ANY($1::int[]) OR patient_uid = ANY($2::uuid[])`,
+          cleanup.invoiceIds, cleanup.patientUids,
         );
-      }
-      const recoveryRefs = await tx.$queryRawUnsafe(
-        `SELECT recovery_task_id, recovery_sla_instance_id
-           FROM payment_gateway_refunds
-          WHERE tenant_id = $1::uuid`,
-        TENANT,
-      );
-      const recoveryTaskIds = recoveryRefs
-        .map(row => row.recovery_task_id == null ? null : Number(row.recovery_task_id))
-        .filter(id => id != null);
-      const recoverySlaIds = recoveryRefs
-        .map(row => row.recovery_sla_instance_id == null
-          ? null
-          : String(row.recovery_sla_instance_id))
-        .filter(id => id != null);
-      await tx.$executeRawUnsafe(
-        `DELETE FROM notification_outbox
-          WHERE tenant_id = $1::uuid
-            AND source_event_key LIKE 'gateway-refund-recovery:%'`,
-        TENANT,
-      );
-      await tx.$executeRawUnsafe(
-        `UPDATE payment_gateway_refunds
-            SET recovery_task_id = NULL,
-                recovery_sla_instance_id = NULL
-          WHERE tenant_id = $1::uuid`,
-        TENANT,
-      );
-      if (recoveryTaskIds.length) {
-        await tx.$executeRawUnsafe(
-          `DELETE FROM tasks WHERE tenant_id = $1::uuid AND id = ANY($2::int[])`,
+        const entryIds = entryRows.map((r) => Number(r.id));
+        if (entryIds.length) {
+          await tx.$executeRawUnsafe(`DELETE FROM ledger_postings WHERE entry_id = ANY($1::bigint[])`, entryIds);
+          await tx.$executeRawUnsafe(`DELETE FROM ledger_entries WHERE id = ANY($1::bigint[])`, entryIds);
+        }
+        await tx.$executeRawUnsafe(`DELETE FROM payment_gateway_webhook_events WHERE tenant_id = $1::uuid`, TENANT);
+        if (cleanup.refundIds.length) {
+          await tx.$executeRawUnsafe(
+          `UPDATE billing_refunds
+              SET approval_status = CASE
+                    WHEN approval_status = 'PAID' THEN 'APPROVED'
+                    ELSE approval_status
+                  END,
+                  paid_by = NULL,
+                  paid_at = NULL,
+                  reference = NULL,
+                  payout_rail = NULL,
+                  payout_rail_claimed_at = NULL,
+                  gateway_refund_id = NULL
+            WHERE id = ANY($1::int[])`,
+          cleanup.refundIds,
+          );
+        }
+        const recoveryRefs = await tx.$queryRawUnsafe(
+          `SELECT recovery_task_id, recovery_sla_instance_id
+             FROM payment_gateway_refunds
+            WHERE tenant_id = $1::uuid`,
           TENANT,
-          recoveryTaskIds,
         );
-      }
-      await tx.$executeRawUnsafe(`DELETE FROM payment_gateway_refunds WHERE tenant_id = $1::uuid`, TENANT);
-      if (recoverySlaIds.length) {
+        const recoveryTaskIds = recoveryRefs
+          .map(row => row.recovery_task_id == null ? null : Number(row.recovery_task_id))
+          .filter(id => id != null);
+        const recoverySlaIds = recoveryRefs
+          .map(row => row.recovery_sla_instance_id == null
+            ? null
+            : String(row.recovery_sla_instance_id))
+          .filter(id => id != null);
         await tx.$executeRawUnsafe(
-          `DELETE FROM workflow_sla_instances
-            WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`,
+          `DELETE FROM notification_outbox
+            WHERE tenant_id = $1::uuid
+              AND source_event_key LIKE 'gateway-refund-recovery:%'`,
           TENANT,
-          recoverySlaIds,
         );
-      }
-      if (cleanup.orderIds.length) {
-        await tx.$executeRawUnsafe(`DELETE FROM payment_gateway_orders WHERE id = ANY($1::int[])`, cleanup.orderIds);
-      }
-      if (cleanup.refundIds.length) {
-        await tx.$executeRawUnsafe(`DELETE FROM billing_refunds WHERE id = ANY($1::int[])`, cleanup.refundIds);
-      }
-      if (cleanup.invoiceIds.length) {
-        await tx.$executeRawUnsafe(`DELETE FROM billing_payments WHERE invoice_id = ANY($1::int[])`, cleanup.invoiceIds);
-        await tx.$executeRawUnsafe(`DELETE FROM billing_invoice_items WHERE invoice_id = ANY($1::int[])`, cleanup.invoiceIds);
-        await tx.$executeRawUnsafe(`DELETE FROM billing_invoices WHERE id = ANY($1::int[])`, cleanup.invoiceIds);
-      }
-      await tx.$executeRawUnsafe(`DELETE FROM payment_gateway_provider_configs WHERE tenant_id = $1::uuid`, TENANT);
-      await tx.$executeRawUnsafe(`UPDATE tenants SET settings = settings - 'paymentGateway' WHERE id = $1::uuid`, TENANT);
-      if (cleanup.patientUids.length) {
-        await tx.$executeRawUnsafe(`DELETE FROM users WHERE uid = ANY($1::uuid[])`, cleanup.patientUids);
-      }
-      await tx.$executeRawUnsafe(`DELETE FROM tenants WHERE id = $1::uuid`, CROSS_TENANT);
+        await tx.$executeRawUnsafe(
+          `UPDATE payment_gateway_refunds
+              SET recovery_task_id = NULL,
+                  recovery_sla_instance_id = NULL
+            WHERE tenant_id = $1::uuid`,
+          TENANT,
+        );
+        if (recoveryTaskIds.length) {
+          await tx.$executeRawUnsafe(
+            `DELETE FROM tasks WHERE tenant_id = $1::uuid AND id = ANY($2::int[])`,
+            TENANT,
+            recoveryTaskIds,
+          );
+        }
+        await tx.$executeRawUnsafe(`DELETE FROM payment_gateway_refunds WHERE tenant_id = $1::uuid`, TENANT);
+        if (recoverySlaIds.length) {
+          await tx.$executeRawUnsafe(
+            `DELETE FROM workflow_sla_instances
+              WHERE tenant_id = $1::uuid AND id = ANY($2::uuid[])`,
+            TENANT,
+            recoverySlaIds,
+          );
+        }
+        if (cleanup.orderIds.length) {
+          await tx.$executeRawUnsafe(`DELETE FROM payment_gateway_orders WHERE id = ANY($1::int[])`, cleanup.orderIds);
+        }
+        if (cleanup.refundIds.length) {
+          await tx.$executeRawUnsafe(`DELETE FROM billing_refunds WHERE id = ANY($1::int[])`, cleanup.refundIds);
+        }
+        if (cleanup.invoiceIds.length) {
+          await tx.$executeRawUnsafe(`DELETE FROM billing_payments WHERE invoice_id = ANY($1::int[])`, cleanup.invoiceIds);
+          await tx.$executeRawUnsafe(`DELETE FROM billing_invoice_items WHERE invoice_id = ANY($1::int[])`, cleanup.invoiceIds);
+          await tx.$executeRawUnsafe(`DELETE FROM billing_invoices WHERE id = ANY($1::int[])`, cleanup.invoiceIds);
+        }
+        await tx.$executeRawUnsafe(`DELETE FROM payment_gateway_provider_configs WHERE tenant_id = $1::uuid`, TENANT);
+        await tx.$executeRawUnsafe(`UPDATE tenants SET settings = settings - 'paymentGateway' WHERE id = $1::uuid`, TENANT);
+      },
+      // Phase 2 (autocommit, outside the transaction above): the fixture users
+      // on the seeded tenant and on the cross tenant, then the cross tenant.
+      userUids: cleanup.patientUids,
+      tenantIds: [CROSS_TENANT],
     });
-  } catch { /* best-effort teardown */ }
-  if (prevLedgerMode === undefined) delete process.env.LEDGER_AUTHORITATIVE_MODE;
-  else process.env.LEDGER_AUTHORITATIVE_MODE = prevLedgerMode;
-  if (prevGatewayEnabled === undefined) delete process.env.PAYMENT_GATEWAY_ENABLED;
-  else process.env.PAYMENT_GATEWAY_ENABLED = prevGatewayEnabled;
-  if (prevRefundRecoveryEnabled === undefined) {
-    delete process.env.PAYMENT_GATEWAY_REFUND_RECOVERY_ENABLED;
-  } else {
-    process.env.PAYMENT_GATEWAY_REFUND_RECOVERY_ENABLED = prevRefundRecoveryEnabled;
+  } finally {
+    if (prevLedgerMode === undefined) delete process.env.LEDGER_AUTHORITATIVE_MODE;
+    else process.env.LEDGER_AUTHORITATIVE_MODE = prevLedgerMode;
+    if (prevGatewayEnabled === undefined) delete process.env.PAYMENT_GATEWAY_ENABLED;
+    else process.env.PAYMENT_GATEWAY_ENABLED = prevGatewayEnabled;
+    if (prevRefundRecoveryEnabled === undefined) {
+      delete process.env.PAYMENT_GATEWAY_REFUND_RECOVERY_ENABLED;
+    } else {
+      process.env.PAYMENT_GATEWAY_REFUND_RECOVERY_ENABLED = prevRefundRecoveryEnabled;
+    }
+    await prisma.$disconnect().catch(() => {});
   }
-  await prisma.$disconnect().catch(() => {});
-}, 30_000);
+}, 120_000);
 
 d('payment gateway refund execution leg (deep)', () => {
   it('correlates an immediate processed response by provider config id, not gateway order id', async () => {

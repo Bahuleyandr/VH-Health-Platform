@@ -39,7 +39,7 @@ const {
   parseUhiContext,
   recordUhiLeg,
 } = await import('../services/uhi/uhiAdapterService.js');
-const { withAuditBypass } = await import('./helpers/auditBypass.js');
+const { teardownTenantFixture } = await import('./helpers/tenantTeardown.js');
 
 const TENANT_ID = randomUUID();
 const OTHER_TENANT_ID = randomUUID();
@@ -78,29 +78,47 @@ async function recordProcessedInit(ctx, body) {
   });
 }
 
-async function cleanupTenant(tenantId) {
-  await withAuditBypass(prisma, async (tx) => {
-    await tx.$executeRawUnsafe(`DELETE FROM uhi_transactions WHERE tenant_id = $1::uuid`, tenantId);
-    await tx.$executeRawUnsafe(`DELETE FROM appointment_status_history WHERE tenant_id = $1::uuid`, tenantId);
-    await tx.$executeRawUnsafe(`DELETE FROM appointment_queues WHERE tenant_id = $1::uuid`, tenantId);
-    await tx.$executeRawUnsafe(`DELETE FROM workflow_sla_instances WHERE tenant_id = $1::uuid`, tenantId);
-    await tx.$executeRawUnsafe(`DELETE FROM pathway_projector_inbox WHERE tenant_id = $1::uuid`, tenantId);
-    await tx.$executeRawUnsafe(`DELETE FROM event_outbox WHERE tenant_id = $1::uuid`, tenantId);
-    await tx.$executeRawUnsafe(`DELETE FROM notifications WHERE tenant_id = $1::uuid`, tenantId);
-    await tx.$executeRawUnsafe(`DELETE FROM clinical_timeline_events WHERE tenant_id = $1::uuid`, tenantId);
-    await tx.$executeRawUnsafe(`DELETE FROM clinical_audit_events WHERE tenant_id = $1::uuid`, tenantId);
-    await tx.$executeRawUnsafe(`DELETE FROM care_team_members WHERE tenant_id = $1::uuid`, tenantId).catch(() => {});
-    await tx.$executeRawUnsafe(`DELETE FROM care_teams WHERE tenant_id = $1::uuid`, tenantId).catch(() => {});
-    await tx.$executeRawUnsafe(`DELETE FROM appointments WHERE tenant_id = $1::uuid`, tenantId);
-    await tx.$executeRawUnsafe(`DELETE FROM doctors WHERE tenant_id = $1::uuid`, tenantId);
-    await tx.$executeRawUnsafe(`DELETE FROM users WHERE tenant_id = $1::uuid`, tenantId);
-    await tx.$executeRawUnsafe(`DELETE FROM tenants WHERE id = $1::uuid`, tenantId);
-  }).catch(() => {});
+const FIXTURE_TENANT_IDS = [TENANT_ID, OTHER_TENANT_ID];
+
+/** Phase 1 of the teardown: every child row the suite can leave behind for one
+ *  fixture tenant, children before parents, run inside the helper's short
+ *  interactive transaction under app.audit_bypass (clinical_audit_events and
+ *  clinical_timeline_events are append-only guarded). `users` and `tenants`
+ *  are deliberately absent: deleting them fires 466 / 791 referential-
+ *  integrity triggers per row and blew the transaction's 5 000 ms budget
+ *  (users 2.2 s + tenants 3.0 s measured 2026-09-08), rolling all of this
+ *  back while the suite stayed green. The helper deletes them as autocommit
+ *  statements afterwards - see helpers/tenantTeardown.js.
+ *
+ *  The former `.catch(() => {})` on the care_team deletes is gone on purpose:
+ *  a statement that fails inside a Postgres transaction aborts the
+ *  transaction, so swallowing it only turned every later statement into
+ *  `25P02 current transaction is aborted`. */
+async function deleteTenantEvidence(tx, tenantId) {
+  await tx.$executeRawUnsafe(`DELETE FROM uhi_transactions WHERE tenant_id = $1::uuid`, tenantId);
+  await tx.$executeRawUnsafe(`DELETE FROM appointment_status_history WHERE tenant_id = $1::uuid`, tenantId);
+  await tx.$executeRawUnsafe(`DELETE FROM appointment_queues WHERE tenant_id = $1::uuid`, tenantId);
+  await tx.$executeRawUnsafe(`DELETE FROM workflow_sla_instances WHERE tenant_id = $1::uuid`, tenantId);
+  await tx.$executeRawUnsafe(`DELETE FROM pathway_projector_inbox WHERE tenant_id = $1::uuid`, tenantId);
+  await tx.$executeRawUnsafe(`DELETE FROM event_outbox WHERE tenant_id = $1::uuid`, tenantId);
+  await tx.$executeRawUnsafe(`DELETE FROM notifications WHERE tenant_id = $1::uuid`, tenantId);
+  await tx.$executeRawUnsafe(`DELETE FROM clinical_timeline_events WHERE tenant_id = $1::uuid`, tenantId);
+  await tx.$executeRawUnsafe(`DELETE FROM clinical_audit_events WHERE tenant_id = $1::uuid`, tenantId);
+  await tx.$executeRawUnsafe(`DELETE FROM care_team_members WHERE tenant_id = $1::uuid`, tenantId);
+  await tx.$executeRawUnsafe(`DELETE FROM care_teams WHERE tenant_id = $1::uuid`, tenantId);
+  await tx.$executeRawUnsafe(`DELETE FROM appointments WHERE tenant_id = $1::uuid`, tenantId);
+  await tx.$executeRawUnsafe(`DELETE FROM doctors WHERE tenant_id = $1::uuid`, tenantId);
 }
 
+/** A failed teardown fails the suite. The previous `.catch(() => {})` hid a
+ *  transaction that expired and rolled back on every run. */
 async function cleanup() {
-  await cleanupTenant(TENANT_ID);
-  await cleanupTenant(OTHER_TENANT_ID);
+  await teardownTenantFixture(prisma, {
+    evidence: async (tx) => {
+      for (const tenantId of FIXTURE_TENANT_IDS) await deleteTenantEvidence(tx, tenantId);
+    },
+    tenantIds: FIXTURE_TENANT_IDS,
+  });
 }
 
 d('UHI adapter (migration 705)', () => {
@@ -145,10 +163,13 @@ d('UHI adapter (migration 705)', () => {
     );
   }, 60_000);
 
+  // The two autocommit fan-out deletes are bounded by the client's
+  // statement_timeout, not by Prisma's transaction budget; same 120 s hook
+  // timeout as document-integrity.deep.
   afterAll(async () => {
     await cleanup();
     await prisma.$disconnect().catch(() => {});
-  }, 60_000);
+  }, 120_000);
 
   beforeEach(() => {
     sendUhiCallback.mockClear();
