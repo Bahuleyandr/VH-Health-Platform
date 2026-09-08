@@ -288,10 +288,134 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 574 (two full filenames) | Credential-hardening OBGyn labour-ward privilege seed + unified audit read model | **on main**; existing prefix collision, both filenames are independently tracked |
 | 575–576 | Unified audit housekeeping triggers + retention-policy baseline | **on main** |
 | 577 | OBGyn newborn identity constraints | **on main** |
-| 578 | Unified Care Pathways S1a single-live-generation inbox, lock-fenced handoff, bounded backfill, and catalog/definer/role-provisioning-hardened trigger fanout | reserved by `feat/care-pathways-s1a-inbox-ledger`; 578 is consumed by this slice |
-| 579+ | UNASSIGNED — **579 is next-free at this revision** (record the actual next block in the launching docs PR; never reuse either 574 filename) | — |
+| 578 | Unified Care Pathways S1a single-live-generation inbox, lock-fenced handoff, bounded backfill, and catalog/definer/role-provisioning-hardened trigger fanout (shadow-projector work ledger) | **on main** (#609, 2026-07-18) |
+| **Rebuilt 2026-09-08 from git history for 579–790 (PR-merge commits on main's first-parent chain at 5def41d10; a range = consecutive numbers that landed in one PR)** | | |
+| 579 | Unified Care Pathways S1b-a dormant workflow runtime hardening | **on main** (#611, 2026-07-19) |
+| 580–584 | Unified Care Pathways S1b-b: execution spine (580), lab critical-alert generations (581), HL7 ORU replay identity (582), ASTM atomic replay (583), governance/definition pinning (584) | **on main** (#612, 2026-07-21) |
+| 585 | Care Pathways S1b-c1 exclusive live-owner integrity | **on main** (#613, 2026-07-21) |
+| 586–589 | Care Pathways S1b-c2/c3/r: owner acceptance evidence (586), reconciliation evidence (587), leased outbox recovery + webhook fan-out fencing (588), immutable diagnostic result generations/actions (589) | **on main** (#615, 2026-07-22) |
+| 590 | Pharmacy SKU/inventory ↔ composition/catalog link | **on main** (#616, 2026-07-22) |
+| 591 | Care Pathways S2c structured Radiology/AP diagnostic generations | **on main** (#618, 2026-07-22) |
+| 592 | Care Pathways S2d structured-result patient-release state | **on main** (#620, 2026-07-23) |
+| 593 | Care Pathways S2e generation-scoped patient notification receipts | **on main** (#621, 2026-07-23) |
+| 594 | Care Pathways S3 referral request-to-closure loop | **on main** (#622, 2026-07-23) |
+| 595 | Care Pathways S4 outpatient/inpatient evidence | **on main** (#624, 2026-07-26) |
+| 596 | Care Pathways S5 ED destination handoff | **on main** (#627, 2026-07-27) |
+| 597 | Care Pathways S5 ED closure/recovery evidence | **on main** (#628, 2026-07-28) |
+| 598 | Facility-belongs-to-tenant composite FK integrity | **on main** (#630, 2026-07-28) |
+| 599 | Clinical timeline append-only invariant | **on main** (#629, 2026-07-28) |
+| 600 | Continuity C3.1 signed pack governance | **on main** (#641, 2026-07-29) |
+| 601 | Continuity C3.2a edge access + recovered-log receipts | **on main** (#645, 2026-07-30) |
+| 602 | Continuity C4.2 signed action-registry policy | **on main** (#660, 2026-07-31) |
+| 603 | Continuity C6.1-A external-interface recovery substrate + I10 cold-chain adapter integrity | **on main** (#664, 2026-07-31) |
+| 604 | Continuity C4 device/session facility context | **on main** (#668, 2026-07-31) |
+| 605 | Continuity C5.1 immutable replay receipts | **on main** (#670, 2026-08-01) |
+| 606 | Continuity C5.2 paper back-entry reconciliation workbench | **on main** (#677, 2026-08-01) |
+| 607 | Continuity C6.1-B I09/I15 external vitals recovery | **on main** (#679, 2026-08-02) |
+| 608 | Continuity C6.1-C I01/I02 external lab recovery | **on main** (#689, 2026-08-02) |
+| 609 | Continuity C6.1-D notification delivery recovery | **on main** (#694, 2026-08-02) |
+| 610 | Continuity C6.1-E I04 outbound HL7 recovery | **on main** (#701, 2026-08-03) |
+| 611 | Continuity C6.1-E I05 HL7v2 interface-engine ledger adaptation | **on main** (#711, 2026-08-03) |
+| 612 | Continuity C6.1-E I05 CSV adapter | **on main** (#703, 2026-08-03) |
+| 613 | Continuity C6.1-E I05 JSON adapter | **on main** (#704, 2026-08-03) |
+| 614 | Continuity C6.1-E I05 FHIR-JSON adapter | **on main** (#705, 2026-08-03) |
+| 615 | Continuity C6.1-E I05 OTHER adapter | **on main** (#706, 2026-08-03) |
+| 616 | Continuity C6.1-E I06 imaging study-link recovery | **on main** (#709, 2026-08-03) |
+| 617 | Continuity C6.1-F I13 SCIM identity recovery | **on main** (#718, 2026-08-04) |
+| 618 | Continuity C6.1-F I16 ABDM callback + stranded-transfer recovery | **on main** (#721, 2026-08-04) |
+| 619 | Continuity C6.1-F I19 NHCX message recovery | **on main** (#722, 2026-08-04) |
+| 620 | Continuity C6.1-G I18 subscriber webhook recovery | **on main** (#729, 2026-08-04) |
+| 621 | Continuity C6.1-G I23 clinical-trial catalog recovery | **on main** (#730, 2026-08-04) |
+| 622 | Continuity C6.1-G I25 SIEM canonical cutover | **on main** (#731, 2026-08-04) |
+| 623 | Escalation fairness: recipient rank mappings | **on main** (#732, 2026-08-04) |
+| 624 | Continuity C5.2 held-message release executor | **on main** (#733, 2026-08-05) |
+| 625 | HL7 outbound contiguity ledger-version index | **on main** (#737, 2026-08-05) |
+| 626 | — | released — do not reuse (no file on main) |
+| 627 | Continuity C-D10 device-loss containment orchestration | **on main** (#741, 2026-08-05) |
+| 628 | Continuity C6.1 external-recovery operability + C-D8 late-critical acknowledgement channel | **on main** (#744, 2026-08-05) |
+| 629 | Continuity C5.2 PR-2 held-webhook disposition | **on main** (#746, 2026-08-05) |
+| 630 | Continuity C5.2 incident-packet provisioning trust root | **on main** (#747, 2026-08-06) |
+| 631 | Continuity I03 inbound ADT/ORM HL7 recovery | **on main** (#748, 2026-08-06) |
+| 632 | Continuity C6.3-TG activation transition governance | **on main** (#750, 2026-08-06) |
+| 633 | Doctors full-text search vector | **on main** (#751, 2026-08-06) |
+| 634 | Patient-merge integrity substrate | **on main** (#767, 2026-08-08) |
+| 635–639 | — | released — do not reuse (no files on main) |
+| 640 | One active admission per patient (DB backstop) | **on main** (#768, 2026-08-08) |
+| 641–642 | Drug-chart-missing SLA rule (641), MAR scheduled-dose guard (642) | **on main** (#773, 2026-08-09) |
+| 643 | data_breaches title + phi_involved | **on main** (#801, 2026-08-09) |
+| 644 | Payroll run failure accounting | **on main** (#799, 2026-08-09) |
+| 645 | Housekeeping request bed/patient linkage (file header mislabels itself "Migration 643") | **on main** (#778, 2026-08-09) |
+| 646 | Patient-level NEWS2 SpO2 scale flag | **on main** (#796, 2026-08-09) |
+| 647 | Tenant-scoped ABHA number uniqueness | **on main** (#809, 2026-08-10) |
+| 648–649 | ICU flowsheet bounds + code-status history (648), pharmacy order status transition guard (649) | **on main** (#827, 2026-08-10) |
+| 650 | Token-epoch issuance gate | **on main** (#833, 2026-08-10) |
+| 651–652 | Relaxed vitals plausibility floors (651), NEWS2 rescore supersede (652) | **on main** (#829, 2026-08-10) |
+| 653 | ABHA verification gate | **on main** (#834, 2026-08-10) |
+| 654 | ICU flowsheet peri-arrest bounds | **on main** (#845, 2026-08-11) |
+| 655 | Audit-3 migration deploy safety (additive remediation for 647–653) | **on main** (#847, 2026-08-11) |
+| 656 | FHIR vital-observation replay receipts | **on main** (#853, 2026-08-12) |
+| 657 | NEWS2 correction consequence linkage | **on main** (#860, 2026-08-12) |
+| 658 | Notification provider-receipt operator-reconciliation source | **on main** (#861, 2026-08-12) |
+| 659–663 | Audit-3 integration: patient wearable vital receipts (659), retire exec digest/benchmark pack (660), notification device global handoff (661), user active-session identity (662), notification authority epoch (663) | **on main** (#863, 2026-08-12) |
+| 664 | Payroll tenant integrity | **on main** (#865, 2026-08-13) |
+| 665–672 | Full repository audit 2026-08: interface-engine runtime truthfulness (665), canonical interop live receipts (666), runtime migration-tracker readiness (667), scheduler truth + notification tenant integrity (668), payroll attempt document delivery (669), interface-engine canonical adapter activation (670), fleet scheduled-job receipts (671), tenant-KEK versioned reprovision (672) | **on main** (#867, 2026-08-14) |
+| 673 | Drop six dead tables | **on main** (#870, 2026-08-15) |
+| 674 | File-scan policy `not_scanned` status | **on main** (#871, 2026-08-15) |
+| 675–677 | Audit fix wave 2026-08-15: staff-message attachment failed backlog release (675), file-scan status columns + default disarm (676), SOS responder loop (677) | **on main** (#874, 2026-08-16) |
+| 678–689 | Nine-feature wave: radiology contrast/allergy screening (678), MIS report schedules (679), referral destination facilities (680), family-member linked dependents (681), shift swap + on-call roster (682), ambulance position events (683), pharmacy counter sales (684), dietary kitchen meal tickets (685), adversarial-review fixes (686–689) | **on main** (#875, 2026-08-16) |
+| 690–692 | Notification outbox auto-replay generation (690), file-scan drop transitional defaults (691), SOS `is_test_alert` (692) | **on main** (#877, 2026-08-17) |
+| 693–695, 697, 699–708 | Payment gateway (693–695, 697, 708), SMS gateway (699–700), ABDM completion (701–703, 707), facility asset register (704, 706), UHI transactions (705) | **on main** (#878, 2026-08-17); 696 and 698 released — do not reuse |
+| 709 | SOS alert drill authorization (server-derived drill provenance) | **on main** (#877, 2026-08-17) |
+| 710–716 | Forward-only convergence upgrades on published 693–708: facility asset runtime constraints (710), SMS enabled-config guard (711), gateway operational safety (712), settlement integrity (713), HIU page-evidence reconciliation (714), order reconciliation actor (715), ABDM resend signer + patient-delete safety (716) | **on main** (#878, 2026-08-17) |
+| 717 | Supporting indexes for the 693–716 foreign keys | **on main** (#883, 2026-08-18) |
+| 718–719 | Patient vitals legacy-Fahrenheit backfill (718), ABDM webhook DELETE-trigger no-op fix (719) | **on main** (#891, 2026-08-19) |
+| 720–723 | Terminology slate C1: clinical coding on downstream documents (720), lab analyzer LOINC mappings (721), drug-KB catalog links (722), analytics BI mart-expansion catalog (723) | **on main** (#894, 2026-08-20) |
+| 724 | `system_settings` key/value store | **on main** (#896, 2026-08-21) |
+| 725 | Care-pathway actionable roles re-sync after the role-list corrections | **on main** (#908, 2026-08-22) |
+| 726–727 | Once-over B: fail-closed restrictive RLS for webhook-fed PHI/financial tables (726), TAT thresholds for every tenant (727) | **on main** (#915, 2026-08-23) |
+| 728–729 | Re-audit I tenancy: tenant config provisioning backfill (728), tenant-bearing FKs + tenant default alignment (729) | **on main** (#922, 2026-08-24) |
+| 730–731 | Re-audit J surfaces: ward-pharmacy indent notification backlog demotion (730), HL7 feed subscription includes transfers (731) | **on main** (#923, 2026-08-25) |
+| 732–736 | Payment-webhook tenant resolver SECURITY DEFINER (732), webhook/financial system-job sweep policy (733), migrations-tracker checksum column (734), tracker integrity + runtime ACL (735), bounded cross-tenant expiry sweeps (736) | **on main** (#925, 2026-08-26) |
+| 737–739 | Statutory registers: birth notifications (737), GST e-invoice documents (738), notifiable-disease notifications (739) | **on main** (#926, 2026-08-26) |
+| 740 | SAFE-01 lab threshold policy governance | **on main** (#933, 2026-08-27) |
+| 741 | MED-01 ward-indent authoritative state machine | **on main** (#935, 2026-08-27) |
+| 742 | Retire the inert global feature-flag subsystem | **on main** (#938, 2026-08-27) |
+| 743 | Care-pathway actionable roles PHARMACIST sync | **on main** (#939, 2026-08-27) |
+| 744–750 | MED-03 medication closure: inventory/billing/MAR closure (744), clinical-alert delivery obligations (745), counter-sale void obligations (746), billing cash-refund drawer reconciliation (747), cath inventory shortfall recovery (748), Prisma relation cardinality contracts (749), Prisma relation emulation indexes (750) | **on main** (#940, 2026-08-31) |
+| 751 | — | released — do not reuse (no file on main) |
+| 752–754 | GWR-01 payment-gateway refund recovery (752), pharmacy order inventory authority (753), salary-revision tenant reconciliation (754) | **on main** (#940, 2026-08-31) |
+| 755 | Clinical import document receipts + history immutability (claimed by a parallel branch while #940 was open) | **on main** (#966, 2026-09-03) |
+| 756 | — | released — do not reuse (no file on main) |
+| 757 | Pharmacy clinical projection JSON-null tolerance (753 follow-up) | **on main** (#940, 2026-08-31) |
+| 758 | Pharmacy advance/funding authority superset | **on main** (#947, 2026-09-01) |
+| 759 | Parenthesise the bare CASE in the 744/745 escalation snapshot guards (plpgsql repair) | **on main** (#952, 2026-09-01) |
+| 760–762 | Clinical import authority custody + reconciliation (760), clinical-alert recovery snapshot rule codes (761), ledger tenant lineage constraints (762) | **on main** (#966, 2026-09-03) |
+| 763 | Engagement campaign approval-material binding | **on main** (#987, 2026-09-03) |
+| 764 | Platform patient blood-borne markers | **on main** (#1000, 2026-09-04) |
+| 765 | Cath-lab device reuse | **on main** (#1004, 2026-09-05) |
+| 766 | Cath-lab pre-procedure lab readiness (Plan 3) | **on main** (#1008, 2026-09-05) |
+| 767 | Phase 1 dialysis isolation resolver | **on main** (#1028, 2026-09-07) |
+| 768 | Plan 4 reprocessable-devices platform foundation | **on main** (#1030, 2026-09-07) |
+| 769–770 | Plan 4 PR 3: dialysis safety boundaries (769), exposure creation outcomes (770) — first two numbers of live block 769–779 | **on main** (#1041, 2026-09-08) |
+| 790 | Cath readiness PR 1 of 5: `cath_lab_case_attempts` additive expansion — first number of live block 790–799 | **on main** (#1043, 2026-09-08) |
+
+**2026-09 live blocks (dev-0e rulings of 2026-09-08; dev-0e is the allocation authority for these blocks — ask before claiming, and record the claim here in the same PR):**
+
+| Block | Owner | Status |
+|---|---|---|
+| 769–779 | Plan 4 — reprocessable devices / dialysis exposure (Sol) | 769, 770 **on main** (#1041); **next free 771** |
+| 780–789 | RLS tranches (Astra) | none used |
+| 790–799 | Cath readiness train, 5 PRs (Sol) | 790 **on main** (#1043); **next free 791** |
+| 800–803 | Database-constraint restoration lane (assigned 2026-09-08) | none used |
+| 804+ | UNASSIGNED — **804 is next-free**; new blocks are assigned by dev-0e and recorded in this table before any file is created, never in chat alone (nor in a spec, plan or PR body alone) | — |
 
 Gaps below 368 (358, 360, 362–365) are released reservations — do not reuse; continue from the top.
+Gaps at or above 580 (626, 635–639, 696, 698, 751, 756) are likewise released — do not reuse.
+Unused numbers inside a live block belong to that block's owner and are claimed in order; a
+number in 771–779, 780–789 or 791–799 appearing on any branch without a row here is a collision
+risk. `scripts/ci/check-migration-registry.mjs` (security stage, every PR) fails when a migration
+file on disk carries a number no row in this section covers; open-ended `N+` rows cover nothing,
+so a new block must be written here before its first file lands.
 Each queued prompt carries its migration COUNT estimate; the number block is stamped at launch.
 
 ## 6. Worker rules (enforced by every prompt; summary for the coordinator)
