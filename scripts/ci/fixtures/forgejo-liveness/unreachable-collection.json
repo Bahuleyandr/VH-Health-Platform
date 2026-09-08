@@ -1,0 +1,9 @@
+{
+  "now": "2026-09-08T12:00:00+05:30",
+  "collection": {
+    "ok": false,
+    "failedStep": "forgejo API over the tailnet (host down, or the runner never joined the tailnet)",
+    "url": "https://forgejo.hippocampus-monitor.ts.net/api/v1/repos/bahuleyan/VH-Health-Platform/branches/main",
+    "message": "The operation was aborted due to timeout"
+  }
+}

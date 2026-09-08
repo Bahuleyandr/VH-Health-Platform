@@ -111,6 +111,11 @@ export function runInfraStage({
       'scripts/ci/security.test.mjs',
       'scripts/ci/stage-selection.test.mjs',
       'scripts/check-forgejo-supply-chain-pins.test.mjs',
+      // Forgejo DR-mirror liveness detector. Enumerated here for the same
+      // reason as the guards above: the detector's own positive control (it
+      // must be shown capable of failing) has to run somewhere, and a
+      // detector nobody exercises detects nothing.
+      'scripts/ci/forgejo-liveness.test.mjs',
     ], { env: installedTools?.env });
     runCommand(
       process.execPath,
