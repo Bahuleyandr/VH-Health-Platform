@@ -95,41 +95,23 @@ for (const file of listRuleFiles(here)) {
   references.push(...collectReferences(readFileSync(file, 'utf8'), file));
 }
 
-const exportedReferences = references.filter((ref) => !ref.bare);
+const exportedReferences = references.filter((ref) => ref.name.startsWith(SERIES_PREFIX));
 if (exportedReferences.length === 0) {
   failures.push(
     `no ${SERIES_PREFIX}* references were found under ${rel(here)} — the rule files or this scanner changed shape, and a check that inspects nothing proves nothing`,
   );
 }
 
-// Scoping on the exact `cnpg_vhhealth_` prefix leaves a hole: a misspelling that
-// corrupts the prefix itself (`cnpg_vhealth_connections_total`) falls out of
-// scope and passes silently — the same shape of failure this check exists to
-// catch. So every `cnpg_*` series is swept, and anything that is neither a CNPG
-// built-in (`cnpg_pg_*` from the operator's default queries, or `cnpg_collector_*`
-// the instance-manager exporter's own health series — neither defined in this
-// repo) nor derivable from cluster.yaml is a failure.
-for (const file of listRuleFiles(here)) {
-  for (const line of readFileSync(file, 'utf8').split(/\r?\n/)) {
-    // Only executable references — an `expr:` or a fixture `- series:`. Prose in
-    // comments and annotations legitimately names prefixes and query-local
-    // spellings while explaining them.
-    if (!/^\s*(expr:|-\s*series:)/.test(line)) continue;
-    for (const [, name] of line.matchAll(/\b(cnpg_[A-Za-z0-9_]+)/g)) {
-      if (name.startsWith(SERIES_PREFIX)
-        || name.startsWith('cnpg_pg_')
-        || name.startsWith('cnpg_collector_')) continue;
-      failures.push(
-        `${rel(file)}: ${name} is neither a CNPG built-in (cnpg_pg_* / cnpg_collector_*) nor derivable from ${rel(clusterFile)} — if this is a custom-query series the prefix or query name is misspelled`,
-      );
-    }
-  }
-}
-
 // ── 3. Assert each reference is derivable ────────────────────────────────────
 const referenced = new Set();
 const queryNames = [...labelColumnsByQuery.keys()];
 for (const ref of references) {
+  if (ref.unknownPrefix) {
+    failures.push(
+      `${ref.where}: ${ref.name} is neither a CNPG built-in (cnpg_pg_* / cnpg_collector_*) nor derivable from ${rel(clusterFile)} — if this is a custom-query series the prefix or query name is misspelled`,
+    );
+    continue;
+  }
   if (ref.bare) {
     // Query-local spelling in PromQL: `vhhealth_replication_lag_seconds` where
     // the exporter publishes `cnpg_vhhealth_replication_lag_seconds`. Only
@@ -317,7 +299,7 @@ function collectReferences(raw, file) {
     if (exprMatch) {
       const indent = exprMatch[1].length;
       let text = exprMatch[2].trim();
-      if (/^[|>][-+]?$/.test(text)) {
+      if (/^[|>][-+]?(?:\s+#.*)?$/.test(text)) {
         text = '';
         for (let j = i + 1; j < lines.length; j += 1) {
           const next = lines[j];
@@ -326,7 +308,7 @@ function collectReferences(raw, file) {
           i = j;
         }
       }
-      references.push(...extract(text, `${rel(file)}:${rule} expr`, { promql: true }));
+      references.push(...extract(unquoteScalar(text), `${rel(file)}:${rule} expr`, { promql: true }));
       continue;
     }
 
@@ -339,7 +321,7 @@ function collectReferences(raw, file) {
     const seriesMatch = line.match(/^\s*- series:\s*(.+)$/);
     if (seriesMatch) {
       references.push(
-        ...extract(seriesMatch[1], `${rel(file)}:${i + 1} promtool input_series`, {
+        ...extract(unquoteScalar(seriesMatch[1]), `${rel(file)}:${i + 1} promtool input_series`, {
           promql: true,
         }),
       );
@@ -347,6 +329,13 @@ function collectReferences(raw, file) {
   }
 
   return references;
+}
+
+function unquoteScalar(text) {
+  const singleQuoted = text.match(/^'((?:[^']|'')*)'\s*(?:#.*)?$/);
+  if (singleQuoted) return singleQuoted[1].replace(/''/g, "'");
+  const doubleQuoted = text.match(/^("(?:[^"\\]|\\.)*")\s*(?:#.*)?$/);
+  return doubleQuoted ? JSON.parse(doubleQuoted[1]) : text;
 }
 
 /**
@@ -359,20 +348,54 @@ function collectReferences(raw, file) {
  */
 function extract(text, where, { promql = false } = {}) {
   const references = [];
+  // Preserve offsets into the original selector while excluding prose inside
+  // PromQL strings and comments from the executable metric inventory.
+  const searchable = promql
+    ? text.replace(/"(?:[^"\\]|\\[\s\S])*"|'(?:[^'\\]|\\[\s\S])*'|`[^`]*`|#[^\r\n]*/g,
+      (part) => part.replace(/[^\r\n]/g, ' '))
+    : text;
   if (promql) {
-    const bareRe = /(?<![A-Za-z0-9_])vhhealth_[A-Za-z0-9_]*/g;
+    const bareRe = /(?<![A-Za-z0-9_:])vhhealth_[A-Za-z0-9_:]*/g;
     let bare;
-    while ((bare = bareRe.exec(text)) !== null) {
+    while ((bare = bareRe.exec(searchable)) !== null) {
       references.push({ name: bare[0], labels: [], where, bare: true });
     }
   }
 
-  const nameRe = new RegExp(`${SERIES_PREFIX}[A-Za-z0-9_]*`, 'g');
-  let match;
-  while ((match = nameRe.exec(text)) !== null) {
-    const name = match[0];
-    const rest = text.slice(match.index + name.length);
-    const selector = rest.match(/^\{([^}]*)\}/);
+  // Executable expressions must also police misspellings of the custom prefix;
+  // otherwise those names fall out of the very namespace being validated.
+  const nameRe = promql
+    ? /(?<![A-Za-z0-9_:])cnpg_[A-Za-z0-9_:]*/g
+    : new RegExp(`${SERIES_PREFIX}[A-Za-z0-9_]*`, 'g');
+  const matches = [...searchable.matchAll(nameRe)].map((match) => ({
+    name: match[0],
+    rest: text.slice(match.index + match[0].length),
+  }));
+  if (promql) {
+    // An exact __name__ matcher is a selector's metric identity, not an
+    // ordinary string label. It carries the same label contract as a name
+    // written before the opening brace.
+    const exactName = /(?<![A-Za-z0-9_])__name__\s*=\s*(["'`])((?:cnpg_|vhhealth_)[A-Za-z0-9_:]+)\1/g;
+    for (const match of text.matchAll(exactName)) {
+      if (searchable[match.index] !== '_') continue;
+      const start = searchable.lastIndexOf('{', match.index);
+      const end = searchable.indexOf('}', start);
+      if (start === -1 || end < match.index) continue;
+      matches.push({ name: match[2], rest: text.slice(start, end + 1) });
+    }
+  }
+  for (const { name, rest } of matches) {
+    if (promql && name.startsWith('vhhealth_')) {
+      references.push({ name, labels: [], where, bare: true });
+      continue;
+    }
+    if (promql && !name.startsWith(SERIES_PREFIX)) {
+      if (!name.startsWith('cnpg_pg_') && !name.startsWith('cnpg_collector_')) {
+        references.push({ name, labels: [], where, unknownPrefix: true });
+      }
+      continue;
+    }
+    const selector = rest.match(/^\s*\{([^}]*)\}/);
     const labels = [];
     if (selector) {
       // Consume `name op "value"` triples in order so that an identifier inside
