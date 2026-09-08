@@ -10,7 +10,6 @@ const originalEnv = Object.fromEntries(
     .map(key => [key, process.env[key]]),
 );
 const ownerDatabaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
-const owner = new pg.Client({ connectionString: ownerDatabaseUrl });
 const applicationUrl = new URL(ownerDatabaseUrl);
 applicationUrl.searchParams.set('options', [applicationUrl.searchParams.get('options'), '-c role=vhhealth_app'].filter(Boolean).join(' '));
 process.env.DATABASE_URL = applicationUrl.toString();
@@ -21,7 +20,8 @@ process.env.AUTH_ENFORCE_TENANT_RLS = 'false';
 process.env.AUTH_TENANT_RLS_RUNTIME_ROLE = 'vhhealth_app';
 delete process.env.AUTH_TENANT_RLS_TEST_ROLE;
 
-const { default: prisma } = await import('../lib/prisma.js');
+const { default: prisma, pinSessionTimeZoneToUrl } = await import('../lib/prisma.js');
+const owner = new pg.Client({ connectionString: pinSessionTimeZoneToUrl(ownerDatabaseUrl) });
 const { default: investigationRouter } = await import('../routes/investigation/investigationRoutes.js');
 const fixtures = [];
 let catalogId;
@@ -69,6 +69,8 @@ beforeAll(async () => {
     stdio: 'pipe', timeout: 30000,
   });
   await owner.connect();
+  const timezoneSql = "SELECT current_setting('TimeZone') AS timezone";
+  expect((await owner.query(timezoneSql)).rows).toEqual(await prisma.$queryRawUnsafe(timezoneSql));
   catalogId = Number((await owner.query('INSERT INTO investigation_test_catalog (name) VALUES ($1) RETURNING id',
     [`RLS-INV-CATALOG-${randomUUID()}`])).rows[0].id);
   const sharedPhone = `+91${randomInt(6000000000, 9999999999)}`;
@@ -286,7 +288,9 @@ describe('booking queue', () => {
     expect(response.body.data).toEqual([]);
   });
   it('returns tenant A bookings with global catalog names and existing filters', async () => {
-    const [{ day }] = await prisma.$queryRawUnsafe('SELECT current_date::text AS day');
+    const [{ day }] = await prisma.$queryRawUnsafe(
+      'SELECT DATE(created_at)::text AS day FROM investigation_bookings WHERE id = $1::bigint', fixtures[0].bookingId,
+    );
     const response = await get(`/bookings/queue?status=BOOKED&collection_type=home&from_date=${day}&to_date=${day}`);
     expect(response.status).toBe(200);
     expect(response.body.data).toHaveLength(1);
