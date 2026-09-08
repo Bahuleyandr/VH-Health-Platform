@@ -1,0 +1,25 @@
+{
+  "_comment": [
+    "Owner acknowledgements for the Forgejo DR mirror liveness alarm.",
+    "An entry waives ONE known defect, narrowly and with an expiry, so that a",
+    "long-lived known red does not train the alarm out of existence before a",
+    "different break arrives. It is not a mute button: the waived check is",
+    "still printed, still counted, and still named in the alarm issue.",
+    "",
+    "Fields: state (must equal the reported state exactly), match (substring of",
+    "the check id), reason (why it is acceptable, in words), until (ISO date",
+    "after which it is a hard failure again).",
+    "MIRROR UNREACHABLE can never be acknowledged.",
+    "",
+    "Remove an entry as soon as the defect is fixed - do not extend `until`",
+    "without a fresh owner decision."
+  ],
+  "entries": [
+    {
+      "state": "SCHEDULED JOBS NOT COMPLETING",
+      "match": "scheduled-run:",
+      "reason": "Forgejo runner image vhhealth/act-java17:20260531 is missing from the runner host, so every runs-on: ubuntu-latest stage fails at container setup. Owner rebuild pending; see infra/forgejo/ci-image/README.md. Remove this entry once the rebuild lands - the alarm going green is the verification.",
+      "until": "2026-10-08T00:00:00Z"
+    }
+  ]
+}

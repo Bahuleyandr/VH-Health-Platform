@@ -73,6 +73,13 @@ export const STATE = {
   DRIFT: 'DIVERGED / BEHIND',
   ONE_SIDED: 'ONE-SIDED BRANCHES',
   JOBS: 'SCHEDULED JOBS NOT COMPLETING',
+  /**
+   * A failure the owner has already seen, with a written reason and an expiry.
+   * Reported distinctly and still listed, but does not hold the alarm red.
+   * A hundred identical known reds is how a new alarm gets trained out of
+   * existence before a different break arrives.
+   */
+  ACKNOWLEDGED: 'ACKNOWLEDGED',
 };
 
 const ACTION = {
@@ -155,6 +162,70 @@ export function deriveScheduledStages(workflowText) {
 }
 
 /**
+ * Fold owner acknowledgements into a verdict set.
+ *
+ * An entry is `{state, match, reason, until}`. It applies to a check only when
+ * ALL of these hold:
+ *   - the check is failing,
+ *   - its state equals `entry.state` EXACTLY,
+ *   - its id contains `entry.match`,
+ *   - `now` is strictly before `entry.until`.
+ *
+ * Anything else stays a hard failure. That is the whole safety property: an
+ * acknowledgement is a narrow, dated, written-down waiver for one known
+ * defect, not a mute button. Malformed entries throw rather than being
+ * skipped, because an acknowledgement list that silently does nothing is
+ * indistinguishable from one that silently suppresses everything.
+ *
+ * MIRROR UNREACHABLE can never be acknowledged: it is produced by a
+ * short-circuit that returns before this function is reached, so "I could not
+ * see the mirror" is never waivable.
+ */
+export function applyAcknowledgements(checks, acknowledgements = [], nowMs = Date.now()) {
+  if (!Array.isArray(acknowledgements)) {
+    throw new TypeError('acknowledgements must be an array');
+  }
+  const entries = acknowledgements.map((e, i) => {
+    for (const field of ['state', 'match', 'reason', 'until']) {
+      if (typeof e?.[field] !== 'string' || e[field].trim() === '') {
+        throw new Error(
+          `acknowledgement[${i}] is missing a non-empty "${field}". Every waiver needs a ` +
+            'state, a match, a written reason and an expiry.',
+        );
+      }
+    }
+    const untilMs = new Date(e.until).getTime();
+    if (!Number.isFinite(untilMs)) {
+      throw new Error(`acknowledgement[${i}] has an unparseable "until": ${e.until}`);
+    }
+    if (e.state === STATE.UNREACHABLE) {
+      throw new Error(
+        `acknowledgement[${i}] tries to waive ${STATE.UNREACHABLE}, which is never waivable.`,
+      );
+    }
+    return { ...e, untilMs };
+  });
+
+  return checks.map((c) => {
+    if (c.ok) return c;
+    const hit = entries.find(
+      (e) => e.state === c.state && c.id.includes(e.match) && nowMs < e.untilMs,
+    );
+    if (!hit) return c;
+    return {
+      ...c,
+      ok: true,
+      acknowledged: true,
+      suppressedState: c.state,
+      state: STATE.ACKNOWLEDGED,
+      detail: `${c.detail}
+        ACKNOWLEDGED until ${hit.until}: ${hit.reason}`,
+      action: `Known defect, waiver expires ${hit.until}. ${ACTION[c.state] ?? ''}`.trim(),
+    };
+  });
+}
+
+/**
  * Pure verdict function over an already-collected snapshot.
  */
 export function evaluateLiveness({
@@ -169,6 +240,7 @@ export function evaluateLiveness({
   monitoredStages = [],
   maxRunAgeHours = DEFAULT_MAX_RUN_AGE_HOURS,
   scheduledWorkflow = SCHEDULED_WORKFLOW,
+  acknowledgements = [],
 } = {}) {
   const nowMs = new Date(now).getTime();
   if (!Number.isFinite(nowMs)) {
@@ -341,7 +413,8 @@ export function evaluateLiveness({
     }
   }
 
-  return { ok: checks.every((c) => c.ok), checks };
+  const finalChecks = applyAcknowledgements(checks, acknowledgements, nowMs);
+  return { ok: finalChecks.every((c) => c.ok), checks: finalChecks };
 }
 
 export function renderReport(result) {
@@ -352,8 +425,22 @@ export function renderReport(result) {
     lines.push(`        ${c.detail}`);
   }
   lines.push('');
+  const ackd = result.checks.filter((c) => c.acknowledged);
   if (result.ok) {
-    lines.push('Forgejo mirror liveness: OK');
+    lines.push(
+      ackd.length === 0
+        ? 'Forgejo mirror liveness: OK'
+        : `Forgejo mirror liveness: OK with ${ackd.length} ACKNOWLEDGED defect(s) - not healthy, waived`,
+    );
+    // One line per distinct waived fault, not one per check: six identical
+    // lines is the noise this state exists to remove.
+    const seen = new Set();
+    for (const c of ackd) {
+      if (seen.has(c.suppressedState)) continue;
+      seen.add(c.suppressedState);
+      const n = ackd.filter((x) => x.suppressedState === c.suppressedState).length;
+      lines.push(`  ${c.suppressedState} (${n} check(s)) -> ${c.action}`);
+    }
   } else {
     lines.push('Forgejo mirror liveness: FAILING');
     for (const c of result.checks) {
@@ -502,8 +589,24 @@ if (invokedDirectly()) {
 
   load
     .then(async (snapshot) => {
+      // A FIXTURE IS A COMPLETE SNAPSHOT. When one is supplied, its own
+      // `acknowledgements` (default: none) are the only waivers applied - the
+      // committed production list is never read. Without this the test suite
+      // would silently be exercising production config: `runs-failing`
+      // initially came back green because the live waiver matched it.
+      let acknowledgements = snapshot.acknowledgements ?? [];
+      if (!fixturePath) {
+        const ackPath =
+          process.env.LIVENESS_ACK_PATH ?? 'scripts/ci/forgejo-liveness-acknowledged.json';
+        try {
+          acknowledgements = JSON.parse(readFileSync(ackPath, 'utf8')).entries ?? [];
+        } catch (e) {
+          if (e.code !== 'ENOENT') throw e; // a malformed list must fail closed
+        }
+      }
       const result = evaluateLiveness({
         ...snapshot,
+        acknowledgements,
         maxRunAgeHours: process.env.MAX_RUN_AGE_HOURS
           ? Number(process.env.MAX_RUN_AGE_HOURS)
           : (snapshot.maxRunAgeHours ?? DEFAULT_MAX_RUN_AGE_HOURS),

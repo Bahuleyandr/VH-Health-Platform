@@ -9,6 +9,7 @@ import {
   DEFAULT_MAX_RUN_AGE_HOURS,
   SCHEDULED_WORKFLOW,
   STATE,
+  applyAcknowledgements,
   deriveScheduledStages,
   evaluateLiveness,
   renderReport,
@@ -339,9 +340,15 @@ test('CLI exits 0 only on the healthy fixture, non-zero on every other', () => {
   assert.equal(healthy.code, 0, healthy.out);
   assert.match(healthy.out, /Forgejo mirror liveness: OK/);
 
+  // `acknowledged` is a WAIVED failure, so it exits 0 by design; every other
+  // fixture must exit non-zero.
+  const acknowledged = runDetector('acknowledged');
+  assert.equal(acknowledged.code, 0, acknowledged.out);
+  assert.match(acknowledged.out, /ACKNOWLEDGED defect\(s\) - not healthy, waived/, acknowledged.out);
+
   const broken = readdirSync(fixtureDir)
     .map((f) => f.replace(/\.json$/, ''))
-    .filter((n) => n !== 'healthy');
+    .filter((n) => n !== 'healthy' && n !== 'acknowledged');
   assert.ok(broken.length >= 11, `expected the full state matrix, found ${broken.length}`);
   for (const name of broken) {
     const r = runDetector(name);
@@ -387,6 +394,177 @@ test('the LIVE collection path runs and degrades to MIRROR UNREACHABLE', () => {
   assert.match(out, /failing step:/, out);
   // The specific regression: an ESM/CJS mistake surfaces here, not as a state.
   assert.ok(!/ReferenceError|is not defined/.test(out), `live path crashed:\n${out}`);
+});
+
+// ------------------------------------------------- ACKNOWLEDGED defect state
+
+/*
+ * Three positive controls, exactly as required: an acknowledged failure is
+ * still REPORTED; a DIFFERENT failure is not suppressed; and the waiver STOPS
+ * at its expiry. The expiry tests drive an INJECTED clock, not the wall clock
+ * - an expiry checked only against Date.now() would be documentation, because
+ * the assertion would not change behaviour until the date really passed.
+ */
+
+const ACK = [{
+  state: STATE.JOBS,
+  match: 'scheduled-run:',
+  reason: 'Runner image missing; owner rebuild pending.',
+  until: '2026-10-08T00:00:00Z',
+}];
+const BEFORE = new Date('2026-09-08T12:00:00Z').getTime();
+const AFTER = new Date('2026-10-09T00:00:00Z').getTime();
+
+test('(a) an acknowledged failure is still reported, not hidden', () => {
+  const result = evaluateLiveness(fixture('acknowledged'));
+  assert.equal(result.ok, true, 'a waived defect should not hold the alarm red');
+  const waived = result.checks.filter((c) => c.acknowledged);
+  assert.equal(waived.length, fixture('acknowledged').monitoredStages.length);
+  for (const c of waived) {
+    assert.equal(c.state, STATE.ACKNOWLEDGED);
+    assert.equal(c.suppressedState, STATE.JOBS);
+    // Still visible, with the reason and the expiry attached.
+    assert.match(c.detail, /finished "failure"/);
+    assert.match(c.detail, /ACKNOWLEDGED until 2026-10-08/);
+    assert.match(c.detail, /rebuild pending/);
+  }
+  // And the summary line refuses to call it healthy.
+  assert.match(renderReport(result), /OK with 6 ACKNOWLEDGED defect\(s\) - not healthy, waived/);
+});
+
+test('(b) an acknowledgement does not suppress a DIFFERENT failure', () => {
+  // Same waiver, but the mirror has also drifted. Drift must stay hard-red.
+  const snapshot = {
+    ...fixture('acknowledged'),
+    forgejoMainSha: 'a4ffe98601b1b2c3d4e5f60718293a4b5c6d7e8f',
+    compare: { status: 'ahead', ahead_by: 534, behind_by: 0 },
+  };
+  const result = evaluateLiveness(snapshot);
+  assert.equal(result.ok, false, 'drift must not be waived by a JOBS acknowledgement');
+  assert.deepEqual(states(result), [STATE.DRIFT]);
+  // The jobs are still waived - the waiver is narrow, not global.
+  assert.ok(result.checks.some((c) => c.acknowledged));
+});
+
+test('(b2) a waiver matches only its own state and id, never by accident', () => {
+  /*
+   * The third entry is the one that matters, and it is the reason this test
+   * exists in this shape. A mutation dropping the `state` check survived an
+   * earlier version, because every non-waived id there also failed the id
+   * match - the test passed for the wrong reason. `scheduled-run:flutter`
+   * below matches the waiver's id substring EXACTLY but carries a different
+   * state, so only the state comparison can save it.
+   *
+   * The property is real, not academic: the waiver says "these stages fail
+   * because the runner image is missing". If the mirror's scheduler stops
+   * altogether the same stages go STALE, and that is a new fault which must
+   * not inherit this waiver.
+   */
+  const checks = [
+    { id: 'scheduled-run:backend', state: STATE.JOBS, ok: false, detail: 'd', action: '' },
+    { id: 'branch-parity', state: STATE.ONE_SIDED, ok: false, detail: 'd', action: '' },
+    { id: 'mirror-drift', state: STATE.DRIFT, ok: false, detail: 'd', action: '' },
+    { id: 'scheduled-run:flutter', state: STATE.STALE, ok: false, detail: 'd', action: '' },
+  ];
+  const out = applyAcknowledgements(checks, ACK, BEFORE);
+  assert.equal(out[0].state, STATE.ACKNOWLEDGED);
+  assert.equal(out[1].state, STATE.ONE_SIDED, 'parity must not be waived');
+  assert.equal(out[2].state, STATE.DRIFT, 'drift must not be waived');
+  assert.equal(
+    out[3].state, STATE.STALE,
+    'a matching id with a DIFFERENT state must not be waived',
+  );
+  assert.equal(out.filter((c) => c.ok).length, 1);
+});
+
+test('(c) the waiver stops at its expiry, proved with an injected clock', () => {
+  const failing = [
+    { id: 'scheduled-run:backend', state: STATE.JOBS, ok: false, detail: 'd', action: '' },
+  ];
+  const before = applyAcknowledgements(failing, ACK, BEFORE);
+  assert.equal(before[0].ok, true);
+  assert.equal(before[0].state, STATE.ACKNOWLEDGED);
+
+  const after = applyAcknowledgements(failing, ACK, AFTER);
+  assert.equal(after[0].ok, false, 'an expired waiver must stop suppressing');
+  assert.equal(after[0].state, STATE.JOBS);
+  assert.ok(!after[0].acknowledged);
+});
+
+test('(c2) end-to-end: the same fixture flips to FAILING once the clock passes until', () => {
+  const fx = fixture('acknowledged');
+  assert.equal(evaluateLiveness(fx).ok, true);
+  assert.ok(evaluateLiveness(fx).checks.some((c) => c.acknowledged));
+
+  const result = evaluateLiveness({ ...fx, now: '2026-10-09T00:00:00Z' });
+  assert.equal(result.ok, false, 'the waiver must not outlive its expiry');
+  // Nothing is waived any more - that is the property under test.
+  assert.ok(!result.checks.some((c) => c.acknowledged), 'expired waiver still suppressing');
+  // At that clock the fixture's tasks are also a month old, so the stage
+  // checks land on STALE rather than JOBS. Either way they are hard failures;
+  // asserting the exact state here would be asserting the fixture's age, not
+  // the expiry behaviour.
+  assert.ok(states(result).every((s) => s !== STATE.ACKNOWLEDGED));
+});
+
+test('a fixture run never picks up the committed production waiver list', () => {
+  /*
+   * Config bleed is a false green with extra steps. This assertion caught a
+   * real one: the CLI read the committed acknowledgement file even when a
+   * fixture was supplied, so `runs-failing` - a fixture with no waivers of its
+   * own - exited 0 because the production waiver happened to match it.
+   */
+  const committed = JSON.parse(
+    readFileSync(path.join(here, 'forgejo-liveness-acknowledged.json'), 'utf8'),
+  );
+  assert.ok(
+    committed.entries.some((e) => e.state === STATE.JOBS),
+    'this test is vacuous unless the committed list would actually match runs-failing',
+  );
+  const r = runDetector('runs-failing');
+  assert.equal(r.code, 1, `fixture must be judged on its own contents:\n${r.out}`);
+  assert.ok(!/ACKNOWLEDGED/.test(r.out), `production waiver leaked into a fixture run:\n${r.out}`);
+});
+
+test('a malformed or over-broad acknowledgement fails closed', () => {
+  const failing = [
+    { id: 'scheduled-run:backend', state: STATE.JOBS, ok: false, detail: 'd', action: '' },
+  ];
+  const cases = [
+    [[{ state: STATE.JOBS, match: 'x', reason: 'r' }], /missing a non-empty "until"/],
+    [[{ state: STATE.JOBS, match: 'x', reason: '', until: '2030-01-01' }], /missing a non-empty "reason"/],
+    [[{ state: STATE.JOBS, match: 'x', reason: 'r', until: 'soon' }], /unparseable "until"/],
+    [[{ state: STATE.UNREACHABLE, match: '', reason: 'r', until: '2030-01-01' }], /missing a non-empty "match"/],
+    [[{ state: STATE.UNREACHABLE, match: 'x', reason: 'r', until: '2030-01-01' }], /never waivable/],
+  ];
+  for (const [bad, re] of cases) {
+    assert.throws(() => applyAcknowledgements(failing, bad, BEFORE), re);
+  }
+});
+
+test('MIRROR UNREACHABLE can never be waived, even by a matching entry', () => {
+  // It is produced by a short-circuit that returns before acknowledgements are
+  // applied, so "I could not see the mirror" is structurally unwaivable.
+  const result = evaluateLiveness({
+    ...fixture('unreachable-collection'),
+    acknowledgements: [{ state: STATE.JOBS, match: '', reason: 'r', until: '2030-01-01' }],
+  });
+  assert.equal(result.ok, false);
+  assert.deepEqual(states(result), [STATE.UNREACHABLE]);
+});
+
+test('the committed acknowledgement list is well-formed and time-boxed', () => {
+  const list = JSON.parse(
+    readFileSync(path.join(here, 'forgejo-liveness-acknowledged.json'), 'utf8'),
+  );
+  assert.ok(Array.isArray(list.entries), 'entries must be an array');
+  // Running the committed list through the real validator is the point: a
+  // malformed list must fail here, not silently do nothing in production.
+  applyAcknowledgements([], list.entries, Date.now());
+  for (const e of list.entries) {
+    assert.ok(new Date(e.until).getTime() > 0, `entry "${e.match}" needs a real expiry`);
+    assert.ok(e.reason.length > 40, `entry "${e.match}" needs a real written reason`);
+  }
 });
 
 test('every alarm state has a fixture that produces it', () => {
