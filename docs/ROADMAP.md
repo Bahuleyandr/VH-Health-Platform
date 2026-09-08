@@ -1,7 +1,11 @@
 # VH Health Platform — Consolidated Roadmap
 
-**Single source of truth for pending work. Last reconciled: 2026-09-02 at
-authoritative `github/main` `a4ffe9860596f07ae984d9334fe78f008b75907b`.**
+**Single source of truth for pending work. Latest bounded queue reconciliation:
+2026-09-08 at authoritative `github/main`
+`4c1f5654ca70b4dbc2699c96279e0ea03cc8e43c`.**
+
+The update below reconciles named audit queue items and merged slices only. It
+is not a fresh audit of every historical section in this roadmap.
 
 This file consolidates every open item from the planning docs that previously
 lived scattered across `docs/` (EPIC roadmap, S-tier roadmap, AI feature-gap
@@ -10,14 +14,16 @@ remediation plans/work-order, the execution log, and the tenant-RLS gap
 analysis). Those source docs are now in [`archive/`](archive/) — see
 [§8](#8-archived-source-docs).
 
-**Code/CI state:** the current per-finding classification and evidence ledger is
-[`FULL_REPOSITORY_AUDIT_2026_08.md`](FULL_REPOSITORY_AUDIT_2026_08.md). PRs
-#940–#943, #945–#959, and #961–#965 are merged; #944/#960 were closed
-unmerged and superseded; #966 remains an independently owned draft. PR #872 is
-held by design. PR #967's full marker has green named `Merge Gate` and
-`Full Merge Gate` contexts, and exact-main Full Stack Sweep is green, but
-exact-main Smoke E2E run `33601968478` is red on the MAR route-authority gap
-below. A code merge or green matrix does not authorize deployment or activation.
+**Code/CI state:** the per-finding evidence ledger is
+[`FULL_REPOSITORY_AUDIT_2026_08.md`](FULL_REPOSITORY_AUDIT_2026_08.md), whose
+September 8 receipt records live GitHub merge/check state. #966 is merged;
+#1013, #1014 and #1025–#1031 are also merged, but only within their delivered
+scopes. #1031's final PR head `1eb2e93b9` has green named `Merge Gate` and
+`Full Merge Gate` contexts and all full-stack jobs actually ran. The newest
+completed Smoke E2E (`34094984786`, `3d091a510`) and Full Stack Sweep
+(`34089787452`, `db30fe80b`) are green but precede this main tip.
+#1023 remains an independently owned draft; #872 remains held by design.
+Code merges and green checks do not authorize deployment or activation.
 
 > **2026-07-05 — next chapter:** §0's engineering backlog (Tier 0/1/2) is complete.
 > The forward **build** program now lives in
@@ -42,67 +48,66 @@ below. A code merge or green matrix does not authorize deployment or activation.
 
 ---
 
-## Current audit-remediation queue (2026-09-02)
+## Current audit-remediation queue (bounded update 2026-09-08)
 
 This is the pending-work cross-link for the canonical audit ledger, not a second
 finding ledger. Finding classifications, historical IDs, exact evidence, and
 closed-row receipts remain in
 [`FULL_REPOSITORY_AUDIT_2026_08.md`](FULL_REPOSITORY_AUDIT_2026_08.md).
 
-### Immediate technical work `[CODE]`
+### Immediate technical work and unresolved design gates
 
-- **OPEN-11 — Admin MAR route authority / red Smoke E2E.** Preserve the
-  backend's inpatient-nursing-only due/overdue contract and align Admin route,
-  navigation, and page construction with it. Current-main run `33601968478`
-  fails all three attempts because `/dashboard/mar` admits the SUPER_ADMIN
-  route-crawl identity and then receives two 403 responses.
-- **OPEN-12 — migration 753 cath usage disposition.** An ordinary successful
-  real-stock consumable usage appears unable to record without a pre-existing
-  *shortfall* task, SLA, and outbox. Clinical/pharmacy/finance owners must decide
-  whether that is intended before any forward-only migration. Never edit 753.
-- **OPEN-13 — migration 753 JSON-scalar disposition, partly superseded by 757.**
-  Migration 757 (`78e077e3a`) correctly normalizes SQL NULL and JSON `null`,
-  closing the product-order lifecycle freeze. Other non-array scalars still
-  abort SQLSTATE 22023 deliberately. The owner must choose continued fail-closed
-  rejection or a governed recovery/quarantine path; any change is forward-only.
-- **OPEN-14 — comprehensive-seed `checkedValue()` heuristic.** Replace the
-  neighbouring-conjunct literal heuristic with column-bound CHECK-expression
-  handling, then run the full deterministic seed and contract matrix.
-- **OPEN-15 — migration 753 readiness.** Current main has 82 `NOT VALID`
-  clauses and no `VALIDATE CONSTRAINT` in migration 753. After recovery
-  decisions freeze, produce a zero-open or named-exception readiness receipt
-  and validate every applicable constraint in a new migration.
-- **OPEN-16 — engagement-campaign material version binding.** Approval must bind
-  an immutable content hash/version through materialization; detailed design is
-  retained under “Engagement campaigns” below.
-- **OPEN-18 — linen/CSSD picker authorization.** Supply only the least-privilege
-  ward/theatre lookup contract needed by the already-authorized console roles;
-  do not broadly grant clinical location or schedule access.
-- **OPEN-20 — dead-surface regression manifest.** The historical dead files are
-  still absent, but no single maintained gate preserves the all-40/all-eleven
-  import-reachability proof.
-- **OPEN-21 — broader five-locale technical parity is draft-only.** Live draft
-  PR #970 at `ac012b6a2b40546a65282c4a39aafe5d16832ada` localizes the ordinary
-  appointment/About paths, reports patient parity at 1,447/1,447 keys, removes
-  the Staff Malayalam structural exemption at 6,502/6,502 keys, and tracks
-  4,008 Staff English-source Malayalam placeholders. It also proves exactly
-  four named backend presentation contracts across `en`/`hi`/`ta`/`te`/`ml`.
-  It changes no Admin locale resources and does not establish repository-wide
-  backend/Admin presentation parity. It remains unmerged, and Canonical run
-  `33657452600` is red in backend static checks, backend shard 3, Admin, and
-  Flutter. Repair those gates and verify the exact final head before any merge;
-  do not count the draft as current-main completion. Human review remains
-  fail-closed for all explicit translations/placeholders and payment wording;
-  dependent guardianship/relationship/consent copy remains held for legal plus
-  linguistic review, and Staff Web copy remains held for operator/release
-  authority.
-- **OPEN-22 — install-time dependency mutation retired** (`fix/retire-install-time-dependency-mutation`).
-  Backend and admin no longer override `minimatch` (nor admin `@redocly/openapi-core`'s
-  `js-yaml`) or rewrite `node_modules` in `postinstall`; every consumer resolves the
-  major it declares at a patched release, `scripts/security/dependency-floors.mjs`
-  pins the per-major floors on both lockfiles through
-  `check-infra-security-controls.mjs`, and the Docker install stages copy nothing
-  before `npm ci`. The former local candidate `e5699a180` is superseded.
+Closed work is no longer queued for reimplementation: **OPEN-11, OPEN-14,
+OPEN-16, OPEN-20, OPEN-22, OPEN-25 and OPEN-26** have merged-code receipts in
+the canonical ledger. This removes the stale MAR, seed heuristic, campaign
+binding, retirement-manifest, dependency-mutation, pharmacy-authority and
+import-race tasks from this immediate queue.
+
+- **OPEN-12 — migration 753 new-stock cath usage disposition** `[OPERATOR]`.
+  Reused devices are already carved out by migration 765 (#1004); ballot
+  `753-D1` concerns new stock only and remains unresolved. Clinical/pharmacy/
+  finance owners must decide the intended obligation before a forward repair.
+  Never edit an applied migration or infer this ballot from Plan 4 merges.
+- **OPEN-13 — migration 753 JSON-scalar disposition, partly superseded by 757**
+  `[OPERATOR]`. SQL NULL and JSON `null` are normalized; other non-array
+  scalars remain fail-closed. The owner must choose continued rejection or a
+  governed recovery/quarantine path before any forward-only change.
+- **OPEN-15 — migration 753 readiness** `[CODE]` `[OPERATOR]`. After recovery
+  decisions freeze, produce a zero-open or named-exception receipt and validate
+  every applicable constraint in a newly allocated migration. The ledger's
+  82 `NOT VALID` clauses are not activation evidence; no live rows were
+  inspected in this documentation pass.
+- **OPEN-18 — linen/CSSD picker authorization** `[CODE]` `[OPERATOR]`.
+  Existing controls still depend on narrower `/wards` and `/theatre/today`
+  permissions. Obtain the least-privilege lookup decision and close the
+  authorized role journeys without widening unrelated PHI access. The
+  reprocessing kernel does not close these pickers.
+- **OPEN-21 — bounded technical coverage and partial human review**
+  `[CODE]` `[EXTERNAL]`. #970 is merged, not draft/red. #1013 adds cath
+  Batch 1/1.1 review and source corrections; #1027 closes the shared
+  device-status formatter gap. Their exact boundary remains in
+  [`TRANSLATION_REVIEW_TRACKER.md`](TRANSLATION_REVIEW_TRACKER.md):
+  the 4,008 English-source Staff Malayalam placeholder baseline is not
+  translated by these batches, Patient review remains pending, and all
+  24 new non-English Batch 1.2 labels await review. Broaden the currently
+  four-contract backend inventory gate and obtain an explicit Admin
+  localization scope decision. Payment, clinical, consent, legal and Staff Web
+  copy retain their named authority stops; technical parity is not approval.
+- **OPEN-23 — absent inline CHECK constraints** `[CODE]` `[OPERATOR]`.
+  The committed census still records 411 absent declarations across 182
+  tables; #989 detects the class but does not remediate those rows. Triage the
+  sole-guard cases first, agree the existing-data disposition, then add
+  forward-only constraints with database-backed verification. Do not confuse
+  the static census with a newly inspected production database.
+- **Reprocessing / cath readiness — preserve the parallel lane boundary.**
+  #1025's clock fix, #1028's dialysis-isolation resolver and migration 767,
+  #1014/#1029's design decisions, #1030's schema 768, and #1031's lifecycle
+  kernel are merged. The remaining Plan 4 integration, domain workflows,
+  review and clinical activation are not closed by those slices. Cath
+  readiness redesign #1023 is still draft. Continue from the current
+  [Plan 4 plan](superpowers/plans/2026-09-05-reprocessable-devices-platform.md)
+  under its existing owner; do not allocate an already-used migration number
+  or implement overlapping work from an older handoff.
 
 ### Product or interface decisions — no implementation without authority
 
@@ -138,13 +143,12 @@ closed-row receipts remain in
 - Alertmanager validation is wired by #961, but delivery still awaits owner
   webhook/PagerDuty/Slack/SMTP inputs, sealing, manual Argo sync, and captured
   notification proof.
-- Five-locale technical parity is `en`/`hi`/`ta`/`te`/`ml`; #965 closes the
-  known ABDM Malayalam omission on current main. Draft #970 proposes broader
-  Patient, Staff, and four-contract backend technical coverage, but remains
-  unmerged and red and changes no Admin locale resources. OPEN-21 records the
-  exact boundary. Human linguistic review remains mandatory for clinical,
-  dosage, consent, legal, identity, security, payment, and ABDM wording; Staff
-  Web activation copy remains subject to operator/release ownership.
+- Five-locale parity is `en`/`hi`/`ta`/`te`/`ml`. #965/#970 technical
+  coverage and #1013/#1027's bounded cath follow-ups are merged, not overall
+  linguistic sign-off. OPEN-21 and the translation tracker retain the exact
+  review queue. Clinical, dosage, consent, legal, identity, security, payment
+  and ABDM wording need the appropriate named human approval; Staff Web
+  activation copy additionally retains operator/release ownership.
 
 ---
 
