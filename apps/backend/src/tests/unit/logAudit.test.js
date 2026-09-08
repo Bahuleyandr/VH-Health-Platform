@@ -7,9 +7,10 @@ const errorMock = jest.fn();
 const __prismaDefaultMock = {
   $queryRawUnsafe: queryRawUnsafeMock,
 };
+const setTenantTxMock = jest.fn(async (_tenantId, fn) => fn(__prismaDefaultMock));
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: __prismaDefaultMock,
-  setTenantTx: async (_tenantId, fn) => fn(__prismaDefaultMock),
+  setTenantTx: setTenantTxMock,
   setTenant: async (_tenantId, fn) => fn(__prismaDefaultMock),
   runTenantScopedTransaction: async (_client, _guc, fn) => fn(__prismaDefaultMock),
   pickTenantClient: () => __prismaDefaultMock,
@@ -29,11 +30,28 @@ const TENANT = '00000000-0000-4000-8000-000000000001';
 
 beforeEach(() => {
   queryRawUnsafeMock.mockReset().mockResolvedValue({});
+  setTenantTxMock.mockReset().mockImplementation(async (_tenantId, fn) => fn(__prismaDefaultMock));
   infoMock.mockReset();
   errorMock.mockReset();
 });
 
 describe('logAudit', () => {
+  it('uses the tenant transaction client when the caller explicitly scopes the audit', async () => {
+    const scopedQuery = jest.fn().mockResolvedValue([]);
+    setTenantTxMock.mockImplementation(async (_tenantId, fn) => fn({ $queryRawUnsafe: scopedQuery }));
+    await logAudit({ tenantId: TENANT, user: { uid: ACTOR, role: 'ADMIN' } }, 'scoped-read', {}, { tenantId: TENANT });
+    expect(setTenantTxMock).toHaveBeenCalledWith(TENANT, expect.any(Function));
+    expect(scopedQuery).toHaveBeenCalledTimes(1);
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+  });
+
+  it('preserves best-effort logging when tenant transaction setup fails', async () => {
+    setTenantTxMock.mockRejectedValue(new Error('transaction acquisition failed'));
+    await expect(logAudit({ tenantId: TENANT }, 'scoped-read', {}, { tenantId: TENANT })).resolves.toBeUndefined();
+    expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+    expect(errorMock).toHaveBeenCalledWith(expect.stringContaining('transaction acquisition failed'));
+  });
+
   it('enriches audit_logs rows with request, device, tenant, and resource context', async () => {
     await logAudit({
       id: 'req-front-office-1',
