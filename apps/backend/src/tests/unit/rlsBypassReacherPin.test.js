@@ -44,6 +44,8 @@ it('measures a nonempty entry/job population and pins every registration', () =>
   expect(actual.registrations.length).toBeGreaterThan(0);
   expect(actual.registrations).toEqual(expected.registrations);
   expect(actual.entryPoints).toEqual(expected.entryPoints);
+  expect(actual.counts.sources).toBe(expected.counts.sources);
+  expect(actual.sourceManifest).toEqual(expected.sourceManifest);
   expect(actual.directPgImports).toEqual(expected.directPgImports);
   expect(
     actual.directPgImports.filter(row => row.file.startsWith('apps/backend/src/'))
