@@ -46,7 +46,7 @@ function teleconsultPayload(row, featureState) {
   };
 }
 
-export async function attachTeleconsultState(rows, db = prisma) {
+export async function attachTeleconsultState(rows, db = prisma, tenantId = null) {
   if (!Array.isArray(rows) || rows.length === 0) return rows;
   const featureState = getTeleconsultFeatureState();
   const appointmentIds = [
@@ -66,6 +66,7 @@ export async function attachTeleconsultState(rows, db = prisma) {
           updated_at
          FROM teleconsultations
         WHERE appointment_id = ANY($1::int[])
+          AND ($2::uuid IS NULL OR tenant_id = $2::uuid)
         ORDER BY appointment_id,
           CASE status
             WHEN 'in_progress' THEN 0
@@ -76,6 +77,7 @@ export async function attachTeleconsultState(rows, db = prisma) {
           updated_at DESC NULLS LAST,
           id DESC`,
       appointmentIds,
+      tenantId,
     );
     const byAppointmentId = new Map(
       consultRows
