@@ -539,6 +539,6 @@ export function main(argv = process.argv.slice(2), { env = process.env, log = co
   return result.violations.length > 0 ? 1 : 0;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   process.exit(main());
 }
