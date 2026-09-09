@@ -1,6 +1,6 @@
 # RLS bypass-reacher census — 2026-09-08
 
-Source revision: `c553dd409e23972e6cf1293130dccd652427eb76`. Exact normalized source and migration SHA-256 manifests are in the adjacent JSON pin.
+Source revision: `df9eea69350cc585e199dd3aea452372cd109ff1`. Exact normalized source and migration SHA-256 manifests are in the adjacent JSON pin.
 
 **Census only: no policy changes, conversions, completed dispositions or runtime acceptance claims.** Every entry is PENDING with an intended disposition and future module PR. A closure must reduce K to zero for its table and carry the disposition tests in that same PR.
 
@@ -18,7 +18,7 @@ Run from apps/backend: `node scripts/rls-bypass-reacher-census.mjs --check`. Reg
 
 Lexical planning predicates (src excluding tests): 29 lines in 6 files match `runWithSuperAdmin\(`; 84 scheduler lines match `withJobLock\(`. These include comments/definitions and are not reaching statements.
 
-Measured populations: **109 entry-point calls; 84 registered jobs; 8495 database-call/source-statement records; 14585 split migration statements.** Entry points by kind: runWithSuperAdmin=25, withJobLock=83, withReplicaLocalJobGuard=1.
+Measured populations: **109 entry-point calls; 84 registered jobs; 8495 database-call/source-statement records; 14584 split migration statements.** Entry points by kind: runWithSuperAdmin=25, withJobLock=83, withReplicaLocalJobGuard=1.
 
 ## Table pins (users first)
 
@@ -26,7 +26,7 @@ The 22 relations are the unique tenant-bearing tables at the original 22 confirm
 
 | Table | Runtime candidates | Administrative candidates | N reachers = M dispositioned + K pending | Owning module PR |
 |---|---:|---:|---|---|
-| users | 226 | 176 | 402 reachers = 0 dispositioned + 402 pending | feat/rls-t2-appointments |
+| users | 225 | 176 | 401 reachers = 0 dispositioned + 401 pending | feat/rls-t2-appointments |
 | housekeeping_logs | 4 | 27 | 31 reachers = 0 dispositioned + 31 pending | feat/rls-t2-housekeeping |
 | housekeeping_floor_assignments | 3 | 26 | 29 reachers = 0 dispositioned + 29 pending | feat/rls-t2-housekeeping |
 | housekeeping_zones | 2 | 33 | 35 reachers = 0 dispositioned + 35 pending | feat/rls-t2-housekeeping |
@@ -58,8 +58,8 @@ These are deployment declarations and source paths, not a live credential inspec
 | Consumer | DSN and declared role | BYPASSRLS | Table reach / proof still required |
 |---|---|---|---|
 | additional imported pg module: scripts/backfill-drug-compositions.mjs:1 | explicit connectionString or DATABASE_URL or TEST_DATABASE_URL; actual connection role requires query | environment-dependent; unverified | Imported by pharmacyOrderController for its pure parser helper. Direct backfill calls at lines 5/21/31/45 only address drug_compositions, pharmacy_catalog and drug_composition_curation_queue; no target-table intersection. Source scan counts this separately from the four imports within src. |
-| prisma / bare transaction clients | DATABASE_URL: declared vhhealth_runtime; wrapped transactions SET LOCAL ROLE vhhealth_app | false for both declared runtime roles | infra/kubernetes/apps/backend/configmap.yaml:231-247; infra/kubernetes/base/cnpg/cluster.yaml:225-240; src/lib/prisma.js:713-727. Bare tx sites remain enumerated pending context proof. |
-| prismaReadOnly (all sites, including setTenant readOnly wrappers) | DATABASE_READ_URL override, otherwise primary DATABASE_URL; actual override role requires connection query | unknown for override; false for declared primary fallback | src/lib/prisma.js:668-686. Census includes read-only queries even when a request path normally supplies ALS. |
+| prisma / bare transaction clients | DATABASE_URL: declared vhhealth_runtime; wrapped transactions SET LOCAL ROLE vhhealth_app | false for both declared runtime roles | infra/kubernetes/apps/backend/configmap.yaml:231-247; infra/kubernetes/base/cnpg/cluster.yaml:225-240; src/lib/prisma.js:628-642. Bare tx sites remain enumerated pending context proof. |
+| prismaReadOnly (all sites, including setTenant readOnly wrappers) | DATABASE_READ_URL override, otherwise primary DATABASE_URL; actual override role requires connection query | unknown for override; false for declared primary fallback | src/lib/prisma.js:583-601. Census includes read-only queries even when a request path normally supplies ALS. |
 | direct pg: src/utils/scheduler.js:9 | SCHEDULER_LOCK_DATABASE_URL override or DATABASE_URL (declared vhhealth_runtime) | unknown for override; false for declared primary fallback | withDbAdvisoryLock:111/125 only pg_try_advisory_lock/pg_advisory_unlock. Callback SQL is traced separately; no target-table SQL on the lock connection. |
 | direct pg: src/services/clinical/bloodborneMarkerReconciliationService.js:78 | SCHEDULER_LOCK_DATABASE_URL override or DATABASE_URL (declared vhhealth_runtime) | unknown for override; false for declared primary fallback | withReconciliationJobLock:665/678 only advisory lock/unlock. Callback Prisma SQL is traced separately. |
 | direct pg: src/utils/migrations/runMigrations.js:5 | DATABASE_URL; declared owner migration job uses vhhealth, app uses vhhealth_runtime with RUN_MIGRATIONS=false | true for declared migration owner; false for declared application role | createNoTransactionClient:228; runStatements:213; applyNoTransactionMigration.js:runPgStatements. Expanded SQL statements appear in the administrative appendix. cnpg/cluster.yaml:275-286 and backend/configmap.yaml:247 are declarations, not live proof. |
@@ -166,7 +166,7 @@ The second query must reconcile to the migration manifest before a historical ad
 
 ## users
 
-**402 reachers = 0 dispositioned + 402 pending.** 1335 source statement candidates reference this table before root tracing. Module PR: `feat/rls-t2-appointments`.
+**401 reachers = 0 dispositioned + 401 pending.** 1335 source statement candidates reference this table before root tracing. Module PR: `feat/rls-t2-appointments`.
 
 | Statement | Contexts | Entry/job origins | PENDING intended disposition |
 |---|---|---|---|
@@ -355,7 +355,6 @@ The second query must reconcile to the migration manifest before a historical ad
 | [apps/backend/src/services/staff/payrollService.js:3808:28:$queryRawUnsafe](../../apps/backend/src/services/staff/payrollService.js#L3808) | bypass | job:salary-revision-workflow-worker | converted; Convert every listed bypass/no-context path to per-tenant scope and prove nonzero tenant work under vhhealth_app. |
 | [apps/backend/src/services/staff/payrollService.js:527:31:$queryRawUnsafe](../../apps/backend/src/services/staff/payrollService.js#L527) | tenant | job:monthly-payroll | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
 | [apps/backend/src/services/staff/payrollService.js:884:35:$queryRawUnsafe](../../apps/backend/src/services/staff/payrollService.js#L884) | tenant | job:monthly-payroll | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
-| [apps/backend/src/services/staff/rosterBoardService.js:1266:13:$executeRawUnsafe](../../apps/backend/src/services/staff/rosterBoardService.js#L1266) | bare-transaction | residual:bare-transaction:apps/backend/src/services/staff/rosterBoardService.js:1153; residual:bare-transaction:apps/backend/src/services/staff/rosterBoardService.js:1387 | converted; Convert every listed bypass/no-context path to per-tenant scope and prove nonzero tenant work under vhhealth_app. |
 | [apps/backend/src/services/staff/rosterDeadlineService.js:151:22:$queryRawUnsafe](../../apps/backend/src/services/staff/rosterDeadlineService.js#L151) | bypass, tenant | entry:apps/backend/src/utils/scheduler.js:1737; job:roster-deadline-escalation; residual:module-initializer:apps/backend/src/bin/www.js:372; startup:apps/backend/src/bin/www.js:118 | converted; Convert every listed bypass/no-context path to per-tenant scope and prove nonzero tenant work under vhhealth_app. |
 | [apps/backend/src/services/staff/rosterDeadlineService.js:90:10:$queryRawUnsafe](../../apps/backend/src/services/staff/rosterDeadlineService.js#L90) | bypass, tenant | entry:apps/backend/src/utils/scheduler.js:1737; job:roster-deadline-escalation; residual:module-initializer:apps/backend/src/bin/www.js:372; startup:apps/backend/src/bin/www.js:118 | converted; Convert every listed bypass/no-context path to per-tenant scope and prove nonzero tenant work under vhhealth_app. |
 | [apps/backend/src/services/staff/salaryRevisionActivationService.js:249:28:$queryRawUnsafe](../../apps/backend/src/services/staff/salaryRevisionActivationService.js#L249) | tenant | job:salary-revision-workflow-worker | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
@@ -624,8 +623,8 @@ Administrative entries (27); each is **PENDING → proven-unreachable**, owned b
 | Statement | Contexts | Entry/job origins | PENDING intended disposition |
 |---|---|---|---|
 | [apps/backend/src/services/staff/housekeepingTaskDispatchService.js:186:10:$queryRawUnsafe](../../apps/backend/src/services/staff/housekeepingTaskDispatchService.js#L186) | tenant | job:bed-cleaning-dispatch-sweep | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
-| [apps/backend/src/services/staff/rosterBoardService.js:1476:13:$executeRawUnsafe](../../apps/backend/src/services/staff/rosterBoardService.js#L1476) | bare-transaction | residual:bare-transaction:apps/backend/src/services/staff/rosterBoardService.js:1417 | converted; Convert every listed bypass/no-context path to per-tenant scope and prove nonzero tenant work under vhhealth_app. |
-| [apps/backend/src/services/staff/rosterBoardService.js:1487:36:$queryRawUnsafe](../../apps/backend/src/services/staff/rosterBoardService.js#L1487) | bare-transaction | residual:bare-transaction:apps/backend/src/services/staff/rosterBoardService.js:1417 | converted; Convert every listed bypass/no-context path to per-tenant scope and prove nonzero tenant work under vhhealth_app. |
+| [apps/backend/src/services/staff/rosterBoardService.js:1503:13:$executeRawUnsafe](../../apps/backend/src/services/staff/rosterBoardService.js#L1503) | bare-transaction | residual:bare-transaction:apps/backend/src/services/staff/rosterBoardService.js:1444 | converted; Convert every listed bypass/no-context path to per-tenant scope and prove nonzero tenant work under vhhealth_app. |
+| [apps/backend/src/services/staff/rosterBoardService.js:1514:36:$queryRawUnsafe](../../apps/backend/src/services/staff/rosterBoardService.js#L1514) | bare-transaction | residual:bare-transaction:apps/backend/src/services/staff/rosterBoardService.js:1444 | converted; Convert every listed bypass/no-context path to per-tenant scope and prove nonzero tenant work under vhhealth_app. |
 
 Administrative entries (26); each is **PENDING → proven-unreachable**, owned by `feat/rls-t2-housekeeping`. The shared statement catalog below resolves each ID to its source SQL; the JSON repeats each table-specific disposition explicitly.
 
@@ -1834,7 +1833,7 @@ The JSON also enumerates indirect callback calls encountered on the source trace
 - apps/backend/src/lib/redis.js:324: onReconnect — Indirect callback: source callback arguments/defaults are traced at their callers; no empirical dispatch claim.
 - apps/backend/src/middleware/prometheusMiddleware.js:181: next — Indirect callback: source callback arguments/defaults are traced at their callers; no empirical dispatch claim.
 - apps/backend/src/middleware/prometheusMiddleware.js:192: next — Indirect callback: source callback arguments/defaults are traced at their callers; no empirical dispatch claim.
-- apps/backend/src/lib/prisma.js:727: fn — Indirect callback: source callback arguments/defaults are traced at their callers; no empirical dispatch claim.
+- apps/backend/src/lib/prisma.js:642: fn — Indirect callback: source callback arguments/defaults are traced at their callers; no empirical dispatch claim.
 - apps/backend/src/middleware/auditLog.js:744: next — Indirect callback: source callback arguments/defaults are traced at their callers; no empirical dispatch claim.
 - apps/backend/src/middleware/corsMiddleware.js:146: applyCors — Indirect callback: source callback arguments/defaults are traced at their callers; no empirical dispatch claim.
 - apps/backend/src/services/workflow/workflowHumanOwnerService.js:176: rolePredicate — Indirect callback: source callback arguments/defaults are traced at their callers; no empirical dispatch claim.

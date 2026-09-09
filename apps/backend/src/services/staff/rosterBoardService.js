@@ -1,4 +1,5 @@
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
+import { AppError } from '../../utils/AppError.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 import {
   ROSTER_DEPARTMENT_POLICIES,
@@ -155,18 +156,18 @@ function normalizeSnapshot(value) {
   }
 }
 
-async function resolveActor(user) {
+async function resolveActor(user, db = prisma) {
   if (!user?.uid) return { id: Number(user?.id) || null, uid: null, tenant_id: null };
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await db.$queryRawUnsafe(
     `SELECT id, uid, tenant_id FROM users WHERE uid = $1::uuid LIMIT 1`,
     user.uid
   );
   return rows[0] || { id: Number(user?.id) || null, uid: user.uid, tenant_id: null };
 }
 
-async function getShiftByInput({ shiftId, shiftLabel }) {
+async function getShiftByInput({ shiftId, shiftLabel }, db = prisma) {
   if (shiftId) {
-    const rows = await prisma.$queryRawUnsafe(
+    const rows = await db.$queryRawUnsafe(
       `SELECT id, name, start_time::text AS start_time, end_time::text AS end_time
          FROM staff_shifts
         WHERE id = $1::int AND COALESCE(is_active, true) = true
@@ -180,7 +181,7 @@ async function getShiftByInput({ shiftId, shiftLabel }) {
   }
 
   const label = normalizeShiftLabel(shiftLabel);
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await db.$queryRawUnsafe(
     `SELECT id, name, start_time::text AS start_time, end_time::text AS end_time
        FROM staff_shifts
       WHERE LOWER(name) = LOWER($1)
@@ -485,7 +486,7 @@ export async function getRosterBoardDepartment(rosterId) {
   return rows[0]?.department || null;
 }
 
-async function assertRosterAssignmentsNotOnApprovedLeave(config, rosterDate, assignments) {
+async function assertRosterAssignmentsNotOnApprovedLeave(config, rosterDate, assignments, db = prisma) {
   const staffIds = [
     ...new Set(
       assignments
@@ -495,7 +496,7 @@ async function assertRosterAssignmentsNotOnApprovedLeave(config, rosterDate, ass
   ];
   if (!staffIds.length) return;
 
-  const conflicts = await prisma.$queryRawUnsafe(
+  const conflicts = await db.$queryRawUnsafe(
     `SELECT la.id AS leave_application_id,
             la.staff_id,
             u.name AS staff_name,
@@ -536,20 +537,24 @@ async function assertRosterAssignmentsNotOnApprovedLeave(config, rosterDate, ass
   throw err;
 }
 
-async function resolveRosterStaff(config, staffId) {
+async function resolveRosterStaff(config, staffId, { tenantId: rawTenantId, db }) {
+  if (!rawTenantId) throw AppError.forbidden('Tenant context required', 'TENANT_CONTEXT_REQUIRED');
+  const tenantId = requireTenantId(rawTenantId);
   const id = Number.parseInt(String(staffId || ''), 10);
   if (!Number.isInteger(id) || id <= 0) {
     throw Object.assign(new Error('assignment staff_id must be valid'), { statusCode: 400 });
   }
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await db.$queryRawUnsafe(
     `SELECT u.id, u.uid, u.name, u.role
        FROM users u
       WHERE u.id = $1::int
+        AND u.tenant_id = $3::uuid
         AND u.is_active = true
         AND u.role = ANY($2::text[])
       LIMIT 1`,
     id,
-    config.staffRoles
+    config.staffRoles,
+    tenantId
   );
   if (!rows.length) {
     throw Object.assign(new Error('Roster staff member not found or not eligible'), {
@@ -559,7 +564,7 @@ async function resolveRosterStaff(config, staffId) {
   return rows[0];
 }
 
-async function resolveTarget(config, assignment) {
+async function resolveTarget(config, assignment, db = prisma) {
   const targetType = assignment.assignment_target_type || assignment.target_type || config.targetType;
   if (targetType !== config.targetType) {
     throw Object.assign(new Error(`Unsupported target type for ${config.label}`), {
@@ -576,7 +581,7 @@ async function resolveTarget(config, assignment) {
   }
 
   if (config.department === 'housekeeping') {
-    const wardRows = await prisma.$queryRawUnsafe(
+    const wardRows = await db.$queryRawUnsafe(
       `SELECT id,
               name AS label,
               floor::text AS floor,
@@ -592,7 +597,7 @@ async function resolveTarget(config, assignment) {
       return { ...wardRows[0], target_type: targetType };
     }
 
-    const rows = await prisma.$queryRawUnsafe(
+    const rows = await db.$queryRawUnsafe(
       `SELECT id, name AS label, floor, building, zone_type, 'housekeeping_zones'::text AS source
          FROM housekeeping_zones
         WHERE id = $1::int
@@ -617,25 +622,25 @@ async function resolveTarget(config, assignment) {
   };
 }
 
-async function normalizeRosterBoardInput(config, boardInput = {}) {
+async function normalizeRosterBoardInput(config, boardInput, { tenantId, db }) {
   const shift = await getShiftByInput({
     shiftId: boardInput.shift_id,
     shiftLabel: boardInput.shift_label
-  });
+  }, db);
   const label = normalizeShiftLabel(boardInput.shift_label || shift.name);
   const assignmentInput = Array.isArray(boardInput.assignments) ? boardInput.assignments : [];
 
   const normalizedAssignments = [];
   const seenStaff = new Set();
   for (const assignment of assignmentInput) {
-    const staff = await resolveRosterStaff(config, assignment.staff_id);
+    const staff = await resolveRosterStaff(config, assignment.staff_id, { tenantId, db });
     if (seenStaff.has(staff.id)) {
       throw Object.assign(new Error('Each staff member can be assigned once per shift board'), {
         statusCode: 409
       });
     }
     seenStaff.add(staff.id);
-    const target = await resolveTarget(config, assignment);
+    const target = await resolveTarget(config, assignment, db);
     normalizedAssignments.push({
       staff,
       target,
@@ -689,11 +694,12 @@ async function assertNoExistingRosterDayConflicts({
   rosterDate,
   staffIds,
   excludedDepartment,
-  excludedShiftLabels
+  excludedShiftLabels,
+  db = prisma
 }) {
   if (!staffIds.length) return;
   const labels = excludedShiftLabels.length ? excludedShiftLabels : [''];
-  const conflicts = await prisma.$queryRawUnsafe(
+  const conflicts = await db.$queryRawUnsafe(
     `SELECT b.id AS roster_id,
             b.department,
             b.shift_label,
@@ -1122,6 +1128,7 @@ export async function saveRosterBoard({
   actorUser,
   reason
 }) {
+  if (!rawTenantId) throw AppError.forbidden('Tenant context required', 'TENANT_CONTEXT_REQUIRED');
   const tenantId = requireTenantId(rawTenantId);
   const config = getDepartmentConfig(department);
   if (!config) {
@@ -1129,37 +1136,39 @@ export async function saveRosterBoard({
   }
   assertCanManageRosterWork(actorUser, config.department);
   const date = assertRosterDate(rosterDate);
-  const actor = await resolveActor(actorUser);
-  const boardInput = {
-    shift_id: shiftId,
-    shift_label: shiftLabel,
-    notes,
-    assignments
-  };
-  const normalizedBoard = await normalizeRosterBoardInput(config, boardInput);
+  return setTenantTx(tenantId, async tx => {
+    const actor = await resolveActor(actorUser, tx);
+    const boardInput = {
+      shift_id: shiftId,
+      shift_label: shiftLabel,
+      notes,
+      assignments
+    };
+    const normalizedBoard = await normalizeRosterBoardInput(config, boardInput, { tenantId, db: tx });
 
-  await assertRosterAssignmentsNotOnApprovedLeave(
-    config,
-    date,
-    normalizedBoard.normalizedAssignments
-  );
-  await assertNoExistingRosterDayConflicts({
-    rosterDate: date,
-    staffIds: collectRosterStaffIds([normalizedBoard]),
-    excludedDepartment: config.department,
-    excludedShiftLabels: [normalizedBoard.label]
-  });
+    await assertRosterAssignmentsNotOnApprovedLeave(
+      config,
+      date,
+      normalizedBoard.normalizedAssignments,
+      tx
+    );
+    await assertNoExistingRosterDayConflicts({
+      rosterDate: date,
+      staffIds: collectRosterStaffIds([normalizedBoard]),
+      excludedDepartment: config.department,
+      excludedShiftLabels: [normalizedBoard.label],
+      db: tx
+    });
 
-  return prisma.$transaction(tx =>
-    saveRosterBoardRecord(tx, {
+    return saveRosterBoardRecord(tx, {
       tenantId,
       config,
       date,
       normalizedBoard,
       actor,
       reason
-    })
-  );
+    });
+  });
 }
 
 async function saveRosterBoardRecord(tx, {
@@ -1172,7 +1181,9 @@ async function saveRosterBoardRecord(tx, {
 }) {
   const { shift, label, notes, normalizedAssignments } = normalizedBoard;
     const beforeRows = await tx.$queryRawUnsafe(
-      `SELECT b.*,
+      `SELECT b.id, b.department, b.roster_date, b.shift_id, b.shift_label,
+              b.shift_start, b.shift_end, b.status, b.notes, b.created_by, b.created_by_uid,
+              b.published_by, b.published_by_uid, b.published_at, b.created_at, b.updated_at, b.tenant_id,
               COALESCE(
                 jsonb_agg(to_jsonb(a) ORDER BY a.id) FILTER (WHERE a.id IS NOT NULL),
                 '[]'::jsonb
@@ -1233,7 +1244,13 @@ async function saveRosterBoardRecord(tx, {
     // 686's chk_staff_shift_swap_live_assignment_refs makes deleting an
     // assignment under a still-live swap fail closed instead.
     const liveSwaps = await tx.$queryRawUnsafe(
-      `SELECT s.* FROM staff_shift_swap_requests s
+      `SELECT s.id, s.tenant_id, s.department, s.requester_id, s.requester_uid,
+              s.requester_assignment_id, s.counterparty_id, s.counterparty_uid,
+              s.counterparty_assignment_id, s.status, s.reason, s.counterparty_note,
+              s.counterparty_responded_at, s.decided_by, s.decided_by_uid, s.decided_at,
+              s.decision_notes, s.expires_at, s.created_at, s.updated_at,
+              s.requester_shift_snapshot, s.counterparty_shift_snapshot
+         FROM staff_shift_swap_requests s
         WHERE s.status IN ('proposed', 'counterparty_accepted')
           AND EXISTS (
             SELECT 1 FROM staff_shift_roster_assignments a
@@ -1247,7 +1264,12 @@ async function saveRosterBoardRecord(tx, {
         `UPDATE staff_shift_swap_requests
             SET status = 'cancelled', updated_at = NOW()
           WHERE id = $1::int
-          RETURNING *`,
+          RETURNING id, tenant_id, department, requester_id, requester_uid,
+                    requester_assignment_id, counterparty_id, counterparty_uid,
+                    counterparty_assignment_id, status, reason, counterparty_note,
+                    counterparty_responded_at, decided_by, decided_by_uid, decided_at,
+                    decision_notes, expires_at, created_at, updated_at,
+                    requester_shift_snapshot, counterparty_shift_snapshot`,
         liveSwap.id
       );
       await tx.$executeRawUnsafe(
@@ -1306,7 +1328,9 @@ async function saveRosterBoardRecord(tx, {
             assignment_target_id, assignment_target_label, floor, building,
             is_lead, status, notes)
          VALUES ($12::uuid,$1::int,$2::int,$3::uuid,$4,$5,$6::int,$7,$8,$9,$10::boolean,'planned',$11)
-         RETURNING *`,
+         RETURNING id, roster_id, staff_id, staff_uid, staff_role, assignment_target_type,
+                   assignment_target_id, assignment_target_label, floor, building,
+                   is_lead, status, notes, created_at, updated_at, tenant_id`,
         board.id,
         item.staff.id,
         item.staff.uid,
@@ -1344,6 +1368,7 @@ export async function saveRosterDay({
   actorUser,
   reason
 }) {
+  if (!rawTenantId) throw AppError.forbidden('Tenant context required', 'TENANT_CONTEXT_REQUIRED');
   const tenantId = requireTenantId(rawTenantId);
   const config = getDepartmentConfig(department);
   if (!config) {
@@ -1356,35 +1381,37 @@ export async function saveRosterDay({
     throw Object.assign(new Error('boards must include at least one shift'), { statusCode: 400 });
   }
 
-  const normalizedBoards = [];
-  const seenLabels = new Set();
-  for (const boardInput of boardInputs) {
-    const normalizedBoard = await normalizeRosterBoardInput(config, boardInput);
-    const key = normalizedBoard.label.toLowerCase();
-    if (seenLabels.has(key)) {
-      throw Object.assign(new Error(`Duplicate shift column ${normalizedBoard.label}`), {
-        statusCode: 400
-      });
+  return setTenantTx(tenantId, async tx => {
+    const normalizedBoards = [];
+    const seenLabels = new Set();
+    for (const boardInput of boardInputs) {
+      const normalizedBoard = await normalizeRosterBoardInput(config, boardInput, { tenantId, db: tx });
+      const key = normalizedBoard.label.toLowerCase();
+      if (seenLabels.has(key)) {
+        throw Object.assign(new Error(`Duplicate shift column ${normalizedBoard.label}`), {
+          statusCode: 400
+        });
+      }
+      seenLabels.add(key);
+      normalizedBoards.push(normalizedBoard);
     }
-    seenLabels.add(key);
-    normalizedBoards.push(normalizedBoard);
-  }
 
-  assertStaffAssignedOncePerRosterDay(normalizedBoards, date);
-  await assertRosterAssignmentsNotOnApprovedLeave(
-    config,
-    date,
-    normalizedBoards.flatMap(board => board.normalizedAssignments)
-  );
-  await assertNoExistingRosterDayConflicts({
-    rosterDate: date,
-    staffIds: collectRosterStaffIds(normalizedBoards),
-    excludedDepartment: config.department,
-    excludedShiftLabels: normalizedBoards.map(board => board.label)
-  });
+    assertStaffAssignedOncePerRosterDay(normalizedBoards, date);
+    await assertRosterAssignmentsNotOnApprovedLeave(
+      config,
+      date,
+      normalizedBoards.flatMap(board => board.normalizedAssignments),
+      tx
+    );
+    await assertNoExistingRosterDayConflicts({
+      rosterDate: date,
+      staffIds: collectRosterStaffIds(normalizedBoards),
+      excludedDepartment: config.department,
+      excludedShiftLabels: normalizedBoards.map(board => board.label),
+      db: tx
+    });
 
-  const actor = await resolveActor(actorUser);
-  return prisma.$transaction(async tx => {
+    const actor = await resolveActor(actorUser, tx);
     const savedBoards = [];
     for (const normalizedBoard of normalizedBoards) {
       const saved = await saveRosterBoardRecord(tx, {
