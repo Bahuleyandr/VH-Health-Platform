@@ -234,6 +234,17 @@ export async function runSecurityStage() {
   run(process.execPath, ['--test', 'scripts/ci/check-migration-registry.test.mjs']);
   run(process.execPath, ['scripts/ci/check-migration-registry.mjs']);
 
+  // Migration-number collisions. The gate itself runs in both backend tiers
+  // (`npm run check:migration-numbers`), where a migration actually lands; only
+  // its mutation proof runs here. That proof has to be unskippable: the gate's
+  // comment claimed the five historical collisions were grandfathered "BY EXACT
+  // FILENAME" while the code exempted the NUMBER, so a count-preserving
+  // substitution on 203/211/217/233/574 — rename one, or drop one and land a
+  // new file beside the survivor — shipped a real new collision green. A proof
+  // of that living in a tier-routed stage could be skipped by the same routing
+  // that would carry the regression.
+  run(process.execPath, ['--test', 'scripts/ci/check-migration-number-collisions.test.mjs']);
+
   run(process.execPath, ['scripts/check-forgejo-supply-chain-pins.mjs']);
   run(process.execPath, ['scripts/scan-secrets.mjs']);
   run(process.execPath, ['scripts/gitleaks-scan.mjs', 'worktree'], { env: gitleaksEnv });

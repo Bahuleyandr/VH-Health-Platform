@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
 
 import prisma, { ensureTenantRlsRuntimeRoleGrants } from '../lib/prisma.js';
+import { teardownTenantFixture } from './helpers/tenantTeardown.js';
 import {
   approveWardIndent,
   createWardIndent,
@@ -302,65 +303,89 @@ describeIfDb('MED-03 medication evidence invariants', () => {
     });
   });
 
+  // Two-phase teardown on the shared helper (src/tests/helpers/tenantTeardown.js,
+  // PR #1048's split generalised by #1050). Phase 1 is this suite's own evidence
+  // deletes — the same table list, in the same order, with the same statement
+  // text — in ONE short interactive transaction under app.audit_bypass, still
+  // under session_replication_role='replica' for the append-only evidence tables
+  // the suite has always exempted. Phase 2 deletes the fixture's users and its
+  // tenant as plain autocommit statements outside any interactive transaction.
+  //
+  // Two things change, both measured in the PR body. First, `users` and `tenants`
+  // leave the interactive transaction, so the referential-integrity fan-out they
+  // carry (466 foreign keys reference users, 791 reference tenants at schema
+  // >= migration 790) can no longer expire this call's 30 000 ms budget and roll
+  // every earlier delete back with it. Second, `users` was the last entry in the
+  // replica-role table list, which means its ON DELETE triggers were being
+  // SKIPPED: replica role suppresses them, so the 19 CASCADE and 105 SET NULL
+  // foreign keys that reference users never ran. Phase 2 deletes it at 'origin'
+  // with the fan-out live, which is the work the schema asks for.
+  //
+  // The session_replication_role toggle stays INSIDE phase 1, as SET LOCAL, and
+  // is reset to 'origin' before it commits. SET LOCAL dies with that transaction
+  // and cannot reach phase 2, which is exactly the point: a replica-role tenant
+  // delete would skip the 310 ON DELETE CASCADEs that reference tenants and
+  // orphan the children it exists to remove.
   afterAll(async () => {
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
-      for (const table of [
-        'idempotency_keys',
-        'pharmacy_staff_facility_grant_events',
-        'pharmacy_staff_facility_grants',
-        'task_comments',
-        'tasks',
-        'notification_outbox',
-        'workflow_sla_instances',
-        'billing_credit_note_events',
-        'billing_credit_notes',
-        'billing_refunds',
-        'ward_indent_financial_events',
-        'ward_indent_inventory_receipt_events',
-        'ward_indent_inventory_movement_links',
-        'ward_indent_inventory_allocations',
-        'ward_indent_events',
-        'clinical_timeline_events',
-        'clinical_audit_events',
-        'billing_payments',
-        'billing_invoice_items',
-        'billing_invoices',
-        'pharmacy_schedule_register',
-        'pharmacy_stock_movements',
-        'pharmacy_inventory_batches',
-        'pharmacy_inventory_items',
-        'ward_indent_items',
-        'ward_indents',
-        'clinical_orders',
-        'pharmacy_catalog',
-        'admissions',
-        'beds',
-        'wards',
-        'facility_locations',
-        'facilities',
-        'staff',
-        'audit_logs',
-        'pharmacy_patient_safety_versions',
-        'users',
-      ]) {
-        await tx.$executeRawUnsafe(
-          `DELETE FROM ${table} WHERE tenant_id = $1::uuid`,
-          tenantId,
-        );
-      }
-      await tx.$executeRawUnsafe(
-        `DELETE FROM drug_compositions WHERE composition_key = $1::text`,
-        compositionKey,
-      );
-      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'origin'`);
-      await tx.$executeRawUnsafe(
-        `DELETE FROM tenants WHERE id = $1::uuid`,
-        tenantId,
-      );
-    }, { timeout: 30_000 });
-    await prisma.$disconnect().catch(() => {});
-  }, 30_000);
+    try {
+      await teardownTenantFixture(prisma, {
+        evidence: async (tx) => {
+          await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+          for (const table of [
+            'idempotency_keys',
+            'pharmacy_staff_facility_grant_events',
+            'pharmacy_staff_facility_grants',
+            'task_comments',
+            'tasks',
+            'notification_outbox',
+            'workflow_sla_instances',
+            'billing_credit_note_events',
+            'billing_credit_notes',
+            'billing_refunds',
+            'ward_indent_financial_events',
+            'ward_indent_inventory_receipt_events',
+            'ward_indent_inventory_movement_links',
+            'ward_indent_inventory_allocations',
+            'ward_indent_events',
+            'clinical_timeline_events',
+            'clinical_audit_events',
+            'billing_payments',
+            'billing_invoice_items',
+            'billing_invoices',
+            'pharmacy_schedule_register',
+            'pharmacy_stock_movements',
+            'pharmacy_inventory_batches',
+            'pharmacy_inventory_items',
+            'ward_indent_items',
+            'ward_indents',
+            'clinical_orders',
+            'pharmacy_catalog',
+            'admissions',
+            'beds',
+            'wards',
+            'facility_locations',
+            'facilities',
+            'staff',
+            'audit_logs',
+            'pharmacy_patient_safety_versions',
+          ]) {
+            await tx.$executeRawUnsafe(
+              `DELETE FROM ${table} WHERE tenant_id = $1::uuid`,
+              tenantId,
+            );
+          }
+          await tx.$executeRawUnsafe(
+            `DELETE FROM drug_compositions WHERE composition_key = $1::text`,
+            compositionKey,
+          );
+          await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'origin'`);
+        },
+        tenantIds: [tenantId],
+      });
+    } finally {
+      await prisma.$disconnect().catch(() => {});
+    }
+  }, 120_000);
 
   test('rejects direct evidence rewrites, projection tampering, and mismatched links', async () => {
     const allocation = (await prisma.$queryRawUnsafe(
