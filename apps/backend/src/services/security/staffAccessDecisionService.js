@@ -233,7 +233,7 @@ export async function resolveStaffIdentity(req, identifier) {
 
   if (!text) return null;
 
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await setTenant(tenantId, tx => tx.$queryRawUnsafe(
     `SELECT
         u.id AS user_id,
         u.uid AS user_uid,
@@ -247,7 +247,7 @@ export async function resolveStaffIdentity(req, identifier) {
         COALESCE(s.designation, s.position) AS designation,
         s.supervisor_id
        FROM users u
-       LEFT JOIN staff s ON s.user_id = u.uid
+       LEFT JOIN staff s ON s.user_id = u.uid AND s.tenant_id = $1::uuid
       WHERE u.tenant_id = $1::uuid
         AND COALESCE(UPPER(u.role), '') <> 'PATIENT'
         AND (
@@ -270,7 +270,7 @@ export async function resolveStaffIdentity(req, identifier) {
     uid,
     intId,
     text,
-  );
+  ));
 
   return normalizeTargetRow(rows[0]);
 }
@@ -282,7 +282,7 @@ async function resolveStaffFromResource(req, { resourceType, resourceId }) {
   let rows = [];
 
   if (resourceType === 'leave_application' && id) {
-    rows = await prisma.$queryRawUnsafe(
+    rows = await setTenant(tenantId, tx => tx.$queryRawUnsafe(
       `SELECT u.id AS user_id, u.uid AS user_uid, u.role, u.name, u.tenant_id,
               s.id AS staff_row_id, s.employee_id, s.department,
               COALESCE(s.designation, s.position) AS designation, s.supervisor_id
@@ -293,9 +293,9 @@ async function resolveStaffFromResource(req, { resourceType, resourceId }) {
         LIMIT 1`,
       tenantId,
       id,
-    );
+    ));
   } else if (resourceType === 'payslip' && id) {
-    rows = await prisma.$queryRawUnsafe(
+    rows = await setTenant(tenantId, tx => tx.$queryRawUnsafe(
       `SELECT u.id AS user_id, u.uid AS user_uid, u.role, u.name, u.tenant_id,
               s.id AS staff_row_id, s.employee_id, s.department,
               COALESCE(s.designation, s.position) AS designation, s.supervisor_id
@@ -306,7 +306,7 @@ async function resolveStaffFromResource(req, { resourceType, resourceId }) {
         LIMIT 1`,
       tenantId,
       id,
-    );
+    ));
   } else if (resourceType === 'salary_revision' && id) {
     rows = await setTenant(tenantId, tx => tx.$queryRawUnsafe(
       `SELECT u.id AS user_id, u.uid AS user_uid, u.role, u.name, u.tenant_id,
@@ -327,7 +327,7 @@ async function resolveStaffFromResource(req, { resourceType, resourceId }) {
       id,
     ));
   } else if (resourceType === 'attendance_dispute' && id) {
-    rows = await prisma.$queryRawUnsafe(
+    rows = await setTenant(tenantId, tx => tx.$queryRawUnsafe(
       `SELECT u.id AS user_id, u.uid AS user_uid, u.role, u.name, u.tenant_id,
               s.id AS staff_row_id, s.employee_id, s.department,
               COALESCE(s.designation, s.position) AS designation, s.supervisor_id
@@ -338,9 +338,9 @@ async function resolveStaffFromResource(req, { resourceType, resourceId }) {
         LIMIT 1`,
       tenantId,
       id,
-    );
+    ));
   } else if (resourceType === 'staff_row' && id) {
-    rows = await prisma.$queryRawUnsafe(
+    rows = await setTenant(tenantId, tx => tx.$queryRawUnsafe(
       `SELECT u.id AS user_id, u.uid AS user_uid, u.role, u.name, u.tenant_id,
               s.id AS staff_row_id, s.employee_id, s.department,
               COALESCE(s.designation, s.position) AS designation, s.supervisor_id
@@ -350,7 +350,7 @@ async function resolveStaffFromResource(req, { resourceType, resourceId }) {
         LIMIT 1`,
       tenantId,
       id,
-    );
+    ));
   } else if (resourceType === 'staff_uid' && uid) {
     return resolveStaffIdentity(req, uid);
   }
