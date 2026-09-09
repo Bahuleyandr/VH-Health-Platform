@@ -126,7 +126,7 @@ afterEach(async () => {
   await owner.query('BEGIN');
   try {
     await owner.query("SELECT set_config('app.audit_bypass','on',true)");
-    for (const table of ['audit_logs', 'event_outbox', 'notifications', 'staff_shift_swap_request_audit', 'staff_shift_swap_requests', 'staff_shift_roster_assignment_audit', 'staff_shift_roster_assignments', 'staff_shift_roster_boards', 'beds', 'admissions', 'leave_applications']) {
+    for (const table of ['audit_logs', 'pathway_projector_inbox', 'event_outbox', 'notifications', 'staff_shift_swap_request_audit', 'staff_shift_swap_requests', 'staff_shift_roster_assignment_audit', 'staff_shift_roster_assignments', 'staff_shift_roster_boards', 'beds', 'admissions', 'leave_applications']) {
       await owner.query(`DELETE FROM ${table} WHERE tenant_id=ANY($1::uuid[])`, [tenants]);
     }
     for (const f of fixtures) {
