@@ -14,9 +14,10 @@ release authority receipt: ______.
 
 The values below are an inventory for a possible future authorized Forgejo
 release path. Do not create, rotate, or rely on them while `INF-006` remains
-held. The audit program now requires applicable local CI to pass before branch
-publication, which still needs explicit owner authorization. GitHub remains
-the authoritative remote for hosted CI and release evidence; this local-CI
+held. Authorized local CI may be run before branch publication. It is
+permitted, not required, and running it neither authorizes publication nor
+substitutes for the protected GitHub gates below. GitHub remains the
+authoritative remote for hosted CI and release evidence, and this local-CI
 permission does not activate the held Forgejo release path.
 
 - `VH_BASE_URL` as a Forgejo Actions variable.
