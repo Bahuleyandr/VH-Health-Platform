@@ -1,7 +1,7 @@
 {
   "schema": "teardown-tx-census/v1",
   "kind": "CENSUS_ONLY",
-  "revision": "ce61aca57",
+  "revision": "6fcc39e7f094631e519ee5b66acadba4010fdf54",
   "predicates": {
     "files": "Every file under apps/backend/src/tests, recursively, whose name matches /\\.(js|mjs|cjs)$/. No other filter: helpers, fixtures and non-.test.js files are included, because a delete behind a helper is still a delete. Files that fail to parse are reported under parseFailures and are NOT counted as clean.",
     "literalDelete": "A string literal or template literal whose text matches /\\bDELETE\\s+FROM\\s+(?:ONLY\\s+)?\"?([A-Za-z_][\\w$]*)\"?/i and whose captured relation is `users` or `tenants`. This is the arm the 2026-09-08 census had.",
@@ -39,21 +39,21 @@
   "counts": {
     "filesWalked": 2042,
     "parseFailures": 0,
-    "filesWithTargetDelete": 408,
-    "filesReachedByLiteralArm": 407,
-    "filesReachedByDynamicArm": 18,
+    "filesWithTargetDelete": 403,
+    "filesReachedByLiteralArm": 402,
+    "filesReachedByDynamicArm": 16,
     "filesReachedOnlyByDynamicArm": 1,
-    "filesWithDynamicUsersAndNoLiteralUsers": 17,
+    "filesWithDynamicUsersAndNoLiteralUsers": 15,
     "classA": 51,
-    "classB": 9,
-    "classBoth": 2,
+    "classB": 6,
+    "classBoth": 0,
     "classNone": 346,
     "classUnknown": 0,
-    "aUsers": 45,
+    "aUsers": 43,
     "aTenants": 31,
-    "bUsers": 9,
-    "bTenants": 4,
-    "filesUsingTenantTeardownHelper": 7,
+    "bUsers": 6,
+    "bTenants": 2,
+    "filesUsingTenantTeardownHelper": 12,
     "filesUsingHelperAndStillDeletingTargets": 1,
     "filesWithUnresolvedDynamicDelete": 0,
     "filesWithPartiallyResolvedDynamicDelete": 0
@@ -6490,7 +6490,7 @@
       "otherRelationDeletes": 0,
       "deletes": [
         {
-          "line": 76,
+          "line": 91,
           "kind": "literal",
           "relations": [
             "users"
@@ -6502,7 +6502,7 @@
           "transactionVia": null
         },
         {
-          "line": 82,
+          "line": 97,
           "kind": "literal",
           "relations": [
             "users"
@@ -6514,7 +6514,7 @@
           "transactionVia": null
         },
         {
-          "line": 86,
+          "line": 101,
           "kind": "literal",
           "relations": [
             "tenants"
@@ -7543,38 +7543,6 @@
           "replica": "outside",
           "inTransaction": false,
           "transactionVia": null
-        }
-      ]
-    },
-    {
-      "file": "apps/backend/src/tests/ipd-support-money-authz.deep.test.js",
-      "classification": "b",
-      "a": {
-        "users": false,
-        "tenants": false
-      },
-      "b": {
-        "users": true,
-        "tenants": false
-      },
-      "usesTenantTeardownHelper": false,
-      "hasReplicaWindow": true,
-      "localWrappers": [],
-      "unresolvedDynamicDeletes": 0,
-      "partiallyResolvedDynamicDeletes": 0,
-      "otherRelationDeletes": 43,
-      "deletes": [
-        {
-          "line": 578,
-          "kind": "literal",
-          "relations": [
-            "users"
-          ],
-          "resolvedRelationCount": 1,
-          "binding": null,
-          "replica": "outside",
-          "inTransaction": true,
-          "transactionVia": "$transaction"
         }
       ]
     },
@@ -9059,50 +9027,6 @@
       ]
     },
     {
-      "file": "apps/backend/src/tests/med03-billing-safety-regressions.deep.test.js",
-      "classification": "both",
-      "a": {
-        "users": true,
-        "tenants": false
-      },
-      "b": {
-        "users": false,
-        "tenants": true
-      },
-      "usesTenantTeardownHelper": false,
-      "hasReplicaWindow": true,
-      "localWrappers": [],
-      "unresolvedDynamicDeletes": 0,
-      "partiallyResolvedDynamicDeletes": 0,
-      "otherRelationDeletes": 1,
-      "deletes": [
-        {
-          "line": 107,
-          "kind": "dynamic",
-          "relations": [
-            "users"
-          ],
-          "resolvedRelationCount": 47,
-          "binding": "for (const ... of <ArrayExpression>)",
-          "replica": "inside",
-          "inTransaction": true,
-          "transactionVia": "$transaction"
-        },
-        {
-          "line": 119,
-          "kind": "literal",
-          "relations": [
-            "tenants"
-          ],
-          "resolvedRelationCount": 1,
-          "binding": null,
-          "replica": "outside",
-          "inTransaction": true,
-          "transactionVia": "$transaction"
-        }
-      ]
-    },
-    {
       "file": "apps/backend/src/tests/med03-gateway-credit-refund.deep.test.js",
       "classification": "a",
       "a": {
@@ -9173,50 +9097,6 @@
           "resolvedRelationCount": 1,
           "binding": null,
           "replica": "inside",
-          "inTransaction": true,
-          "transactionVia": "$transaction"
-        }
-      ]
-    },
-    {
-      "file": "apps/backend/src/tests/medication-evidence-invariants.deep.test.js",
-      "classification": "both",
-      "a": {
-        "users": true,
-        "tenants": false
-      },
-      "b": {
-        "users": false,
-        "tenants": true
-      },
-      "usesTenantTeardownHelper": false,
-      "hasReplicaWindow": true,
-      "localWrappers": [],
-      "unresolvedDynamicDeletes": 0,
-      "partiallyResolvedDynamicDeletes": 0,
-      "otherRelationDeletes": 2,
-      "deletes": [
-        {
-          "line": 348,
-          "kind": "dynamic",
-          "relations": [
-            "users"
-          ],
-          "resolvedRelationCount": 37,
-          "binding": "for (const ... of <ArrayExpression>)",
-          "replica": "inside",
-          "inTransaction": true,
-          "transactionVia": "$transaction"
-        },
-        {
-          "line": 358,
-          "kind": "literal",
-          "relations": [
-            "tenants"
-          ],
-          "resolvedRelationCount": 1,
-          "binding": null,
-          "replica": "outside",
           "inTransaction": true,
           "transactionVia": "$transaction"
         }
@@ -11184,38 +11064,6 @@
       ]
     },
     {
-      "file": "apps/backend/src/tests/pharmacy-catalog-alternatives.deep.test.js",
-      "classification": "b",
-      "a": {
-        "users": false,
-        "tenants": false
-      },
-      "b": {
-        "users": true,
-        "tenants": false
-      },
-      "usesTenantTeardownHelper": false,
-      "hasReplicaWindow": true,
-      "localWrappers": [],
-      "unresolvedDynamicDeletes": 0,
-      "partiallyResolvedDynamicDeletes": 0,
-      "otherRelationDeletes": 10,
-      "deletes": [
-        {
-          "line": 158,
-          "kind": "literal",
-          "relations": [
-            "users"
-          ],
-          "resolvedRelationCount": 1,
-          "binding": null,
-          "replica": "outside",
-          "inTransaction": true,
-          "transactionVia": "$transaction"
-        }
-      ]
-    },
-    {
       "file": "apps/backend/src/tests/pharmacy-controlled-movement.deep.test.js",
       "classification": "a",
       "a": {
@@ -11332,38 +11180,6 @@
           "replica": "outside",
           "inTransaction": false,
           "transactionVia": null
-        }
-      ]
-    },
-    {
-      "file": "apps/backend/src/tests/pharmacy-dispense-substitution.deep.test.js",
-      "classification": "b",
-      "a": {
-        "users": false,
-        "tenants": false
-      },
-      "b": {
-        "users": true,
-        "tenants": false
-      },
-      "usesTenantTeardownHelper": false,
-      "hasReplicaWindow": true,
-      "localWrappers": [],
-      "unresolvedDynamicDeletes": 0,
-      "partiallyResolvedDynamicDeletes": 0,
-      "otherRelationDeletes": 19,
-      "deletes": [
-        {
-          "line": 329,
-          "kind": "literal",
-          "relations": [
-            "users"
-          ],
-          "resolvedRelationCount": 1,
-          "binding": null,
-          "replica": "outside",
-          "inTransaction": true,
-          "transactionVia": "$transaction"
         }
       ]
     },
