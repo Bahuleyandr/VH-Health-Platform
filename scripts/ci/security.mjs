@@ -245,7 +245,7 @@ export async function runSecurityStage() {
   // that would carry the regression.
   run(process.execPath, ['--test', 'scripts/ci/check-migration-number-collisions.test.mjs']);
 
-  // Main-module guard census. `pathToFileURL(process.argv[1])` throws while the
+  // Main-module guard census. `pathToFileURL(argv[1])` throws while the
   // module is still evaluating whenever argv[1] is undefined — `node -e`, a
   // worker thread, an editor walking the module graph — so an unguarded check
   // makes every export of its own file unreachable. That is a repository-wide

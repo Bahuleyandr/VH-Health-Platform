@@ -49,6 +49,21 @@ const SWEEP_PATHSPECS = ['scripts', 'apps'];
 const GUARDED_LINE = 'if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {';
 const UNGUARDED_LINE = 'if (import.meta.url === pathToFileURL(process.argv[1]).href) {';
 
+// This suite is itself a member of the census: it quotes the idiom in
+// SWEEP_NEEDLE, GUARDED_LINE and UNGUARDED_LINE. Importing it re-enters the
+// test runner, which sweeps and imports itself again, and recurses until the
+// probe timeout. That is not hypothetical either — it is what the first
+// commit of this file did on CI, because `git grep` searches only TRACKED
+// files and the local run that reported 5/5 green was taken while this file
+// was still untracked. The census had 17 members when it was measured and 19
+// when it ran.
+//
+// So this one path is excluded from the import probe. The exclusion is PROVEN
+// sound by `this suite quotes the idiom without ever executing it` below
+// rather than assumed: every line here that carries the needle has to be a
+// comment or one of the three pinned constants.
+const SELF = 'scripts/ci/main-module-guard.test.mjs';
+
 // The five files this suite's fix guarded. Each one threw on import before the
 // fix; see the PR body for the pre-fix census.
 const FIXED_BY_THIS_CHANGE = [
@@ -90,10 +105,14 @@ const PROBE = [
 ].join('\n');
 
 function probeImport(absolutePath) {
+  // 60s is ~60x the slowest legitimate import here. A probe that reaches the
+  // cap is reported as a timeout rather than as `exit null`, because the one
+  // way this suite has actually failed was a self-import recursion that ran
+  // until the cap.
   const result = spawnSync(process.execPath, ['--input-type=module', '-e', PROBE], {
     cwd: repoRoot,
     encoding: 'utf8',
-    timeout: 120_000,
+    timeout: 60_000,
     env: { ...process.env, PROBE_TARGET: absolutePath },
   });
   const stdout = result.stdout ?? '';
@@ -102,10 +121,13 @@ function probeImport(absolutePath) {
     !/PROBE_PRECONDITION_LOST/.test(stderr),
     `the probe no longer reproduces an undefined process.argv[1]: ${stderr.trim()}`,
   );
+  const timedOut = result.status === null;
   return {
     status: result.status,
+    timedOut,
     stdout,
     stderr,
+    failureSummary: timedOut ? 'timed out after 60s (import never settled)' : `exit ${result.status}`,
     stdoutLines: stdout.split('\n').map((line) => line.trim()).filter(Boolean),
   };
 }
@@ -142,9 +164,42 @@ test('the sweep predicate yields a non-empty census that covers every fixed file
     assert.ok(files.includes(file), `${file} dropped out of the sweep census`);
   }
 
-  // Everything on the two pinned lists is a subset of the census; the census is
+  // The excluded path has to still BE in the census. If this file is renamed
+  // and SELF is not updated, the exclusion below would silently stop matching
+  // and the recursion would come straight back; this fails first instead.
+  assert.ok(
+    files.includes(SELF),
+    `${SELF} is not in the census — SELF is stale and the probe exclusion no longer matches`,
+  );
+
+  // Everything on the pinned lists is a subset of the census; the census is
   // allowed to grow, and any new member is covered by the next test.
-  assert.ok(files.length >= FIXED_BY_THIS_CHANGE.length + MAY_FAIL_ON_MISSING_DEPS.size);
+  assert.ok(files.length >= FIXED_BY_THIS_CHANGE.length + MAY_FAIL_ON_MISSING_DEPS.size + 1);
+});
+
+test('this suite quotes the idiom without ever executing it', () => {
+  // Justifies the one exclusion in the probe below. If this file ever gains a
+  // real main-module check, excluding it from the census would be hiding a
+  // genuine instance — so the shape of every needle-bearing line is pinned.
+  const source = readFileSync(join(repoRoot, SELF), 'utf8');
+  const bearing = source
+    .split('\n')
+    .map((line, index) => ({ line, number: index + 1 }))
+    .filter((entry) => entry.line.includes(SWEEP_NEEDLE));
+
+  assert.ok(bearing.length > 0, `${SELF} no longer quotes the sweep needle at all`);
+
+  const allowed = /^(\s*\/\/|const (SWEEP_NEEDLE|GUARDED_LINE|UNGUARDED_LINE) = )/;
+  const offending = bearing
+    .filter((entry) => !allowed.test(entry.line))
+    .map((entry) => `${SELF}:${entry.number}: ${entry.line.trim()}`);
+
+  assert.deepEqual(
+    offending,
+    [],
+    `${SELF} carries the idiom outside a comment or a pinned constant, so ` +
+      'excluding it from the import probe would hide a real instance',
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -152,12 +207,13 @@ test('the sweep predicate yields a non-empty census that covers every fixed file
 // ---------------------------------------------------------------------------
 
 test('every module in the census imports with no script argument', () => {
-  const files = sweep();
+  const census = sweep();
+  const probed = census.filter((file) => file !== SELF);
   const clean = [];
   const depFailures = [];
   const offenders = [];
 
-  for (const file of files) {
+  for (const file of probed) {
     const probe = probeImport(join(repoRoot, file));
 
     // Arm 1, applied to EVERY hit including the dependency-tolerant ones: the
@@ -190,7 +246,7 @@ test('every module in the census imports with no script argument', () => {
       continue;
     }
 
-    offenders.push(`${file}: exit ${probe.status}\n${probe.stderr.trim()}`);
+    offenders.push(`${file}: ${probe.failureSummary}\n${probe.stderr.trim()}`);
   }
 
   assert.deepEqual(offenders, [], `main-module checks that break a plain import:\n${offenders.join('\n')}`);
@@ -205,7 +261,11 @@ test('every module in the census imports with no script argument', () => {
   for (const file of FIXED_BY_THIS_CHANGE) {
     assert.ok(clean.includes(file), `${file} did not import cleanly`);
   }
-  assert.equal(clean.length + depFailures.length, sweep().length);
+
+  // Every probed member landed in exactly one bucket, and the only census
+  // member not probed is the pinned self-exclusion.
+  assert.equal(clean.length + depFailures.length, probed.length);
+  assert.equal(probed.length + 1, census.length);
 });
 
 // ---------------------------------------------------------------------------

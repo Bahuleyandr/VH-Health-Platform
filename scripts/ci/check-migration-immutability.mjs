@@ -296,7 +296,22 @@ export function baseRefCandidates(env = process.env) {
  * does not arise: actions/checkout creates exactly one remote, `origin`, and
  * fetch-depth 0 puts main under it.
  */
-export function resolveMergeBase(repoRoot, { env = process.env, explicitBase = null } = {}) {
+/**
+ * Shared merge-base resolver. It has more than one caller — the applied-migration
+ * immutability gate below, and the teardown-census gate, which imports it — so
+ * its failure message must not name a gate it does not belong to. `gateLabel`
+ * lets a caller supply its own name; the DEFAULT is deliberately caller-neutral
+ * so that a caller which forgets to pass one gets prose that is merely generic
+ * rather than prose that is wrong.
+ *
+ * The advice in that message is unchanged and must stay that way: a constraint
+ * expressed in the failure path is stronger than one in a comment, because a
+ * reader of a failure has no choice about looking at it.
+ */
+export function resolveMergeBase(
+  repoRoot,
+  { env = process.env, explicitBase = null, gateLabel = 'The calling gate' } = {},
+) {
   const candidates = explicitBase ? [explicitBase] : baseRefCandidates(env);
   const tried = [];
   const resolved = [];
@@ -326,7 +341,7 @@ export function resolveMergeBase(repoRoot, { env = process.env, explicitBase = n
   // say so rather than leaving the reader to guess.
   throw new Error(
     `Unable to resolve a merge-base for HEAD against any of: ${tried.join(', ')}.\n` +
-      'This gate compares migrations against the branch point with main and cannot run without it.\n' +
+      `${gateLabel} compares against the branch point with main and cannot run without it.\n` +
       'In GitHub Actions this almost always means a shallow checkout — set `fetch-depth: 0` on actions/checkout.\n' +
       'Locally: `git fetch origin main` (or pass --base <ref>).',
   );
@@ -512,7 +527,11 @@ export function main(argv = process.argv.slice(2), { env = process.env, log = co
 
   let baseInfo;
   try {
-    baseInfo = resolveMergeBase(options.repoRoot, { env, explicitBase: options.base });
+    baseInfo = resolveMergeBase(options.repoRoot, {
+      env,
+      explicitBase: options.base,
+      gateLabel: 'The applied-migration immutability gate',
+    });
   } catch (resolveError) {
     error(`Applied-migration immutability gate could not run:\n${resolveError.message}`);
     return 1;
