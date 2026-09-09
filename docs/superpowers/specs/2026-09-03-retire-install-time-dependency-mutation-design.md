@@ -104,3 +104,20 @@ let the lockfile follow through a normal in-range update; do not reintroduce a c
 override, and never rewrite `node_modules` at install time. If a consumer ever declares a major that
 has no patched release, the floors checker rejects it and the consumer, not the package, is the
 thing to upgrade.
+
+### 2026-09-09 exception: redocly's exact js-yaml pin (PR #1062)
+
+GHSA-2883-xcg3-v3hh re-covered js-yaml 4.0.0-4.3.1 (patched at 4.3.2) and 3.0.0-3.15.1 (patched at
+3.15.2), and the floors above moved with it. The in-range path this section prescribes does not
+exist for one consumer: `@redocly/openapi-core` 1.34.19 pins `js-yaml` to **exactly** `4.3.1`, and
+`openapi-typescript` 7.13.0 (the newest release) accepts only `^1.34.6`, so neither the package nor
+its consumer can be upgraded to reach the floor. admin therefore carries one declarative override,
+scoped to that package and carrying only `js-yaml` (`"@redocly/openapi-core": { "js-yaml": "^4.3.2" }`).
+It is a same-major lift of an exact pin to the patched floor, not the cross-major override this
+document retired, and it does not rewrite `node_modules`. Three guards encode the exception and
+require its result: `check-infra-security-controls.mjs` accepts that override only with `js-yaml`
+as its sole key and still checks the floors on both lockfiles; `dependencyFloors.test.js` publishes
+the raised floors; `redoclyJsYamlNativeResolution.test.ts` tolerates only that override shape and
+additionally requires redocly's resolved js-yaml 4.x to be at or above 4.3.2, so removing the
+override fails the suite. Removal condition: when `openapi-typescript` adopts `@redocly/openapi-core`
+2.x (js-yaml `^5.2.2`), drop the override and restore the three guards to their pre-exception form.
