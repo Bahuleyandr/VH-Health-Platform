@@ -375,13 +375,22 @@ export function readCommitted(repoRoot = REPO_ROOT) {
 /**
  * The artifact as of the merge base, or null when the base does not carry one.
  *
- * The merge-base resolver is imported LAZILY and deliberately.
- * check-migration-immutability.mjs ends with an unguarded
- * `pathToFileURL(process.argv[1])`, which throws at module load in any context
- * where argv[1] is unset - `node -e`, a worker, an editor's module graph. That
- * is its fragility, not this gate's, and it is not this PR's file to change; a
- * lazy import keeps this module safe to import as a library while still reusing
- * the resolver rather than growing a second, subtly different one.
+ * REQUIRES `fetch-depth: 0` on the security job's checkout. The merge base is
+ * resolved from real history, so a shallow clone makes this arm fail closed on
+ * every PR rather than pass vacuously. Shared dependency and precedent:
+ * check-migration-immutability.mjs, whose resolver this reuses. The failure
+ * path states it too, which is the copy that actually reaches a reader - a
+ * constraint expressed where it fires beats one expressed in a comment,
+ * because a reader of the comment has to already be in the right file.
+ *
+ * The resolver is imported LAZILY for two reasons that do not depend on
+ * anything being broken elsewhere: this module stays safe to import as a
+ * library, and there is one resolver rather than a second subtly different
+ * one. That import-safety is asserted rather than assumed -
+ * scripts/ci/main-module-guard.test.mjs sweeps the
+ * `pathToFileURL(process.argv[1])` idiom and imports each hit in a child
+ * process with argv[1] undefined - so if a guard is ever removed a test fails,
+ * instead of this comment quietly becoming true again.
  */
 export async function readBaseArtifact({ env = process.env } = {}) {
   const { resolveMergeBase } = await import('./check-migration-immutability.mjs');
