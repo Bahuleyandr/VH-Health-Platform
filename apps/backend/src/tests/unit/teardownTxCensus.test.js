@@ -205,6 +205,46 @@ describe('teardown-tx-census detector capability', () => {
     expect(result.classification).toBe('b');
     expect(result.deletes[0].transactionVia).toBe('local-wrapper:inTx');
   });
+
+  // --- Probe (ix): the shape the accepted fix pattern itself uses. -----------
+  test('(ix) a callback passed as an options-object property is a transaction context', () => {
+    // Assembled at run time for the same reason DEL is. The helper-usage
+    // predicate is a plain substring test over the raw file text, so it does
+    // not care that these are synthetic - and, unlike the AST-based arms, it
+    // reads COMMENTS too. Spelling either the helper's path or its function
+    // name contiguously anywhere in this file, prose included, would add the
+    // probe suite to the corpus-wide helper count. That is how it was caught:
+    // the count stayed at 8 after the string literals were split, because the
+    // comment explaining the split still spelled them out.
+    const FIXTURE_CALL = `teardownTenant${'Fixture'}`;
+    const HELPER_PATH = `helpers/tenant${'Teardown.js'}`;
+    const source = (body) => [
+      "import prisma from '../../lib/prisma.js';",
+      `import { ${FIXTURE_CALL} } from '../${HELPER_PATH}';`,
+      'export async function purge(tenant) {',
+      `  await ${FIXTURE_CALL}(prisma, {`,
+      '    evidence: async (tx) => {',
+      `      ${body}`,
+      '    },',
+      '    tenantIds: [tenant],',
+      '  });',
+      '}',
+    ].join('\n');
+
+    // A phase-1 callback that only deletes evidence is class `none`: the
+    // baseline this probe moves away from.
+    const clean = classify(source(`await tx.$executeRawUnsafe(\`${DEL} fixture_rows WHERE tenant_id = $1::uuid\`, tenant);`));
+    expect(clean.classification).toBe('none');
+    expect(clean.deletes).toEqual([]);
+
+    // The helper's own contract forbids deleting users/tenants in phase 1. When
+    // a suite does it anyway the census must see the transaction, not report the
+    // delete as untransacted.
+    const violating = classify(source(`await tx.$executeRawUnsafe(\`${DEL} users WHERE tenant_id = $1::uuid\`, tenant);`));
+    expect(violating.classification).toBe('b');
+    expect(violating.deletes[0].transactionVia).toBe(`${FIXTURE_CALL}#evidence`);
+    expect(violating.usesTenantTeardownHelper).toBe(true);
+  });
 });
 
 describe('teardown-tx-census over the real corpus', () => {
@@ -229,6 +269,13 @@ describe('teardown-tx-census over the real corpus', () => {
     // suite counted as a real one would put a fabricated row in the artifact.
     expect(data.files.map((item) => item.file).filter((file) => file.includes('teardown-census')
       || file.endsWith('unit/teardownTxCensus.test.js'))).toEqual([]);
+    // Nor inflate the corpus-wide helper count. That predicate is a raw
+    // substring test over the whole file, comments included, so it is checked
+    // against this file's own text rather than against the census output - the
+    // count is not per-file and would hide a single spurious member.
+    const own = readFileSync(new URL(import.meta.url), 'utf8');
+    expect(own.includes(`helpers/${'tenantTeardown.js'}`)).toBe(false);
+    expect(/\bteardownTenantFixture\s*\(/.test(own)).toBe(false);
     // Every count carries its predicate, and every predicate is non-empty.
     for (const [name, text] of Object.entries(PREDICATES)) {
       expect(typeof text === 'string' && text.length > 40).toBe(true);

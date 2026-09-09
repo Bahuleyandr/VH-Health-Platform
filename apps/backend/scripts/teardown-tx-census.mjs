@@ -107,8 +107,11 @@ export const PREDICATES = {
     + 'deleteWithAuditBypass, teardownTenantFixture. Additionally, a function '
     + 'declared in the SAME file that forwards one of its own parameters into a '
     + 'recognised call is itself recognised (one hop, resolved lexically); such '
-    + 'a hit is labelled local-wrapper:<name>. Deeper indirection and '
-    + 'cross-file wrappers are NOT followed.',
+    + 'a hit is labelled local-wrapper:<name>. A callback passed as a PROPERTY '
+    + 'of an options object argument counts too - '
+    + 'teardownTenantFixture(prisma, { evidence: async (tx) => ... }) is the '
+    + 'shape the accepted fix pattern uses - and is labelled <call>#<property>. '
+    + 'Deeper indirection and cross-file wrappers are NOT followed.',
   helper:
     'A file `usesTenantTeardownHelper` when it names '
     + 'helpers/tenantTeardown.js or calls teardownTenantFixture.',
@@ -414,10 +417,30 @@ function transactionContext(parents, node, recognisedCalls, localWrappers) {
   for (let index = parents.length - 1; index >= 0; index -= 1) {
     const candidate = parents[index];
     if (!isFunctionNode(candidate)) continue;
+    // The callback passed as a bare argument: $transaction(async (tx) => ...).
     const parent = parents[index - 1];
     if (parent?.type === 'CallExpression' && parent.arguments.includes(candidate)) {
       const name = callName(parent.callee);
       if (name && recognisedCalls.has(name)) return label(name);
+    }
+    // The callback passed as a property of an options object, which is the
+    // shape the accepted fix pattern uses:
+    //   teardownTenantFixture(prisma, { evidence: async (tx) => ... })
+    // Its `evidence` callback runs inside phase 1's interactive transaction, so
+    // a delete there IS in a transaction. Without this the one construction the
+    // conversion programme is standardising on would read as untransacted.
+    if (parent?.type === 'Property' && parent.value === candidate) {
+      const object = parents[index - 2];
+      const call = parents[index - 3];
+      if (object?.type === 'ObjectExpression'
+        && call?.type === 'CallExpression'
+        && call.arguments.includes(object)) {
+        const name = callName(call.callee);
+        if (name && recognisedCalls.has(name)) {
+          const key = parent.key?.name ?? parent.key?.value;
+          return `${label(name)}#${key ?? '<computed>'}`;
+        }
+      }
     }
   }
   return null;
