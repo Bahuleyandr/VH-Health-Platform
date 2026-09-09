@@ -245,6 +245,17 @@ export async function runSecurityStage() {
   // that would carry the regression.
   run(process.execPath, ['--test', 'scripts/ci/check-migration-number-collisions.test.mjs']);
 
+  // Main-module guard census. `pathToFileURL(argv[1])` throws while the
+  // module is still evaluating whenever argv[1] is undefined — `node -e`, a
+  // worker thread, an editor walking the module graph — so an unguarded check
+  // makes every export of its own file unreachable. That is a repository-wide
+  // invariant over `scripts/` and `apps/`, not a property of any one stack, and
+  // several of the files it covers (canonical-plan, assert-canonical-results,
+  // run-affected-backend-tests) are the CI planner itself. Same placement and
+  // reasoning as the gates above: the census must not be skippable by the tier
+  // routing that the very modules it guards decide.
+  run(process.execPath, ['--test', 'scripts/ci/main-module-guard.test.mjs']);
+
   run(process.execPath, ['scripts/check-forgejo-supply-chain-pins.mjs']);
   run(process.execPath, ['scripts/scan-secrets.mjs']);
   run(process.execPath, ['scripts/gitleaks-scan.mjs', 'worktree'], { env: gitleaksEnv });
