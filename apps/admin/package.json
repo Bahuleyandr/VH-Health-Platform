@@ -101,7 +101,9 @@
       "typescript": "$typescript"
     },
     "fast-uri": "^3.1.7",
-    "js-yaml": "^4.3.2"
+    "@redocly/openapi-core": {
+      "js-yaml": "^4.3.2"
+    }
   },
   "repository": {
     "type": "git",
