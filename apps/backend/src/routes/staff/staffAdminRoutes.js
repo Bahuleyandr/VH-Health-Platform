@@ -12,6 +12,7 @@ import * as overtimeController from '../../controllers/staff/overtimeController.
 import * as payrollController from '../../controllers/staff/payrollController.js';
 import * as replacementController from '../../controllers/staff/replacementController.js';
 import * as reportAuditController from '../../controllers/staff/reportAuditController.js';
+import { requireStaffAdminTenant } from '../../controllers/staff/staffAdminTenant.js';
 import * as salaryRevisionController from '../../controllers/staff/salaryRevisionController.js';
 import * as shiftController from '../../controllers/staff/shiftController.js';
 import * as staffAdminController from '../../controllers/staff/staffAdminController.js';
@@ -153,13 +154,13 @@ const guardPayrollWriteByBodyStaffUid = staffAccessGuard(STAFF_ACCESS_POLICY_COD
 wrapAutoRBAC(router, 'staffAdminRoutes', {
   get: [
     // Staff Admin Dashboard
-    ['/dashboard', guardStaffReportView, staffAdminController.getStaffAdminDashboard],
+    ['/dashboard', requireStaffAdminTenant, guardStaffReportView, staffAdminController.getStaffAdminDashboard],
     
     // Analytics & Reports
     ['/analytics/attendance', guardAttendanceViewCollection, staffAdminController.getAttendanceAnalytics],
     ['/analytics/performance', guardStaffReportView, staffAdminController.getPerformanceAnalytics],
     ['/analytics/department-wise', guardStaffReportView, staffAdminController.getDepartmentAnalytics],
-    ['/analytics/leave-patterns', guardLeaveViewCollection, staffAdminController.getLeavePatterns],
+    ['/analytics/leave-patterns', requireStaffAdminTenant, guardLeaveViewCollection, staffAdminController.getLeavePatterns],
     
     // Attendance Management
     ['/attendance/anomalies', guardAttendanceViewCollection, staffAdminController.getAttendanceAnomalies],
@@ -172,12 +173,12 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     
     // HR Oversight
     ['/hr/pending-reviews', guardStaffReportView, staffAdminController.getPendingReviews],
-    ['/hr/leave-requests', guardLeaveViewCollection, staffAdminController.getAllLeaveRequests],
+    ['/hr/leave-requests', requireStaffAdminTenant, guardLeaveViewCollection, staffAdminController.getAllLeaveRequests],
     ['/hr/onboarding-status', guardStaffReportView, staffAdminController.getOnboardingStatus],
     ['/hierarchy', guardStaffReportView, organizationHierarchyController.getOrganizationHierarchy],
 
     // Leave Approvals (portal-facing)
-    ['/leave/pending', guardLeaveViewCollection, staffAdminController.getAllLeaveRequests],
+    ['/leave/pending', requireStaffAdminTenant, guardLeaveViewCollection, staffAdminController.getAllLeaveRequests],
     ['/replacement/pending-hr', guardLeaveViewCollection, replacementController.getPendingReplacements],
     
     // Shifts
@@ -206,7 +207,7 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/audit/dashboard', reportReviewRoles, reportAuditController.getAuditDashboard],
     ['/audit/activity', reportReviewRoles, reportAuditController.getAdminActivityReport],
     ['/audit/sla', reportReviewRoles, reportAuditController.getSLAReport],
-    ['/audit/trail/:type/:id', reportReviewRoles, reportAuditController.getReportAuditTrail],
+    ['/audit/trail/:type/:id', requireStaffAdminTenant, reportReviewRoles, reportAuditController.getReportAuditTrail],
 
     // Audit routes — attendance
     ['/audit/attendance/dashboard', guardAttendanceViewCollection, attendanceAuditController.getAttendanceAuditDashboard],
@@ -257,14 +258,14 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     // Bulk Operations
     ['/bulk/attendance-correction', guardAttendanceWriteCollection, bulkController.bulkCorrectAttendance],
     ['/bulk/shift-assignment', guardProfileWriteCollection, staffAdminController.bulkShiftAssignment],
-    ['/bulk/leave-approval', guardLeaveWriteCollection, staffAdminController.bulkLeaveApproval],
+    ['/bulk/leave-approval', requireStaffAdminTenant, guardLeaveWriteCollection, staffAdminController.bulkLeaveApproval],
 
     // Attendance disputes
     ['/attendance/disputes/:id/resolve', guardAttendanceDisputeWrite, attendanceController.resolveDispute],
 
     // Leave approval actions (portal-facing)
-    ['/leave/:leaveId/approve', guardLeaveWriteByLeaveId, staffAdminController.approveLeaveRequest],
-    ['/leave/:leaveId/reject', guardLeaveWriteByLeaveId, staffAdminController.approveLeaveRequest],
+    ['/leave/:leaveId/approve', requireStaffAdminTenant, guardLeaveWriteByLeaveId, staffAdminController.approveLeaveRequest],
+    ['/leave/:leaveId/reject', requireStaffAdminTenant, guardLeaveWriteByLeaveId, staffAdminController.approveLeaveRequest],
     ['/replacement/:id/hr-approve', guardLeaveWriteCollection, replacementController.hrApproveReplacement],
     
     // Shift operations
@@ -276,7 +277,7 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     
     // Override Operations
     ['/override/attendance', guardAttendanceWriteByBodyStaffId, staffAdminController.overrideAttendance],
-    ['/override/leave-balance', guardLeaveWriteByBodyStaffId, staffAdminController.overrideLeaveBalance],
+    ['/override/leave-balance', requireStaffAdminTenant, guardLeaveWriteByBodyStaffId, staffAdminController.overrideLeaveBalance],
     
     // System Operations
     ['/generate-payroll-data', guardPayrollWriteCollection, staffAdminController.generatePayrollData],
@@ -353,7 +354,7 @@ wrapAutoRBAC(router, 'staffAdminRoutes', {
     ['/status/:staffId', guardProfileWriteByStaffId, staffAdminController.updateStaffStatus],
     
     // Approve/Reject Operations
-    ['/approve/performance-review/:reviewId', guardProfileWriteCollection, staffAdminController.approvePerformanceReview],
+    ['/approve/performance-review/:reviewId', requireStaffAdminTenant, guardProfileWriteCollection, staffAdminController.approvePerformanceReview],
     ['/approve/leave/:leaveId', guardLeaveWriteByLeaveId, staffAdminController.approveLeaveRequest],
 
     // Custom shift update

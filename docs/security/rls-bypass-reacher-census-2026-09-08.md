@@ -1,6 +1,6 @@
 # RLS bypass-reacher census — 2026-09-08
 
-Source revision: `cdca2e2aa1e21979766f564b03c666df97865e17`. Exact normalized source and migration SHA-256 manifests are in the adjacent JSON pin.
+Source revision: `37e56ff9fb251241d0b66bb6e405235a75992be2`. Exact normalized source and migration SHA-256 manifests are in the adjacent JSON pin.
 
 **Census only: no policy changes, conversions, completed dispositions or runtime acceptance claims.** Every entry is PENDING with an intended disposition and future module PR. A closure must reduce K to zero for its table and carry the disposition tests in that same PR.
 
@@ -166,7 +166,7 @@ The second query must reconcile to the migration manifest before a historical ad
 
 ## users
 
-**402 reachers = 0 dispositioned + 402 pending.** 1333 source statement candidates reference this table before root tracing. Module PR: `feat/rls-t2-appointments`.
+**402 reachers = 0 dispositioned + 402 pending.** 1335 source statement candidates reference this table before root tracing. Module PR: `feat/rls-t2-appointments`.
 
 | Statement | Contexts | Entry/job origins | PENDING intended disposition |
 |---|---|---|---|
