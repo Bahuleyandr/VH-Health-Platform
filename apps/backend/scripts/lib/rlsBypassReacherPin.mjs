@@ -234,7 +234,7 @@ export function assertTablePin(actual, expected) {
   }
   if (JSON.stringify(actual) !== JSON.stringify(expected))
     throw new Error(
-      `${actual.table}: statement census changed; regenerate and review the exact list`
+      `${actual.table}: statement census changed; review the diff against the committed pin; regeneration (--write) is a reviewed change`
     );
 }
 

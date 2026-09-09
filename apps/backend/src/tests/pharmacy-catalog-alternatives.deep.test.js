@@ -33,6 +33,7 @@
 import request from 'supertest';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
+import { teardownTenantFixture } from './helpers/tenantTeardown.js';
 import { API_KEY, generateTestToken, ensureTestIdentity } from './testClient.js';
 import { setCompositionSearchEnabled } from '../services/pharmacy/compositionFeatureService.js';
 import { grantPharmacyFacilityAuthority } from '../services/pharmacy/pharmacyFacilityAuthorityService.js';
@@ -40,6 +41,9 @@ import { grantPharmacyFacilityAuthority } from '../services/pharmacy/pharmacyFac
 const TENANT_A = '00000000-0000-4000-8000-0000cfa10001';
 const TENANT_B = '00000000-0000-4000-8000-0000cfa10002';
 const TENANT_OFF = '00000000-0000-4000-8000-0000cfa10003';
+// The three tenants this suite creates in beforeAll; phase 2 of the teardown
+// deletes them, so no run leaves them behind.
+const FIXTURE_TENANTS = [TENANT_A, TENANT_B, TENANT_OFF];
 
 // One actor identity PER TENANT. users.uid carries a global unique index
 // (users_uid_key), so a single uid cannot exist in both tenants, and
@@ -104,59 +108,93 @@ describe('GET /pharmacy-orders/catalog/:id/alternatives — gated composition al
   let monoId;
   const ids = {};
 
+  // Two-phase teardown on the shared helper (src/tests/helpers/tenantTeardown.js,
+  // PR #1048's split generalised by #1050). Phase 1 is this suite's own evidence
+  // deletes — same statements, same order — in ONE short interactive transaction
+  // under app.audit_bypass. Phase 2 deletes the four fixture users and this
+  // suite's three tenants as plain autocommit statements, outside any interactive
+  // transaction: one ON DELETE referential-integrity trigger fires per foreign key
+  // that references the parent (466 reference users, 791 reference tenants at
+  // schema >= migration 790), which is seconds of work. Measured on this schema:
+  // inside the old single transaction the users delete alone took 3.4 s of the
+  // 5 000 ms Prisma default this call used, and at six concurrent lanes all six
+  // teardowns hit 5.8-6.3 s and ROLLED BACK — silently, because the whole
+  // transaction was wrapped in .catch(() => {}), so the suite still reported green
+  // while leaving its entire custody fixture behind.
+  //
+  // The session_replication_role toggle stays INSIDE phase 1, as SET LOCAL, and is
+  // reset to 'origin' before it commits. It exempts only this fixture's own
+  // append-only pharmacy_staff_facility_grant_events rows (migration 753's
+  // trg_pharmacy_staff_facility_grant_events_append_only_753). SET LOCAL dies with
+  // that transaction and cannot reach phase 2's autocommit tenant delete, which
+  // under replica role would skip the 310 ON DELETE CASCADEs and orphan the
+  // children it exists to remove.
   async function cleanup() {
-    await prisma
-      .$executeRawUnsafe(`DELETE FROM pharmacy_inventory_batches WHERE batch_number LIKE 'ALTTEST-B-%'`)
-      .catch(() => {});
-    await prisma
-      .$executeRawUnsafe(`DELETE FROM pharmacy_inventory_items WHERE sku_code LIKE 'ALTTEST-SKU-%'`)
-      .catch(() => {});
-    await prisma
-      .$executeRawUnsafe(`DELETE FROM pharmacy_catalog WHERE name LIKE 'ALTTEST %'`)
-      .catch(() => {});
-    await prisma
-      .$executeRawUnsafe(
-        `DELETE FROM composition_search_settings WHERE tenant_id IN ($1::uuid, $2::uuid, $3::uuid)`,
-        TENANT_A, TENANT_B, TENANT_OFF,
-      )
-      .catch(() => {});
-    await prisma
-      .$executeRawUnsafe(
-        `DELETE FROM drug_compositions WHERE composition_key IN ($1, $2)`,
-        COMBO_KEY, MONO_KEY,
-      )
-      .catch(() => {});
     custody.clear();
-    // Custody teardown, after every row that references a facility is gone.
-    // pharmacy_staff_facility_grant_events is append-only (migration 753's
-    // trg_pharmacy_staff_facility_grant_events_append_only_753), so the fixture
-    // drops its own rows under session_replication_role='replica' exactly the way
-    // pharmacy-dispensable-context.deep.test.js does — the guard stays live
-    // everywhere else, this only exempts the fixture's own teardown.
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
-      await tx.$executeRawUnsafe(
-        `DELETE FROM pharmacy_staff_facility_grant_events
-          WHERE grant_id IN (SELECT id FROM pharmacy_staff_facility_grants WHERE staff_uid = ANY($1::uuid[]))`,
-        FIXTURE_UIDS,
-      );
-      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'origin'");
-      await tx.$executeRawUnsafe(
-        `DELETE FROM pharmacy_staff_facility_grants WHERE staff_uid = ANY($1::uuid[])`,
-        FIXTURE_UIDS,
-      );
-      await tx.$executeRawUnsafe(`DELETE FROM staff WHERE user_id = ANY($1::uuid[])`, FIXTURE_UIDS);
-      await tx.$executeRawUnsafe(
-        `DELETE FROM facility_locations
-          WHERE facility_id IN (SELECT id FROM facilities WHERE facility_code = ANY($1::text[]))`,
-        FACILITY_CODES,
-      );
-      await tx.$executeRawUnsafe(
-        `DELETE FROM facilities WHERE facility_code = ANY($1::text[])`,
-        FACILITY_CODES,
-      );
-      await tx.$executeRawUnsafe(`DELETE FROM users WHERE uid = ANY($1::uuid[])`, FIXTURE_UIDS);
-    }).catch(() => {});
+    await teardownTenantFixture(prisma, {
+      evidence: async (tx) => {
+        await tx
+          .$executeRawUnsafe(`DELETE FROM pharmacy_inventory_batches WHERE batch_number LIKE 'ALTTEST-B-%'`);
+        await tx
+          .$executeRawUnsafe(`DELETE FROM pharmacy_inventory_items WHERE sku_code LIKE 'ALTTEST-SKU-%'`);
+        await tx
+          .$executeRawUnsafe(`DELETE FROM pharmacy_catalog WHERE name LIKE 'ALTTEST %'`);
+        await tx
+          .$executeRawUnsafe(
+            `DELETE FROM composition_search_settings WHERE tenant_id IN ($1::uuid, $2::uuid, $3::uuid)`,
+            TENANT_A, TENANT_B, TENANT_OFF,
+          );
+        await tx
+          .$executeRawUnsafe(
+            `DELETE FROM drug_compositions WHERE composition_key IN ($1, $2)`,
+            COMBO_KEY, MONO_KEY,
+          );
+        // Custody teardown, after every row that references a facility is gone.
+        // pharmacy_staff_facility_grant_events is append-only (migration 753's
+        // trg_pharmacy_staff_facility_grant_events_append_only_753), so the fixture
+        // drops its own rows under session_replication_role='replica' exactly the way
+        // pharmacy-dispensable-context.deep.test.js does — the guard stays live
+        // everywhere else, this only exempts the fixture's own teardown.
+        await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
+        await tx.$executeRawUnsafe(
+          `DELETE FROM pharmacy_staff_facility_grant_events
+            WHERE grant_id IN (SELECT id FROM pharmacy_staff_facility_grants WHERE staff_uid = ANY($1::uuid[]))`,
+          FIXTURE_UIDS,
+        );
+        await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'origin'");
+        await tx.$executeRawUnsafe(
+          `DELETE FROM pharmacy_staff_facility_grants WHERE staff_uid = ANY($1::uuid[])`,
+          FIXTURE_UIDS,
+        );
+        await tx.$executeRawUnsafe(`DELETE FROM staff WHERE user_id = ANY($1::uuid[])`, FIXTURE_UIDS);
+        await tx.$executeRawUnsafe(
+          `DELETE FROM facility_locations
+            WHERE facility_id IN (SELECT id FROM facilities WHERE facility_code = ANY($1::text[]))`,
+          FACILITY_CODES,
+        );
+        await tx.$executeRawUnsafe(
+          `DELETE FROM facilities WHERE facility_code = ANY($1::text[])`,
+          FACILITY_CODES,
+        );
+        // audit_log and hipaa_access_log are the only two tables that hold rows for
+        // these tenants and carry an ON DELETE NO ACTION foreign key to tenants
+        // (fk_audit_log_tenant, fk_hipaa_access_log_tenant), so phase 2's tenant
+        // delete raises 23503 unless they go first. Both are append-only
+        // (trg_audit_log_append_only, trg_hipaa_access_log_append_only), which is
+        // why they belong in phase 1, under the app.audit_bypass GUC the helper
+        // sets — the same pattern a dozen sibling suites already use. Measured on
+        // this schema: 8 audit_log and 5 hipaa_access_log rows per run, all on the
+        // fixture tenants, which this suite has never deleted.
+        await tx.$executeRawUnsafe(
+          `DELETE FROM audit_log WHERE tenant_id = ANY($1::uuid[])`, FIXTURE_TENANTS,
+        );
+        await tx.$executeRawUnsafe(
+          `DELETE FROM hipaa_access_log WHERE tenant_id = ANY($1::uuid[])`, FIXTURE_TENANTS,
+        );
+      },
+      tenantIds: FIXTURE_TENANTS,
+      userUids: FIXTURE_UIDS,
+    });
   }
 
   // One tenant's complete pharmacy custody chain. resolvePharmacyFacility demands
@@ -479,8 +517,11 @@ describe('GET /pharmacy-orders/catalog/:id/alternatives — gated composition al
   }, 120_000);
 
   afterAll(async () => {
-    await cleanup();
-    await prisma.$disconnect().catch(() => {});
+    try {
+      await cleanup();
+    } finally {
+      await prisma.$disconnect().catch(() => {});
+    }
     // Budgeted for the same reason as beforeAll.
   }, 120_000);
 

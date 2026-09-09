@@ -114,10 +114,27 @@ check('Docker install stages copy only the manifests before npm ci', () =>
   installStagesCopyOnlyManifestsBeforeNpmCi(adminDockerfile, 1) &&
   !/patch-[a-z-]+\.mjs/.test(`${backendDockerfile}\n${adminDockerfile}`));
 
-check('minimatch, brace-expansion and js-yaml resolve natively at patched releases in both apps', () =>
+// @redocly/openapi-core 1.34.x pins js-yaml to an EXACT release (1.34.19 → 4.3.1),
+// and openapi-typescript 7.13.0 (the newest) accepts only the 1.34 line, so once
+// GHSA-2883-xcg3-v3hh (2026-09-09) moved the 4.x floor to 4.3.2 native resolution
+// could no longer reach it. A declarative `overrides` entry scoped to that one
+// package, carrying only `js-yaml`, is the narrowest substitution that satisfies
+// the floor; it is not an install-time rewrite of node_modules (the pattern OPEN-22
+// retired), and the floor check below still applies to the copy it produces.
+// Any other key under that override, or any override of minimatch, still fails.
+// Remove the override when openapi-typescript adopts @redocly/openapi-core 2.x
+// (js-yaml ^5.2.2).
+function redoclyOverrideCarriesOnlyJsYaml(pkg) {
+  const override = pkg.overrides?.['@redocly/openapi-core'];
+  if (override === undefined) return true;
+  return typeof override === 'object' && override !== null &&
+    Object.keys(override).length === 1 && typeof override['js-yaml'] === 'string';
+}
+
+check('minimatch, brace-expansion and js-yaml resolve at patched releases in both apps (only the redocly exact js-yaml pin may be overridden, to the floor)', () =>
   backendPackage.overrides?.minimatch === undefined &&
   adminPackage.overrides?.minimatch === undefined &&
-  adminPackage.overrides?.['@redocly/openapi-core'] === undefined &&
+  redoclyOverrideCarriesOnlyJsYaml(adminPackage) &&
   lockfileMeetsPatchedFloors(backendLock) &&
   lockfileMeetsPatchedFloors(adminLock));
 
