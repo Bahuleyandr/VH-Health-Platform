@@ -4,13 +4,15 @@ import { wrapAutoRBAC } from '../../config/routeWrapper.js';
 import * as ePrescriptionController from '../../controllers/prescription/ePrescriptionController.js';
 import * as rejectedPrescriptionAmendmentController from '../../controllers/prescription/rejectedPrescriptionAmendmentController.js';
 import * as pharmacyOrderController from '../../controllers/pharmacy/pharmacyOrderController.js';
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import { patientAccessGuard } from '../../middleware/phiAccessMiddleware.js';
 import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
 import { validateFileContent } from '../../middleware/uploadMiddleware.js';
 import { prescriptionAttachmentFileFilter } from '../../utils/prescriptionAttachmentFilter.js';
+import { AppError } from '../../utils/AppError.js';
+import { relayAppError } from '../../utils/responseHelper.js';
 
 const router = express.Router();
 
@@ -38,6 +40,13 @@ logger.info('✅ E-Prescription routes loaded');
 
 function tenantOf(req) {
   return req.tenantId ?? req.user?.tenant_id ?? req.user?.tenantId ?? null;
+}
+
+function requirePrescriptionTenant(req, res, next) {
+  if (!tenantOf(req)) {
+    return relayAppError(res, AppError.forbidden('Tenant context required', 'TENANT_CONTEXT_REQUIRED'));
+  }
+  next();
 }
 
 function positiveInt(value) {
@@ -89,7 +98,7 @@ function selectRxPatientByParam(paramName) {
     const rxId = positiveInt(req.params?.[paramName]);
     const tenantId = tenantOf(req);
     if (rxId === null || !tenantId) return null;
-    const rows = await prisma.$queryRawUnsafe(
+    const rows = await setTenantTx(tenantId, tx => tx.$queryRawUnsafe(
       `SELECT p.id, p.uid
          FROM e_prescriptions ep
          JOIN users p
@@ -101,7 +110,7 @@ function selectRxPatientByParam(paramName) {
         LIMIT 1`,
       tenantId,
       rxId,
-    );
+    ));
     return rows[0] ?? null;
   };
 }
@@ -303,7 +312,7 @@ wrapAutoRBAC(router, 'ePrescriptionRejectedAmendmentRoutes', {
 // idempotency-key claim.
 wrapAutoRBAC(router, 'ePrescriptionDetailRoutes', {
   get: [
-    ['/:id', [guardRxById], ePrescriptionController.getPrescription],
+    ['/:id', [requirePrescriptionTenant, guardRxById], ePrescriptionController.getPrescription],
     ['/:id/safety', [guardRxById], ePrescriptionController.getPrescriptionSafety]
   ],
   put: [

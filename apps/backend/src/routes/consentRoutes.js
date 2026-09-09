@@ -6,7 +6,7 @@ import { Router } from 'express';
 import { validationResult } from 'express-validator';
 import PDFDocument from 'pdfkit';
 import { isScanStatusServable } from '../config/fileScanPolicy.js';
-import prisma from '../lib/prisma.js';
+import prisma, { setTenantTx } from '../lib/prisma.js';
 import logger from '../logging/logger.js';
 import { singleUpload, validateFileContent, validatePatientUpload } from '../middleware/uploadMiddleware.js';
 import { publishEvent } from '../services/events/eventOutboxService.js';
@@ -18,6 +18,7 @@ import { getFileFromR2, uploadFileToR2 } from '../utils/r2Storage.js';
 import { success, error } from '../utils/responseHelper.js';
 import { requiredUUID, requiredString, consentValidator } from '../validators/sharedValidators.js';
 import { epochMsOrNull } from '../utils/dbInstant.js';
+import { AppError } from '../utils/AppError.js';
 
 const validate = (req, res, next) => {
   const errors = validationResult(req);
@@ -391,6 +392,8 @@ router.get('/data-rights', async (req, res, next) => {
 
 router.patch('/data-rights/:id', async (req, res, next) => {
   try {
+    if (!req.tenantId) throw AppError.forbidden('Tenant context required', 'TENANT_CONTEXT_REQUIRED');
+    const tenantId = resolveTenantOrThrow(req);
     if (!isAdminOrClinicalStaff(req)) {
       return error(res, 'Only authorized staff can update data rights requests', 403);
     }
@@ -404,21 +407,24 @@ router.patch('/data-rights/:id', async (req, res, next) => {
 
     const rows = await prisma.$queryRawUnsafe(
       `UPDATE patient_data_rights_requests
-       SET status = $2,
+       SET status = $2::varchar,
            resolution = $3::jsonb,
-           completed_at = CASE WHEN $2 IN ('completed', 'rejected', 'cancelled') THEN NOW() ELSE completed_at END,
+           completed_at = CASE WHEN $2::varchar IN ('completed', 'rejected', 'cancelled') THEN NOW() ELSE completed_at END,
            updated_at = NOW()
-       WHERE id = $1
+       WHERE id = $1 AND tenant_id = $4::uuid
        RETURNING id, patient_uid, request_type, status, resolution, completed_at, updated_at`,
       id,
       normalizedStatus,
-      resolution ? JSON.stringify(resolution) : null
+      resolution ? JSON.stringify(resolution) : null,
+      tenantId
     );
 
     if (!rows.length) return error(res, 'Data rights request not found', 404);
 
-    await publishEvent({
+    await setTenantTx(tenantId, tx => publishEvent({
       eventType: 'privacy.data_rights.updated',
+      tenantId,
+      tx,
       aggregateType: 'patient_data_rights_request',
       aggregateId: rows[0].id,
       patientUid: rows[0].patient_uid,
@@ -426,7 +432,7 @@ router.patch('/data-rights/:id', async (req, res, next) => {
         status: rows[0].status,
         updated_by: req.user?.uid || null,
       },
-    });
+    }));
 
     return success(res, rows[0], 'Data rights request updated');
   } catch (err) {

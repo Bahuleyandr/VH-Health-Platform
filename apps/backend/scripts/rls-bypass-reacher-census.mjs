@@ -28,14 +28,14 @@ export function connectionInventory() {
       role: 'DATABASE_URL: declared vhhealth_runtime; wrapped transactions SET LOCAL ROLE vhhealth_app',
       bypassrls: 'false for both declared runtime roles',
       evidence:
-        'infra/kubernetes/apps/backend/configmap.yaml:231-247; infra/kubernetes/base/cnpg/cluster.yaml:225-240; src/lib/prisma.js:628-642. Bare tx sites remain enumerated pending context proof.'
+        'infra/kubernetes/apps/backend/configmap.yaml:231-247; infra/kubernetes/base/cnpg/cluster.yaml:225-240; src/lib/prisma.js:713-727. Bare tx sites remain enumerated pending context proof.'
     },
     {
       consumer: 'prismaReadOnly (all sites, including setTenant readOnly wrappers)',
       role: 'DATABASE_READ_URL override, otherwise primary DATABASE_URL; actual override role requires connection query',
       bypassrls: 'unknown for override; false for declared primary fallback',
       evidence:
-        'src/lib/prisma.js:583-601. Census includes read-only queries even when a request path normally supplies ALS.'
+        'src/lib/prisma.js:668-686. Census includes read-only queries even when a request path normally supplies ALS.'
     },
     {
       consumer: 'direct pg: src/utils/scheduler.js:9',
