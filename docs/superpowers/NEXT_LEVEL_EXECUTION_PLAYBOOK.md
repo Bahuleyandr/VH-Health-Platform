@@ -398,6 +398,7 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 768 | Plan 4 reprocessable-devices platform foundation | **on main** (#1030, 2026-09-07) |
 | 769–770 | Plan 4 PR 3: dialysis safety boundaries (769), exposure creation outcomes (770) — first two numbers of live block 769–779 | **on main** (#1041, 2026-09-08) |
 | 790 | Cath readiness PR 1 of 5: `cath_lab_case_attempts` additive expansion — first number of live block 790–799 | **on main** (#1043, 2026-09-08) |
+| 804 | Retention prune uses the index built for it: `clock_timestamp()` → `statement_timestamp()` in `prune_scheduled_job_run_evidence()`, redefining 668's function; deleted set unchanged | **on main** (#1072, 2026-09-09) |
 
 **2026-09 live blocks (dev-0e rulings of 2026-09-08; dev-0e is the allocation authority for these blocks — ask before claiming, and record the claim here in the same PR):**
 
@@ -407,7 +408,7 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 780–789 | RLS tranches (Astra) | none used |
 | 790–799 | Cath readiness train, 5 PRs (Sol) | 790 **on main** (#1043); **next free 791** |
 | 800–803 | Database-constraint restoration lane (assigned 2026-09-08) | none used |
-| 804+ | UNASSIGNED — **804 is next-free**; new blocks are assigned by dev-0e and recorded in this table before any file is created, never in chat alone (nor in a spec, plan or PR body alone) | — |
+| 805+ | UNASSIGNED — **805 is next-free** (804 allocated 2026-09-09, row above); new blocks are assigned by dev-0e and recorded in this table before any file is created, never in chat alone (nor in a spec, plan or PR body alone) | — |
 
 Gaps below 368 (358, 360, 362–365) are released reservations — do not reuse; continue from the top.
 Gaps at or above 580 (626, 635–639, 696, 698, 751, 756) are likewise released — do not reuse.

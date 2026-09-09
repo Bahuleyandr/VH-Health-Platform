@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Client } from 'pg';
 
 import prisma from '../lib/prisma.js';
+import { teardownTenantFixture } from './helpers/tenantTeardown.js';
 import {
   applyBillingCreditNote,
   approveBillingCreditNote,
@@ -51,75 +52,98 @@ describeIfDb('MED-03 billing safety regressions', () => {
   let admissionId;
   let encounterId;
 
+  // Two-phase teardown on the shared helper (src/tests/helpers/tenantTeardown.js,
+  // PR #1048's split generalised by #1050). Phase 1 is this suite's own evidence
+  // sweep — the same table list, in the same order, with the same statement text —
+  // in ONE short interactive transaction under app.audit_bypass, still under
+  // session_replication_role='replica' for the append-only evidence tables the
+  // suite has always exempted. Phase 2 deletes the fixture's users and its tenant
+  // as plain autocommit statements outside any interactive transaction.
+  //
+  // Two things change, both measured in the PR body. First, users and tenants
+  // leave the interactive transaction, so the referential-integrity fan-out they
+  // carry (466 foreign keys reference users, 791 reference tenants at schema
+  // >= migration 790) can no longer expire this call's 30 000 ms budget and roll
+  // every earlier delete back with it. Second, 'users' was the last entry in the
+  // replica-role table list, so its ON DELETE triggers were being SKIPPED: the 19
+  // CASCADE and 105 SET NULL foreign keys that reference users never ran. That is
+  // not theoretical here - it is why every run of this suite left three orphaned
+  // pharmacy_patient_safety_versions rows behind, whose only foreign key is
+  // fk_pharmacy_patient_safety_patient_753 ON DELETE CASCADE from users. Phase 2
+  // deletes users at 'origin' with the fan-out live, and those rows go with it.
+  //
+  // The session_replication_role toggle stays INSIDE phase 1, as SET LOCAL, and is
+  // reset to 'origin' before it commits. SET LOCAL dies with that transaction and
+  // cannot reach phase 2, which is exactly the point: a replica-role tenant delete
+  // would skip the 310 ON DELETE CASCADEs that reference tenants and orphan the
+  // children it exists to remove.
   async function cleanupTenant() {
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
-      for (const table of [
-        'payment_gateway_webhook_events',
-        'payment_gateway_refunds',
-        'payment_gateway_orders',
-        'payment_gateway_provider_configs',
-        'ledger_postings',
-        'ledger_entries',
-        'ledger_balances',
-        'ledger_accounts',
-        'idempotency_keys',
-        'pharmacy_staff_facility_grant_events',
-        'pharmacy_staff_facility_grants',
-        'task_comments',
-        'tasks',
-        'notification_outbox',
-        'workflow_sla_instances',
-        'billing_credit_note_events',
-        'billing_credit_notes',
-        'billing_refunds',
-        'tpa_claims',
-        'insurance_preauth',
-        'insurance_policies',
-        'ward_indent_financial_events',
-        'ward_indent_inventory_movement_links',
-        'ward_indent_inventory_allocations',
-        'ward_indent_inventory_receipt_events',
-        'ward_indent_events',
-        'clinical_timeline_events',
-        'clinical_audit_events',
-        'billing_payments',
-        'billing_invoice_items',
-        'billing_invoices',
-        'pharmacy_schedule_register',
-        'pharmacy_stock_movements',
-        'pharmacy_inventory_batches',
-        'pharmacy_inventory_items',
-        'ward_indent_items',
-        'ward_indents',
-        'clinical_orders',
-        'admissions',
-        'pharmacy_catalog',
-        'beds',
-        'wards',
-        'facility_locations',
-        'facilities',
-        'staff',
-        'audit_logs',
-        'users',
-      ]) {
+    await teardownTenantFixture(prisma, {
+      evidence: async (tx) => {
+        await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+        for (const table of [
+          'payment_gateway_webhook_events',
+          'payment_gateway_refunds',
+          'payment_gateway_orders',
+          'payment_gateway_provider_configs',
+          'ledger_postings',
+          'ledger_entries',
+          'ledger_balances',
+          'ledger_accounts',
+          'idempotency_keys',
+          'pharmacy_staff_facility_grant_events',
+          'pharmacy_staff_facility_grants',
+          'task_comments',
+          'tasks',
+          'notification_outbox',
+          'workflow_sla_instances',
+          'billing_credit_note_events',
+          'billing_credit_notes',
+          'billing_refunds',
+          'tpa_claims',
+          'insurance_preauth',
+          'insurance_policies',
+          'ward_indent_financial_events',
+          'ward_indent_inventory_movement_links',
+          'ward_indent_inventory_allocations',
+          'ward_indent_inventory_receipt_events',
+          'ward_indent_events',
+          'clinical_timeline_events',
+          'clinical_audit_events',
+          'billing_payments',
+          'billing_invoice_items',
+          'billing_invoices',
+          'pharmacy_schedule_register',
+          'pharmacy_stock_movements',
+          'pharmacy_inventory_batches',
+          'pharmacy_inventory_items',
+          'ward_indent_items',
+          'ward_indents',
+          'clinical_orders',
+          'admissions',
+          'pharmacy_catalog',
+          'beds',
+          'wards',
+          'facility_locations',
+          'facilities',
+          'staff',
+          'audit_logs',
+        ]) {
+          await tx.$executeRawUnsafe(
+            `DELETE FROM ${table} WHERE tenant_id = $1::uuid`,
+            tenantId,
+          );
+        }
+        await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'origin'`);
+        // drug_compositions is a shared, tenant-less formulary table, so this suite
+        // removes only the composition it keyed to its own tenant id.
         await tx.$executeRawUnsafe(
-          `DELETE FROM ${table} WHERE tenant_id = $1::uuid`,
-          tenantId,
+          `DELETE FROM drug_compositions WHERE composition_key = $1::text`,
+          compositionKey,
         );
-      }
-      await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'origin'`);
-      // drug_compositions is a shared, tenant-less formulary table, so this suite
-      // removes only the composition it keyed to its own tenant id.
-      await tx.$executeRawUnsafe(
-        `DELETE FROM drug_compositions WHERE composition_key = $1::text`,
-        compositionKey,
-      );
-      await tx.$executeRawUnsafe(
-        `DELETE FROM tenants WHERE id = $1::uuid`,
-        tenantId,
-      );
-    }, { timeout: 30_000 });
+      },
+      tenantIds: [tenantId],
+    });
   }
 
   async function createWardCharge(label) {
@@ -475,7 +499,10 @@ describeIfDb('MED-03 billing safety regressions', () => {
       else process.env.LEDGER_AUTHORITATIVE_MODE = previousLedgerMode;
       await prisma.$disconnect().catch(() => {});
     }
-  }, 30_000);
+    // Phase 2 of the teardown is bounded by the client statement_timeout and this
+    // hook, not by a Prisma interactive-transaction budget, so the hook carries the
+    // same explicit 120 s the four merged siblings use.
+  }, 120_000);
 
   test('insurance medication credits fail before creating an uncloseable refund obligation', async () => {
     const charge = await createWardCharge('insurance-refund');

@@ -23,6 +23,20 @@ CURL="${CURL:-curl}"
 # service proxy cannot send X-Forwarded-Proto (see verify_backend_version).
 VERIFY_URL="${VH_DEPLOY_VERIFY_URL:-http://127.0.0.1:30090/health/version}"
 ROLLOUT_TIMEOUT="${VH_DEPLOY_ROLLOUT_TIMEOUT:-300s}"
+# Verification window. The rollout being Complete does not mean the pod is
+# already answering: on 2026-09-09 06:40Z a healthy pod was briefly unreachable
+# while a boot-time scheduled-job storm saturated its DB pool, the single
+# verification curl hit "Recv failure: Connection reset by peer", and a good
+# deploy was rolled back. verify_backend_version re-reads for up to
+# VERIFY_TIMEOUT seconds, VERIFY_INTERVAL apart, and still fails closed.
+# VERIFY_TIMEOUT=0 restores the old single-shot behaviour.
+VERIFY_TIMEOUT="${VH_DEPLOY_VERIFY_TIMEOUT:-60}"
+VERIFY_INTERVAL="${VH_DEPLOY_VERIFY_INTERVAL:-5}"
+# Both are operator-supplied. A non-numeric timeout would break the arithmetic
+# mid-deploy, and a zero interval would spin the loop, so bad values fall back
+# to the defaults rather than changing how the window behaves.
+[[ "$VERIFY_TIMEOUT" =~ ^[0-9]+$ ]] || VERIFY_TIMEOUT=60
+[[ "$VERIFY_INTERVAL" =~ ^[1-9][0-9]*$ ]] || VERIFY_INTERVAL=5
 
 # Migration step (the rig's stand-in for the production ArgoCD PreSync hook).
 # See infra/kubernetes/overlays/dalekdefender/migration-job.yaml.
@@ -467,6 +481,9 @@ wait_for_rollout() {
 verify_backend_version() {
   local expected_commit="$1"
   local payload compact deployed_commit
+  local attempts=0 deadline now
+  local last_mode="unreachable"
+  local last_commit="missing-or-invalid"
 
   # NOT the kubectl service proxy: with NODE_ENV=production the backend's
   # HTTPS-redirect middleware 301s any request that lacks
@@ -477,20 +494,52 @@ verify_backend_version() {
   # rig, where the documented localhost bridge to the backend Service listens
   # on 127.0.0.1:30090 (tailscale-serve's :8444 source — see README) — curl it
   # directly with the header the middleware requires.
-  if ! payload="$("$CURL" -fsS --max-time 20 -H 'X-Forwarded-Proto: https' "$VERIFY_URL")"; then
-    echo "::error::Unable to read /health/version via the localhost backend bridge (${VERIFY_URL})." >&2
-    return 1
-  fi
+  #
+  # Bounded retry, not a single shot (incident 2026-09-09 06:40Z). A rollout
+  # reported Complete does not mean the pod is answering yet: a boot-time
+  # scheduled-job storm had briefly saturated its DB pool, the one curl this
+  # function used to make got "Recv failure: Connection reset by peer" at
+  # 06:40:27, and a healthy deploy was rolled back. Re-read for VERIFY_TIMEOUT
+  # seconds before giving up.
+  #
+  # It still FAILS CLOSED. When the commit never verifies, this returns 1 with
+  # the same diagnostics as before (plus how many attempts it made), and the
+  # caller's migration-aware rollback path runs exactly as it did.
+  deadline=$(( $(date +%s) + VERIFY_TIMEOUT ))
 
-  compact="$(printf '%s' "$payload" | tr -d '[:space:]')"
-  deployed_commit="$(printf '%s' "$compact" | sed -n 's/.*"commit":"\([0-9a-f]\{40\}\)".*/\1/p')"
-  if [[ "$deployed_commit" != "$expected_commit" ]]; then
-    deployed_commit="${deployed_commit:-missing-or-invalid}"
-    echo "::error::Dalekdefender deployed commit ${deployed_commit} does not match requested commit ${expected_commit}." >&2
-    return 1
-  fi
+  while :; do
+    attempts=$(( attempts + 1 ))
 
-  echo "Verified /health/version commit ${deployed_commit}."
+    if payload="$("$CURL" -fsS --max-time 20 -H 'X-Forwarded-Proto: https' "$VERIFY_URL")"; then
+      compact="$(printf '%s' "$payload" | tr -d '[:space:]')"
+      deployed_commit="$(printf '%s' "$compact" | sed -n 's/.*"commit":"\([0-9a-f]\{40\}\)".*/\1/p')"
+      if [[ "$deployed_commit" == "$expected_commit" ]]; then
+        echo "Verified /health/version commit ${deployed_commit} (attempt ${attempts})."
+        return 0
+      fi
+      last_mode="mismatch"
+      last_commit="${deployed_commit:-missing-or-invalid}"
+      # Every attempt reports what it actually saw, so a commit that appears
+      # only in an early attempt is still in the log after the window closes.
+      echo "::warning::Dalekdefender deployed commit ${last_commit} does not match requested commit ${expected_commit} (attempt ${attempts})." >&2
+    else
+      last_mode="unreachable"
+      echo "::warning::Unable to read /health/version via the localhost backend bridge (${VERIFY_URL}) (attempt ${attempts})." >&2
+    fi
+
+    now="$(date +%s)"
+    if (( now + VERIFY_INTERVAL > deadline )); then
+      break
+    fi
+    sleep "$VERIFY_INTERVAL"
+  done
+
+  if [[ "$last_mode" == "unreachable" ]]; then
+    echo "::error::Unable to read /health/version via the localhost backend bridge (${VERIFY_URL}). Gave up after ${attempts} attempt(s) over ${VERIFY_TIMEOUT}s." >&2
+  else
+    echo "::error::Dalekdefender deployed commit ${last_commit} does not match requested commit ${expected_commit}. Gave up after ${attempts} attempt(s) over ${VERIFY_TIMEOUT}s." >&2
+  fi
+  return 1
 }
 
 PREV_BACKEND_REF="$(current_image vhhealth-backend)"

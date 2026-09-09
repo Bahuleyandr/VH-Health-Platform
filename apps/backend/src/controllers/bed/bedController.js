@@ -46,18 +46,20 @@ export const createWard = async (req, res) => {
 
 export const updateWard = async (req, res) => {
   try {
-    const ward = await bedService.updateWard(req.params.id, req.body);
+    const ward = await bedService.updateWard(req.params.id, req.body, {
+      tenantId: req.tenantId ?? req.user?.tenant_id ?? req.user?.tenantId,
+    });
     if (!ward) return error(res, 'Ward not found', HTTP_STATUS.NOT_FOUND);
     success(res, { ward }, 'Ward updated');
   } catch (err) {
-    logger.error('Error updating ward:', err);
-    error(res, 'Failed to update ward', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to update ward', { safe: true });
   }
 };
 
 export const deleteWard = async (req, res) => {
   try {
-    const deleted = await bedService.deleteWard(req.params.id);
+    const tenantId = req.tenantId ?? req.user?.tenant_id ?? req.user?.tenantId;
+    const deleted = await bedService.deleteWard(req.params.id, { tenantId });
     if (!deleted) return error(res, 'Ward not found', HTTP_STATUS.NOT_FOUND);
     await logAudit(req, 'WARD_DELETED', {
       ward_id: deleted.id,
@@ -67,6 +69,7 @@ export const deleteWard = async (req, res) => {
     }, {
       resource: 'ward',
       resourceId: deleted.id,
+      tenantId,
     });
     emitBedEvent('ward-deleted', deleted);
     success(res, { ward: deleted }, 'Ward deleted');
