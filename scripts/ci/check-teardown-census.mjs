@@ -31,6 +31,19 @@ import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// The census's OWN count expressions. Not a second copy: on today's corpus only
+// two of the four delete kinds occur, so competing rules produce identical
+// numbers and a hand-written duplicate "matches" while being wrong. This module
+// imports no parser, so it is safe in the dependency-free security stage.
+import {
+  ALL_COUNTS,
+  DERIVED_COUNTS,
+  FLOOR_ONLY_COUNTS,
+  deriveCountsFromArtifact,
+} from '../../apps/backend/scripts/lib/teardown-census-counts.mjs';
+
+export { ALL_COUNTS, DERIVED_COUNTS, FLOOR_ONLY_COUNTS, deriveCountsFromArtifact };
+
 export const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 export const ARTIFACT_PATH = 'docs/security/teardown-tx-census.json';
 export const CENSUS_MODULE = '../../apps/backend/scripts/teardown-tx-census.mjs';
@@ -61,36 +74,20 @@ export const PREDICATES = {
   I4: 'FAIL - a file listed in the committed artifact no longer exists on disk.',
   I5: 'FAIL - a row\'s `classification` disagrees with the class implied by its '
     + 'own a/b/unresolved fields. Makes a hand-edit of the label alone visible.',
+  I6: 'FAIL - a `counts` key classified as neither DERIVED nor FLOOR-ONLY, or a '
+    + 'classified counter missing from `counts`. The partition is by explicit '
+    + 'name list so a counter added later cannot land in an unchecked bucket.',
+  I7: 'FAIL - a walk-scoped counter below its floor. filesWalked and '
+    + 'filesUsingTenantTeardownHelper are measured over the whole walk, not over '
+    + 'files[], so equality is not assertable from a committed artifact and only '
+    + 'floors are checked. Deriving the helper counter from files[] yields 1 on a '
+    + 'correct artifact whose recorded value is 12.',
   R: 'REPORT only, never a failure - count movement (filesWalked, arm totals, '
     + 'every differing counts field), rows added with an empty defect set '
     + '(a new test file that tears down correctly), rows removed (a suite '
     + 'converted onto tenantTeardown.js leaves the population outright), and '
     + 'rows whose defect set shrank.',
 };
-
-// Counts that are a pure function of files[]. filesWalked and
-// filesUsingTenantTeardownHelper are corpus-wide and NOT derivable from the
-// rows, so they are reported but never re-derived; parseFailures is checked
-// against its own list length instead.
-const DERIVABLE_COUNTS = [
-  'filesWithTargetDelete',
-  'filesReachedByLiteralArm',
-  'filesReachedByDynamicArm',
-  'filesReachedOnlyByDynamicArm',
-  'filesWithDynamicUsersAndNoLiteralUsers',
-  'classA',
-  'classB',
-  'classBoth',
-  'classNone',
-  'classUnknown',
-  'aUsers',
-  'aTenants',
-  'bUsers',
-  'bTenants',
-  'filesUsingHelperAndStillDeletingTargets',
-  'filesWithUnresolvedDynamicDelete',
-  'filesWithPartiallyResolvedDynamicDelete',
-];
 
 // ---------------------------------------------------------------------------
 // Row helpers
@@ -113,38 +110,6 @@ export function impliedClassification(record) {
   const unread = (record?.unresolvedDynamicDeletes ?? 0)
     + (record?.partiallyResolvedDynamicDeletes ?? 0);
   return unread > 0 ? 'unknown' : 'none';
-}
-
-const isDynamic = (item) => item.kind === 'dynamic' || item.kind === 'dynamic-partial';
-
-/** Re-derive the row-derivable counts arithmetically. Mirrors census(). */
-export function deriveCounts(files) {
-  const by = (predicate) => files.filter(predicate).length;
-  return {
-    filesWithTargetDelete: files.length,
-    filesReachedByLiteralArm: by((r) => r.deletes.some((d) => d.kind === 'literal')),
-    filesReachedByDynamicArm: by((r) => r.deletes.some((d) => isDynamic(d) && d.relations.length > 0)),
-    filesReachedOnlyByDynamicArm: by(
-      (r) => r.deletes.some((d) => isDynamic(d) && d.relations.length > 0)
-        && !r.deletes.some((d) => d.kind === 'literal'),
-    ),
-    filesWithDynamicUsersAndNoLiteralUsers: by(
-      (r) => r.deletes.some((d) => isDynamic(d) && d.relations.includes('users'))
-        && !r.deletes.some((d) => d.kind === 'literal' && d.relations.includes('users')),
-    ),
-    classA: by((r) => r.classification === 'a'),
-    classB: by((r) => r.classification === 'b'),
-    classBoth: by((r) => r.classification === 'both'),
-    classNone: by((r) => r.classification === 'none'),
-    classUnknown: by((r) => r.classification === 'unknown'),
-    aUsers: by((r) => r.a?.users === true),
-    aTenants: by((r) => r.a?.tenants === true),
-    bUsers: by((r) => r.b?.users === true),
-    bTenants: by((r) => r.b?.tenants === true),
-    filesUsingHelperAndStillDeletingTargets: by((r) => r.usesTenantTeardownHelper === true),
-    filesWithUnresolvedDynamicDelete: by((r) => (r.unresolvedDynamicDeletes ?? 0) > 0),
-    filesWithPartiallyResolvedDynamicDelete: by((r) => (r.partiallyResolvedDynamicDeletes ?? 0) > 0),
-  };
 }
 
 function indexByFile(census) {
@@ -215,11 +180,51 @@ export function checkArtifactIntegrity(committed, { exists = null, repoRoot = RE
   const drift = [];
   const files = committed.files ?? [];
 
-  const derived = deriveCounts(files);
-  for (const key of DERIVABLE_COUNTS) {
-    if (committed.counts?.[key] !== derived[key]) {
-      failures.push({ code: 'I1', key, recorded: committed.counts?.[key], derived: derived[key] });
+  // I6 FIRST. Every counter must be classified as DERIVED or FLOOR-ONLY by
+  // name, in both directions: an unlisted key would otherwise land in an
+  // unchecked bucket the day someone adds a counter, and a listed key that has
+  // vanished would silently stop being checked at all.
+  const recorded = committed.counts ?? {};
+  for (const key of Object.keys(recorded)) {
+    if (!ALL_COUNTS.includes(key)) {
+      failures.push({ code: 'I6', key, detail: 'counts key is in neither DERIVED_COUNTS nor FLOOR_ONLY_COUNTS' });
     }
+  }
+  for (const key of ALL_COUNTS) {
+    if (!(key in recorded)) {
+      failures.push({ code: 'I6', key, detail: 'a classified counter is missing from counts' });
+    }
+  }
+
+  // I1. Recomputed with the census's OWN expressions, never a second copy.
+  const derived = deriveCountsFromArtifact(committed);
+  for (const key of DERIVED_COUNTS) {
+    if (recorded[key] !== derived[key]) {
+      failures.push({ code: 'I1', key, recorded: recorded[key], derived: derived[key] });
+    }
+  }
+
+  // I7. The two walk-scoped counters cannot be reproduced from files[], so only
+  // floors are assertable. filesUsingTenantTeardownHelper counts helper users
+  // across every walked file (12 today) while files[] holds only the files with
+  // a users/tenants delete (403 of 2042); deriving it from files[] gives 1 - and
+  // that 1 is tenantTeardown.js itself - so an equality check reddens a correct
+  // artifact. Its record-scoped sibling is derivable and is checked above.
+  const walked = recorded.filesWalked ?? 0;
+  if (!(walked > 1500)) {
+    failures.push({ code: 'I7', key: 'filesWalked', detail: `floor is >1500, recorded ${walked}` });
+  }
+  if (walked < files.length) {
+    failures.push({ code: 'I7', key: 'filesWalked', detail: `filesWalked ${walked} is below the ${files.length} rows it must contain` });
+  }
+  const helperRows = files.filter((record) => record.usesTenantTeardownHelper === true).length;
+  const helperTotal = recorded.filesUsingTenantTeardownHelper ?? 0;
+  if (helperTotal < helperRows || !(helperTotal > 0)) {
+    failures.push({
+      code: 'I7',
+      key: 'filesUsingTenantTeardownHelper',
+      detail: `floor is >=${helperRows} and >0, recorded ${helperTotal}`,
+    });
   }
   if ((committed.counts?.classUnknown ?? 0) > 0) {
     failures.push({ code: 'I2', detail: `committed classUnknown = ${committed.counts.classUnknown}` });
