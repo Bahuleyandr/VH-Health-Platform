@@ -127,10 +127,10 @@ collide:
 
 ```bash
 git tag staff-v1.2.0
-git push origin staff-v1.2.0
+git push github staff-v1.2.0
 
 git tag patient-v1.2.0
-git push origin patient-v1.2.0
+git push github patient-v1.2.0
 ```
 
 Do not tag if the app is only structurally translated but has not had clinical,
