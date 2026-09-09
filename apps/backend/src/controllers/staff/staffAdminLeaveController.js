@@ -1,47 +1,49 @@
 // src/controllers/staff/staffAdminLeaveController.js
 import { HTTP_STATUS } from '../../config/responseCodes.js';
-import prisma from '../../lib/prisma.js';
-import logger from '../../logging/logger.js';
-import { success, error } from '../../utils/responseHelper.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
+import { requestTenantId } from './staffAdminTenant.js';
 
 // Leave Patterns
 export const getLeavePatterns = async (req, res) => {
   try {
+    const tenantId = requestTenantId(req);
     const { department, year = new Date().getFullYear() } = req.query;
     
-    const patterns = await prisma.$queryRawUnsafe(`
+    const patterns = await setTenantTx(tenantId, tx => tx.$queryRawUnsafe(`
       SELECT 
         EXTRACT(MONTH FROM la.start_date) as month,
         la.leave_type,
         COUNT(*) as leave_count,
         SUM(la.end_date - la.start_date + 1) as total_days
       FROM leave_applications la
-      JOIN users u ON la.staff_id = u.id
-      LEFT JOIN staff s ON s.user_id = u.uid
+      JOIN users u ON la.staff_id = u.id AND u.tenant_id = $2::uuid
+      LEFT JOIN staff s ON s.user_id = u.uid AND s.tenant_id = $2::uuid
       WHERE 
         EXTRACT(YEAR FROM la.start_date)::int = $1::int
         AND LOWER(la.status) = 'approved'
-        ${department ? 'AND s.department = $2' : ''}
+        AND la.tenant_id = $2::uuid
+        ${department ? 'AND s.department = $3' : ''}
       GROUP BY month, la.leave_type
       ORDER BY month, la.leave_type
-    `, year, ...(department ? [department] : []));
+    `, year, tenantId, ...(department ? [department] : [])));
 
     success(res, {
       patterns: patterns,
       year
     }, 'Leave patterns retrieved successfully');
   } catch (err) {
-    logger.error('Leave Patterns Error:', err);
-    error(res, 'Failed to retrieve leave patterns', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    relayAppError(res, err, 'Failed to retrieve leave patterns');
   }
 };
 
 // Get All Leave Requests
 export const getAllLeaveRequests = async (req, res) => {
   try {
+    const tenantId = requestTenantId(req);
     const { status = 'pending', department } = req.query;
     
-    const leaveRequests = await prisma.$queryRawUnsafe(`
+    const leaveRequests = await setTenantTx(tenantId, tx => tx.$queryRawUnsafe(`
       SELECT 
         la.id,
         la.staff_id,
@@ -56,13 +58,14 @@ export const getAllLeaveRequests = async (req, res) => {
         la.created_at,
         la.end_date - la.start_date + 1 as total_days
       FROM leave_applications la
-      JOIN users u ON la.staff_id = u.id
-      LEFT JOIN staff s ON s.user_id = u.uid
+      JOIN users u ON la.staff_id = u.id AND u.tenant_id = $2::uuid
+      LEFT JOIN staff s ON s.user_id = u.uid AND s.tenant_id = $2::uuid
       WHERE 
         LOWER(la.status) = LOWER($1)
-        ${department ? 'AND s.department = $2' : ''}
+        AND la.tenant_id = $2::uuid
+        ${department ? 'AND s.department = $3' : ''}
       ORDER BY la.created_at DESC
-    `, status, ...(department ? [department] : []));
+    `, status, tenantId, ...(department ? [department] : [])));
 
     success(res, {
       leaveRequests: leaveRequests,
@@ -70,14 +73,14 @@ export const getAllLeaveRequests = async (req, res) => {
       status
     }, 'Leave requests retrieved successfully');
   } catch (err) {
-    logger.error('Leave Requests Error:', err);
-    error(res, 'Failed to retrieve leave requests', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    relayAppError(res, err, 'Failed to retrieve leave requests');
   }
 };
 
 // Bulk Leave Approval
 export const bulkLeaveApproval = async (req, res) => {
   try {
+    const tenantId = requestTenantId(req);
     const { leave_ids, action = 'approve' } = req.body;
     const approvedBy = req.user?.uid;
     const status = action === 'approve' ? 'approved' : 'rejected';
@@ -88,9 +91,13 @@ export const bulkLeaveApproval = async (req, res) => {
         status = $1,
         reviewed_by = $2::uuid,
         reviewed_at = NOW()
-      WHERE id = ANY($3::int[])
+      WHERE id = ANY($3::int[]) AND tenant_id = $4::uuid
       RETURNING id
-    `, status, approvedBy, leave_ids);
+    `, status, approvedBy, leave_ids, tenantId);
+
+    if (result.length === 0) {
+      return error(res, 'Leave requests not found', HTTP_STATUS.NOT_FOUND);
+    }
 
     success(res, {
       processed: result.length,
@@ -98,14 +105,14 @@ export const bulkLeaveApproval = async (req, res) => {
       leave_ids
     }, `${result.length} leave requests ${status}`);
   } catch (err) {
-    logger.error('Bulk Leave Approval Error:', err);
-    error(res, 'Failed to process leave requests', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    relayAppError(res, err, 'Failed to process leave requests');
   }
 };
 
 // Approve Leave Request
 export const approveLeaveRequest = async (req, res) => {
   try {
+    const tenantId = requestTenantId(req);
     const { leaveId } = req.params;
     const { comments } = req.body;
     const approvedBy = req.user?.uid;
@@ -120,9 +127,9 @@ export const approveLeaveRequest = async (req, res) => {
         reviewed_by = $2::uuid,
         reviewed_at = NOW(),
         review_notes = $3
-      WHERE id = $1::int
+      WHERE id = $1::int AND tenant_id = $5::uuid
       RETURNING id, staff_id, leave_type, start_date, end_date, status, reviewed_by, reason, created_at
-    `, leaveId, approvedBy, comments, status);
+    `, leaveId, approvedBy, comments, status, tenantId);
 
     if (result.length === 0) {
       return error(res, 'Leave request not found', HTTP_STATUS.NOT_FOUND);
@@ -130,21 +137,29 @@ export const approveLeaveRequest = async (req, res) => {
 
     success(res, result[0], `Leave request ${status} successfully`);
   } catch (err) {
-    logger.error('Approve Leave Error:', err);
-    error(res, 'Failed to approve leave request', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    relayAppError(res, err, 'Failed to approve leave request');
   }
 };
 
 // Override Leave Balance
 export const overrideLeaveBalance = async (req, res) => {
   try {
+    const tenantId = requestTenantId(req);
     const { staff_id, leave_type, new_balance, reason } = req.body;
     const overriddenBy = req.user?.uid;
 
-    await prisma.$queryRawUnsafe(`
-      INSERT INTO leave_balance_overrides (staff_id, leave_type, new_balance, reason, overridden_by)
-      VALUES ($1, $2, $3, $4, $5)
-    `, staff_id, leave_type, new_balance, reason, overriddenBy);
+    const result = await setTenantTx(tenantId, tx => tx.$queryRawUnsafe(`
+      INSERT INTO leave_balance_overrides (tenant_id, staff_id, leave_type, new_balance, reason, overridden_by)
+      SELECT $6::uuid, u.id, $2, $3, $4, $5::uuid
+      FROM users u
+      WHERE u.id = $1::int AND u.tenant_id = $6::uuid
+        AND COALESCE(UPPER(u.role), '') <> 'PATIENT'
+      RETURNING id
+    `, staff_id, leave_type, new_balance, reason, overriddenBy, tenantId));
+
+    if (result.length === 0) {
+      return error(res, 'Staff member not found', HTTP_STATUS.NOT_FOUND);
+    }
 
     success(res, {
       staff_id,
@@ -153,7 +168,6 @@ export const overrideLeaveBalance = async (req, res) => {
       reason
     }, 'Leave balance override successful');
   } catch (err) {
-    logger.error('Override Leave Balance Error:', err);
-    error(res, 'Failed to override leave balance', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    relayAppError(res, err, 'Failed to override leave balance');
   }
 };

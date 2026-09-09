@@ -21,6 +21,7 @@
 // bypasses RLS; the controller's own tenant scoping + explicit tenant filters still apply.
 import { createHash } from 'node:crypto';
 import prisma from '../lib/prisma.js';
+import { teardownTenantFixture } from './helpers/tenantTeardown.js';
 import {
   dispenseSubstitution,
   markCounterDispensed,
@@ -247,88 +248,123 @@ describe('dispenseSubstitution — atomic decrement + canonical events + equival
   // session_replication_role='replica' first — the append-only guard stays live
   // everywhere else. The clinical verification command below writes one of those
   // receipts per order, so beforeEach needs this too, not just afterAll.
-  async function purgeSuiteOrders() {
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
-      await tx.$executeRawUnsafe(
-        `DELETE FROM pharmacy_order_command_receipts WHERE tenant_id=$1::uuid`, TENANT,
-      );
-      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'origin'");
-      await tx.$executeRawUnsafe(
-        `DELETE FROM e_prescriptions WHERE tenant_id=$1::uuid`, TENANT,
-      );
-      await tx.$executeRawUnsafe(
-        `DELETE FROM pharmacy_order_history WHERE tenant_id=$1::uuid`, TENANT,
-      );
-      await tx.$executeRawUnsafe(
-        `DELETE FROM pharmacy_orders WHERE tenant_id=$1::uuid`, TENANT,
-      );
-    }, { maxWait: 15000, timeout: 120000 });
+  //
+  // The statements live in purgeSuiteOrdersOn(tx) so the afterAll teardown can run
+  // them inside its own single phase-1 transaction (see cleanup) instead of opening
+  // a second one; beforeEach still calls purgeSuiteOrders(), which wraps them in the
+  // transaction it always used, with the options it always used.
+  async function purgeSuiteOrdersOn(tx) {
+    await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
+    await tx.$executeRawUnsafe(
+      `DELETE FROM pharmacy_order_command_receipts WHERE tenant_id=$1::uuid`, TENANT,
+    );
+    await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'origin'");
+    await tx.$executeRawUnsafe(
+      `DELETE FROM e_prescriptions WHERE tenant_id=$1::uuid`, TENANT,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM pharmacy_order_history WHERE tenant_id=$1::uuid`, TENANT,
+    );
+    await tx.$executeRawUnsafe(
+      `DELETE FROM pharmacy_orders WHERE tenant_id=$1::uuid`, TENANT,
+    );
   }
 
+  async function purgeSuiteOrders() {
+    await prisma.$transaction(purgeSuiteOrdersOn, { maxWait: 15000, timeout: 120000 });
+  }
+
+  // Two-phase teardown on the shared helper (src/tests/helpers/tenantTeardown.js,
+  // PR #1048's split generalised by #1050). Phase 1 is this suite's own evidence
+  // deletes — same statements, same order — in ONE short interactive transaction
+  // under app.audit_bypass. Phase 2 deletes the five fixture users and this
+  // suite's own tenant as plain autocommit statements, outside any interactive
+  // transaction: one ON DELETE referential-integrity trigger fires per foreign
+  // key that references the parent (466 reference users, 791 reference tenants at
+  // schema >= migration 790), which is seconds of work that a Prisma interactive
+  // transaction budget can expire — and when it does, Postgres rolls the evidence
+  // deletes back with it and the whole fixture survives into the next suite.
+  //
+  // The session_replication_role toggles stay INSIDE phase 1, as SET LOCAL, and
+  // are reset to 'origin' before it commits. They exempt only this fixture's own
+  // append-only rows (migration 753's
+  // reject_pharmacy_order_command_receipt_mutation_753 and
+  // trg_pharmacy_staff_facility_grant_events_append_only_753). SET LOCAL dies with
+  // that transaction and cannot reach phase 2's autocommit tenant delete, which
+  // under replica role would skip the 310 ON DELETE CASCADEs and orphan the
+  // children it exists to remove.
   async function cleanup() {
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
-      await tx.$executeRawUnsafe(
-        `DELETE FROM pharmacy_schedule_register WHERE tenant_id=$1::uuid`, TENANT,
-      );
-      await tx.$executeRawUnsafe(
-        `DELETE FROM pharmacy_stock_movements WHERE tenant_id=$1::uuid AND reference_type IN ('dispense_substitution', 'controlled_dispense')`,
-        TENANT,
-      );
-      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'origin'");
-    }, { maxWait: 15000, timeout: 120000 });
-    await prisma.$executeRawUnsafe(
-      `DELETE FROM approvals WHERE tenant_id=$1::uuid AND approval_kind='controlled_dispense_witness'`,
-      TENANT,
-    ).catch(() => {});
-    await purgeSuiteOrders();
-    for (const sql of [
-      `DELETE FROM pharmacy_patient_safety_versions WHERE tenant_id=$1::uuid`,
-      `DELETE FROM pharmacy_inventory_batches WHERE tenant_id=$1::uuid AND batch_number LIKE 'DSUB-%'`,
-      `DELETE FROM pharmacy_inventory_items WHERE tenant_id=$1::uuid AND sku_code LIKE 'DSUB-%'`,
-      `DELETE FROM clinical_timeline_events WHERE tenant_id=$1::uuid`,
-      `DELETE FROM clinical_audit_events WHERE tenant_id=$1::uuid`,
-    ]) await prisma.$executeRawUnsafe(sql, TENANT).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM pharmacy_catalog WHERE name LIKE 'DSUBTEST %'`).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM drug_compositions WHERE composition_key=$1`, COMP_KEY).catch(() => {});
     // Deliberate single array binds for ANY($1::uuid[]) — hoisted per house style.
     const staffFixtureUids = [ACTOR, WITNESS, CLERK, GRANT_ADMIN];
     const userFixtureUids = [ACTOR, WITNESS, CLERK, GRANT_ADMIN, PATIENT];
     const facilityCodes = [FACILITY_CODE];
-    // Custody teardown, after everything that references the facility is gone.
-    // pharmacy_staff_facility_grant_events is append-only (migration 753's
-    // trg_pharmacy_staff_facility_grant_events_append_only_753), so the fixture drops
-    // its own rows under session_replication_role='replica' exactly the way
-    // pharmacy-dispensable-context.deep.test.js does — the guard stays live elsewhere.
-    await prisma.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
-      await tx.$executeRawUnsafe(
-        `DELETE FROM pharmacy_staff_facility_grant_events
-          WHERE grant_id IN (SELECT id FROM pharmacy_staff_facility_grants
-                              WHERE staff_uid = ANY($1::uuid[]))`,
-        staffFixtureUids,
-      );
-      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'origin'");
-      await tx.$executeRawUnsafe(
-        `DELETE FROM pharmacy_staff_facility_grants WHERE staff_uid = ANY($1::uuid[])`,
-        staffFixtureUids,
-      );
-      await tx.$executeRawUnsafe(
-        `DELETE FROM staff WHERE user_id = ANY($1::uuid[])`, staffFixtureUids,
-      );
-      await tx.$executeRawUnsafe(
-        `DELETE FROM facility_locations
-          WHERE facility_id IN (SELECT id FROM facilities WHERE facility_code = ANY($1::text[]))`,
-        facilityCodes,
-      );
-      await tx.$executeRawUnsafe(
-        `DELETE FROM facilities WHERE facility_code = ANY($1::text[])`, facilityCodes,
-      );
-      await tx.$executeRawUnsafe(
-        `DELETE FROM users WHERE uid = ANY($1::uuid[])`, userFixtureUids,
-      );
-    }, { maxWait: 15000, timeout: 120000 });
+    await teardownTenantFixture(prisma, {
+      evidence: async (tx) => {
+        await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
+        await tx.$executeRawUnsafe(
+          `DELETE FROM pharmacy_schedule_register WHERE tenant_id=$1::uuid`, TENANT,
+        );
+        await tx.$executeRawUnsafe(
+          `DELETE FROM pharmacy_stock_movements WHERE tenant_id=$1::uuid AND reference_type IN ('dispense_substitution', 'controlled_dispense')`,
+          TENANT,
+        );
+        await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'origin'");
+        await tx.$executeRawUnsafe(
+          `DELETE FROM approvals WHERE tenant_id=$1::uuid AND approval_kind='controlled_dispense_witness'`,
+          TENANT,
+        );
+        await purgeSuiteOrdersOn(tx);
+        for (const sql of [
+          `DELETE FROM pharmacy_patient_safety_versions WHERE tenant_id=$1::uuid`,
+          `DELETE FROM pharmacy_inventory_batches WHERE tenant_id=$1::uuid AND batch_number LIKE 'DSUB-%'`,
+          `DELETE FROM pharmacy_inventory_items WHERE tenant_id=$1::uuid AND sku_code LIKE 'DSUB-%'`,
+          `DELETE FROM clinical_timeline_events WHERE tenant_id=$1::uuid`,
+          `DELETE FROM clinical_audit_events WHERE tenant_id=$1::uuid`,
+        ]) await tx.$executeRawUnsafe(sql, TENANT);
+        await tx.$executeRawUnsafe(`DELETE FROM pharmacy_catalog WHERE name LIKE 'DSUBTEST %'`);
+        await tx.$executeRawUnsafe(`DELETE FROM drug_compositions WHERE composition_key=$1`, COMP_KEY);
+        // medication_safety_reviews carries a tenant_id but has NO foreign key at
+        // all (pg_constraint: zero constraints of contype 'f' on the table), so it
+        // is not reached by the tenant delete's cascade fan-out. Measured on this
+        // schema: the suite writes 23 such rows per run, all on the fixture
+        // patient, and has never deleted them. Without this statement phase 2
+        // would drop the tenant row and leave them pointing at a tenant that no
+        // longer exists.
+        await tx.$executeRawUnsafe(
+          `DELETE FROM medication_safety_reviews WHERE tenant_id=$1::uuid`, TENANT,
+        );
+        // Custody teardown, after everything that references the facility is gone.
+        // pharmacy_staff_facility_grant_events is append-only (migration 753's
+        // trg_pharmacy_staff_facility_grant_events_append_only_753), so the fixture drops
+        // its own rows under session_replication_role='replica' exactly the way
+        // pharmacy-dispensable-context.deep.test.js does — the guard stays live elsewhere.
+        await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
+        await tx.$executeRawUnsafe(
+          `DELETE FROM pharmacy_staff_facility_grant_events
+            WHERE grant_id IN (SELECT id FROM pharmacy_staff_facility_grants
+                                WHERE staff_uid = ANY($1::uuid[]))`,
+          staffFixtureUids,
+        );
+        await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'origin'");
+        await tx.$executeRawUnsafe(
+          `DELETE FROM pharmacy_staff_facility_grants WHERE staff_uid = ANY($1::uuid[])`,
+          staffFixtureUids,
+        );
+        await tx.$executeRawUnsafe(
+          `DELETE FROM staff WHERE user_id = ANY($1::uuid[])`, staffFixtureUids,
+        );
+        await tx.$executeRawUnsafe(
+          `DELETE FROM facility_locations
+            WHERE facility_id IN (SELECT id FROM facilities WHERE facility_code = ANY($1::text[]))`,
+          facilityCodes,
+        );
+        await tx.$executeRawUnsafe(
+          `DELETE FROM facilities WHERE facility_code = ANY($1::text[])`, facilityCodes,
+        );
+      },
+      tenantIds: [TENANT],
+      userUids: userFixtureUids,
+    });
   }
 
   async function seedCatalog(name, {
@@ -556,8 +592,11 @@ describe('dispenseSubstitution — atomic decrement + canonical events + equival
   }, 120000);
 
   afterAll(async () => {
-    await cleanup();
-    if (typeof prisma.$disconnect === 'function') await prisma.$disconnect();
+    try {
+      await cleanup();
+    } finally {
+      if (typeof prisma.$disconnect === 'function') await prisma.$disconnect();
+    }
   }, 120000);
 
   // Original success-path assertions, to restore when the funding lane is wired:

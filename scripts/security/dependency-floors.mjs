@@ -12,7 +12,8 @@
 // major with no entry has no patched release and is rejected outright.
 //   minimatch:       GHSA-7r86-cg39-jmmj, GHSA-23c5-xmqv-rm74 (2026-02-26)
 //   brace-expansion: GHSA-rgw5-rvv9-x895 (2026-08-03) and predecessors
-//   js-yaml:         GHSA-5p4m-2wfm-xmqj (2026-08-06) and predecessors
+//   js-yaml:         GHSA-2883-xcg3-v3hh (2026-09-09; 3.x → 3.15.2, 4.x → 4.3.2),
+//                    GHSA-5p4m-2wfm-xmqj (2026-08-06) and predecessors
 export const PATCHED_DEPENDENCY_FLOORS = Object.freeze({
   minimatch: Object.freeze({
     3: '3.1.3',
@@ -32,8 +33,8 @@ export const PATCHED_DEPENDENCY_FLOORS = Object.freeze({
     5: '5.0.9',
   }),
   'js-yaml': Object.freeze({
-    3: '3.15.1',
-    4: '4.3.1',
+    3: '3.15.2',
+    4: '4.3.2',
     5: '5.2.2',
   }),
 });
