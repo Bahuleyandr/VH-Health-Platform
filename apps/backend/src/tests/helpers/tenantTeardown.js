@@ -40,6 +40,21 @@
 // deliberately NOT used: the fan-out is real work the schema asks for, and a
 // replica-role tenant delete also skips the cascades, leaving children behind.
 //
+// LOCK-TABLE LIMIT ON PHASE 2, for anyone running deep suites in parallel
+// locally. The tenant delete takes one lock per foreign key that references
+// `tenants` (791 at schema >= migration 790), all held to the end of the
+// statement. On a default-configured cluster (`max_locks_per_transaction` 64)
+// several such statements at once exhaust the shared lock table and the
+// statement fails with 53200 `out of shared memory`, hinting at that setting.
+// Measured 2026-09-09: six concurrent lanes, each on its own fresh clone, fail
+// 6 of 6 — and the same six-lane run against `uhi-adapter.deep`, UNMODIFIED at
+// merged main, fails 6 of 6 identically, which is what makes this a property of
+// this helper's phase 2 rather than of whichever suite happens to surface it.
+// It cannot occur in CI: `scripts/run-ci-jest.mjs` runs jest with
+// `--runInBand` and each shard owns its own database, and three lanes produce
+// zero occurrences. Raise `max_locks_per_transaction` before running deep
+// suites in parallel against one cluster.
+//
 // Errors are NOT swallowed. A teardown that fails must fail the suite: a green
 // suite whose teardown was swallowed proves nothing about the database it
 // leaves behind. The one recoverable case is a late writer (trigger-written
