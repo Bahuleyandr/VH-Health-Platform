@@ -128,6 +128,42 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 6
+          # failureThreshold is pinned rather than left to the kubelet default
+          # because it is load-bearing: with periodSeconds it sets the outage
+          # length that restarts this container. There are TWO bounds, and both
+          # are quoted here so this block checks itself:
+          #
+          #   (failureThreshold - 1) x periodSeconds = 2 x 30 = 60 s
+          #       shortest outage that CAN restart - needs a favourable probe phase
+          #   failureThreshold x periodSeconds       = 3 x 30 = 90 s
+          #       shortest outage that MUST restart - any phase
+          #
+          # Between them the outcome is decided by phase alone: an outage of D s
+          # (60 < D < 90) restarts on (D - 60)/30 of alignments. Quoting only one
+          # bound is how this went wrong before - "30 x 3 = 60" was written here,
+          # and 90 is not the wrong answer to that product, it is the OTHER bound.
+          #
+          # Both assume the probe FAILS FAST (returns HTTP 503). If it ever hangs
+          # instead, each failure also burns timeoutSeconds and both bounds gain
+          # 5 s. The dip below fails fast - the rig logged probe 503s at
+          # :11 :21 :29 :31 :31, not timeouts - so timeoutSeconds does not enter.
+          #
+          # Against those bounds: the DB circuit breaker in
+          # apps/backend/src/lib/prisma.js opens for CIRCUIT_BREAKER_RESET_MS =
+          # 30_000, and the dip it produces was measured twice on dalekdefender
+          # at 33.314 s and 33.312 s (08:50Z and 09:00Z, 2 ms apart while offered
+          # load rose 35% - a constant being read out, not an emergent effect).
+          # 33.3 s is below 60, so one breaker cycle cannot restart the container
+          # at ANY phase: margin 1.8x. A DOUBLED cycle can - at half-open the
+          # breaker re-opens on the first infrastructure failure for a further
+          # full reset, and 66.6 s sits between the bounds, restarting on about
+          # 22% of phase alignments. Not certain, not safe.
+          #
+          # Two ways to trip that accidentally: raising CIRCUIT_BREAKER_RESET_MS
+          # above ~57 s puts even a single cycle past 60 s, and lowering this
+          # threshold to 2 moves the bounds to 30 s / 60 s, which puts the
+          # already-measured 33.3 s single-cycle dip over the CAN-restart line.
+          # Change either only with a new measurement of the dip.
           livenessProbe:
             httpGet:
               path: /
@@ -138,6 +174,7 @@ spec:
             initialDelaySeconds: 60
             periodSeconds: 30
             timeoutSeconds: 5
+            failureThreshold: 3
           resources:
             requests:
               cpu: 100m
