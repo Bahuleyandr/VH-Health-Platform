@@ -17,6 +17,7 @@ import {
 import prisma from '../lib/prisma.js';
 import { runWithSuperAdmin } from '../lib/tenantContext.js';
 import logger from '../logging/logger.js';
+import { cancelPendingBootPacing, withBootPacing } from './schedulerBootPacing.js';
 
 const runningJobs = new Set();
 
@@ -25,8 +26,17 @@ const runningJobs = new Set();
 // disconnect and throw. registerCron() pushes each scheduled task here.
 const scheduledTasks = [];
 
-function registerCron(...args) {
-  const task = cronSchedule(...args);
+// Boot-storm pacing (incident 2026-09-09 06:40Z). 06:40 is a `*/2`, `*/5` and
+// `*/10` boundary at once, so a pod that booted seconds earlier fired 40+ of
+// the registrations below inside the same second, saturated the Prisma pool and
+// failed three consecutive 1-second readiness probes. withBootPacing delays
+// each job's FIRST tick by a deterministic per-registration offset (nothing is
+// skipped, later ticks are untouched, the offset never exceeds half the job's
+// own cadence). The registration index is the spread key, so it must be read
+// BEFORE the push.
+function registerCron(expression, handler, ...rest) {
+  const paced = withBootPacing(scheduledTasks.length, expression, handler);
+  const task = cronSchedule(expression, paced, ...rest);
   scheduledTasks.push(task);
   return task;
 }
@@ -45,7 +55,14 @@ export function stopAllScheduledTasks() {
       logger.warn('Failed to stop a scheduled task during shutdown:', err.message);
     }
   }
-  logger.info(`Stopped ${scheduledTasks.length} scheduled task(s).`);
+  // A job whose first tick is still inside its boot-pacing delay has no
+  // node-cron timer left to stop — its pending run lives in the pacing module.
+  // Drop those too, or a paced handler could fire against a closing pool.
+  const cancelledFirstRuns = cancelPendingBootPacing();
+  logger.info(
+    `Stopped ${scheduledTasks.length} scheduled task(s); `
+    + `cancelled ${cancelledFirstRuns} pending boot-paced first run(s).`,
+  );
 }
 
 // ─── Cross-process job lock (C-5) ────────────────────────────────────────────
@@ -1558,10 +1575,25 @@ export async function primeOperationalRealtimeChannels() {
 // Cheap, idempotent housekeeping (log/swagger validation) always runs; the
 // outbox drain always runs (idempotent + advisory-locked) so a manual call
 // flushes anything queued.
-export async function runAllScheduledTasksNow() {
+export async function runAllScheduledTasksNow({ stepDelayMs = 0 } = {}) {
   const runStartupTasks = String(process.env.RUN_STARTUP_TASKS || '').toLowerCase() === 'true';
   const manualFailures = [];
+  // Stagger: the tasks below already run one after another, but each one
+  // returns the moment its own queries settle, so a boot sweep still lands as
+  // an unbroken back-to-back run of fan-out queries on a pool that is also
+  // serving readiness probes. A short pause between tasks (bin/www.js passes
+  // SCHEDULER_BOOT_RUN_STEP_DELAY_MS, default 250 ms) hands the pool back
+  // between them. Default 0 keeps `npm run scheduler:run-now` and the deep
+  // suites at their previous timing.
+  const pause = Number.isFinite(stepDelayMs) ? Math.max(0, Math.floor(stepDelayMs)) : 0;
+  let manualTasksStarted = 0;
   const runManualTask = async (label, task) => {
+    if (pause > 0 && manualTasksStarted > 0) {
+      // Deliberately NOT unref'd: this timer is awaited, and an unref'd timer
+      // that is the only pending work would let Node exit mid-sweep.
+      await new Promise((resolve) => { setTimeout(resolve, pause); });
+    }
+    manualTasksStarted += 1;
     try {
       return await task();
     } catch (err) {
@@ -1571,7 +1603,8 @@ export async function runAllScheduledTasksNow() {
     }
   };
   logger.info(
-    `Running scheduled tasks manually (RUN_STARTUP_TASKS=${runStartupTasks ? 'on' : 'off'})...`,
+    `Running scheduled tasks manually (RUN_STARTUP_TASKS=${runStartupTasks ? 'on' : 'off'}, `
+    + `stepDelayMs=${pause})...`,
   );
   try {
     // Cheap, idempotent, non-fan-out housekeeping — safe on every boot.
