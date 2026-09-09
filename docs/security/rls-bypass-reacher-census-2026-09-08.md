@@ -1,6 +1,6 @@
 # RLS bypass-reacher census — 2026-09-08
 
-Source revision: `37e56ff9fb251241d0b66bb6e405235a75992be2`. Exact normalized source and migration SHA-256 manifests are in the adjacent JSON pin.
+Source revision: `d586788d685f73a51656a3481f17c17ab5c9f64b`. Exact normalized source and migration SHA-256 manifests are in the adjacent JSON pin.
 
 **Census only: no policy changes, conversions, completed dispositions or runtime acceptance claims.** Every entry is PENDING with an intended disposition and future module PR. A closure must reduce K to zero for its table and carry the disposition tests in that same PR.
 
@@ -18,7 +18,7 @@ Run from apps/backend: `node scripts/rls-bypass-reacher-census.mjs --check`. Reg
 
 Lexical planning predicates (src excluding tests): 29 lines in 6 files match `runWithSuperAdmin\(`; 84 scheduler lines match `withJobLock\(`. These include comments/definitions and are not reaching statements.
 
-Measured populations: **109 entry-point calls; 84 registered jobs; 8495 database-call/source-statement records; 14584 split migration statements.** Entry points by kind: runWithSuperAdmin=25, withJobLock=83, withReplicaLocalJobGuard=1.
+Measured populations: **109 entry-point calls; 84 registered jobs; 8495 database-call/source-statement records; 14585 split migration statements.** Entry points by kind: runWithSuperAdmin=25, withJobLock=83, withReplicaLocalJobGuard=1.
 
 ## Table pins (users first)
 
@@ -1834,7 +1834,7 @@ The JSON also enumerates indirect callback calls encountered on the source trace
 - apps/backend/src/lib/redis.js:324: onReconnect — Indirect callback: source callback arguments/defaults are traced at their callers; no empirical dispatch claim.
 - apps/backend/src/middleware/prometheusMiddleware.js:181: next — Indirect callback: source callback arguments/defaults are traced at their callers; no empirical dispatch claim.
 - apps/backend/src/middleware/prometheusMiddleware.js:192: next — Indirect callback: source callback arguments/defaults are traced at their callers; no empirical dispatch claim.
-- apps/backend/src/lib/prisma.js:642: fn — Indirect callback: source callback arguments/defaults are traced at their callers; no empirical dispatch claim.
+- apps/backend/src/lib/prisma.js:727: fn — Indirect callback: source callback arguments/defaults are traced at their callers; no empirical dispatch claim.
 - apps/backend/src/middleware/auditLog.js:744: next — Indirect callback: source callback arguments/defaults are traced at their callers; no empirical dispatch claim.
 - apps/backend/src/middleware/corsMiddleware.js:146: applyCors — Indirect callback: source callback arguments/defaults are traced at their callers; no empirical dispatch claim.
 - apps/backend/src/services/workflow/workflowHumanOwnerService.js:176: rolePredicate — Indirect callback: source callback arguments/defaults are traced at their callers; no empirical dispatch claim.

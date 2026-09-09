@@ -398,7 +398,7 @@ Roadmap: `docs/NEXT_LEVEL_ROADMAP.md` (§5 program definitions, §6 wave sequenc
 | 768 | Plan 4 reprocessable-devices platform foundation | **on main** (#1030, 2026-09-07) |
 | 769–770 | Plan 4 PR 3: dialysis safety boundaries (769), exposure creation outcomes (770) — first two numbers of live block 769–779 | **on main** (#1041, 2026-09-08) |
 | 790 | Cath readiness PR 1 of 5: `cath_lab_case_attempts` additive expansion — first number of live block 790–799 | **on main** (#1043, 2026-09-08) |
-| 804 | Retention prune uses the index built for it: `clock_timestamp()` → `statement_timestamp()` in `prune_scheduled_job_run_evidence()`, redefining 668's function; deleted set unchanged | **in review** (2026-09-09, dev-0e allocation; status cell to be stamped with the PR number at merge) |
+| 804 | Retention prune uses the index built for it: `clock_timestamp()` → `statement_timestamp()` in `prune_scheduled_job_run_evidence()`, redefining 668's function; deleted set unchanged | **on main** (#1072, 2026-09-09) |
 
 **2026-09 live blocks (dev-0e rulings of 2026-09-08; dev-0e is the allocation authority for these blocks — ask before claiming, and record the claim here in the same PR):**
 

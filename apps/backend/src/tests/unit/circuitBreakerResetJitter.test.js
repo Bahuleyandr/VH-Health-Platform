@@ -78,6 +78,37 @@ describe('circuit breaker reset window — jitter', () => {
     expect(resolveCircuitBreakerResetMs(() => 1))
       .toBe(Math.round(TUNING.resetMs * (1 - TUNING.resetJitter)));
   });
+
+  it('has the interval endpoints its comment claims — top CLOSED, bottom OPEN', () => {
+    // The obvious way round is wrong, so pin it. Math.random() returns [0, 1):
+    // r = 0 is reachable and attains the constant exactly, so the TOP is
+    // inclusive; r = 1 is never returned, so the lower end is approached and
+    // never attained. The half-open end is the LOWER one, the opposite of the
+    // usual [lo, hi) shape — which is what the comment on
+    // CIRCUIT_BREAKER_RESET_JITTER previously had backwards.
+    const floor = TUNING.resetMs * (1 - TUNING.resetJitter);
+    expect(resolveCircuitBreakerResetMs(() => 0)).toBe(TUNING.resetMs);
+
+    const nearestDrawToOne = 1 - Number.EPSILON;
+    const lowest = resolveCircuitBreakerResetMs(() => nearestDrawToOne);
+    // Rounding can land ON the floor even though the open interval never
+    // attains it; what must never happen is a draw BELOW it.
+    expect(lowest).toBeGreaterThanOrEqual(floor);
+    expect(lowest).toBeLessThan(TUNING.resetMs);
+
+    for (const ms of draws(500)) {
+      expect(ms).toBeGreaterThanOrEqual(floor);
+      expect(ms).toBeLessThanOrEqual(TUNING.resetMs);
+    }
+  });
+
+  it('states that interval correctly in the source comment', () => {
+    // A second, differently-constructed signal: the executable behaviour above
+    // and the prose a reader will trust have to agree.
+    const source = readSource();
+    expect(source).toContain('((1 - JITTER) x RESET, RESET]');
+    expect(source).not.toContain('[(1 - JITTER) x RESET, RESET)');
+  });
 });
 
 describe('circuit breaker reset window — the liveness budget it is load-bearing for', () => {

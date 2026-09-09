@@ -94,7 +94,13 @@ const CIRCUIT_BREAKER_THRESHOLD = 5;
 const CIRCUIT_BREAKER_RESET_MS = 30_000;
 
 // Jitter applied to each open window, downward only: the effective reset is
-// drawn from [(1 - JITTER) x RESET, RESET).
+// drawn from ((1 - JITTER) x RESET, RESET].
+//
+// Both endpoints are worth stating exactly, because the obvious way round is
+// wrong. Math.random() returns [0, 1), so random() = 0 is reachable and yields
+// the constant unchanged — the TOP is inclusive — while 1 is never returned, so
+// the bottom is approached and never attained. The half-open end is therefore
+// the LOWER one, the opposite of the usual [lo, hi) shape.
 //
 // WHY IT EXISTS. A circuit breaker assumes its retry timing is INDEPENDENT of
 // the failure source. A fixed 30_000 ms is phase-locked to the `*/30 * * * * *`
