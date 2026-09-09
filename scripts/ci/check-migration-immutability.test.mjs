@@ -21,7 +21,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
-import { evaluateMigrationChanges, parseAllowlist } from './check-migration-immutability.mjs';
+import { evaluateMigrationChanges, parseAllowlist, resolveMergeBase } from './check-migration-immutability.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(here, '..', '..');
@@ -325,6 +325,59 @@ test('an unresolvable merge-base fails the gate instead of skipping it', (t) => 
   assert.equal(failure.status, 1);
   assert.match(failure.stderr, /Unable to resolve a merge-base/);
   assert.match(failure.stderr, /fetch-depth: 0/);
+  // The CLI supplies its own label, so the gate's own failure still names it.
+  assert.match(failure.stderr, /The applied-migration immutability gate compares against the branch point/);
+});
+
+// `resolveMergeBase` is shared: the teardown-census gate imports it. Its failure
+// message used to hard-code "compares migrations against the branch point", so a
+// census-gate failure printed migration-flavoured prose over otherwise correct
+// instructions. The name of the gate is now the caller's to supply; the ADVICE
+// is not, and this test pins that split in both directions — a failure message
+// is load-bearing documentation, because a reader of a failure has no choice
+// about looking at it.
+test('the shared merge-base resolver names the caller, not migrations', (t) => {
+  const { repo } = seedRepo(t, { branch: 'orphan', publishMain: false });
+  git(repo, ['branch', '-D', 'main']);
+
+  const messageFor = (options) => {
+    try {
+      resolveMergeBase(repo, { env: {}, ...options });
+    } catch (error) {
+      return error.message;
+    }
+    return assert.fail('resolveMergeBase resolved a base in a repo that has none');
+  };
+
+  const neutral = messageFor({});
+  const labelled = messageFor({ gateLabel: 'The teardown-census gate' });
+
+  // 1. The default message is caller-neutral: no "migration(s)" anywhere.
+  assert.doesNotMatch(
+    neutral,
+    /migration/i,
+    `the shared resolver still hard-codes migration prose:\n${neutral}`,
+  );
+  assert.match(neutral, /The calling gate compares against the branch point with main/);
+
+  // 2. The actionable half survives verbatim in BOTH messages.
+  const FETCH_DEPTH = 'In GitHub Actions this almost always means a shallow checkout — '
+    + 'set `fetch-depth: 0` on actions/checkout.';
+  const LOCAL = 'Locally: `git fetch origin main` (or pass --base <ref>).';
+  for (const [name, message] of [['default', neutral], ['labelled', labelled]]) {
+    assert.ok(message.includes(FETCH_DEPTH), `${name} message lost the fetch-depth instruction verbatim`);
+    assert.ok(message.includes(LOCAL), `${name} message lost the local instruction verbatim`);
+  }
+
+  // 3. Strip-and-compare: the ONLY difference between the two messages is the
+  //    clause that names the gate. If a future edit changes what the message
+  //    advises as well as whose gate it names, this fails.
+  assert.notEqual(neutral, labelled, 'gateLabel had no effect on the message');
+  assert.equal(
+    neutral.replace('The calling gate', '<GATE>'),
+    labelled.replace('The teardown-census gate', '<GATE>'),
+    'labelling the gate changed more than the gate name',
+  );
 });
 
 test('a stale mirror remote cannot manufacture a violation', (t) => {
