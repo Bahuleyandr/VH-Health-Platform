@@ -27,6 +27,7 @@ const { bindMedicationOrderCatalogAuthority } = await import(
 );
 const { API_KEY, generateTestToken } = await import('./testClient.js');
 const { deleteWithAuditBypass } = await import('./helpers/auditBypass.js');
+const { teardownTenantFixture } = await import('./helpers/tenantTeardown.js');
 const { seedMedicationFacilityAuthority } = await import('./helpers/medicationEvidenceFixture.js');
 
 const TENANT = '00000000-0000-4000-8000-000000000001';
@@ -368,24 +369,24 @@ async function cleanup() {
   }
   await prisma.$executeRawUnsafe(
     `DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`, PATIENT_UID,
-  ).catch(() => {});
+  );
   await deleteWithAuditBypass(
     prisma,
     `DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid`,
     PATIENT_UID,
-  ).catch(() => {});
+  );
   await prisma.$executeRawUnsafe(
     `DELETE FROM ward_indent_items WHERE ward_indent_id IN (
        SELECT id FROM ward_indents WHERE patient_uid = $1::uuid OR ward_name = $2)`,
     PATIENT_UID, WARD_NAME,
-  ).catch(() => {});
+  );
   await prisma.$executeRawUnsafe(
     `DELETE FROM ward_indents WHERE patient_uid = $1::uuid OR ward_name = $2`,
     PATIENT_UID, WARD_NAME,
-  ).catch(() => {});
+  );
   await prisma.$executeRawUnsafe(
     `DELETE FROM clinical_orders WHERE patient_uid = $1::uuid`, PATIENT_UID,
-  ).catch(() => {});
+  );
   await prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
     const fixtureAdvances = await tx.$queryRawUnsafe(
@@ -496,20 +497,20 @@ async function cleanup() {
         AND metadata->>'patient_uid' = $2::text`,
     TENANT,
     PATIENT_UID,
-  ).catch(() => {});
+  );
   await prisma.$executeRawUnsafe(
     `DELETE FROM attendant_passes WHERE patient_uid = $1::uuid`, PATIENT_UID,
-  ).catch(() => {});
+  );
   await prisma.$executeRawUnsafe(
     `DELETE FROM admissions WHERE patient_uid = $1::uuid`, PATIENT_UID,
-  ).catch(() => {});
+  );
   await prisma.$executeRawUnsafe(
     `DELETE FROM beds WHERE tenant_id = $1::uuid AND ward_name = $2::text`,
     TENANT, WARD_NAME,
-  ).catch(() => {});
+  );
   await prisma.$executeRawUnsafe(
     `DELETE FROM wards WHERE name = $1`, WARD_NAME,
-  ).catch(() => {});
+  );
   await prisma.$executeRawUnsafe(
     `DELETE FROM pharmacy_inventory_batches
       WHERE tenant_id = $1::uuid
@@ -533,63 +534,87 @@ async function cleanup() {
     `DELETE FROM drug_compositions WHERE composition_key = $1::text`,
     CEFTRIAXONE_COMPOSITION_KEY,
   );
-  await prisma.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
-    await tx.$executeRawUnsafe(
-      `DELETE FROM pharmacy_staff_facility_grant_events
-        WHERE tenant_id = $1::uuid
-          AND grant_id IN (
-            SELECT id FROM pharmacy_staff_facility_grants
-             WHERE tenant_id = $1::uuid AND staff_uid = $2::uuid
-          )`,
-      TENANT,
-      PHARMACY_UID,
-    );
-    await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'origin'");
-    await tx.$executeRawUnsafe(
-      `DELETE FROM pharmacy_staff_facility_grants
-        WHERE tenant_id = $1::uuid AND staff_uid = $2::uuid`,
-      TENANT,
-      PHARMACY_UID,
-    );
-    await tx.$executeRawUnsafe(
-      `DELETE FROM staff
-        WHERE tenant_id = $1::uuid AND user_id = ANY($2::uuid[])`,
-      TENANT,
-      [PHARMACY_UID, PRESCRIBER_UID],
-    );
-    await tx.$executeRawUnsafe(
-      `DELETE FROM facility_locations
-        WHERE tenant_id = $1::uuid
-          AND facility_id IN (
-            SELECT id FROM facilities
-             WHERE tenant_id = $1::uuid AND facility_code = $2::text
-          )`,
-      TENANT,
-      FACILITY_CODE,
-    );
-    await tx.$executeRawUnsafe(
-      `DELETE FROM facilities
-        WHERE tenant_id = $1::uuid AND facility_code = $2::text`,
-      TENANT,
-      FACILITY_CODE,
-    );
-    await tx.$executeRawUnsafe(
-      `DELETE FROM users
-        WHERE tenant_id = $1::uuid AND uid = ANY($2::uuid[])`,
-      TENANT,
-      [
-        PATIENT_UID,
-        BILLING_UID,
-        RECEPTIONIST_UID,
-        NURSE_UID,
+  // Two-phase teardown on the shared helper (src/tests/helpers/tenantTeardown.js,
+  // PR #1048's split generalised by #1050). Phase 1 is this suite's existing
+  // custody teardown — same statements, same order, SQL unchanged — in one short
+  // interactive transaction under app.audit_bypass. Phase 2 deletes the eight
+  // fixture users as a plain autocommit statement, where the 466 ON DELETE
+  // referential-integrity triggers that fire per deleted users row have no Prisma
+  // interactive-transaction budget to expire and cannot roll the custody deletes
+  // back with them.
+  //
+  // NO tenantIds. This suite's TENANT is the SEEDED tenant
+  // 00000000-0000-4000-8000-000000000001, which it does not create and must not
+  // delete; it only adds eight fixture users to it. Phase 2's tenant arm is left
+  // empty on purpose.
+  //
+  // The helper deletes users by uid alone, without the `tenant_id = $1` predicate
+  // the inline statement carried. That selects the same rows: users.uid is
+  // globally unique (users_uid_key, a plain UNIQUE index on (uid), not on
+  // (tenant_id, uid)), so a uid cannot exist in a second tenant and the tenant
+  // filter could never have excluded a row.
+  //
+  // The session_replication_role toggle stays INSIDE phase 1, as SET LOCAL, and is
+  // reset to 'origin' before it commits. It exempts only the append-only
+  // pharmacy_staff_facility_grant_events rows (migration 753's
+  // trg_pharmacy_staff_facility_grant_events_append_only_753). SET LOCAL dies with
+  // that transaction and cannot reach phase 2's autocommit users delete, which
+  // under replica role would skip the 19 CASCADE and 105 SET NULL foreign keys
+  // that reference users and orphan their children.
+  await teardownTenantFixture(prisma, {
+    evidence: async (tx) => {
+      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'replica'");
+      await tx.$executeRawUnsafe(
+        `DELETE FROM pharmacy_staff_facility_grant_events
+          WHERE tenant_id = $1::uuid
+            AND grant_id IN (
+              SELECT id FROM pharmacy_staff_facility_grants
+               WHERE tenant_id = $1::uuid AND staff_uid = $2::uuid
+            )`,
+        TENANT,
         PHARMACY_UID,
-        ADMISSION_OFFICER_UID,
-        ADMIN_UID,
-        PRESCRIBER_UID,
-      ],
-    );
-  }, { timeout: 60_000, maxWait: 20_000 });
+      );
+      await tx.$executeRawUnsafe("SET LOCAL session_replication_role = 'origin'");
+      await tx.$executeRawUnsafe(
+        `DELETE FROM pharmacy_staff_facility_grants
+          WHERE tenant_id = $1::uuid AND staff_uid = $2::uuid`,
+        TENANT,
+        PHARMACY_UID,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM staff
+          WHERE tenant_id = $1::uuid AND user_id = ANY($2::uuid[])`,
+        TENANT,
+        [PHARMACY_UID, PRESCRIBER_UID],
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM facility_locations
+          WHERE tenant_id = $1::uuid
+            AND facility_id IN (
+              SELECT id FROM facilities
+               WHERE tenant_id = $1::uuid AND facility_code = $2::text
+            )`,
+        TENANT,
+        FACILITY_CODE,
+      );
+      await tx.$executeRawUnsafe(
+        `DELETE FROM facilities
+          WHERE tenant_id = $1::uuid AND facility_code = $2::text`,
+        TENANT,
+        FACILITY_CODE,
+      );
+    },
+    userUids: [
+      PATIENT_UID,
+      BILLING_UID,
+      RECEPTIONIST_UID,
+      NURSE_UID,
+      PHARMACY_UID,
+      ADMISSION_OFFICER_UID,
+      ADMIN_UID,
+      PRESCRIBER_UID,
+    ],
+  });
 }
 
 d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonicals (deep)', () => {
@@ -712,8 +737,11 @@ d('Phase-3 IPD support fixes: refund race, per-route authz, ward-indent canonica
   }, 120_000);
 
   afterAll(async () => {
-    await cleanup();
-    await prisma.$disconnect().catch(() => {});
+    try {
+      await cleanup();
+    } finally {
+      await prisma.$disconnect().catch(() => {});
+    }
   }, 120_000);
 
   // ── B-M3: governed refund reservations are race-safe ──────────────────────
