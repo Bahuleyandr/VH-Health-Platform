@@ -1,7 +1,7 @@
 {
   "schema": "teardown-tx-census/v1",
   "kind": "CENSUS_ONLY",
-  "revision": "6fcc39e7f094631e519ee5b66acadba4010fdf54",
+  "revision": "2c2f2f5bdb9e79e179b5375d7d95a15e3403d5b7",
   "predicates": {
     "files": "Every file under apps/backend/src/tests, recursively, whose name matches /\\.(js|mjs|cjs)$/. No other filter: helpers, fixtures and non-.test.js files are included, because a delete behind a helper is still a delete. Files that fail to parse are reported under parseFailures and are NOT counted as clean.",
     "literalDelete": "A string literal or template literal whose text matches /\\bDELETE\\s+FROM\\s+(?:ONLY\\s+)?\"?([A-Za-z_][\\w$]*)\"?/i and whose captured relation is `users` or `tenants`. This is the arm the 2026-09-08 census had.",
@@ -37,17 +37,17 @@
     "tenants"
   ],
   "counts": {
-    "filesWalked": 2042,
+    "filesWalked": 2045,
     "parseFailures": 0,
-    "filesWithTargetDelete": 403,
-    "filesReachedByLiteralArm": 402,
-    "filesReachedByDynamicArm": 16,
+    "filesWithTargetDelete": 404,
+    "filesReachedByLiteralArm": 403,
+    "filesReachedByDynamicArm": 17,
     "filesReachedOnlyByDynamicArm": 1,
-    "filesWithDynamicUsersAndNoLiteralUsers": 15,
+    "filesWithDynamicUsersAndNoLiteralUsers": 16,
     "classA": 51,
     "classB": 6,
     "classBoth": 0,
-    "classNone": 346,
+    "classNone": 347,
     "classUnknown": 0,
     "aUsers": 43,
     "aTenants": 31,
@@ -15575,6 +15575,50 @@
           "replica": "inside",
           "inTransaction": true,
           "transactionVia": "$transaction"
+        }
+      ]
+    },
+    {
+      "file": "apps/backend/src/tests/wards-consent-roster-rx-tenant-isolation.deep.test.js",
+      "classification": "none",
+      "a": {
+        "users": false,
+        "tenants": false
+      },
+      "b": {
+        "users": false,
+        "tenants": false
+      },
+      "usesTenantTeardownHelper": false,
+      "hasReplicaWindow": false,
+      "localWrappers": [],
+      "unresolvedDynamicDeletes": 0,
+      "partiallyResolvedDynamicDeletes": 0,
+      "otherRelationDeletes": 2,
+      "deletes": [
+        {
+          "line": 148,
+          "kind": "dynamic",
+          "relations": [
+            "users"
+          ],
+          "resolvedRelationCount": 9,
+          "binding": "for (const ... of <ArrayExpression>)",
+          "replica": "outside",
+          "inTransaction": false,
+          "transactionVia": null
+        },
+        {
+          "line": 150,
+          "kind": "literal",
+          "relations": [
+            "tenants"
+          ],
+          "resolvedRelationCount": 1,
+          "binding": null,
+          "replica": "outside",
+          "inTransaction": false,
+          "transactionVia": null
         }
       ]
     },
