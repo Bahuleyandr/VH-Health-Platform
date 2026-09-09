@@ -1,0 +1,37 @@
+// Fixture for apps/backend/src/tests/unit/teardownTxCensus.test.js.
+//
+// It is a synthetic deep suite, NOT a real one, and it is deliberately stored
+// with a .js.txt extension: the census walks apps/backend/src/tests for
+// /\.(js|mjs|cjs)$/, so a .js fixture would be counted as a real suite and
+// would put a fabricated entry into the committed census.
+//
+// BASELINE CLASSIFICATION: `none`. It opens a replica window for one
+// append-only evidence table and closes it again, and it deletes `users` and
+// `tenants` outside every transaction, at 'origin' - the shape the
+// tenantTeardown.js split produces. Each probe mutates this text and asserts
+// the classification MOVES. The probes assert this baseline first, because a
+// mutation test that also passes on the unmutated input has proved nothing.
+
+import prisma from '../../lib/prisma.js';
+
+const TENANT = '00000000-0000-0000-0000-000000000001';
+const EVIDENCE_TABLES = ['fixture_evidence_rows', 'fixture_receipt_rows'];
+
+async function teardown() {
+  // Phase 1: the append-only evidence rows, in one short transaction. The
+  // replica window opens and closes INSIDE this callback.
+  await prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'replica'`);
+    for (const table of EVIDENCE_TABLES) {
+      await tx.$executeRawUnsafe(`DELETE FROM ${table} WHERE tenant_id = $1::uuid`, TENANT);
+    }
+    await tx.$executeRawUnsafe(`SET LOCAL session_replication_role = 'origin'`);
+    await tx.$executeRawUnsafe(`DELETE FROM fixture_plain_rows WHERE tenant_id = $1::uuid`, TENANT);
+  });
+
+  // Phase 2: the fan-out deletes, one autocommit statement each, no window.
+  await prisma.$executeRawUnsafe(`DELETE FROM users WHERE tenant_id = $1::uuid`, TENANT);
+  await prisma.$executeRawUnsafe(`DELETE FROM tenants WHERE id = $1::uuid`, TENANT);
+}
+
+afterAll(teardown, 120000);
