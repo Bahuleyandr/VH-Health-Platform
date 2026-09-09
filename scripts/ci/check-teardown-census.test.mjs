@@ -339,7 +339,7 @@ test('P8b the --classes mode regenerates from the real census module', () => {
 });
 
 test('every failure code the gate can emit has a stated predicate', () => {
-  for (const code of ['F1', 'F2', 'F3', 'F4', 'F5', 'I1', 'I2', 'I3', 'I4', 'I5', 'I6', 'I7', 'R']) {
+  for (const code of ['F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'I1', 'I2', 'I3', 'I4', 'I5', 'I6', 'I7', 'R']) {
     assert.ok(typeof PREDICATES[code] === 'string' && PREDICATES[code].length > 40, `missing predicate for ${code}`);
   }
   assert.equal(ARTIFACT_PATH, 'docs/security/teardown-tx-census.json');
@@ -483,4 +483,33 @@ test('the partition covers every counter the real artifact carries, both ways', 
   const recorded = Object.keys(readCommitted().counts).sort();
   assert.deepEqual(recorded, [...ALL_COUNTS].sort());
   assert.equal(DERIVED_COUNTS.length + FLOOR_ONLY_COUNTS.length, ALL_COUNTS.length);
+});
+
+test('F6 the census\'s emitted counts must agree with computeCounts over its own records', () => {
+  // Baseline first: a consistent census raises no F6.
+  const clean = census(CLEAN());
+  assert.deepEqual(compareCensus(census(CLEAN()), clean).failures, []);
+
+  // Tamper with ONE emitted counter, leaving files[] untouched. This is the
+  // shape of census() post-processing its counts, or emitting a counter that
+  // computeCounts did not produce.
+  const tampered = census(CLEAN());
+  tampered.counts.classNone = 99;
+  const result = compareCensus(census(CLEAN()), tampered);
+  const f6 = result.failures.filter((item) => item.code === 'F6');
+  assert.equal(f6.length, 1);
+  assert.equal(f6[0].key, 'classNone');
+  assert.equal(f6[0].emitted, 99);
+  assert.equal(f6[0].derived, 3);
+});
+
+test('F6 excludes the two walk-scoped counters by definition', () => {
+  // files[] cannot reproduce either, so neither may take part in the
+  // comparison; changing them must not raise F6.
+  const moved = census(CLEAN());
+  moved.counts.filesWalked = 1999;
+  moved.counts.filesUsingTenantTeardownHelper = 4;
+  const failures = compareCensus(census(CLEAN()), moved).failures;
+  assert.deepEqual(failures.filter((item) => item.code === 'F6'), []);
+  for (const key of FLOOR_ONLY_COUNTS) assert.ok(!DERIVED_COUNTS.includes(key));
 });

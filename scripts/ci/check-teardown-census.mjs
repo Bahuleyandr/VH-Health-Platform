@@ -82,6 +82,11 @@ export const PREDICATES = {
     + 'files[], so equality is not assertable from a committed artifact and only '
     + 'floors are checked. Deriving the helper counter from files[] yields 1 on a '
     + 'correct artifact whose recorded value is 12.',
+  F6: 'FAIL - the regenerated census\'s own `counts` disagree, on the DERIVED '
+    + 'subset, with computeCounts re-applied to its own `files[]`. The two '
+    + 'walk-scoped counters are excluded by definition: files[] cannot '
+    + 'reproduce them. Runs on the real corpus in both backend tiers on every '
+    + 'run.',
   R: 'REPORT only, never a failure - count movement (filesWalked, arm totals, '
     + 'every differing counts field), rows added with an empty defect set '
     + '(a new test file that tears down correctly), rows removed (a suite '
@@ -141,6 +146,27 @@ export function compareCensus(committed, regenerated) {
       detail: `regenerated parseFailures = ${regenerated.counts.parseFailures}`,
       files: (regenerated.parseFailures ?? []).map((entry) => entry.file),
     });
+  }
+
+  // F6. The census's emitted counts against computeCounts re-applied to the
+  // records it emitted, on the real corpus, every run.
+  //
+  // WHAT THIS PROVES AND WHAT IT NO LONGER PROVES. It was specified as a
+  // divergence guard between two implementations of the expressions. There is
+  // only one now - lib/teardown-census-counts.mjs, which census() and this gate
+  // both call - so on the DERIVED subset it is a self-consistency check, not a
+  // divergence check. It still earns its place: it fires if census() ever
+  // post-processes `counts` after computing them, or emits a counter that
+  // computeCounts did not produce. What it CANNOT catch is a wrong rule inside
+  // computeCounts, because both sides would then be wrong together. Only the
+  // planted dynamic-partial / empty-relations fixtures catch that, and on this
+  // corpus nothing else can: 609 literal and 16 dynamic deletes, zero
+  // dynamic-partial, zero unresolved.
+  const selfDerived = deriveCountsFromArtifact(regenerated);
+  for (const key of DERIVED_COUNTS) {
+    if (regenerated.counts?.[key] !== selfDerived[key]) {
+      failures.push({ code: 'F6', key, emitted: regenerated.counts?.[key], derived: selfDerived[key] });
+    }
   }
 
   const before = indexByFile(committed);
