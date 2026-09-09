@@ -1,6 +1,6 @@
 # RLS bypass-reacher census — 2026-09-08
 
-Source revision: `37e56ff9fb251241d0b66bb6e405235a75992be2`. Exact normalized source and migration SHA-256 manifests are in the adjacent JSON pin.
+Source revision: `df9eea69350cc585e199dd3aea452372cd109ff1`. Exact normalized source and migration SHA-256 manifests are in the adjacent JSON pin.
 
 **Census only: no policy changes, conversions, completed dispositions or runtime acceptance claims.** Every entry is PENDING with an intended disposition and future module PR. A closure must reduce K to zero for its table and carry the disposition tests in that same PR.
 
@@ -26,7 +26,7 @@ The 22 relations are the unique tenant-bearing tables at the original 22 confirm
 
 | Table | Runtime candidates | Administrative candidates | N reachers = M dispositioned + K pending | Owning module PR |
 |---|---:|---:|---|---|
-| users | 226 | 176 | 402 reachers = 0 dispositioned + 402 pending | feat/rls-t2-appointments |
+| users | 225 | 176 | 401 reachers = 0 dispositioned + 401 pending | feat/rls-t2-appointments |
 | housekeeping_logs | 4 | 27 | 31 reachers = 0 dispositioned + 31 pending | feat/rls-t2-housekeeping |
 | housekeeping_floor_assignments | 3 | 26 | 29 reachers = 0 dispositioned + 29 pending | feat/rls-t2-housekeeping |
 | housekeeping_zones | 2 | 33 | 35 reachers = 0 dispositioned + 35 pending | feat/rls-t2-housekeeping |
@@ -166,7 +166,7 @@ The second query must reconcile to the migration manifest before a historical ad
 
 ## users
 
-**402 reachers = 0 dispositioned + 402 pending.** 1335 source statement candidates reference this table before root tracing. Module PR: `feat/rls-t2-appointments`.
+**401 reachers = 0 dispositioned + 401 pending.** 1335 source statement candidates reference this table before root tracing. Module PR: `feat/rls-t2-appointments`.
 
 | Statement | Contexts | Entry/job origins | PENDING intended disposition |
 |---|---|---|---|
@@ -355,7 +355,6 @@ The second query must reconcile to the migration manifest before a historical ad
 | [apps/backend/src/services/staff/payrollService.js:3808:28:$queryRawUnsafe](../../apps/backend/src/services/staff/payrollService.js#L3808) | bypass | job:salary-revision-workflow-worker | converted; Convert every listed bypass/no-context path to per-tenant scope and prove nonzero tenant work under vhhealth_app. |
 | [apps/backend/src/services/staff/payrollService.js:527:31:$queryRawUnsafe](../../apps/backend/src/services/staff/payrollService.js#L527) | tenant | job:monthly-payroll | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
 | [apps/backend/src/services/staff/payrollService.js:884:35:$queryRawUnsafe](../../apps/backend/src/services/staff/payrollService.js#L884) | tenant | job:monthly-payroll | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
-| [apps/backend/src/services/staff/rosterBoardService.js:1266:13:$executeRawUnsafe](../../apps/backend/src/services/staff/rosterBoardService.js#L1266) | bare-transaction | residual:bare-transaction:apps/backend/src/services/staff/rosterBoardService.js:1153; residual:bare-transaction:apps/backend/src/services/staff/rosterBoardService.js:1387 | converted; Convert every listed bypass/no-context path to per-tenant scope and prove nonzero tenant work under vhhealth_app. |
 | [apps/backend/src/services/staff/rosterDeadlineService.js:151:22:$queryRawUnsafe](../../apps/backend/src/services/staff/rosterDeadlineService.js#L151) | bypass, tenant | entry:apps/backend/src/utils/scheduler.js:1737; job:roster-deadline-escalation; residual:module-initializer:apps/backend/src/bin/www.js:372; startup:apps/backend/src/bin/www.js:118 | converted; Convert every listed bypass/no-context path to per-tenant scope and prove nonzero tenant work under vhhealth_app. |
 | [apps/backend/src/services/staff/rosterDeadlineService.js:90:10:$queryRawUnsafe](../../apps/backend/src/services/staff/rosterDeadlineService.js#L90) | bypass, tenant | entry:apps/backend/src/utils/scheduler.js:1737; job:roster-deadline-escalation; residual:module-initializer:apps/backend/src/bin/www.js:372; startup:apps/backend/src/bin/www.js:118 | converted; Convert every listed bypass/no-context path to per-tenant scope and prove nonzero tenant work under vhhealth_app. |
 | [apps/backend/src/services/staff/salaryRevisionActivationService.js:249:28:$queryRawUnsafe](../../apps/backend/src/services/staff/salaryRevisionActivationService.js#L249) | tenant | job:salary-revision-workflow-worker | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
@@ -624,8 +623,8 @@ Administrative entries (27); each is **PENDING → proven-unreachable**, owned b
 | Statement | Contexts | Entry/job origins | PENDING intended disposition |
 |---|---|---|---|
 | [apps/backend/src/services/staff/housekeepingTaskDispatchService.js:186:10:$queryRawUnsafe](../../apps/backend/src/services/staff/housekeepingTaskDispatchService.js#L186) | tenant | job:bed-cleaning-dispatch-sweep | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
-| [apps/backend/src/services/staff/rosterBoardService.js:1476:13:$executeRawUnsafe](../../apps/backend/src/services/staff/rosterBoardService.js#L1476) | bare-transaction | residual:bare-transaction:apps/backend/src/services/staff/rosterBoardService.js:1417 | converted; Convert every listed bypass/no-context path to per-tenant scope and prove nonzero tenant work under vhhealth_app. |
-| [apps/backend/src/services/staff/rosterBoardService.js:1487:36:$queryRawUnsafe](../../apps/backend/src/services/staff/rosterBoardService.js#L1487) | bare-transaction | residual:bare-transaction:apps/backend/src/services/staff/rosterBoardService.js:1417 | converted; Convert every listed bypass/no-context path to per-tenant scope and prove nonzero tenant work under vhhealth_app. |
+| [apps/backend/src/services/staff/rosterBoardService.js:1503:13:$executeRawUnsafe](../../apps/backend/src/services/staff/rosterBoardService.js#L1503) | bare-transaction | residual:bare-transaction:apps/backend/src/services/staff/rosterBoardService.js:1444 | converted; Convert every listed bypass/no-context path to per-tenant scope and prove nonzero tenant work under vhhealth_app. |
+| [apps/backend/src/services/staff/rosterBoardService.js:1514:36:$queryRawUnsafe](../../apps/backend/src/services/staff/rosterBoardService.js#L1514) | bare-transaction | residual:bare-transaction:apps/backend/src/services/staff/rosterBoardService.js:1444 | converted; Convert every listed bypass/no-context path to per-tenant scope and prove nonzero tenant work under vhhealth_app. |
 
 Administrative entries (26); each is **PENDING → proven-unreachable**, owned by `feat/rls-t2-housekeeping`. The shared statement catalog below resolves each ID to its source SQL; the JSON repeats each table-specific disposition explicitly.
 
