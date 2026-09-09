@@ -245,6 +245,23 @@ export async function runSecurityStage() {
   // that would carry the regression.
   run(process.execPath, ['--test', 'scripts/ci/check-migration-number-collisions.test.mjs']);
 
+  // Teardown census. The half that needs the parser - regenerate the census and
+  // compare classes - runs in BOTH backend tiers, where its only input
+  // (apps/backend/src/tests) actually lands; `backendPatterns` is
+  // /^apps\/backend\// so nothing can change a classification without
+  // selecting that stage. The half that runs here needs no parser and no walk:
+  // it checks the committed artifact against itself (counts re-derived from
+  // files[], no unknowns, no parse failures, every listed path still on disk,
+  // every row's label matching its own fields) and against the artifact at the
+  // merge base. That second comparison is the one that catches "introduce a
+  // defect AND regenerate", which the regeneration comparison cannot see
+  // because regenerated equals committed by construction - and it is also the
+  // only arm that runs when a PR edits the artifact and nothing else, which is
+  // a docs-only plan that never selects backend. Mutation proof beside it, as
+  // with the gates above.
+  run(process.execPath, ['--test', 'scripts/ci/check-teardown-census.test.mjs']);
+  run(process.execPath, ['scripts/ci/check-teardown-census.mjs', '--integrity']);
+
   run(process.execPath, ['scripts/check-forgejo-supply-chain-pins.mjs']);
   run(process.execPath, ['scripts/scan-secrets.mjs']);
   run(process.execPath, ['scripts/gitleaks-scan.mjs', 'worktree'], { env: gitleaksEnv });
