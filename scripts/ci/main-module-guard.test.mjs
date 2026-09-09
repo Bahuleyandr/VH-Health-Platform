@@ -55,8 +55,19 @@ const UNGUARDED_LINE = 'if (import.meta.url === pathToFileURL(process.argv[1]).h
 // probe timeout. That is not hypothetical either — it is what the first
 // commit of this file did on CI, because `git grep` searches only TRACKED
 // files and the local run that reported 5/5 green was taken while this file
-// was still untracked. The census had 17 members when it was measured and 19
-// when it ran.
+// was still untracked.
+//
+// The counts, each tied to the commit it was measured at, because a census
+// size is history and not a standing fact:
+//   github/main 30c6520b5 ..... 17   (what the local pre-commit run measured)
+//   03d8765b2 ................. 19   (what the recursing CI run swept: +this
+//                                     file, +security.mjs, whose first wiring
+//                                     comment quoted the needle too)
+//   668f561e2 onwards ......... 18   (security.mjs's comment rephrased to
+//                                     `pathToFileURL(argv[1])`, dropping it
+//                                     back out; this file stays, excluded)
+// Reproduce any row with:
+//   git grep -l --fixed-strings 'pathToFileURL(process.argv[1])' <rev> -- scripts apps | wc -l
 //
 // So this one path is excluded from the import probe. The exclusion is PROVEN
 // sound by `this suite quotes the idiom without ever executing it` below
@@ -77,7 +88,7 @@ const FIXED_BY_THIS_CHANGE = [
 // Sweep hits whose module graph reaches a third-party package (`pg`, `jose`).
 // The security stage runs with no `npm ci`, so importing these fails with
 // ERR_MODULE_NOT_FOUND there and succeeds on a dev box that has installed the
-// backend. Both outcomes are accepted for these five paths — and ONLY the
+// backend. Both outcomes are accepted for these four paths — and ONLY the
 // module-resolution failure is accepted, never the argv TypeError, which is
 // asserted against every hit regardless of which list it is on.
 const MAY_FAIL_ON_MISSING_DEPS = new Set([
@@ -200,6 +211,45 @@ test('this suite quotes the idiom without ever executing it', () => {
     `${SELF} carries the idiom outside a comment or a pinned constant, so ` +
       'excluding it from the import probe would hide a real instance',
   );
+});
+
+test('the counts this suite states in prose match the lists they describe', () => {
+  // Review of the first draft found a comment reading "accepted for these five
+  // paths" over a Set of FOUR — a number recalled rather than counted, in the
+  // one file whose whole thesis is that a claim which merely SOUNDS like a
+  // measurement is how a defect survives a reader. Nothing asserted it, so
+  // nothing could catch it. This does.
+  //
+  // Only the counts that are derivable from a live data structure are gated
+  // here. The census sizes in the SELF comment above are historical facts about
+  // three specific commits; they carry the command that reproduces each row
+  // instead, because pinning them to SHAs would break the moment this branch is
+  // squashed onto main.
+  const source = readFileSync(join(repoRoot, SELF), 'utf8');
+  const WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
+
+  const cases = [
+    {
+      what: 'FIXED_BY_THIS_CHANGE',
+      pattern: /^\/\/ The (\w+) files this suite's fix guarded/m,
+      actual: FIXED_BY_THIS_CHANGE.length,
+    },
+    {
+      what: 'MAY_FAIL_ON_MISSING_DEPS',
+      pattern: /^\/\/ backend\. Both outcomes are accepted for these (\w+) paths/m,
+      actual: MAY_FAIL_ON_MISSING_DEPS.size,
+    },
+  ];
+
+  for (const { what, pattern, actual } of cases) {
+    const match = source.match(pattern);
+    assert.ok(match, `the prose describing ${what} was reworded; this gate no longer reads it`);
+    assert.equal(
+      match[1],
+      WORDS[actual],
+      `the comment says "${match[1]}" but ${what} has ${actual} entr${actual === 1 ? 'y' : 'ies'}`,
+    );
+  }
 });
 
 // ---------------------------------------------------------------------------
