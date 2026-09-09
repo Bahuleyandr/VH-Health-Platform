@@ -70,6 +70,6 @@ describe('dependency floors', () => {
   it('publishes floors that match the advisory data they came from', () => {
     expect(PATCHED_DEPENDENCY_FLOORS.minimatch).toEqual({ 3: '3.1.3', 4: '4.2.5', 5: '5.1.8', 6: '6.2.2', 7: '7.4.8', 8: '8.0.6', 9: '9.0.7', 10: '10.2.3' });
     expect(PATCHED_DEPENDENCY_FLOORS['brace-expansion']).toEqual({ 1: '1.1.18', 2: '2.1.4', 3: '3.0.6', 5: '5.0.9' });
-    expect(PATCHED_DEPENDENCY_FLOORS['js-yaml']).toEqual({ 3: '3.15.1', 4: '4.3.1', 5: '5.2.2' });
+    expect(PATCHED_DEPENDENCY_FLOORS['js-yaml']).toEqual({ 3: '3.15.2', 4: '4.3.2', 5: '5.2.2' });
   });
 });
