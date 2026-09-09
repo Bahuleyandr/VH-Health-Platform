@@ -55,6 +55,7 @@ import { sentryScopeMiddleware } from './middleware/sentryScopeMiddleware.js';
 import { selfHealingMiddleware } from './middleware/selfHealingMiddleware.js';
 import validateApiKey from './middleware/validateApiKey.js';
 import { publicCache } from './middleware/cacheControlMiddleware.js';
+import { probeDb } from './utils/probeDb.js';
 import { success, error } from './utils/responseHelper.js';
 import { isTrustedIngressProxy } from './utils/trustedProxy.js';
 import { isHl7ReceiveEndpoint } from './utils/urlRedaction.js';
@@ -808,15 +809,11 @@ app.use('/api/v1/storage', genericLimiter, storageRoutes);
 // Prisma driver is live with a cheap `SELECT 1`; circuit-breaker state is
 // not included here to keep this probe as fast as possible (use
 // /health/metrics for the fuller picture).
-async function probeDb() {
-  try {
-    const { default: prisma } = await import('./lib/prisma.js');
-    await prisma.$queryRaw`SELECT 1`;
-    return true;
-  } catch {
-    return false;
-  }
-}
+//
+// probeDb (utils/probeDb.js) bounds that `SELECT 1` with its own budget
+// (PROBE_DB_TIMEOUT_MS, default 2 s). A saturated pool then yields a fast,
+// truthful 503 instead of an unanswered request that the kubelet records as a
+// probe deadline — the 2026-09-09 06:40Z boot-storm failure mode.
 app.get('/', probeLimiter, async (req, res, next) => {
   try {
     if (!(await probeDb())) {

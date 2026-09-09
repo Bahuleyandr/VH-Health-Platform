@@ -55,6 +55,8 @@ import { join, relative, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse } from 'acorn';
 
+import { computeCounts } from './lib/teardown-census-counts.mjs';
+
 export const SCHEMA = 'teardown-tx-census/v1';
 
 // ---------------------------------------------------------------------------
@@ -643,36 +645,16 @@ export function census({ revision = null, root = TEST_ROOT } = {}) {
   }
   records.sort((a, b) => a.file.localeCompare(b.file));
 
-  const by = (predicate) => records.filter(predicate);
-  const dynamicKind = (kind) => kind === 'dynamic' || kind === 'dynamic-partial';
-  const counts = {
+  // The count expressions live in ./lib/teardown-census-counts.mjs so this
+  // artifact and the CI gate that re-checks it cannot drift apart. Today's
+  // corpus exercises only two of the four delete kinds, which makes several
+  // competing rules produce identical numbers - a second hand-written copy
+  // "matches" without being right.
+  const counts = computeCounts(records, {
     filesWalked: files.length,
-    parseFailures: parseFailures.length,
-    filesWithTargetDelete: records.length,
-    filesReachedByLiteralArm: by((r) => r.deletes.some((d) => d.kind === 'literal')).length,
-    filesReachedByDynamicArm: by((r) => r.deletes.some((d) => dynamicKind(d.kind) && d.relations.length > 0)).length,
-    filesReachedOnlyByDynamicArm: by(
-      (r) => r.deletes.some((d) => dynamicKind(d.kind) && d.relations.length > 0)
-        && !r.deletes.some((d) => d.kind === 'literal'),
-    ).length,
-    filesWithDynamicUsersAndNoLiteralUsers: by(
-      (r) => r.deletes.some((d) => dynamicKind(d.kind) && d.relations.includes('users'))
-        && !r.deletes.some((d) => d.kind === 'literal' && d.relations.includes('users')),
-    ).length,
-    classA: by((r) => r.classification === 'a').length,
-    classB: by((r) => r.classification === 'b').length,
-    classBoth: by((r) => r.classification === 'both').length,
-    classNone: by((r) => r.classification === 'none').length,
-    classUnknown: by((r) => r.classification === 'unknown').length,
-    aUsers: by((r) => r.a.users).length,
-    aTenants: by((r) => r.a.tenants).length,
-    bUsers: by((r) => r.b.users).length,
-    bTenants: by((r) => r.b.tenants).length,
-    filesUsingTenantTeardownHelper: filesUsingHelper,
-    filesUsingHelperAndStillDeletingTargets: by((r) => r.usesTenantTeardownHelper).length,
-    filesWithUnresolvedDynamicDelete: by((r) => r.unresolvedDynamicDeletes > 0).length,
-    filesWithPartiallyResolvedDynamicDelete: by((r) => r.partiallyResolvedDynamicDeletes > 0).length,
-  };
+    parseFailureCount: parseFailures.length,
+    filesUsingHelper,
+  });
 
   return {
     schema: SCHEMA,

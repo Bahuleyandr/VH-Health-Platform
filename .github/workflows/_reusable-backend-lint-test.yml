@@ -257,6 +257,21 @@ jobs:
       - name: Applied-migration immutability guard (no edits to migrations on main)
         run: npm run check:migration-immutability
 
+      # Teardown census class-regression gate. Regenerates the census in
+      # memory and compares it with docs/security/teardown-tx-census.json,
+      # failing ONLY on class regressions - a new row in (a)/(b)/both, an
+      # existing row gaining a defect class, any unreadable row, any parse
+      # failure. Count movement is reported and never failed, so a PR that adds
+      # a correctly-torn-down suite is not taxed with a regeneration. It runs
+      # here rather than in the unconditional `security` stage because it needs
+      # the parser, and that stage installs nothing; the artifact-integrity and
+      # merge-base halves, which need neither parser nor walk, do run there.
+      # Mirrored into both tiers for the same reason the collision guard is: a
+      # teardown lands on an ordinary feature push, and the full tier only runs
+      # behind the `[full-ci]` marker.
+      - name: Teardown census class-regression gate
+        run: node ../../scripts/ci/check-teardown-census.mjs --classes
+
       - name: Restore generated Prisma client
         id: prisma-client
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0

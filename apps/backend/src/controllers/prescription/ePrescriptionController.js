@@ -2465,6 +2465,9 @@ export const getPrescriptionSafety = async (req, res) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 export const getPrescription = async (req, res) => {
   try {
+    const rawTenantId = req.tenantId ?? req.user?.tenant_id ?? req.user?.tenantId;
+    if (!rawTenantId) throw AppError.forbidden('Tenant context required', 'TENANT_CONTEXT_REQUIRED');
+    const tenantId = requireTenantId(rawTenantId);
     // `e_prescriptions.id` is an `integer` column. node-postgres types the
     // raw `req.params.id` string as `text` and Postgres rejects the
     // comparison with the int column → swallowed 500. Coerce here.
@@ -2473,17 +2476,24 @@ export const getPrescription = async (req, res) => {
     if (!Number.isInteger(id)) {
       return error(res, 'Invalid prescription id', HTTP_STATUS.BAD_REQUEST);
     }
-    const result = await prisma.$queryRawUnsafe(
-      `SELECT ep.*,
+    const result = await setTenantTx(tenantId, tx => tx.$queryRawUnsafe(
+      `SELECT ep.id, ep.appointment_id, ep.patient_id, ep.doctor_id, ep.patient_uid, ep.doctor_uid,
+              ep.medication_name, ep.diagnosis, ep.clinical_notes, ep.medications, ep.notes, ep.status,
+              ep.prescription_number, ep.follow_up_date, ep.follow_up_notes, ep.vitals,
+              ep.handwritten_photo_key, ep.pdf_key, ep.created_by, ep.created_at, ep.updated_at,
+              ep.pharmacy_order_id, ep.pharmacy_opted, ep.pharmacy_opt_type, ep.admission_id,
+              ep.visit_type, ep.tenant_id, ep.lifecycle_status, ep.revision, ep.signed_at,
+              ep.signed_by, ep.locked_at, ep.locked_by,
               p.name AS patient_name, p.phone AS patient_phone, p.gender AS patient_gender, p.birthday AS patient_birthday,
               d.name AS doctor_name, doc.specialty AS doctor_specialization, NULL::text AS doctor_qualification
        FROM e_prescriptions ep
-       JOIN users p ON p.id = ep.patient_id
-       JOIN users d ON d.id = ep.doctor_id
-       LEFT JOIN doctors doc ON doc.user_id = ep.doctor_id
-       WHERE ep.id = $1`,
-      id
-    );
+       JOIN users p ON p.id = ep.patient_id AND p.tenant_id = $2::uuid
+       JOIN users d ON d.id = ep.doctor_id AND d.tenant_id = $2::uuid
+       LEFT JOIN doctors doc ON doc.user_id = ep.doctor_id AND doc.tenant_id = $2::uuid
+       WHERE ep.id = $1 AND ep.tenant_id = $2::uuid`,
+      id,
+      tenantId
+    ));
     if (result.length === 0) {
       return error(res, 'Prescription not found', HTTP_STATUS.NOT_FOUND);
     }
@@ -2526,8 +2536,7 @@ export const getPrescription = async (req, res) => {
 
     success(res, rx, 'Prescription detail');
   } catch (err) {
-    logger.error('Get prescription error:', err);
-    error(res, 'Failed to fetch prescription', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    return relayAppError(res, err, 'Failed to fetch prescription');
   }
 };
 
