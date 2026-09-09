@@ -287,7 +287,7 @@ export async function runSoakReplay({
   }
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const result = await runSoakReplay({
     fixtureDir: resolve(argValue('fixtures', DEFAULT_FIXTURE_DIR)),
     cycles: Number.parseInt(argValue('cycles', '250'), 10) || 250,
