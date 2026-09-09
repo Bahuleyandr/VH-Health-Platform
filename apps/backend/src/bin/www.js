@@ -36,6 +36,7 @@ import {
 import { collectReliabilityMetrics } from '../observability/reliabilityMetrics.js';
 import { collectTeleconsultOpsMetrics } from '../observability/teleconsultOpsMetrics.js';
 import { logPrivilegeGateStates } from '../config/privilegeGates.js';
+import { resolveBootRunStepDelayMs, scheduleDeferredBootRun } from '../utils/schedulerBootPacing.js';
 // Registry read ONLY (bloodborneMarkerRules.js has no side effects). Do NOT
 // import exposureHandlerBootstrap.js here: that import would register the
 // handlers itself and turn the boot guard below into a tautology. The point
@@ -270,19 +271,27 @@ async function prepareApplication() {
     scheduleWsFanoutRewire({ getClient: getRedisClient });
   }
 
-  // Boot-time sweep. Awaited so a rejection is surfaced/handled rather than
-  // becoming an unhandledRejection that tears the process down. The heavy
-  // mutating jobs inside are advisory-locked + gated behind RUN_STARTUP_TASKS
-  // (see scheduler.js) so this does NOT stampede across the worker fleet.
+  // Importing scheduler.js registers its cron handles and immediate probes.
+  // Keep that side effect behind the completed migration/schema/RLS gates.
+  //
+  // The boot-time sweep itself is NOT run here any more. Before 2026-09-09 it
+  // was awaited on this line, i.e. before server.listen() — every one of its
+  // fan-out queries competed with nothing, but it pushed the listener (and so
+  // the first readiness probe) out behind the whole sweep, and it landed in the
+  // same window as the freshly registered cron roster. It now runs from
+  // onListening via scheduleDeferredBootRun, SCHEDULER_BOOT_RUN_DELAY_MS
+  // (default 45 s) after the listener is up, by which time readiness has had
+  // several probe periods to pass. See utils/schedulerBootPacing.js.
   try {
-    // Importing scheduler.js registers its cron handles and immediate probes.
-    // Keep that side effect behind the completed migration/schema/RLS gates.
     schedulerModule = await import('../utils/scheduler.js');
-    await schedulerModule.runAllScheduledTasksNow();
   } catch (err) {
-    logger.error('Boot-time runAllScheduledTasksNow failed:', err.message || err);
+    logger.error('Scheduler import failed — no scheduled jobs will run:', err.message || err);
   }
 }
+
+// Handle for the deferred boot-time scheduler sweep, so gracefulShutdown can
+// drop it if the pod is torn down inside the delay window.
+const bootRunBox = { handle: null };
 
 function onListening() {
   const addr = server.address();
@@ -291,6 +300,22 @@ function onListening() {
 
   initWebSocket(server);
   void schedulerModule?.primeOperationalRealtimeChannels?.();
+
+  // Deferred boot sweep — see prepareApplication() and the incident note in
+  // utils/schedulerBootPacing.js. Scheduled here, after listen() succeeded, so
+  // the delay is measured from the moment the pod can actually answer probes.
+  const stepDelayMs = resolveBootRunStepDelayMs();
+  bootRunBox.handle = scheduleDeferredBootRun({
+    run: () => schedulerModule?.runAllScheduledTasksNow?.({ stepDelayMs }),
+    onError: (err) => logger.error(
+      'Deferred boot-time runAllScheduledTasksNow failed:',
+      err?.message || err,
+    ),
+  });
+  logger.info(
+    `Boot-time scheduler sweep deferred by ${bootRunBox.handle.delayMs}ms `
+    + `(stepDelayMs=${stepDelayMs}).`,
+  );
 }
 
 // Timer handle for the reliability metrics collector (set after server.listen).
@@ -314,6 +339,10 @@ function gracefulShutdown(signal) {
     // in-flight tick finishes against the still-open pool below.
     try {
       clearInterval(reliabilityMetricsBox.timer);
+      // Drop the deferred boot sweep first: if shutdown lands inside its delay
+      // window, letting it fire would start a fan-out sweep against a pool
+      // that is about to disconnect.
+      bootRunBox.handle?.cancel();
       schedulerModule?.stopAllScheduledTasks();
     } catch (err) {
       logger.error('Error stopping scheduled tasks:', err.message);

@@ -104,6 +104,15 @@ spec:
                 secretKeyRef:
                   name: vhhealth-backend
                   key: DATABASE_URL
+          # `/` is a DB-backed probe: it runs a real `SELECT 1` through the
+          # Prisma pool (app.js → utils/probeDb.js). timeoutSeconds and
+          # failureThreshold were previously unset, so the kubelet applied its
+          # own defaults of 1 s and 3 — a budget shorter than a single slow
+          # query. On 2026-09-09 06:40Z a boot-time scheduled-job storm pushed
+          # `SELECT 1` past 1 s, three consecutive probes failed inside 20 s,
+          # the pod went NotReady and a healthy deploy was rolled back.
+          # Both values are now explicit: 5 s of patience per probe and 6
+          # consecutive failures (~60 s at periodSeconds 10) before NotReady.
           readinessProbe:
             httpGet:
               path: /
@@ -117,6 +126,8 @@ spec:
                   value: https
             initialDelaySeconds: 15
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
           livenessProbe:
             httpGet:
               path: /
@@ -126,6 +137,7 @@ spec:
                   value: https
             initialDelaySeconds: 60
             periodSeconds: 30
+            timeoutSeconds: 5
           resources:
             requests:
               cpu: 100m
