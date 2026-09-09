@@ -15,7 +15,8 @@ import {
   saveRosterDay
 } from '../../services/staff/rosterBoardService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
+import { AppError } from '../../utils/AppError.js';
 
 function forbidden(res) {
   return error(res, 'You are not allowed to manage this roster department', HTTP_STATUS.FORBIDDEN);
@@ -47,6 +48,7 @@ export async function getDepartmentRoster(req, res) {
 
 export async function saveDepartmentRoster(req, res) {
   try {
+    if (!req.tenantId) throw AppError.forbidden('Tenant context required', 'TENANT_CONTEXT_REQUIRED');
     const { department } = req.params;
     if (!canManageRosterDepartment(req.user, department)) return forbidden(res);
 
@@ -63,13 +65,13 @@ export async function saveDepartmentRoster(req, res) {
     });
     success(res, board, 'Roster board saved');
   } catch (err) {
-    logger.error('Save roster board failed:', err);
-    error(res, err.message || 'Failed to save roster board', statusFromError(err));
+    return relayAppError(res, err, 'Failed to save roster board');
   }
 }
 
 export async function saveDepartmentRosterDay(req, res) {
   try {
+    if (!req.tenantId) throw AppError.forbidden('Tenant context required', 'TENANT_CONTEXT_REQUIRED');
     const { department } = req.params;
     if (!canManageRosterDepartment(req.user, department)) return forbidden(res);
 
@@ -83,8 +85,7 @@ export async function saveDepartmentRosterDay(req, res) {
     });
     success(res, board, 'Roster day saved');
   } catch (err) {
-    logger.error('Save roster day failed:', err);
-    error(res, err.message || 'Failed to save roster day', statusFromError(err));
+    return relayAppError(res, err, 'Failed to save roster day');
   }
 }
 

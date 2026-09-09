@@ -23,6 +23,20 @@ CURL="${CURL:-curl}"
 # service proxy cannot send X-Forwarded-Proto (see verify_backend_version).
 VERIFY_URL="${VH_DEPLOY_VERIFY_URL:-http://127.0.0.1:30090/health/version}"
 ROLLOUT_TIMEOUT="${VH_DEPLOY_ROLLOUT_TIMEOUT:-300s}"
+# Verification window. The rollout being Complete does not mean the pod is
+# already answering: on 2026-09-09 06:40Z a healthy pod was briefly unreachable
+# while a boot-time scheduled-job storm saturated its DB pool, the single
+# verification curl hit "Recv failure: Connection reset by peer", and a good
+# deploy was rolled back. verify_backend_version re-reads for up to
+# VERIFY_TIMEOUT seconds, VERIFY_INTERVAL apart, and still fails closed.
+# VERIFY_TIMEOUT=0 restores the old single-shot behaviour.
+VERIFY_TIMEOUT="${VH_DEPLOY_VERIFY_TIMEOUT:-60}"
+VERIFY_INTERVAL="${VH_DEPLOY_VERIFY_INTERVAL:-5}"
+# Both are operator-supplied. A non-numeric timeout would break the arithmetic
+# mid-deploy, and a zero interval would spin the loop, so bad values fall back
+# to the defaults rather than changing how the window behaves.
+[[ "$VERIFY_TIMEOUT" =~ ^[0-9]+$ ]] || VERIFY_TIMEOUT=60
+[[ "$VERIFY_INTERVAL" =~ ^[1-9][0-9]*$ ]] || VERIFY_INTERVAL=5
 
 # Migration step (the rig's stand-in for the production ArgoCD PreSync hook).
 # See infra/kubernetes/overlays/dalekdefender/migration-job.yaml.
@@ -191,12 +205,25 @@ migration_job_manifest() {
 #     the owner/superuser connection, so `envFrom` alone gives migrations the
 #     DDL rights they need.
 #   * No `vhhealth-backend-config` configMapRef — the rig has no such ConfigMap.
-#   * RUNTIME_ROLE_GRANTS_OPTIONAL=true. The rig has no `vhhealth_runtime`
-#     login role (verified: only vhhealth, vhhealth_app, vhhealth_readonly) and
-#     no AUTH_TENANT_RLS_RUNTIME_ROLE in the Secret, which is exactly the
-#     single-DSN configuration the production Job's own comment blesses this
-#     knob for. It turns a configuration-absent skip into a loud exit-0 no-op;
-#     an unsafe role name, a grant error, or a bad posture still fails.
+#   * AUTH_TENANT_RLS_RUNTIME_ROLE=vhhealth_app is set in this Job's own env.
+#     Production carries it in the vhhealth-backend-migration-config ConfigMap;
+#     the rig has no ConfigMap, so the env entry is the only place the role
+#     name can live. It is the same value backend.yaml gives the Deployment,
+#     so the role this Job GRANTS to and the role request-scoped tenant
+#     transactions SET LOCAL ROLE to cannot drift apart.
+#   * RUNTIME_ROLE_GRANTS_OPTIONAL is deliberately NOT set (it was, until
+#     2026-09-08). While it was, ensure-runtime-role-grants.mjs found no role
+#     configured and skipped its grant and posture pass on EVERY deploy with a
+#     warning ("RLS runtime-role posture NOT verified"). Now the pass runs and
+#     fails closed exactly as the production Job does: a missing role, an
+#     unsafe role name, a grant error, or a bad posture fails this Job, which
+#     aborts the deploy with the previous images still pinned. Note what
+#     "posture" means to that script: it requires the NOBYPASSRLS LOGIN role
+#     `vhhealth_runtime` (rls-runtime-role.sql, audit finding M17) to exist
+#     and to be a member of vhhealth_app. Until an operator applies M17 on
+#     the rig (only vhhealth, vhhealth_app, vhhealth_readonly exist as of
+#     2026-09-08) this Job therefore FAILS every deploy — the intended
+#     fail-closed outcome, not a defect in this manifest.
 #
 # IDEMPOTENT AND SAFE TO RE-RUN: ci-setup-db.mjs is tracker-driven. It applies
 # each file in src/migrations/*.sql exactly once per database via `_migrations`
@@ -275,8 +302,10 @@ spec:
               value: "production"
             - name: CI_DB_SKIP_SEEDS
               value: "1"
-            - name: RUNTIME_ROLE_GRANTS_OPTIONAL
-              value: "true"
+            # The rig has no ConfigMap to carry this (see DIFFERENCES above);
+            # backend.yaml gives the Deployment the same value.
+            - name: AUTH_TENANT_RLS_RUNTIME_ROLE
+              value: "vhhealth_app"
           envFrom:
             - secretRef:
                 name: vhhealth-backend
@@ -452,6 +481,9 @@ wait_for_rollout() {
 verify_backend_version() {
   local expected_commit="$1"
   local payload compact deployed_commit
+  local attempts=0 deadline now
+  local last_mode="unreachable"
+  local last_commit="missing-or-invalid"
 
   # NOT the kubectl service proxy: with NODE_ENV=production the backend's
   # HTTPS-redirect middleware 301s any request that lacks
@@ -462,20 +494,52 @@ verify_backend_version() {
   # rig, where the documented localhost bridge to the backend Service listens
   # on 127.0.0.1:30090 (tailscale-serve's :8444 source — see README) — curl it
   # directly with the header the middleware requires.
-  if ! payload="$("$CURL" -fsS --max-time 20 -H 'X-Forwarded-Proto: https' "$VERIFY_URL")"; then
-    echo "::error::Unable to read /health/version via the localhost backend bridge (${VERIFY_URL})." >&2
-    return 1
-  fi
+  #
+  # Bounded retry, not a single shot (incident 2026-09-09 06:40Z). A rollout
+  # reported Complete does not mean the pod is answering yet: a boot-time
+  # scheduled-job storm had briefly saturated its DB pool, the one curl this
+  # function used to make got "Recv failure: Connection reset by peer" at
+  # 06:40:27, and a healthy deploy was rolled back. Re-read for VERIFY_TIMEOUT
+  # seconds before giving up.
+  #
+  # It still FAILS CLOSED. When the commit never verifies, this returns 1 with
+  # the same diagnostics as before (plus how many attempts it made), and the
+  # caller's migration-aware rollback path runs exactly as it did.
+  deadline=$(( $(date +%s) + VERIFY_TIMEOUT ))
 
-  compact="$(printf '%s' "$payload" | tr -d '[:space:]')"
-  deployed_commit="$(printf '%s' "$compact" | sed -n 's/.*"commit":"\([0-9a-f]\{40\}\)".*/\1/p')"
-  if [[ "$deployed_commit" != "$expected_commit" ]]; then
-    deployed_commit="${deployed_commit:-missing-or-invalid}"
-    echo "::error::Dalekdefender deployed commit ${deployed_commit} does not match requested commit ${expected_commit}." >&2
-    return 1
-  fi
+  while :; do
+    attempts=$(( attempts + 1 ))
 
-  echo "Verified /health/version commit ${deployed_commit}."
+    if payload="$("$CURL" -fsS --max-time 20 -H 'X-Forwarded-Proto: https' "$VERIFY_URL")"; then
+      compact="$(printf '%s' "$payload" | tr -d '[:space:]')"
+      deployed_commit="$(printf '%s' "$compact" | sed -n 's/.*"commit":"\([0-9a-f]\{40\}\)".*/\1/p')"
+      if [[ "$deployed_commit" == "$expected_commit" ]]; then
+        echo "Verified /health/version commit ${deployed_commit} (attempt ${attempts})."
+        return 0
+      fi
+      last_mode="mismatch"
+      last_commit="${deployed_commit:-missing-or-invalid}"
+      # Every attempt reports what it actually saw, so a commit that appears
+      # only in an early attempt is still in the log after the window closes.
+      echo "::warning::Dalekdefender deployed commit ${last_commit} does not match requested commit ${expected_commit} (attempt ${attempts})." >&2
+    else
+      last_mode="unreachable"
+      echo "::warning::Unable to read /health/version via the localhost backend bridge (${VERIFY_URL}) (attempt ${attempts})." >&2
+    fi
+
+    now="$(date +%s)"
+    if (( now + VERIFY_INTERVAL > deadline )); then
+      break
+    fi
+    sleep "$VERIFY_INTERVAL"
+  done
+
+  if [[ "$last_mode" == "unreachable" ]]; then
+    echo "::error::Unable to read /health/version via the localhost backend bridge (${VERIFY_URL}). Gave up after ${attempts} attempt(s) over ${VERIFY_TIMEOUT}s." >&2
+  else
+    echo "::error::Dalekdefender deployed commit ${last_commit} does not match requested commit ${expected_commit}. Gave up after ${attempts} attempt(s) over ${VERIFY_TIMEOUT}s." >&2
+  fi
+  return 1
 }
 
 PREV_BACKEND_REF="$(current_image vhhealth-backend)"

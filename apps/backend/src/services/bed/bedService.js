@@ -307,86 +307,102 @@ class BedService {
     return rows[0];
   }
 
-  async updateWard(id, data) {
+  async updateWard(id, data, options = {}) {
+    const rawTenantId = tenantOf(options);
+    if (!rawTenantId) throw AppError.forbidden('Tenant context required', 'TENANT_CONTEXT_REQUIRED');
+    const tenantId = requireTenantId(rawTenantId);
     const { name, floor, department_id, total_beds } = data;
-    const rows = await prisma.$queryRawUnsafe(
+    const rows = await setTenantTx(tenantId, tx => tx.$queryRawUnsafe(
       `UPDATE wards SET
          name = COALESCE($1, name),
          floor = COALESCE($2, floor),
          department_id = COALESCE($3, department_id),
          total_beds = COALESCE($4, total_beds),
          updated_at = NOW()
-       WHERE id = $5
+       WHERE id = $5 AND tenant_id = $6::uuid
+         AND ($3::int IS NULL OR EXISTS (
+           SELECT 1 FROM departments d WHERE d.id = $3::int AND d.tenant_id = $6::uuid
+         ))
        RETURNING ${WARD_RETURNING}`,
-      name ?? null, floor ?? null, department_id ?? null, total_beds ?? null, parseInt(id)
-    );
+      name ?? null, floor ?? null, department_id ?? null, total_beds ?? null, parseInt(id), tenantId
+    ));
     return rows[0];
   }
 
-  async deleteWard(id) {
+  async deleteWard(id, options = {}) {
+    const rawTenantId = tenantOf(options);
+    if (!rawTenantId) throw AppError.forbidden('Tenant context required', 'TENANT_CONTEXT_REQUIRED');
+    const tenantId = requireTenantId(rawTenantId);
     const wardId = parseInt(id, 10);
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT ${WARD_RETURNING}
-         FROM wards
-        WHERE id = $1
-        LIMIT 1`,
-      wardId,
-    );
-    const ward = rows[0];
-    if (!ward) return null;
-
-    const bedRows = await prisma.$queryRawUnsafe(
-      `SELECT COUNT(*)::int AS bed_count,
-              ARRAY_REMOVE(ARRAY_AGG(bed_number ORDER BY bed_number), NULL) AS bed_numbers
-         FROM beds
-        WHERE ward_id = $1
-           OR LOWER(COALESCE(ward_name, '')) = LOWER($2)`,
-      wardId,
-      ward.name,
-    );
-    const bedCount = Number(bedRows[0]?.bed_count || 0);
-    if (bedCount > 0) {
-      throw AppError.conflict(
-        `Cannot delete ward ${ward.name}; delete or move its ${bedCount} bed${bedCount === 1 ? '' : 's'} first.`,
-        'WARD_DELETE_HAS_BEDS',
-        {
-          ward_id: ward.id,
-          ward_name: ward.name,
-          bed_count: bedCount,
-          bed_numbers: (bedRows[0]?.bed_numbers || []).slice(0, 10),
-        },
+    return setTenantTx(tenantId, async tx => {
+      const rows = await tx.$queryRawUnsafe(
+        `SELECT ${WARD_RETURNING}
+           FROM wards
+          WHERE id = $1 AND tenant_id = $2::uuid
+          LIMIT 1`,
+        wardId,
+        tenantId,
       );
-    }
+      const ward = rows[0];
+      if (!ward) return null;
 
-    const activeAdmissions = await prisma.$queryRawUnsafe(
-      `SELECT id, patient_uid, status, bed_number
-         FROM admissions
-        WHERE discharged_at IS NULL
-          AND LOWER(COALESCE(ward, '')) = LOWER($1)
-        ORDER BY admitted_at DESC NULLS LAST, id DESC
-        LIMIT 1`,
-      ward.name,
-    );
-    if (activeAdmissions.length > 0) {
-      throw AppError.conflict(
-        `Cannot delete ward ${ward.name}; it is linked to an active admission.`,
-        'WARD_DELETE_ACTIVE_ADMISSION',
-        {
-          ward_id: ward.id,
-          ward_name: ward.name,
-          admission_id: activeAdmissions[0].id,
-          bed_number: activeAdmissions[0].bed_number,
-          status: activeAdmissions[0].status,
-        },
+      const bedRows = await tx.$queryRawUnsafe(
+        `SELECT COUNT(*)::int AS bed_count,
+                ARRAY_REMOVE(ARRAY_AGG(bed_number ORDER BY bed_number), NULL) AS bed_numbers
+           FROM beds
+          WHERE tenant_id = $3::uuid
+            AND (ward_id = $1 OR LOWER(COALESCE(ward_name, '')) = LOWER($2))`,
+        wardId,
+        ward.name,
+        tenantId,
       );
-    }
+      const bedCount = Number(bedRows[0]?.bed_count || 0);
+      if (bedCount > 0) {
+        throw AppError.conflict(
+          `Cannot delete ward ${ward.name}; delete or move its ${bedCount} bed${bedCount === 1 ? '' : 's'} first.`,
+          'WARD_DELETE_HAS_BEDS',
+          {
+            ward_id: ward.id,
+            ward_name: ward.name,
+            bed_count: bedCount,
+            bed_numbers: (bedRows[0]?.bed_numbers || []).slice(0, 10),
+          },
+        );
+      }
 
-    const count = await prisma.$executeRawUnsafe(
-      `DELETE FROM wards WHERE id = $1`,
-      wardId,
-    );
-    if (count <= 0) return null;
-    return ward;
+      const activeAdmissions = await tx.$queryRawUnsafe(
+        `SELECT id, patient_uid, status, bed_number
+           FROM admissions
+          WHERE discharged_at IS NULL
+            AND tenant_id = $2::uuid
+            AND LOWER(COALESCE(ward, '')) = LOWER($1)
+          ORDER BY admitted_at DESC NULLS LAST, id DESC
+          LIMIT 1`,
+        ward.name,
+        tenantId,
+      );
+      if (activeAdmissions.length > 0) {
+        throw AppError.conflict(
+          `Cannot delete ward ${ward.name}; it is linked to an active admission.`,
+          'WARD_DELETE_ACTIVE_ADMISSION',
+          {
+            ward_id: ward.id,
+            ward_name: ward.name,
+            admission_id: activeAdmissions[0].id,
+            bed_number: activeAdmissions[0].bed_number,
+            status: activeAdmissions[0].status,
+          },
+        );
+      }
+
+      const count = await tx.$executeRawUnsafe(
+        `DELETE FROM wards WHERE id = $1 AND tenant_id = $2::uuid`,
+        wardId,
+        tenantId,
+      );
+      if (count <= 0) return null;
+      return ward;
+    });
   }
 
   // ===== BED OPERATIONS =====

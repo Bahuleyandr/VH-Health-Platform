@@ -12,134 +12,215 @@
 //   5. Refund bound → a refund cannot exceed what was actually paid.
 //   6. Cross-tenant claim update blocked (tenant-scoped lookup).
 //
-// These run against the live dev Postgres (5433) — the concurrency assertions
+// These run against a configured disposable Postgres — the concurrency assertions
 // require a real engine (FOR UPDATE, the partial unique index from migration
 // 317), so the prisma singleton is NOT mocked here.
 
 import { randomUUID } from 'node:crypto';
-import prisma from '../lib/prisma.js';
+import prisma, { setTenantTx } from '../lib/prisma.js';
 import * as billing from '../services/billing/billingV2Service.js';
 import billingService from '../services/billing/billingService.js';
 import * as claims from '../services/insurance/claimsService.js';
 import * as priorAuth from '../services/ai/priorAuthorizationService.js';
 
-const TENANT_A = '00000000-0000-4000-8000-000000000001'; // default tenant (literal insert default)
-const TENANT_B = '00000000-0000-4000-8000-0000000000b2';
+const DEFAULT_TENANT = '00000000-0000-4000-8000-000000000001';
+const TENANT_A = randomUUID();
+const TENANT_B = randomUUID();
+const ACCOUNT_CODES = ['BANK', 'CASH', 'PATIENT_ADVANCE', 'PATIENT_AR', 'REFUNDS_PAYABLE', 'REVENUE'];
 
-// Track inserted ids for teardown.
-const cleanup = { patientUids: [], invoiceIds: [], advanceIds: [], claimIds: [], priorAuthIds: [], policyIds: [], paymentRefs: [] };
+// Immutable financial history stays in these isolated tenants until the test DB is dropped.
+const fixtures = { patientUids: [], invoiceIds: [], advanceIds: [], claimIds: [], priorAuthIds: [], policyIds: [], legacyClaimIds: [], settlements: [] };
+
+beforeAll(async () => {
+  const accounts = await setTenantTx(DEFAULT_TENANT, (tx) => tx.$queryRawUnsafe(
+    `SELECT code, type, description FROM ledger_accounts
+      WHERE tenant_id = $1::uuid AND code = ANY($2::text[]) ORDER BY code`,
+    DEFAULT_TENANT, ACCOUNT_CODES,
+  ));
+  expect(accounts.map((account) => account.code)).toEqual(ACCOUNT_CODES);
+  for (const tenantId of [TENANT_A, TENANT_B]) {
+    await setTenantTx(tenantId, async (tx) => {
+      await tx.$executeRawUnsafe(
+        `INSERT INTO tenants (id, slug, name) VALUES ($1::uuid, $2, 'Money Path Test')`,
+        tenantId, `money-path-${tenantId}`,
+      );
+      for (const account of accounts) {
+        await tx.$executeRawUnsafe(
+          `INSERT INTO ledger_accounts (tenant_id, code, type, description)
+           VALUES ($1::uuid, $2, $3, $4)`,
+          tenantId, account.code, account.type, account.description,
+        );
+      }
+      const copied = await tx.$queryRawUnsafe(
+        `SELECT code, type, description FROM ledger_accounts WHERE tenant_id = $1::uuid ORDER BY code`,
+        tenantId,
+      );
+      expect(copied).toEqual(accounts);
+    });
+  }
+});
+
+async function assertLedgerEntry(tenantId, key, type) {
+  const rows = await setTenantTx(tenantId, (tx) => tx.$queryRawUnsafe(
+    `SELECT entry.entry_type, count(posting.id)::int AS posting_count,
+            COALESCE(sum(posting.amount_paise), 0)::text AS net_paise
+       FROM ledger_entries entry
+       LEFT JOIN ledger_postings posting ON posting.entry_id = entry.id
+      WHERE entry.tenant_id = $1::uuid AND entry.idempotency_key = $2
+      GROUP BY entry.id, entry.entry_type`,
+    tenantId, key,
+  ));
+  expect(rows).toHaveLength(1);
+  expect(rows[0].entry_type).toBe(type);
+  expect(rows[0].posting_count).toBeGreaterThanOrEqual(2);
+  expect(rows[0].net_paise).toBe('0');
+}
 
 async function makePatient(tenantId = TENANT_A) {
   const uid = randomUUID();
   const phone = `9${Math.floor(100000000 + Math.random() * 899999999)}`;
-  await prisma.$executeRawUnsafe(
-    `INSERT INTO users (uid, phone, name, role, tenant_id, updated_at)
-     VALUES ($1::uuid, $2, 'Money Path Test', 'PATIENT', $3::uuid, NOW())`,
+  await setTenantTx(tenantId, (tx) => tx.$executeRawUnsafe(
+    `INSERT INTO users (uid, phone, name, role, tenant_id, is_active, status, is_deleted, updated_at)
+     VALUES ($1::uuid, $2, 'Money Path Test', 'PATIENT', $3::uuid, true, 'active', false, NOW())`,
     uid, phone, tenantId,
-  );
-  cleanup.patientUids.push(uid);
+  ));
+  fixtures.patientUids.push(uid);
   return uid;
 }
 
 // Create an ISSUED invoice with a known total/due so payments can be collected.
 async function makeIssuedInvoice(patientUid, total, tenantId = TENANT_A) {
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO billing_invoices
-       (patient_uid, invoice_type, status, subtotal, total_amount, amount_paid, amount_due, tenant_id)
-     VALUES ($1::uuid, 'OP', 'ISSUED', $2::numeric, $2::numeric, 0, $2::numeric, $3::uuid)
-     RETURNING id`,
-    patientUid, total, tenantId,
-  );
-  cleanup.invoiceIds.push(rows[0].id);
-  return rows[0].id;
+  const invoice = await billing.createDraftInvoice({ patient_uid: patientUid, invoice_type: 'OP', tenantId });
+  fixtures.invoiceIds.push(invoice.id);
+  await billing.addInvoiceItem(invoice.id, {
+    description: 'Money Path Test', quantity: 1, unit_price: total, gst_rate: 0, tenantId,
+  });
+  await billing.issueInvoice(invoice.id, { tenantId });
+  await assertLedgerEntry(tenantId, `issue-inv-${invoice.id}`, 'INVOICE_ISSUE');
+  return invoice.id;
 }
 
 async function makeActiveAdvance(patientUid, amount, tenantId = TENANT_A) {
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO billing_advances
-       (patient_uid, amount, balance, mode, status, tenant_id)
-     VALUES ($1::uuid, $2::numeric, $2::numeric, 'CASH', 'ACTIVE', $3::uuid)
-     RETURNING id`,
-    patientUid, amount, tenantId,
-  );
-  cleanup.advanceIds.push(rows[0].id);
-  return rows[0].id;
+  const advance = await billing.collectAdvance({ patient_uid: patientUid, amount, mode: 'CASH', tenantId });
+  fixtures.advanceIds.push(advance.id);
+  await assertLedgerEntry(tenantId, `advance-${advance.id}`, 'ADVANCE_COLLECT');
+  return advance.id;
 }
 
-async function makePolicy(patientUid) {
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO insurance_policies (patient_uid, policy_number)
-     VALUES ($1::uuid, $2)
+async function makePolicy(patientUid, tenantId = TENANT_A) {
+  const rows = await setTenantTx(tenantId, (tx) => tx.$queryRawUnsafe(
+    `INSERT INTO insurance_policies (patient_uid, policy_number, tenant_id)
+     VALUES ($1::uuid, $2, $3::uuid)
      RETURNING id`,
-    patientUid, `POL-${Math.floor(Math.random() * 1e9)}`,
-  );
-  cleanup.policyIds.push(rows[0].id);
+    patientUid, `POL-${Math.floor(Math.random() * 1e9)}`, tenantId,
+  ));
+  fixtures.policyIds.push(rows[0].id);
   return rows[0].id;
 }
 
 async function makeTpaClaim(patientUid, policyId, status, tenantId = TENANT_A, { claimed = 1000, paymentRef = null } = {}) {
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await setTenantTx(tenantId, (tx) => tx.$queryRawUnsafe(
     `INSERT INTO tpa_claims
        (claim_number, policy_id, patient_uid, total_billed, claimed_amount, claim_type, status, tenant_id, payment_reference)
      VALUES ($1, $2::int, $3::uuid, $4::numeric, $4::numeric, 'cashless', $5, $6::uuid, $7)
      RETURNING id`,
     `CLM-${Math.floor(Math.random() * 1e9)}`, policyId, patientUid, claimed, status, tenantId, paymentRef,
-  );
-  cleanup.claimIds.push(rows[0].id);
+  ));
+  fixtures.claimIds.push(rows[0].id);
   return rows[0].id;
 }
 
 async function makePriorAuth(patientUid, status, tenantId = TENANT_A) {
-  const rows = await prisma.$queryRawUnsafe(
+  const rows = await setTenantTx(tenantId, (tx) => tx.$queryRawUnsafe(
     `INSERT INTO clinical_ai_prior_auth_requests
        (tenant_id, patient_uid, payer_name, procedure_code, medical_necessity, packet_draft, status)
      VALUES ($1::uuid, $2::uuid, 'Test Payer', 'PROC1', 'necessity', '{}'::jsonb, $3)
      RETURNING id`,
     tenantId, patientUid, status,
-  );
-  cleanup.priorAuthIds.push(rows[0].id);
+  ));
+  fixtures.priorAuthIds.push(rows[0].id);
   return rows[0].id;
 }
 
+async function readFixtureIdentities(tenantId) {
+  return setTenantTx(tenantId, (tx) => tx.$queryRawUnsafe(
+    `SELECT 'patientUids' AS kind, uid::text AS id FROM users
+      WHERE tenant_id = $1::uuid AND uid = ANY($2::uuid[])
+     UNION ALL SELECT 'invoiceIds', id::text FROM billing_invoices
+      WHERE tenant_id = $1::uuid AND id = ANY($3::int[])
+     UNION ALL SELECT 'advanceIds', id::text FROM billing_advances
+      WHERE tenant_id = $1::uuid AND id = ANY($4::int[])
+     UNION ALL SELECT 'claimIds', id::text FROM tpa_claims
+      WHERE tenant_id = $1::uuid AND id = ANY($5::int[])
+     UNION ALL SELECT 'priorAuthIds', id::text FROM clinical_ai_prior_auth_requests
+      WHERE tenant_id = $1::uuid AND id = ANY($6::int[])
+     UNION ALL SELECT 'policyIds', id::text FROM insurance_policies
+      WHERE tenant_id = $1::uuid AND id = ANY($7::int[])
+     UNION ALL SELECT 'legacyClaimIds', id::text FROM insurance_claims
+      WHERE tenant_id = $1::uuid AND id = ANY($8::int[])`,
+    tenantId, fixtures.patientUids, fixtures.invoiceIds, fixtures.advanceIds,
+    fixtures.claimIds, fixtures.priorAuthIds, fixtures.policyIds, fixtures.legacyClaimIds,
+  ));
+}
+
+async function readMoneyEffects(tenantId) {
+  return setTenantTx(tenantId, (tx) => tx.$queryRawUnsafe(
+    `SELECT 'payment-' || id AS key, 'PAYMENT' AS type FROM billing_payments
+      WHERE tenant_id = $1::uuid AND patient_uid = ANY($2::uuid[])
+     UNION ALL SELECT 'advance-settle-' || id, 'ADVANCE_SETTLE' FROM billing_advance_settlements
+      WHERE tenant_id = $1::uuid AND advance_id = ANY($3::int[])
+     UNION ALL SELECT 'refund-approve-' || id, 'REFUND_APPROVE' FROM billing_refunds
+      WHERE tenant_id = $1::uuid AND patient_uid = ANY($2::uuid[]) AND approval_status IN ('APPROVED', 'PAID')
+     UNION ALL SELECT 'refund-paid-' || id, 'REFUND_PAID' FROM billing_refunds
+      WHERE tenant_id = $1::uuid AND patient_uid = ANY($2::uuid[]) AND approval_status = 'PAID'`,
+    tenantId, fixtures.patientUids, fixtures.advanceIds,
+  ));
+}
+
 afterAll(async () => {
-  // Best-effort teardown in FK-safe order.
   try {
-    if (cleanup.invoiceIds.length) {
-      await prisma.$executeRawUnsafe(
-        `DELETE FROM billing_advance_settlements WHERE invoice_id = ANY($1::int[])`, cleanup.invoiceIds,
-      );
-      await prisma.$executeRawUnsafe(
-        `DELETE FROM billing_refunds WHERE invoice_id = ANY($1::int[])`, cleanup.invoiceIds,
-      );
-      await prisma.$executeRawUnsafe(
-        `DELETE FROM billing_payments WHERE invoice_id = ANY($1::int[])`, cleanup.invoiceIds,
-      );
+    const retained = await readFixtureIdentities(TENANT_A);
+    const expected = Object.entries(fixtures)
+      .filter(([kind]) => kind !== 'settlements')
+      .flatMap(([kind, ids]) => ids.map((id) => `${kind}:${id}`));
+    expect(expected.length).toBeGreaterThan(0);
+    expect(retained.map(({ kind, id }) => `${kind}:${id}`).sort()).toEqual(expected.sort());
+    expect(await readFixtureIdentities(DEFAULT_TENANT)).toEqual([]);
+    expect(await readMoneyEffects(DEFAULT_TENANT)).toEqual([]);
+
+    const invoices = await setTenantTx(TENANT_A, (tx) => tx.$queryRawUnsafe(
+      `SELECT id, invoice_number, issued_at FROM billing_invoices
+        WHERE tenant_id = $1::uuid AND id = ANY($2::int[])`,
+      TENANT_A, fixtures.invoiceIds,
+    ));
+    expect(new Set(invoices.map((invoice) => invoice.invoice_number)).size).toBe(invoices.length);
+    for (const invoice of invoices) {
+      expect(invoice.invoice_number).toEqual(expect.stringMatching(/\S/));
+      expect(invoice.issued_at).toBeInstanceOf(Date);
+      await assertLedgerEntry(TENANT_A, `issue-inv-${invoice.id}`, 'INVOICE_ISSUE');
     }
-    if (cleanup.advanceIds.length) {
-      await prisma.$executeRawUnsafe(`DELETE FROM billing_refunds WHERE advance_id = ANY($1::int[])`, cleanup.advanceIds);
-      await prisma.$executeRawUnsafe(`DELETE FROM billing_advance_settlements WHERE advance_id = ANY($1::int[])`, cleanup.advanceIds);
-      await prisma.$executeRawUnsafe(`DELETE FROM billing_advances WHERE id = ANY($1::int[])`, cleanup.advanceIds);
+    for (const advanceId of fixtures.advanceIds) {
+      await assertLedgerEntry(TENANT_A, `advance-${advanceId}`, 'ADVANCE_COLLECT');
     }
-    if (cleanup.invoiceIds.length) {
-      await prisma.$executeRawUnsafe(`DELETE FROM billing_invoices WHERE id = ANY($1::int[])`, cleanup.invoiceIds);
+    const settlements = await setTenantTx(TENANT_A, (tx) => tx.$queryRawUnsafe(
+      `SELECT id, tenant_id, advance_id, invoice_id, amount::text AS amount
+         FROM billing_advance_settlements
+        WHERE tenant_id = $1::uuid AND advance_id = ANY($2::int[]) ORDER BY id`,
+      TENANT_A, fixtures.advanceIds,
+    ));
+    expect(fixtures.settlements).toHaveLength(1);
+    expect(settlements).toEqual(fixtures.settlements);
+    const effects = await readMoneyEffects(TENANT_A);
+    expect(new Set(effects.map((effect) => effect.type))).toEqual(new Set([
+      'PAYMENT', 'ADVANCE_SETTLE', 'REFUND_APPROVE', 'REFUND_PAID',
+    ]));
+    expect(effects).toContainEqual({ key: `advance-settle-${settlements[0].id}`, type: 'ADVANCE_SETTLE' });
+    for (const effect of effects) {
+      await assertLedgerEntry(TENANT_A, effect.key, effect.type);
     }
-    if (cleanup.claimIds.length) {
-      await prisma.$executeRawUnsafe(`DELETE FROM tpa_claim_correspondence WHERE claim_id = ANY($1::int[])`, cleanup.claimIds).catch(() => {});
-      await prisma.$executeRawUnsafe(`DELETE FROM tpa_claims WHERE id = ANY($1::int[])`, cleanup.claimIds);
-    }
-    if (cleanup.policyIds.length) {
-      await prisma.$executeRawUnsafe(`DELETE FROM insurance_policies WHERE id = ANY($1::int[])`, cleanup.policyIds);
-    }
-    if (cleanup.priorAuthIds.length) {
-      await prisma.$executeRawUnsafe(`DELETE FROM clinical_ai_prior_auth_requests WHERE id = ANY($1::int[])`, cleanup.priorAuthIds);
-    }
-    if (cleanup.patientUids.length) {
-      await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = ANY($1::uuid[])`, cleanup.patientUids);
-    }
-  } catch {
-    // teardown best-effort
+  } finally {
+    await prisma.$disconnect();
   }
-  await prisma.$disconnect().catch(() => {});
 }, 30000);
 
 describe('Money-path C-1 fixes (deep)', () => {
@@ -216,6 +297,11 @@ describe('Money-path C-1 fixes (deep)', () => {
       const fulfilled = results.filter((r) => r.status === 'fulfilled');
       // Exactly one full settlement may consume a 1000 balance.
       expect(fulfilled.length).toBe(1);
+      const settlement = fulfilled[0].value;
+      fixtures.settlements.push({
+        id: settlement.id, tenant_id: TENANT_A, advance_id: advance,
+        invoice_id: settlement.invoice_id, amount: Number(settlement.amount).toFixed(2),
+      });
 
       const adv = await prisma.$queryRawUnsafe(
         `SELECT balance, status FROM billing_advances WHERE id = $1::int`, advance,
@@ -553,26 +639,23 @@ describe('Money-path C-1 fixes (deep)', () => {
     it('updateClaimStatus with a mismatched tenant returns notFound', async () => {
       const patient = await makePatient(TENANT_A);
       // insurance_claims (legacy billing surface) — seed directly in tenant A.
-      const rows = await prisma.$queryRawUnsafe(
+      const rows = await setTenantTx(TENANT_A, (tx) => tx.$queryRawUnsafe(
         `INSERT INTO insurance_claims
            (claim_number, patient_uid, insurance_provider, policy_number, claim_amount, status, tenant_id, updated_at)
          VALUES ($1, $2::uuid, 'Acme', 'POLX', 1000, 'submitted', $3::uuid, NOW())
          RETURNING id`,
         `ICLM-${Math.floor(Math.random() * 1e9)}`, patient, TENANT_A,
-      );
+      ));
       const claimId = rows[0].id;
-      try {
-        // Tenant B must NOT be able to update tenant A's claim.
-        await expect(billingService.updateClaimStatus(
-          claimId, 'approved', 500, { tenantId: TENANT_B },
-        )).rejects.toMatchObject({ statusCode: 404 });
+      fixtures.legacyClaimIds.push(claimId);
+      // Tenant B must NOT be able to update tenant A's claim.
+      await expect(billingService.updateClaimStatus(
+        claimId, 'approved', 500, { tenantId: TENANT_B },
+      )).rejects.toMatchObject({ statusCode: 404 });
 
-        // Tenant A succeeds (control).
-        const ok = await billingService.updateClaimStatus(claimId, 'approved', 500, { tenantId: TENANT_A });
-        expect(ok.status).toBe('approved');
-      } finally {
-        await prisma.$executeRawUnsafe(`DELETE FROM insurance_claims WHERE id = $1::int`, claimId).catch(() => {});
-      }
+      // Tenant A succeeds (control).
+      const ok = await billingService.updateClaimStatus(claimId, 'approved', 500, { tenantId: TENANT_A });
+      expect(ok.status).toBe('approved');
     });
   });
 });

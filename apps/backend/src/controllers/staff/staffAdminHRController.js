@@ -2,7 +2,8 @@
 import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
-import { success, error } from '../../utils/responseHelper.js';
+import { success, error, relayAppError } from '../../utils/responseHelper.js';
+import { requestTenantId } from './staffAdminTenant.js';
 
 // Get Pending Reviews
 export const getPendingReviews = async (req, res) => {
@@ -63,6 +64,7 @@ export const getOnboardingStatus = async (req, res) => {
 // Approve Performance Review
 export const approvePerformanceReview = async (req, res) => {
   try {
+    const tenantId = requestTenantId(req);
     const { reviewId } = req.params;
     const { comments, final_rating } = req.body;
     const approvedBy = req.user?.uid;
@@ -74,9 +76,9 @@ export const approvePerformanceReview = async (req, res) => {
         reviewer_comments = COALESCE($3, reviewer_comments),
         rating = COALESCE($4::double precision, rating),
         review_date = CURRENT_DATE
-      WHERE id = $1
+      WHERE id = $1 AND tenant_id = $5::uuid
       RETURNING id, staff_id, review_period, rating, reviewer_id, reviewer_comments, review_date, created_at
-    `, reviewId, approvedBy, comments, final_rating);
+    `, reviewId, approvedBy, comments, final_rating, tenantId);
 
     if (result.length === 0) {
       return error(res, 'Performance review not found', HTTP_STATUS.NOT_FOUND);
@@ -84,7 +86,6 @@ export const approvePerformanceReview = async (req, res) => {
 
     success(res, result[0], 'Performance review approved successfully');
   } catch (err) {
-    logger.error('Approve Review Error:', err);
-    error(res, 'Failed to approve performance review', HTTP_STATUS.INTERNAL_SERVER_ERROR);
+    relayAppError(res, err, 'Failed to approve performance review');
   }
 };

@@ -65,8 +65,78 @@ const RAW_QUERY_METHODS = new Set([
 ]);
 
 const CIRCUIT_BREAKER_THRESHOLD = 5;
+
+// ★ LOAD-BEARING FOR LIVENESS. This is not a comfort setting.
+//
+// While the breaker is open every wrapped call throws, `GET /` answers 503, and
+// the kubelet's LIVENESS probe fails as well as readiness. Liveness on the
+// dalekdefender backend is periodSeconds 30 / failureThreshold 3, so a restart
+// needs three consecutive failures — at least (3 - 1) x 30 s = 60 s of
+// continuous 503, and up to 90 s depending on where the probe's phase falls.
+//
+// Measured on the rig 2026-09-09: one open cycle ran 33.312 s and 33.314 s at
+// two different heavy boundaries — a constant, not an emergent property, being
+// this reset plus roughly 3.3 s of the storm that tripped it. So:
+//
+//   * ONE cycle (~33.3 s) is under the 60 s floor by about 1.8x — it admits one
+//     or two liveness probes and cannot restart the container.
+//   * TWO cycles (~66.6 s) are ALREADY INSIDE the restart band. Not "close to"
+//     it: whether the container restarts is then decided by liveness phase
+//     alignment alone, and a single failing database call is what doubles it.
+//   * Any CIRCUIT_BREAKER_RESET_MS above roughly 57 s puts even a SINGLE cycle
+//     inside that band, with no change in load at all.
+//
+// So raising this number to "give the database more room" trades a bounded
+// degradation for a crash loop, and the restart it causes produces a fresh
+// boot-time job storm of its own. src/tests/unit/circuitBreakerResetJitter.test.js
+// asserts that arithmetic rather than the number, so the relationship fails
+// loudly if someone changes either side of it.
 const CIRCUIT_BREAKER_RESET_MS = 30_000;
+
+// Jitter applied to each open window, downward only: the effective reset is
+// drawn from ((1 - JITTER) x RESET, RESET].
+//
+// Both endpoints are worth stating exactly, because the obvious way round is
+// wrong. Math.random() returns [0, 1), so random() = 0 is reachable and yields
+// the constant unchanged — the TOP is inclusive — while 1 is never returned, so
+// the bottom is approached and never attained. The half-open end is therefore
+// the LOWER one, the opposite of the usual [lo, hi) shape.
+//
+// WHY IT EXISTS. A circuit breaker assumes its retry timing is INDEPENDENT of
+// the failure source. A fixed 30_000 ms is phase-locked to the `*/30 * * * * *`
+// cron cadence in utils/scheduler.js: the breaker trips on a boundary storm at
+// second ~02, the half-open probe therefore fires at second ~32, and four
+// scheduled jobs fire at second 30 — so the one call that decides whether the
+// breaker closes is aimed into a fresh wave, every cycle, by construction. That
+// is the same defect as the boot-time job storm this programme is fixing: many
+// things on one phase with no jitter. Desynchronising retry from load is the
+// standard cure for a synchronised-retry storm.
+//
+// WHY DOWNWARD ONLY, rather than the +/-20% first proposed. Jittering upward
+// would push the worst case from ~33.3 s to ~39.3 s per cycle and a doubled
+// cycle from ~66.6 s to ~78.6 s — further into the liveness restart band that
+// the comment above exists to warn about. Downward-only jitter breaks the phase
+// lock without ever lengthening an outage, so every bound stated above remains
+// an upper bound after this change.
+const CIRCUIT_BREAKER_RESET_JITTER = 0.2;
+
 const SLOW_QUERY_MS = 1000;
+
+/**
+ * The reset window for one open cycle. Drawn per open, never lengthening.
+ * Exported so tests can assert the distribution rather than a magic number.
+ */
+export function resolveCircuitBreakerResetMs(random = Math.random) {
+  const jitter = CIRCUIT_BREAKER_RESET_MS * CIRCUIT_BREAKER_RESET_JITTER * random();
+  return Math.round(CIRCUIT_BREAKER_RESET_MS - jitter);
+}
+
+/** The constants above, for tests that assert the liveness arithmetic. */
+export const __circuitBreakerTuning = Object.freeze({
+  thresholdFailures: CIRCUIT_BREAKER_THRESHOLD,
+  resetMs: CIRCUIT_BREAKER_RESET_MS,
+  resetJitter: CIRCUIT_BREAKER_RESET_JITTER,
+});
 
 // Raw-SQL method names we wrap with the circuit breaker + error logging.
 // $transaction is wrapped too so a failing transaction counts toward the
@@ -247,7 +317,14 @@ const breakers = new Map();
 function getBreaker(tag) {
   let b = breakers.get(tag);
   if (!b) {
-    b = { consecutiveFailures: 0, circuitOpen: false, circuitOpenedAt: null };
+    // circuitResetMs is re-drawn on every open (see CIRCUIT_BREAKER_RESET_JITTER);
+    // the un-jittered constant is only the value a never-opened breaker reports.
+    b = {
+      consecutiveFailures: 0,
+      circuitOpen: false,
+      circuitOpenedAt: null,
+      circuitResetMs: CIRCUIT_BREAKER_RESET_MS,
+    };
     breakers.set(tag, b);
   }
   return b;
@@ -376,7 +453,7 @@ function wrapWithCircuitBreaker(fn, methodName, tag) {
     const breaker = getBreaker(tag);
     if (breaker.circuitOpen) {
       const elapsed = Date.now() - breaker.circuitOpenedAt;
-      if (elapsed < CIRCUIT_BREAKER_RESET_MS) {
+      if (elapsed < (breaker.circuitResetMs ?? CIRCUIT_BREAKER_RESET_MS)) {
         throw new Error('Database circuit breaker is open — service temporarily unavailable');
       }
       // Half-open: let one request through. Success → closes; failure → re-opens.
@@ -429,8 +506,16 @@ function wrapWithCircuitBreaker(fn, methodName, tag) {
       if (breaker.consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
         breaker.circuitOpen = true;
         breaker.circuitOpenedAt = Date.now();
+        // Re-drawn per open, so consecutive cycles cannot keep landing their
+        // half-open probe on the same cron phase. Never longer than the
+        // constant, so the liveness arithmetic documented there stays an upper
+        // bound. This is the ONLY behaviour change here: the threshold, the
+        // half-open "one call through, a failure re-opens" rule and the
+        // consecutiveFailures bookkeeping are all deliberately untouched.
+        breaker.circuitResetMs = resolveCircuitBreakerResetMs();
         logger.error(
-          `Prisma[${tag}] circuit breaker OPEN after ${breaker.consecutiveFailures} consecutive failures`,
+          `Prisma[${tag}] circuit breaker OPEN after ${breaker.consecutiveFailures} consecutive failures`
+          + ` (retry in ${breaker.circuitResetMs}ms)`,
         );
       }
       throw breakerError;
@@ -787,8 +872,11 @@ export function circuitBreakerStatus() {
   let earliestOpenedAt = null;
   let maxResetInMs = 0;
   for (const [tag, b] of breakers) {
+    // Read the window this breaker actually drew when it opened, not the
+    // constant: with per-open jitter the two differ, and reporting the constant
+    // would tell operators a reset is further away than it is.
     const resetInMs = b.circuitOpen && b.circuitOpenedAt
-      ? Math.max(0, CIRCUIT_BREAKER_RESET_MS - (Date.now() - b.circuitOpenedAt))
+      ? Math.max(0, (b.circuitResetMs ?? CIRCUIT_BREAKER_RESET_MS) - (Date.now() - b.circuitOpenedAt))
       : 0;
     byTag[tag] = {
       open: b.circuitOpen,

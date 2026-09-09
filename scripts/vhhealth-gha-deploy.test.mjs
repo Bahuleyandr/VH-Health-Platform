@@ -102,7 +102,16 @@ printf 'curl %s\n' "$*" >> "$FAKE_KUBECTL_STATE/calls.log"
 printf '%s' '{"status":"ok","commit":"${commit}"}'
 `;
 
-function runHelper(t, { kubectl, curl, prefix = 'vhhealth-gha-deploy-' }) {
+function runHelper(t, {
+  kubectl,
+  curl,
+  prefix = 'vhhealth-gha-deploy-',
+  // The shipped window is 60s/5s. Every test here drives a stub, so a short
+  // window keeps the suite fast while still exercising the retry loop rather
+  // than short-circuiting it.
+  verifyTimeout = '2',
+  verifyInterval = '1',
+}) {
   const stateDir = mkdtempSync(path.join(tmpdir(), prefix));
   t.after(() => rmSync(stateDir, { recursive: true, force: true }));
 
@@ -117,12 +126,15 @@ function runHelper(t, { kubectl, curl, prefix = 'vhhealth-gha-deploy-' }) {
   const result = spawnBash([
     '-c',
     'KUBECTL="$1" FAKE_KUBECTL_STATE="$2" CURL="$3"'
-      + ' VH_DEPLOY_MIGRATE_POLL_INTERVAL=0 VH_DEPLOY_MIGRATE_TIMEOUT=60 "$4"',
+      + ' VH_DEPLOY_MIGRATE_POLL_INTERVAL=0 VH_DEPLOY_MIGRATE_TIMEOUT=60'
+      + ' VH_DEPLOY_VERIFY_TIMEOUT="$5" VH_DEPLOY_VERIFY_INTERVAL="$6" "$4"',
     'vhhealth-deploy-test',
     bashPath(fakeKubectl),
     bashPath(stateDir),
     bashPath(fakeCurl),
     bashPath(helper),
+    String(verifyTimeout),
+    String(verifyInterval),
   ], {
     encoding: 'utf8',
     env: process.env,
@@ -299,4 +311,129 @@ fi`,
 
   assert.equal(result.status, 1, result.stderr || result.stdout);
   assert.match(result.stderr, /Refusing automatic rollback: this deploy applied unknown migration\(s\)/);
+});
+
+// ── Verification window ────────────────────────────────────────────────────
+//
+// Incident 2026-09-09 06:40Z: the rollout was Complete and the pod was
+// healthy, but a boot-time scheduled-job storm had briefly saturated its DB
+// pool. The single verification curl hit "Recv failure: Connection reset by
+// peer" at 06:40:27 and the wrapper rolled a good deploy back. The window now
+// re-reads before giving up — and still gives up.
+
+/** curl stub that fails its first `failFor` invocations, then serves `commit`. */
+const CURL_LATE = (commit, failFor) => String.raw`#!/usr/bin/env bash
+set -euo pipefail
+printf 'curl %s\n' "$*" >> "$FAKE_KUBECTL_STATE/calls.log"
+count_file="$FAKE_KUBECTL_STATE/curl-count"
+count=0
+[[ -f "$count_file" ]] && count="$(cat "$count_file")"
+count=$((count + 1))
+printf '%s' "$count" > "$count_file"
+if [[ "$count" -le ${failFor} ]]; then
+  echo 'curl: (56) Recv failure: Connection reset by peer' >&2
+  exit 56
+fi
+printf '%s' '{"status":"ok","commit":"${commit}"}'
+`;
+
+/** curl stub that never answers. */
+const CURL_NEVER = String.raw`#!/usr/bin/env bash
+set -euo pipefail
+printf 'curl %s\n' "$*" >> "$FAKE_KUBECTL_STATE/calls.log"
+echo 'curl: (56) Recv failure: Connection reset by peer' >&2
+exit 56
+`;
+
+const attemptCount = stderr => (stderr.match(/\(attempt \d+\)/g) ?? []).length;
+
+test('a pod that answers late is verified instead of rolled back', t => {
+  const { result, readCalls } = runHelper(t, {
+    kubectl: kubectlStub({ migrationsApplied: 0 }),
+    // Exactly the 06:40:27 failure mode, then the pod comes back.
+    curl: CURL_LATE(NEW_COMMIT, 2),
+    prefix: 'vhhealth-gha-deploy-verify-late-',
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Deploy complete/);
+  assert.match(result.stdout, /Verified \/health\/version commit 2222222222222222222222222222222222222222 \(attempt 3\)/);
+  // The two failed reads are reported, not swallowed.
+  assert.equal(attemptCount(result.stderr), 2);
+  assert.match(result.stderr, /Unable to read \/health\/version .* \(attempt 1\)/);
+
+  // A verified deploy must not touch the previous digests.
+  const calls = readCalls();
+  assert.doesNotMatch(calls, /set image deploy\/vhhealth-backend backend=.*sha256:aaaaaaaa/);
+  assert.doesNotMatch(result.stdout, /Rolling back/);
+});
+
+test('a pod that never answers still fails closed and still rolls back', t => {
+  const { result, readCalls } = runHelper(t, {
+    kubectl: kubectlStub({ migrationsApplied: 0 }),
+    curl: CURL_NEVER,
+    prefix: 'vhhealth-gha-deploy-verify-never-',
+  });
+
+  assert.equal(result.status, 1, result.stdout);
+  // The pre-retry diagnostic is preserved verbatim, plus how long it waited.
+  assert.match(
+    result.stderr,
+    /::error::Unable to read \/health\/version via the localhost backend bridge \(http:\/\/127\.0\.0\.1:30090\/health\/version\)\. Gave up after \d+ attempt\(s\) over 2s\./,
+  );
+  assert.match(result.stderr, /Dalekdefender rollout failed for commit/);
+  assert.match(result.stdout, /Rolling back to previous backend\/admin image digests/);
+  assert.match(result.stderr, /Rollback failed after failed deploy/);
+
+  // Diagnostics still collected on the way down.
+  const calls = readCalls();
+  assert.match(calls, /describe deploy\/vhhealth-backend/);
+});
+
+test('the window is bounded — a hung bridge cannot stall the deploy indefinitely', t => {
+  const { result } = runHelper(t, {
+    kubectl: kubectlStub({ migrationsApplied: 0 }),
+    curl: CURL_NEVER,
+    prefix: 'vhhealth-gha-deploy-verify-bounded-',
+    verifyTimeout: '2',
+    verifyInterval: '1',
+  });
+
+  // deadline = start + 2, one second between attempts: at most three reads
+  // before the loop breaks. Two verify calls happen (deploy, then rollback),
+  // so the ceiling is per-call.
+  const perCall = result.stderr.match(/Gave up after (\d+) attempt\(s\) over 2s/g) ?? [];
+  assert.ok(perCall.length >= 1, `expected at least one exhausted window, got: ${result.stderr}`);
+  for (const line of perCall) {
+    const n = Number(line.match(/after (\d+) attempt/)[1]);
+    assert.ok(n >= 1 && n <= 4, `attempt count ${n} outside the 2s/1s window`);
+  }
+});
+
+test('VH_DEPLOY_VERIFY_TIMEOUT=0 restores the pre-2026-09-09 single shot', t => {
+  const { result } = runHelper(t, {
+    kubectl: kubectlStub({ migrationsApplied: 0 }),
+    curl: CURL_NEVER,
+    prefix: 'vhhealth-gha-deploy-verify-single-',
+    verifyTimeout: '0',
+  });
+
+  assert.equal(result.status, 1, result.stdout);
+  assert.match(result.stderr, /Gave up after 1 attempt\(s\) over 0s/);
+  assert.doesNotMatch(result.stderr, /Gave up after [2-9]\d* attempt/);
+});
+
+test('a junk verification window falls back to the shipped defaults', t => {
+  const { result } = runHelper(t, {
+    kubectl: kubectlStub({ migrationsApplied: 0 }),
+    // Answers on the second read, which only happens if the fallback interval
+    // is a real number of seconds rather than the junk value.
+    curl: CURL_LATE(NEW_COMMIT, 1),
+    prefix: 'vhhealth-gha-deploy-verify-junk-',
+    verifyTimeout: 'soon',
+    verifyInterval: 'x',
+  });
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Verified \/health\/version commit 2222222222222222222222222222222222222222 \(attempt 2\)/);
 });
