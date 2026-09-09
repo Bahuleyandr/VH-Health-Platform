@@ -14,8 +14,10 @@ release authority receipt: ______.
 
 The values below are an inventory for a possible future authorized Forgejo
 release path. Do not create, rotate, or rely on them while `INF-006` remains
-held. The current audit-program authority requires GitHub Actions as the sole
-test/CI execution environment.
+held. The audit program now requires applicable local CI to pass before branch
+publication, which still needs explicit owner authorization. GitHub remains
+the authoritative remote for hosted CI and release evidence; this local-CI
+permission does not activate the held Forgejo release path.
 
 - `VH_BASE_URL` as a Forgejo Actions variable.
 - `VH_API_KEY` as a Forgejo Actions secret.
@@ -46,8 +48,11 @@ boundary. After sources are frozen, the exact head requires a no-source-change
 `[full-ci]` marker and successful `Merge Gate` plus `Full Merge Gate`; any later
 source change invalidates that evidence.
 
-`scripts/local-ci.mjs` and scoped local commands are developer diagnostics only;
-they are not release evidence and are not substitutes for GitHub Actions.
+Authorized local CI, including applicable workflow-equivalent checks, provides
+pre-publication verification for its exact candidate SHA. It does not replace
+the protected GitHub gates above or authorize publication, tagging, deployment,
+or activation. A passing scoped command or `scripts/local-ci.mjs` invocation
+alone is not evidence that every applicable local check completed.
 
 ## Pre-tag evidence gate
 
@@ -127,10 +132,10 @@ collide:
 
 ```bash
 git tag staff-v1.2.0
-git push origin staff-v1.2.0
+git push github staff-v1.2.0
 
 git tag patient-v1.2.0
-git push origin patient-v1.2.0
+git push github patient-v1.2.0
 ```
 
 Do not tag if the app is only structurally translated but has not had clinical,
