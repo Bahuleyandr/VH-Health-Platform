@@ -230,8 +230,20 @@ void main() {
       );
       addTearDown(provider.dispose);
 
+      final cleanupCompleted = Completer<void>();
+      void onCleanupStateChanged() {
+        if (provider.isSessionExpired &&
+            !provider.isTimeoutCleanupInProgress &&
+            !cleanupCompleted.isCompleted) {
+          cleanupCompleted.complete();
+        }
+      }
+
+      provider.addListener(onCleanupStateChanged);
+      addTearDown(() => provider.removeListener(onCleanupStateChanged));
+
       provider.startTracking();
-      await Future<void>.delayed(const Duration(milliseconds: 40));
+      await cleanupCompleted.future.timeout(const Duration(seconds: 2));
 
       final prefs = await SharedPreferences.getInstance();
       const storage = FlutterSecureStorage();

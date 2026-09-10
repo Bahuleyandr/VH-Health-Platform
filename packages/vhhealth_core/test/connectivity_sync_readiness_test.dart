@@ -150,59 +150,65 @@ void main() {
     },
   );
 
-  test(
-    'later wakes coalesce into one follow-up readiness evaluation',
-    () async {
-      final firstStarted = Completer<void>();
-      final firstResult = Completer<ClientReadinessOutcome>();
-      var probes = 0;
-      await service.resetForTesting(
-        readinessProbe: () {
-          probes++;
-          if (probes == 1) {
-            firstStarted.complete();
-            return firstResult.future;
-          }
-          return Future.value(ClientReadinessOutcome.notReady);
-        },
-      );
+  testWidgets('later wakes coalesce into one follow-up readiness evaluation', (
+    tester,
+  ) async {
+    final firstStarted = Completer<void>();
+    final firstResult = Completer<ClientReadinessOutcome>();
+    var probes = 0;
+    await service.resetForTesting(
+      readinessProbe: () {
+        probes++;
+        if (probes == 1) {
+          firstStarted.complete();
+          return firstResult.future;
+        }
+        return Future.value(ClientReadinessOutcome.notReady);
+      },
+    );
 
-      final first = service.syncPending();
-      await firstStarted.future;
-      final second = service.syncPending();
-      final third = service.syncPending();
-      firstResult.complete(ClientReadinessOutcome.notReady);
-      await Future.wait([first, second, third]);
-      await Future<void>.delayed(Duration.zero);
-      await Future<void>.delayed(Duration.zero);
+    final first = service.syncPending();
+    await tester.pump();
+    await firstStarted.future;
+    final second = service.syncPending();
+    final third = service.syncPending();
+    expect(probes, 1);
+    firstResult.complete(ClientReadinessOutcome.notReady);
+    await tester.pump();
+    await Future.wait([first, second, third]);
+    await tester.pump();
 
-      expect(probes, 2);
-    },
-  );
+    expect(probes, 2);
+    await tester.pump(const Duration(milliseconds: 25));
+    expect(probes, 2);
+  });
 
-  test(
-    'transport wake events use the 750ms-style injectable debounce',
-    () async {
-      var probes = 0;
-      await service.resetForTesting(
-        readinessDebounce: const Duration(milliseconds: 25),
-        readinessProbe: () async {
-          probes++;
-          return ClientReadinessOutcome.notReady;
-        },
-      );
+  testWidgets('transport wake events use the 750ms-style injectable debounce', (
+    tester,
+  ) async {
+    var probes = 0;
+    await service.resetForTesting(
+      readinessDebounce: const Duration(milliseconds: 25),
+      readinessProbe: () async {
+        probes++;
+        return ClientReadinessOutcome.notReady;
+      },
+    );
 
-      service.setTransportAvailableForTesting(false);
-      service.setTransportAvailableForTesting(true);
-      await Future<void>.delayed(const Duration(milliseconds: 10));
-      service.setTransportAvailableForTesting(true);
-      await Future<void>.delayed(const Duration(milliseconds: 15));
-      expect(probes, 0);
+    service.setTransportAvailableForTesting(false);
+    service.setTransportAvailableForTesting(true);
+    await tester.pump(const Duration(milliseconds: 10));
+    service.setTransportAvailableForTesting(true);
+    await tester.pump(const Duration(milliseconds: 15));
+    expect(probes, 0);
 
-      await Future<void>.delayed(const Duration(milliseconds: 25));
-      expect(probes, 1);
-    },
-  );
+    await tester.pump(const Duration(milliseconds: 9));
+    expect(probes, 0);
+    await tester.pump(const Duration(milliseconds: 1));
+    expect(probes, 1);
+    await tester.pump(const Duration(milliseconds: 25));
+    expect(probes, 1);
+  });
 }
 
 OfflineCommandDraft _preparedDraft() {
