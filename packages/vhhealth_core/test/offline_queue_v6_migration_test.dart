@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite/sqflite.dart' as sqflite;
 import 'package:vhhealth_core/config/tenant_config.dart';
+import 'package:vhhealth_core/models/offline_write_entry.dart';
 import 'package:vhhealth_core/services/auth_service.dart';
 import 'package:vhhealth_core/services/connectivity_sync_service.dart';
 import 'package:vhhealth_core/services/offline_queue.dart';
@@ -363,13 +364,30 @@ void main() {
     await tester.pump();
     expect(find.text('1 need review'), findsOneWidget);
 
-    await tester.tap(find.text('1 need review'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 500));
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 50)),
-    );
-    await tester.pump();
+    await tester.runAsync(() async {
+      await tester.tap(find.text('1 need review'));
+      await tester.pump();
+      final entriesBuilder = find.descendant(
+        of: find.byType(SyncStatusSheet),
+        matching: find.byType(FutureBuilder<List<OfflineWriteEntry>>),
+      );
+      expect(entriesBuilder, findsOneWidget);
+      final entriesFuture = tester
+          .widget<FutureBuilder<List<OfflineWriteEntry>>>(entriesBuilder)
+          .future;
+      expect(entriesFuture, isNotNull);
+      final entries = await entriesFuture!.timeout(const Duration(seconds: 10));
+      expect(entries, hasLength(1));
+      expect(entries.single.id, 890);
+      expect(entries.single.staffId, 'staff-v5');
+      expect(
+        entries.single.reviewReasonCode,
+        'legacy_client_row_requires_reconciliation',
+      );
+      expect(entries.single.envelopeReady, isFalse);
+    });
+    expect(tester.takeException(), isNull);
+    await tester.pumpAndSettle();
 
     expect(find.text('Created by an older Staff app — not sent'), findsWidgets);
     expect(
