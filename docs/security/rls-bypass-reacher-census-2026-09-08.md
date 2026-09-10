@@ -1,6 +1,6 @@
 # RLS bypass-reacher census — 2026-09-08
 
-Source revision: `9fd0cddfcc1b0c236f4e65d14298dbe704bc77bf`. Exact normalized source and migration SHA-256 manifests are in the adjacent JSON pin.
+Source revision: `5a1902c18213e11da88b950a57ad56d0bbfe3a3a`. Exact normalized source and migration SHA-256 manifests are in the adjacent JSON pin.
 
 **Census only: no policy changes, conversions, completed dispositions or runtime acceptance claims.** Every entry is PENDING with an intended disposition and future module PR. A closure must reduce K to zero for its table and carry the disposition tests in that same PR.
 
@@ -18,7 +18,7 @@ Run from apps/backend: `node scripts/rls-bypass-reacher-census.mjs --check`. Reg
 
 Lexical planning predicates (src excluding tests): 29 lines in 6 files match `runWithSuperAdmin\(`; 84 scheduler lines match `withJobLock\(`. These include comments/definitions and are not reaching statements.
 
-Measured populations: **109 entry-point calls; 84 registered jobs; 8495 database-call/source-statement records; 14585 split migration statements.** Entry points by kind: runWithSuperAdmin=25, withJobLock=83, withReplicaLocalJobGuard=1.
+Measured populations: **109 entry-point calls; 84 registered jobs; 8495 database-call/source-statement records; 14588 split migration statements.** Entry points by kind: runWithSuperAdmin=25, withJobLock=83, withReplicaLocalJobGuard=1.
 
 ## Table pins (users first)
 
@@ -38,7 +38,7 @@ The 22 relations are the unique tenant-bearing tables at the original 22 confirm
 | appointment_queues | 2 | 31 | 33 reachers = 0 dispositioned + 33 pending | feat/rls-t2-appointments |
 | appointments | 38 | 46 | 84 reachers = 0 dispositioned + 84 pending | feat/rls-t2-appointments |
 | emergency_visits | 4 | 35 | 39 reachers = 0 dispositioned + 39 pending | feat/rls-t2-appointments |
-| maternity_pregnancies | 1 | 29 | 30 reachers = 0 dispositioned + 30 pending | feat/rls-t2-appointments |
+| maternity_pregnancies | 1 | 30 | 31 reachers = 0 dispositioned + 31 pending | feat/rls-t2-appointments |
 | staff_performance_reviews | 0 | 26 | 26 reachers = 0 dispositioned + 26 pending | feat/rls-t2-staff-admin |
 | leave_applications | 3 | 26 | 29 reachers = 0 dispositioned + 29 pending | feat/rls-t2-staff-admin |
 | staff_attendance | 1 | 26 | 27 reachers = 0 dispositioned + 27 pending | feat/rls-t2-staff-admin |
@@ -1166,13 +1166,13 @@ Administrative entries (35); each is **PENDING → proven-unreachable**, owned b
 
 ## maternity_pregnancies
 
-**30 reachers = 0 dispositioned + 30 pending.** 41 source statement candidates reference this table before root tracing. Module PR: `feat/rls-t2-appointments`.
+**31 reachers = 0 dispositioned + 31 pending.** 41 source statement candidates reference this table before root tracing. Module PR: `feat/rls-t2-appointments`.
 
 | Statement | Contexts | Entry/job origins | PENDING intended disposition |
 |---|---|---|---|
 | [apps/backend/src/utils/clinical/vitalSignMonitor.js:129:24:$queryRawUnsafe](../../apps/backend/src/utils/clinical/vitalSignMonitor.js#L129) | tenant | job:fhir-vital-effects-recovery; residual:pre-global-tenant-route:apps/backend/src/routes/fhir/fhirRoutes.js:1224; residual:pre-global-tenant-route:apps/backend/src/routes/health/protectedRoutes.js:76; residual:pre-global-tenant-route:apps/backend/src/routes/health/protectedRoutes.js:94; residual:pre-global-tenant-route:apps/backend/src/routes/health/protectedRoutes.js:95 | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
 
-Administrative entries (29); each is **PENDING → proven-unreachable**, owned by `feat/rls-t2-appointments`. The shared statement catalog below resolves each ID to its source SQL; the JSON repeats each table-specific disposition explicitly.
+Administrative entries (30); each is **PENDING → proven-unreachable**, owned by `feat/rls-t2-appointments`. The shared statement catalog below resolves each ID to its source SQL; the JSON repeats each table-specific disposition explicitly.
 
 - [apps/backend/src/migrations/236_tenant_rls_phi_phase_1.sql:statement-45](../../apps/backend/src/migrations/236_tenant_rls_phi_phase_1.sql#L218)
 - [apps/backend/src/migrations/237_force_rls_phi_tables.sql:statement-2](../../apps/backend/src/migrations/237_force_rls_phi_tables.sql#L26)
@@ -1203,6 +1203,7 @@ Administrative entries (29); each is **PENDING → proven-unreachable**, owned b
 - [apps/backend/src/migrations/753_pharmacy_order_inventory_authority.sql:statement-147](../../apps/backend/src/migrations/753_pharmacy_order_inventory_authority.sql#L2293)
 - [apps/backend/src/migrations/753_pharmacy_order_inventory_authority.sql:statement-149](../../apps/backend/src/migrations/753_pharmacy_order_inventory_authority.sql#L2446)
 - [apps/backend/src/migrations/758_pharmacy_advance_funding_authority.sql:statement-13](../../apps/backend/src/migrations/758_pharmacy_advance_funding_authority.sql#L3613)
+- [apps/backend/src/migrations/800_restore_maternity_pregnancy_checks.sql:statement-2](../../apps/backend/src/migrations/800_restore_maternity_pregnancy_checks.sql#L17)
 
 ## staff_performance_reviews
 
@@ -1823,6 +1824,7 @@ Administrative entries (44); each is **PENDING → proven-unreachable**, owned b
 | [apps/backend/src/migrations/760_clinical_import_authority_custody_and_reconciliation.sql:statement-29](../../apps/backend/src/migrations/760_clinical_import_authority_custody_and_reconciliation.sql#L1070) | 1070 | users | resolved references | CREATE OR REPLACE FUNCTION public.clinical_import_reconciliation_event_guard_760() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$ DECL |
 | [apps/backend/src/migrations/761_fix_clinical_alert_recovery_snapshot_rule_codes.sql:statement-2](../../apps/backend/src/migrations/761_fix_clinical_alert_recovery_snapshot_rule_codes.sql#L3) | 3 | users | resolved references | -- Migration 759 repaired this function's plpgsql syntax but retained rule codes -- that are not emitted by the clinical alert delivery recovery workflow. Replace -- the function f |
 | [apps/backend/src/migrations/765_cath_device_reuse.sql:statement-31](../../apps/backend/src/migrations/765_cath_device_reuse.sql#L462) | 462 | staff, users | resolved references | -- --------------------------------------------------------------------------- -- 7. Re-declare the 753 assert function (body copied from 758 + the reused branch) -- -------------- |
+| [apps/backend/src/migrations/800_restore_maternity_pregnancy_checks.sql:statement-2](../../apps/backend/src/migrations/800_restore_maternity_pregnancy_checks.sql#L17) | 17 | maternity_pregnancies | resolved references | DO $$ DECLARE   invalid_edd BIGINT;   invalid_booking BIGINT;   invalid_status BIGINT; BEGIN   IF NOT EXISTS (     SELECT 1 FROM pg_constraint      WHERE conrelid = 'public.materni |
 
 ## Source dispatch boundaries
 
