@@ -77,6 +77,17 @@ export function validateResource(resource, { expectedType } = {}) {
     issues.push({ severity: 'error', code: 'structure', message: `Expected ${expectedType}, got ${resource.resourceType}` });
   }
 
+  if (resource.resourceType === 'Patient') {
+    for (const field of ['name', 'telecom']) {
+      if (Array.isArray(resource[field]) && resource[field].length === 0) {
+        issues.push({ severity: 'error', code: 'structure', message: `Patient.${field} must be omitted when empty` });
+      }
+    }
+  }
+  if (resource.resourceType === 'Bundle' && Object.hasOwn(resource, 'extension')) {
+    issues.push({ severity: 'error', code: 'structure', message: 'Bundle.extension is not an R4 Bundle element' });
+  }
+
   const required = REQUIRED[resource.resourceType] ?? [];
   for (const f of required) {
     if (resource[f] === undefined || resource[f] === null || resource[f] === '') {
@@ -165,7 +176,7 @@ export function validateBundle(bundle) {
   if (!bundle || bundle.resourceType !== 'Bundle') {
     return { valid: false, entryCount: 0, invalidCount: 0, issues: [] };
   }
-  const issues = [];
+  const { issues } = validateResource(bundle);
   let invalidCount = 0;
   for (let i = 0; i < (bundle.entry ?? []).length; i++) {
     const entry = bundle.entry[i];
@@ -180,7 +191,7 @@ export function validateBundle(bundle) {
   if (invalidCount > 0) {
     logger.warn(`FHIR bundle has ${invalidCount} invalid entries: ${JSON.stringify(issues.slice(0, 5))}`);
   }
-  return { valid: invalidCount === 0, entryCount: (bundle.entry ?? []).length, invalidCount, issues };
+  return { valid: issues.length === 0, entryCount: (bundle.entry ?? []).length, invalidCount, issues };
 }
 
 export default { validateResource, validatedFhirJson, validateBundle };
