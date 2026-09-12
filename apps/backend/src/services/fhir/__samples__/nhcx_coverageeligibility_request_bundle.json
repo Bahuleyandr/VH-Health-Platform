@@ -9,12 +9,6 @@
   },
   "type": "collection",
   "timestamp": "2026-07-05T10:00:00.000Z",
-  "extension": [
-    {
-      "url": "https://vhhealth.app/fhir/StructureDefinition/nhcx-main-resource",
-      "valueCode": "CoverageEligibilityRequest"
-    }
-  ],
   "entry": [
     {
       "fullUrl": "urn:uuid:7c11fe7d-bd4d-5636-bff7-0224811e39c7",
@@ -34,7 +28,6 @@
             "text": "NHCX Sample Patient"
           }
         ],
-        "telecom": [],
         "gender": "unknown"
       }
     },
