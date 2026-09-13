@@ -18,6 +18,7 @@ const INCHARGE_UID = `00000000-0000-4000-8000-0000000d${SUFFIX.slice(-4)}`;
 const TEST_MARKER = `nl8-p3-transport-${SUFFIX}`;
 const SOURCE_ID = `NL8P3-${SUFFIX}`;
 const ZONE_KEY = `nl8_p3_zone_${SUFFIX}`;
+const ROSTER_TIMEZONE = rosterTimezone();
 
 function client(role, { uid, id, phone }) {
   const token = generateTestToken(role, {
@@ -160,20 +161,40 @@ async function seedUser({ uid, phone, name, role }) {
   return rows[0].id;
 }
 
+function rosterTimezone(env = process.env) {
+  return env.APP_TIMEZONE || env.TZ || 'Asia/Kolkata';
+}
+
+async function rosterWindow({ now = new Date(), timezone = ROSTER_TIMEZONE } = {}) {
+  const rows = await prisma.$queryRawUnsafe(
+    `SELECT (($1::timestamptz - INTERVAL '1 hour') AT TIME ZONE $2::text)::date::text AS roster_date,
+            (($1::timestamptz - INTERVAL '1 hour') AT TIME ZONE $2::text)::time::text AS shift_start,
+            (($1::timestamptz + INTERVAL '1 hour') AT TIME ZONE $2::text)::time::text AS shift_end`,
+    now.toISOString(),
+    timezone,
+  );
+  expect(rows).toHaveLength(1);
+  return rows[0];
+}
+
 async function seedRoster({ porterId, zoneId }) {
+  const window = await rosterWindow();
   const boards = await prisma.$queryRawUnsafe(
     `INSERT INTO staff_shift_roster_boards (
        tenant_id, department, roster_date, shift_label, shift_start, shift_end,
        status, notes, created_at, updated_at
      )
      VALUES (
-       $1::uuid, 'ambulance', (NOW() AT TIME ZONE 'Asia/Kolkata')::date,
-       $2, '00:00', '23:59', 'published', $3, NOW(), NOW()
+       $1::uuid, 'ambulance', $4::date,
+       $2, $5::time, $6::time, 'published', $3, NOW(), NOW()
      )
      RETURNING id`,
     TENANT,
     `NL8-P3-${SUFFIX}`,
     TEST_MARKER,
+    window.roster_date,
+    window.shift_start,
+    window.shift_end,
   );
   await prisma.$executeRawUnsafe(
     `INSERT INTO staff_shift_roster_assignments (
@@ -268,6 +289,33 @@ d('NL8 P3 porter transport tasks', () => {
   afterAll(async () => {
     await cleanup();
     await prisma.$disconnect().catch(() => {});
+  });
+
+  test.each([
+    [{}, 'Asia/Kolkata'],
+    [{ TZ: 'UTC' }, 'UTC'],
+    [{ TZ: 'Asia/Kolkata' }, 'Asia/Kolkata'],
+    [{ APP_TIMEZONE: 'Asia/Kolkata', TZ: 'UTC' }, 'Asia/Kolkata'],
+    [{ APP_TIMEZONE: 'UTC', TZ: 'Asia/Kolkata' }, 'UTC'],
+    [{ APP_TIMEZONE: '', TZ: 'UTC' }, 'UTC'],
+    [{ APP_TIMEZONE: '', TZ: '' }, 'Asia/Kolkata'],
+  ])('selects the roster fixture business timezone from %j', (env, expected) => {
+    expect(rosterTimezone(env)).toBe(expected);
+  });
+
+  test.each([
+    ['2026-09-10T20:57:00Z', 'UTC', '2026-09-10', '19:57:00', '21:57:00'],
+    ['2026-09-10T20:57:00Z', 'Asia/Kolkata', '2026-09-11', '01:27:00', '03:27:00'],
+    ['2026-09-11T00:00:00Z', 'UTC', '2026-09-10', '23:00:00', '01:00:00'],
+    ['2026-09-10T18:30:00Z', 'Asia/Kolkata', '2026-09-10', '23:00:00', '01:00:00'],
+    ['2026-09-10T23:59:30Z', 'UTC', '2026-09-10', '22:59:30', '00:59:30'],
+    ['2026-09-10T18:29:30Z', 'Asia/Kolkata', '2026-09-10', '22:59:30', '00:59:30'],
+  ])('constructs an active two-hour roster window at %s in %s', async (instant, timezone, date, start, end) => {
+    expect(await rosterWindow({ now: new Date(instant), timezone })).toEqual({
+      roster_date: date,
+      shift_start: start,
+      shift_end: end,
+    });
   });
 
   test('creates, escalates, accepts, picks up, and completes an atomic transport task', async () => {
