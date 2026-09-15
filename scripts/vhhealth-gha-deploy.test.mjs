@@ -111,6 +111,7 @@ function runHelper(t, {
   // than short-circuiting it.
   verifyTimeout = '2',
   verifyInterval = '1',
+  verificationClock,
 }) {
   const stateDir = mkdtempSync(path.join(tmpdir(), prefix));
   t.after(() => rmSync(stateDir, { recursive: true, force: true }));
@@ -123,9 +124,42 @@ function runHelper(t, {
   writeFileSync(fakeCurl, curl, { mode: 0o755 });
   chmodSync(fakeCurl, 0o755);
 
+  if (verificationClock) {
+    for (const [command, value] of verificationClock) {
+      assert.ok(['date', 'sleep'].includes(command) && Number.isSafeInteger(value) && value >= 0);
+    }
+    writeFileSync(path.join(stateDir, 'clock-plan'), verificationClock.map(step => step.join(' ')).join('\n'));
+    for (const command of ['date', 'sleep']) {
+      const stub = path.join(stateDir, command);
+      writeFileSync(stub, String.raw`#!/usr/bin/env bash
+set -euo pipefail
+reject() {
+  printf 'clock-error ${command} %s\n' "$*" >> "$FAKE_KUBECTL_STATE/calls.log"
+  exit 97
+}
+mapfile -t plan < "$FAKE_KUBECTL_STATE/clock-plan"
+index=0
+[[ ! -f "$FAKE_KUBECTL_STATE/clock-index" ]] || index="$(cat "$FAKE_KUBECTL_STATE/clock-index")"
+[[ "$index" -lt "${verificationClock.length}" ]] || reject exhausted
+read -r expected value <<< "${'$'}{plan[$index]}"
+[[ "$expected" == '${command}' && "$#" -eq 1 ]] || reject unexpected-command
+if [[ '${command}' == date ]]; then
+  [[ "$1" == '+%s' ]] || reject unexpected-argument
+else
+  [[ "$1" == "$value" ]] || reject unexpected-argument
+fi
+printf 'clock ${command} %s\n' "$value" >> "$FAKE_KUBECTL_STATE/calls.log"
+printf '%s' "$((index + 1))" > "$FAKE_KUBECTL_STATE/clock-index"
+if [[ '${command}' == date ]]; then printf '%s\n' "$value"; fi
+`, { mode: 0o755 });
+      chmodSync(stub, 0o755);
+    }
+  }
+
   const result = spawnBash([
     '-c',
-    'KUBECTL="$1" FAKE_KUBECTL_STATE="$2" CURL="$3"'
+    (verificationClock ? 'PATH="$2:$PATH" ' : '')
+      + 'KUBECTL="$1" FAKE_KUBECTL_STATE="$2" CURL="$3"'
       + ' VH_DEPLOY_MIGRATE_POLL_INTERVAL=0 VH_DEPLOY_MIGRATE_TIMEOUT=60'
       + ' VH_DEPLOY_VERIFY_TIMEOUT="$5" VH_DEPLOY_VERIFY_INTERVAL="$6" "$4"',
     'vhhealth-deploy-test',
@@ -139,9 +173,18 @@ function runHelper(t, {
     encoding: 'utf8',
     env: process.env,
     input: [NEW_BACKEND, NEW_ADMIN, NEW_COMMIT, ''].join('\n'),
+    ...(verificationClock ? { timeout: 15000 } : {}),
   });
 
   const readCalls = () => readFileSync(path.join(stateDir, 'calls.log'), 'utf8');
+  if (verificationClock) {
+    assert.ifError(result.error);
+    assert.deepEqual(
+      readCalls().split('\n').filter(line => line.startsWith('clock')),
+      verificationClock.map(step => `clock ${step.join(' ')}`),
+      'the helper must consume exactly the planned clock reads and sleeps',
+    );
+  }
   const readManifest = () => readFileSync(path.join(stateDir, 'applied-manifest.yaml'), 'utf8');
   return { result, stateDir, readCalls, readManifest };
 }
@@ -353,6 +396,7 @@ test('a pod that answers late is verified instead of rolled back', t => {
     // Exactly the 06:40:27 failure mode, then the pod comes back.
     curl: CURL_LATE(NEW_COMMIT, 2),
     prefix: 'vhhealth-gha-deploy-verify-late-',
+    verificationClock: [['date', 100], ['date', 100], ['sleep', 1], ['date', 101], ['sleep', 1]],
   });
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
@@ -366,6 +410,34 @@ test('a pod that answers late is verified instead of rolled back', t => {
   const calls = readCalls();
   assert.doesNotMatch(calls, /set image deploy\/vhhealth-backend backend=.*sha256:aaaaaaaa/);
   assert.doesNotMatch(result.stdout, /Rolling back/);
+  assertVerificationCalls(calls, 3, 0);
+});
+
+function assertVerificationCalls(calls, deployAttempts, rollbackAttempts) {
+  const lines = calls.trim().split('\n');
+  const restoration = lines.findIndex(line => /set image deploy\/vhhealth-backend backend=.*sha256:aaaaaaaa/.test(line));
+  const curlCount = entries => entries.filter(line => line.startsWith('curl ')).length;
+  assert.equal(curlCount(restoration < 0 ? lines : lines.slice(0, restoration)), deployAttempts);
+  assert.equal(curlCount(restoration < 0 ? [] : lines.slice(restoration)), rollbackAttempts);
+  assert.equal(lines.filter(line => /set image deploy\/vhhealth-backend backend=.*sha256:aaaaaaaa/.test(line)).length, rollbackAttempts > 0 ? 1 : 0);
+  assert.equal(lines.filter(line => /set image deploy\/vhhealth-admin admin=.*sha256:bbbbbbbb/.test(line)).length, rollbackAttempts > 0 ? 1 : 0);
+}
+
+test('a late answer outside the verification window fails and attempts rollback', t => {
+  const { result, readCalls } = runHelper(t, {
+    kubectl: kubectlStub({ migrationsApplied: 0 }),
+    curl: CURL_LATE(NEW_COMMIT, 2),
+    prefix: 'vhhealth-gha-deploy-verify-exhausted-',
+    verificationClock: [['date', 100], ['date', 100], ['sleep', 1], ['date', 102], ['date', 200], ['date', 202]],
+  });
+
+  assert.equal(result.status, 1, result.stdout);
+  assert.match(result.stderr, /Unable to read \/health\/version .*Gave up after 2 attempt\(s\) over 2s/);
+  assert.match(result.stderr, new RegExp(`deployed commit ${NEW_COMMIT} does not match requested commit ${PREV_COMMIT}.*Gave up after 1 attempt`));
+  assert.match(result.stdout, /Rolling back to previous backend\/admin image digests/);
+  assert.match(result.stderr, /Rollback failed after failed deploy/);
+  assert.doesNotMatch(result.stdout, /Deploy complete|Verified \/health\/version/);
+  assertVerificationCalls(readCalls(), 2, 1);
 });
 
 test('a pod that never answers still fails closed and still rolls back', t => {
@@ -373,6 +445,7 @@ test('a pod that never answers still fails closed and still rolls back', t => {
     kubectl: kubectlStub({ migrationsApplied: 0 }),
     curl: CURL_NEVER,
     prefix: 'vhhealth-gha-deploy-verify-never-',
+    verificationClock: [['date', 100], ['date', 100], ['sleep', 1], ['date', 102], ['date', 200], ['date', 200], ['sleep', 1], ['date', 202]],
   });
 
   assert.equal(result.status, 1, result.stdout);
@@ -388,6 +461,8 @@ test('a pod that never answers still fails closed and still rolls back', t => {
   // Diagnostics still collected on the way down.
   const calls = readCalls();
   assert.match(calls, /describe deploy\/vhhealth-backend/);
+  assertVerificationCalls(calls, 2, 2);
+  assert.doesNotMatch(result.stdout, /Deploy complete/);
 });
 
 test('the window is bounded — a hung bridge cannot stall the deploy indefinitely', t => {
@@ -411,16 +486,20 @@ test('the window is bounded — a hung bridge cannot stall the deploy indefinite
 });
 
 test('VH_DEPLOY_VERIFY_TIMEOUT=0 restores the pre-2026-09-09 single shot', t => {
-  const { result } = runHelper(t, {
+  const { result, readCalls } = runHelper(t, {
     kubectl: kubectlStub({ migrationsApplied: 0 }),
     curl: CURL_NEVER,
     prefix: 'vhhealth-gha-deploy-verify-single-',
     verifyTimeout: '0',
+    verificationClock: [['date', 100], ['date', 100], ['date', 200], ['date', 200]],
   });
 
   assert.equal(result.status, 1, result.stdout);
   assert.match(result.stderr, /Gave up after 1 attempt\(s\) over 0s/);
   assert.doesNotMatch(result.stderr, /Gave up after [2-9]\d* attempt/);
+  assertVerificationCalls(readCalls(), 1, 1);
+  assert.match(result.stderr, /Rollback failed after failed deploy/);
+  assert.doesNotMatch(result.stdout, /Deploy complete/);
 });
 
 test('a junk verification window falls back to the shipped defaults', t => {
