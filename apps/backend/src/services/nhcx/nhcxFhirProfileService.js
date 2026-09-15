@@ -452,7 +452,7 @@ function documentReferenceFromRow(row, patient, encounter) {
   };
 }
 
-function bundle({ id, profileUrl, mainResourceType, resources, timestamp }) {
+function bundle({ id, profileUrl, resources, timestamp }) {
   return {
     resourceType: 'Bundle',
     id,
@@ -463,12 +463,6 @@ function bundle({ id, profileUrl, mainResourceType, resources, timestamp }) {
     type: 'collection',
     timestamp: instantFrom(timestamp),
     entry: resources.filter(Boolean).map(entry),
-    extension: [
-      {
-        url: 'https://vhhealth.app/fhir/StructureDefinition/nhcx-main-resource',
-        valueCode: mainResourceType,
-      },
-    ],
   };
 }
 
@@ -509,7 +503,6 @@ export async function buildCoverageEligibilityRequestBundle({
   const out = bundle({
     id: stableId('nhcx-eligibility-bundle', tenantId, policyId, admissionId || ''),
     profileUrl: NHCX_PROFILE_URLS.coverageEligibilityRequestBundle,
-    mainResourceType: 'CoverageEligibilityRequest',
     resources: [patient, encounter, provider, insurer, coverage, request],
     timestamp: row.policy_updated_at,
   });
@@ -742,7 +735,6 @@ export async function buildPreauthClaimRequestBundle({
   const out = bundle({
     id: stableId('nhcx-preauth-bundle', tenantId, preauthId),
     profileUrl: NHCX_PROFILE_URLS.preauthClaimRequestBundle,
-    mainResourceType: 'Claim',
     resources: [patient, encounter, provider, insurer, coverage, claim],
     timestamp: row.preauth_updated_at,
   });
@@ -779,7 +771,6 @@ export async function buildClaimRequestBundle({
   const out = bundle({
     id: stableId('nhcx-claim-bundle', tenantId, claimId, documents.map((doc) => doc.id).join(',')),
     profileUrl: NHCX_PROFILE_URLS.claimRequestBundle,
-    mainResourceType: 'Claim',
     resources: [
       built.patient,
       built.encounter,
@@ -843,7 +834,6 @@ export async function buildClaimStatusTaskBundle({
   const out = bundle({
     id: stableId('nhcx-claim-status-task-bundle', tenantId, claimId),
     profileUrl: NHCX_PROFILE_URLS.taskBundle,
-    mainResourceType: 'Task',
     resources: [
       built.patient,
       built.encounter,
@@ -936,7 +926,6 @@ export async function buildCommunicationResponseBundle({
   const out = bundle({
     id: stableId('nhcx-communication-bundle', tenantId, hcxApiCallId),
     profileUrl: NHCX_PROFILE_URLS.communicationBundle,
-    mainResourceType: 'Communication',
     resources: [
       patient,
       encounter,
