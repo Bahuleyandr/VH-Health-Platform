@@ -1,6 +1,6 @@
 # RLS bypass-reacher census — 2026-09-08
 
-Source revision: `16192bddd776bd2b849861e0fd4312ba9922b012`. Exact normalized source and migration SHA-256 manifests are in the adjacent JSON pin.
+Source revision: `1d6456e09974f5d22cf31acb44342d305f37043d`. Exact normalized source and migration SHA-256 manifests are in the adjacent JSON pin.
 
 **Census only: no policy changes, conversions, completed dispositions or runtime acceptance claims.** Every entry is PENDING with an intended disposition and future module PR. A closure must reduce K to zero for its table and carry the disposition tests in that same PR.
 
@@ -18,7 +18,7 @@ Run from apps/backend: `node scripts/rls-bypass-reacher-census.mjs --check`. Reg
 
 Lexical planning predicates (src excluding tests): 29 lines in 6 files match `runWithSuperAdmin\(`; 84 scheduler lines match `withJobLock\(`. These include comments/definitions and are not reaching statements.
 
-Measured populations: **109 entry-point calls; 84 registered jobs; 8495 database-call/source-statement records; 14588 split migration statements.** Entry points by kind: runWithSuperAdmin=25, withJobLock=83, withReplicaLocalJobGuard=1.
+Measured populations: **109 entry-point calls; 84 registered jobs; 8496 database-call/source-statement records; 14588 split migration statements.** Entry points by kind: runWithSuperAdmin=25, withJobLock=83, withReplicaLocalJobGuard=1.
 
 ## Table pins (users first)
 

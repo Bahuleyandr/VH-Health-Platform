@@ -69,7 +69,9 @@ beforeEach(() => {
     doctor_id: 9,
     status: 'CONFIRMED',
   });
-  prismaMock.$queryRawUnsafe.mockResolvedValue([]);
+  prismaMock.$queryRawUnsafe.mockImplementation(async (sql) => (
+    sql.includes('clock_timestamp') ? [{ requested_at_epoch_ms: BigInt(Date.now()) }] : []
+  ));
   prismaMock.investigations.create.mockImplementation(async ({ data }) => ({
     id: 101,
     uid: '33333333-3333-4333-8333-333333333333',
