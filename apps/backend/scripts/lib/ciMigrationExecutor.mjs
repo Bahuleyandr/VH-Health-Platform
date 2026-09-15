@@ -110,7 +110,47 @@ export async function executeCiMigrationFile({
     return { mode: 'transactional-gated', directives };
   }
 
-  if (baseline || selfManaged) {
+  if (selfManaged && !baseline) {
+    const { rows: [previous] } = await client.query(
+      "SELECT current_setting('statement_timeout') AS statement_timeout, current_setting('lock_timeout') AS lock_timeout",
+    );
+    if (typeof previous?.statement_timeout !== 'string' || typeof previous?.lock_timeout !== 'string') {
+      throw new Error('Cannot capture self-managed migration session timeouts');
+    }
+    let migrationError = null;
+    const cleanupErrors = [];
+    try {
+      await client.query("SELECT set_config('lock_timeout', $1, false)", ['15s']);
+      await client.query("SELECT set_config('statement_timeout', $1, false)", [timeout]);
+      await client.query(sql);
+      await trackMigration(client, file, sql);
+    } catch (err) {
+      migrationError = err;
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackError) {
+        cleanupErrors.push(rollbackError);
+      }
+    }
+    // Restore outside an aborted transaction, and preserve each incoming session budget.
+    for (const setting of ['statement_timeout', 'lock_timeout']) {
+      try {
+        await client.query('SELECT set_config($1, $2, false)', [setting, previous[setting]]);
+      } catch (restoreError) {
+        cleanupErrors.push(restoreError);
+      }
+    }
+    if (cleanupErrors.length > 0) {
+      const errors = migrationError ? [migrationError, ...cleanupErrors] : cleanupErrors;
+      throw new AggregateError(errors,
+        `Self-managed migration ${file} timeout cleanup failed: ${errors.map((err) => err.message).join('; ')}`,
+        migrationError ? { cause: migrationError } : undefined);
+    }
+    if (migrationError) throw migrationError;
+    return { mode: 'self-managed', directives };
+  }
+
+  if (baseline) {
     try {
       await client.query(sql);
       if (baseline) {
@@ -121,7 +161,7 @@ export async function executeCiMigrationFile({
       await rollbackBestEffort(client);
       throw err;
     }
-    return { mode: baseline ? 'baseline' : 'self-managed', directives };
+    return { mode: 'baseline', directives };
   }
 
   await client.query('BEGIN');

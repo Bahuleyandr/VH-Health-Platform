@@ -1,6 +1,6 @@
 # RLS bypass-reacher census — 2026-09-08
 
-Source revision: `5a1902c18213e11da88b950a57ad56d0bbfe3a3a`. Exact normalized source and migration SHA-256 manifests are in the adjacent JSON pin.
+Source revision: `16192bddd776bd2b849861e0fd4312ba9922b012`. Exact normalized source and migration SHA-256 manifests are in the adjacent JSON pin.
 
 **Census only: no policy changes, conversions, completed dispositions or runtime acceptance claims.** Every entry is PENDING with an intended disposition and future module PR. A closure must reduce K to zero for its table and carry the disposition tests in that same PR.
 

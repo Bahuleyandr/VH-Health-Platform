@@ -94,22 +94,21 @@ export function toFhirPatient(user) {
       },
     ],
     active: user.is_active !== false,
-    name: [],
-    telecom: [],
     gender: toFhirGender(user.gender),
   };
 
   // Name
   if (user.name) {
-    resource.name.push({
+    resource.name = [{
       use: 'official',
       text: user.name,
-    });
+    }];
   }
 
+  const telecom = [];
   // Phone
   if (user.phone) {
-    resource.telecom.push({
+    telecom.push({
       system: 'phone',
       value: user.phone,
       use: 'mobile',
@@ -118,11 +117,12 @@ export function toFhirPatient(user) {
 
   // Email
   if (user.email) {
-    resource.telecom.push({
+    telecom.push({
       system: 'email',
       value: user.email,
     });
   }
+  if (telecom.length > 0) resource.telecom = telecom;
 
   // Birth date
   const bd = toFhirDate(user.birthday);
