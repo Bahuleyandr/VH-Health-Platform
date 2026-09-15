@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "kind": "CENSUS_ONLY",
-  "revision": "a10e5c82012b9f529cd527e97d38ce6a90b18f2e",
+  "revision": "4149c350928e3bda961e5cf46801968bb24bddfd",
   "method": "Static conservative enumeration. PENDING includes paths whose context, activation, historical ledger or dynamic dispatch still needs disposition proof. No job was invoked and no disposition is accepted here.",
   "closureRule": "K = 0 for the table, exact list and count, disposition tests in the same closure PR; each test explicitly enables AUTH_ENFORCE_TENANT_RLS=true and AUTH_TENANT_RLS_RUNTIME_ROLE=vhhealth_app and asserts current_user/rolsuper/rolbypassrls, population first and nonzero job work.",
   "lexical": {"runWithSuperAdminLines":29,"runWithSuperAdminFiles":6,"runWithSuperAdminLocations":["apps/backend/src/lib/tenantContext.js:20","apps/backend/src/lib/tenantContext.js:44","apps/backend/src/middleware/tenantRlsMiddleware.js:14","apps/backend/src/middleware/tenantRlsMiddleware.js:21","apps/backend/src/services/appointment/appointmentReaperService.js:55","apps/backend/src/services/compliance/breachService.js:228","apps/backend/src/services/compliance/breachService.js:269","apps/backend/src/utils/canaryHealthCheck.js:17","apps/backend/src/utils/scheduler.js:186","apps/backend/src/utils/scheduler.js:217","apps/backend/src/utils/scheduler.js:1546","apps/backend/src/utils/scheduler.js:1549","apps/backend/src/utils/scheduler.js:1552","apps/backend/src/utils/scheduler.js:1623","apps/backend/src/utils/scheduler.js:1660","apps/backend/src/utils/scheduler.js:1663","apps/backend/src/utils/scheduler.js:1672","apps/backend/src/utils/scheduler.js:1685","apps/backend/src/utils/scheduler.js:1698","apps/backend/src/utils/scheduler.js:1718","apps/backend/src/utils/scheduler.js:1731","apps/backend/src/utils/scheduler.js:1744","apps/backend/src/utils/scheduler.js:1757","apps/backend/src/utils/scheduler.js:1761","apps/backend/src/utils/scheduler.js:1765","apps/backend/src/utils/scheduler.js:1770","apps/backend/src/utils/scheduler.js:1774","apps/backend/src/utils/scheduler.js:1778","apps/backend/src/utils/scheduler.js:1784"],"withJobLockLines":84},
-  "counts": {"sources":1378,"functions":25631,"registrations":84,"roots":109,"residualRoots":12739,"sql":8495,"targetSql":1972,"reachingTableStatementsByContext":418},
+  "counts": {"sources":1378,"functions":25631,"registrations":84,"roots":109,"residualRoots":12739,"sql":8496,"targetSql":1972,"reachingTableStatementsByContext":418},
   "sourceManifest": [
     {"file":"apps/backend/admin/backup-db.js","sha256":"df38fb9a4cb801f28a528a04767f44975a2e359980db18d93b2c1ea6f1b8d558"},
     {"file":"apps/backend/admin/purge-archives.js","sha256":"1c659de13b7dd35c284a48eabd67636c1043abb97beebde6c57bda8b3e48fe53"},
@@ -1019,7 +1019,7 @@
     {"file":"apps/backend/src/services/investigation/bulkService.js","sha256":"c0a50f1ee1bb034a8d795e122c2cc1ed1769047f76766d60633a5791e278cbe6"},
     {"file":"apps/backend/src/services/investigation/fileService.js","sha256":"69c9a8cbb6c38a9e8bb36da017127b91777442c7a03aa34add10da35aa398e78"},
     {"file":"apps/backend/src/services/investigation/investigationService.js","sha256":"ea2e829d86112a3a71b1146928f4cd1a4005474b4b72369aad6f6a4d6dcfb1c6"},
-    {"file":"apps/backend/src/services/investigation/orderService.js","sha256":"8aa0c17ed59ace848ec623ca7aa9bbb162411bfc0206c523d263ce399da9adf5"},
+    {"file":"apps/backend/src/services/investigation/orderService.js","sha256":"224c725769c51012644a1a60ba08516bb3d5dc42e7e2bc25978ca2d048f78423"},
     {"file":"apps/backend/src/services/ipd/ipdSupportService.js","sha256":"44995d459e483519813043931ba57b262fc06a2dfe59cebdcffceb365ee9ac9e"},
     {"file":"apps/backend/src/services/ipd/wardIndentMedicationClosureService.js","sha256":"2769da49c6c2add49b859082cd1900ea1667f107c6a83fa76af92f665713851c"},
     {"file":"apps/backend/src/services/ipd/wardIndentObligationService.js","sha256":"5af0ca3c0336bb8cbb8ab1ae83c6ab2e2b6e189be6ee7c303e3291815de1ed54"},

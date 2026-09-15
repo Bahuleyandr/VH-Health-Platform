@@ -18,6 +18,7 @@ import { recordCanonicalClinicalEvent } from '../clinical/canonicalClinicalPlatf
 import { publishInpatientDiagnosticResourceLinkedTx } from '../emr/inpatientPathwayDomainService.js';
 import { publishOpChildResourceLinkedTx } from '../appointment/opChildResourceEventService.js';
 import { AppError } from '../../utils/AppError.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 import { requireTenantId } from '../tenant/tenantService.js';
 
 async function recordRequiredInvestigationEvent(input, tx) {
@@ -277,6 +278,14 @@ export const createInvestigationOrder = async (orderData) => {
   }
 
   const investigation = await setTenantTx(effectiveTenantId, async (tx) => {
+    // Prisma supplies @default(now()) from its own clock; readiness uses the database clock.
+    const [clock] = await tx.$queryRawUnsafe(
+      'SELECT (EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint AS requested_at_epoch_ms',
+    );
+    const requestedAtMs = epochMsOrNull(clock?.requested_at_epoch_ms);
+    if (requestedAtMs == null) {
+      throw AppError.internal('Investigation order clock unavailable', 'INVESTIGATION_DB_CLOCK_UNAVAILABLE');
+    }
     const created = await tx.investigations.create({
       data: {
         phone: patient.phone || 'unknown',
@@ -292,6 +301,7 @@ export const createInvestigationOrder = async (orderData) => {
         priority: priorityUpper,
         turnaround_target_hours: turnaroundHours,
         requested_by: requesterUuid,
+        requested_at: new Date(requestedAtMs),
         updated_at: now,
         notes: trimmedNotes,
         collection_location: cleanCollectionLocation,
