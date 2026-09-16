@@ -49,6 +49,27 @@ export { istDateString };
 
 const tenantOr = (tenantId) => requireTenantId(tenantId);
 
+const LABOR_ADMISSION_REASONS = new Set([
+  'spontaneous_labour', 'induction', 'elective_lscs', 'pprom',
+  'reduced_fm', 'postdated', 'other',
+]);
+const CONTRACTION_INTENSITIES = new Set(['weak', 'moderate', 'strong']);
+const DELIVERY_MODES = new Set([
+  'nvd', 'lscs_emergency', 'lscs_elective', 'instrumental_forceps',
+  'instrumental_vacuum', 'breech', 'destructive', 'other',
+]);
+
+function assertClinicalDomain(field, value, allowed) {
+  if (value === null || value === undefined) return;
+  if (!allowed.has(value)) {
+    throw AppError.badRequest(
+      `${field} must be one of: ${[...allowed].join(', ')}`,
+      'MATERNITY_CLINICAL_VALUE_INVALID',
+      { field },
+    );
+  }
+}
+
 function canonicalStateFingerprint(state) {
   return createHash('sha256').update(JSON.stringify(state)).digest('hex').slice(0, 32);
 }
@@ -2257,6 +2278,7 @@ export async function admitToLabor({
   actor_uid, actor_role,
 }) {
   if (!pregnancy_id) throw AppError.badRequest('pregnancy_id is required');
+  assertClinicalDomain('admission_reason', admission_reason, LABOR_ADMISSION_REASONS);
   // BE-M1: physiologically sane bounds, validated before any DB call —
   // rejected (400), never clamped. FHR and cervical findings drive
   // intrapartum escalation; a garbled value must not become chart fact.
@@ -2440,6 +2462,20 @@ export async function recordPartographEntry({
   actor_uid, actor_role,
 }) {
   if (!labor_admission_id) throw AppError.badRequest('labor_admission_id is required');
+  assertClinicalDomain('contractions_intensity', contractions_intensity, CONTRACTION_INTENSITIES);
+  if (descent_fifths_above_brim !== null && descent_fifths_above_brim !== undefined) {
+    const validRepresentation = typeof descent_fifths_above_brim === 'number'
+      || (typeof descent_fifths_above_brim === 'string'
+        && /^[+-]?\d+$/u.test(descent_fifths_above_brim.trim()));
+    if (!validRepresentation) {
+      throw AppError.badRequest(
+        'descent_fifths_above_brim must be a whole number between 0 and 5',
+        'MATERNITY_CLINICAL_VALUE_OUT_OF_RANGE',
+        { field: 'descent_fifths_above_brim', min: 0, max: 5 },
+      );
+    }
+    assertClinicalNumericRange('descent_fifths_above_brim', descent_fifths_above_brim, 0, 5, { integer: true });
+  }
   // BE-M1 / PR #788 review SF-2: this writer is now an ESCALATION TRIGGER
   // (action-line / fetal-decel escalation below), so its numerics get the
   // same reject-not-clamp guard before any DB call — a garbled dilation or
@@ -2753,6 +2789,7 @@ export async function recordDelivery({
   if (!pregnancy_id) throw AppError.badRequest('pregnancy_id is required');
   if (!delivery_datetime) throw AppError.badRequest('delivery_datetime is required');
   if (!delivery_mode) throw AppError.badRequest('delivery_mode is required');
+  assertClinicalDomain('delivery_mode', delivery_mode, DELIVERY_MODES);
   const tid = tenantOr(tenantId);
   const pregnancy = await assertPregnancyInTenant(tid, pregnancy_id);
   if (pregnancy.status !== 'ongoing') {

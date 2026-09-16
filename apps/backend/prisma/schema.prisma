@@ -15304,7 +15304,7 @@ model maternity_labor_admissions {
   fetal_heart_rate_bpm   Int?
   contractions_per_10min Int?
   labor_started_at       DateTime? @db.Timestamptz(6)
-  status                 String    @default("active") @db.VarChar(20)
+  status                 String    @default("active") @db.VarChar(22)
   notes                  String?
   attending_obstetrician String?   @db.Uuid
   attending_midwife      String?   @db.Uuid
