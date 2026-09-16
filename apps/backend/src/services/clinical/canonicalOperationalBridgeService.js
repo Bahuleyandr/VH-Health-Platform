@@ -159,6 +159,7 @@ export async function emitPharmacyOrderEvent({
   previousStatus = null,
   summary = null,
   payload = {},
+  occurredAt = null,
 } = {}) {
   const client = dbClient(db);
   const orderId = order?.id;
@@ -167,12 +168,13 @@ export async function emitPharmacyOrderEvent({
   return safeCanonical(`pharmacy order ${eventType}`, async () => {
     const patientUid = await resolvePatientUidForOrder(client, order);
     const status = eventStatus || order.status || null;
-    const stamp = eventTimestampKey(order.updated_at || order.dispensed_at || order.delivered_at || order.created_at)
+    const stamp = eventTimestampKey(occurredAt || order.updated_at || order.dispensed_at || order.delivered_at || order.created_at)
       || Date.now();
     return recordCanonicalClinicalEvent({
       tenantId: order.tenant_id,
       patientUid,
       eventType,
+      occurredAt: eventTimestampKey(occurredAt),
       eventStatus: status,
       sourceTable: 'pharmacy_orders',
       sourceId: String(orderId),
@@ -411,6 +413,7 @@ export async function emitDischargeWorkflowOpened({
   consults = [],
   actorUid = null,
   actorRole = null,
+  occurredAt = null,
 } = {}) {
   const client = dbClient(db);
   if (!admission?.id) return null;
@@ -421,6 +424,7 @@ export async function emitDischargeWorkflowOpened({
       patientUid: admission.patient_uid,
       encounterId: admission.encounter_id,
       eventType: 'discharge.workflow_opened',
+      occurredAt: eventTimestampKey(occurredAt || admission.discharge_initiated_at),
       eventStatus: 'active',
       sourceTable: 'admissions',
       sourceId: String(admission.id),
@@ -512,6 +516,7 @@ export async function emitDischargeDrugsDispensed({
   admission = {},
   actorUid = null,
   actorRole = null,
+  occurredAt = null,
 } = {}) {
   const client = dbClient(db);
   if (!admission?.id) return null;
@@ -522,6 +527,7 @@ export async function emitDischargeDrugsDispensed({
       patientUid: admission.patient_uid,
       encounterId: admission.encounter_id,
       eventType: 'discharge.drugs_dispensed',
+      occurredAt: eventTimestampKey(occurredAt || admission.discharge_drugs_dispensed_at),
       eventStatus: 'completed',
       sourceTable: 'admissions',
       sourceId: String(admission.id),
@@ -532,7 +538,7 @@ export async function emitDischargeDrugsDispensed({
       summary: `Discharge medicines dispensed for admission #${admission.id}`,
       payload: {
         admission_id: admission.id,
-        discharge_drugs_dispensed_at: admission.discharge_drugs_dispensed_at || null,
+        discharge_drugs_dispensed_at: occurredAt || admission.discharge_drugs_dispensed_at || null,
       },
       tags: ['discharge', 'pharmacy'],
       timelineIdempotencyKey: `admissions:${admission.id}:discharge_drugs_dispensed`,
