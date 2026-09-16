@@ -386,7 +386,7 @@
   "overrides": {
     "mysql2": ">=3.22.0",
     "onnxruntime-node": {
-      "adm-zip": "0.6.0"
+      "adm-zip": "0.6.1"
     },
     "@google-cloud/firestore": "^8.5.0",
     "gaxios": "^7.1.4",

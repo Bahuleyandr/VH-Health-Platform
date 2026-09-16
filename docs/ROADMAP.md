@@ -1,8 +1,9 @@
 # VH Health Platform — Consolidated Roadmap
 
-**Single source of truth for pending work. Latest bounded queue reconciliation:
-2026-09-08 at authoritative `github/main`
-`4c1f5654ca70b4dbc2699c96279e0ea03cc8e43c`.**
+**Single source of truth for pending work. Latest bounded update: OPEN-23 only,
+2026-09-16 at authoritative `github/main`
+`9810080c3b41931ecfa4f3bd11371c2cde2fab2a`. The remaining queue retains its
+2026-09-08 evidence at `4c1f5654ca70b4dbc2699c96279e0ea03cc8e43c`.**
 
 The update below reconciles named audit queue items and merged slices only. It
 is not a fresh audit of every historical section in this roadmap.
@@ -14,9 +15,9 @@ remediation plans/work-order, the execution log, and the tenant-RLS gap
 analysis). Those source docs are now in [`archive/`](archive/) — see
 [§8](#8-archived-source-docs).
 
-**Code/CI state:** the per-finding evidence ledger is
+**Historical code/CI snapshot (September 8):** the per-finding evidence ledger is
 [`FULL_REPOSITORY_AUDIT_2026_08.md`](FULL_REPOSITORY_AUDIT_2026_08.md), whose
-September 8 receipt records live GitHub merge/check state. #966 is merged;
+September 8 receipt records GitHub merge/check state read on that date. #966 is merged;
 #1013, #1014 and #1025–#1031 are also merged, but only within their delivered
 scopes. #1031's final PR head `1eb2e93b9` has green named `Merge Gate` and
 `Full Merge Gate` contexts and all full-stack jobs actually ran. The newest
@@ -48,7 +49,7 @@ Code merges and green checks do not authorize deployment or activation.
 
 ---
 
-## Current audit-remediation queue (bounded update 2026-09-08)
+## Current audit-remediation queue (September 8; OPEN-23 updated September 16)
 
 This is the pending-work cross-link for the canonical audit ledger, not a second
 finding ledger. Finding classifications, historical IDs, exact evidence, and
@@ -94,11 +95,20 @@ import-race tasks from this immediate queue.
   localization scope decision. Payment, clinical, consent, legal and Staff Web
   copy retain their named authority stops; technical parity is not approval.
 - **OPEN-23 — absent inline CHECK constraints** `[CODE]` `[OPERATOR]`.
-  The committed census still records 411 absent declarations across 182
-  tables; #989 detects the class but does not remediate those rows. Triage the
-  sole-guard cases first, agree the existing-data disposition, then add
-  forward-only constraints with database-backed verification. Do not confuse
-  the static census with a newly inspected production database.
+  #1079 is merged: migration 800 restores the three pregnancy CHECKs, with
+  local lineage/runtime-role verification, full hosted CI and separately
+  authorized nonproduction postdeployment evidence. The target held zero
+  pregnancy records, so this is not clinical-data or production clearance.
+  The committed census now records **408 absent declarations across 181
+  tables and 86 files** (465 total, 57 enforced); the class remains open.
+  See the ledger's September 16 receipt for exact heads, runs and limits.
+  Prioritize supported writers lacking effective guards, not table names or
+  raw counts: the former MFA-first candidate belongs to a retired duplicate
+  stack. Keep its five entries pending explicit legacy-schema disposition.
+  Agree any existing-data recovery authority before new forward-only SQL;
+  do not silently backfill, quarantine or widen predicates. A new batch still
+  requires a fresh database census and migration-allocation checks. This
+  documentation update neither remeasures a database nor claims migration 801.
 - **Reprocessing / cath readiness — preserve the parallel lane boundary.**
   #1025's clock fix, #1028's dialysis-isolation resolver and migration 767,
   #1014/#1029's design decisions, #1030's schema 768, and #1031's lifecycle
