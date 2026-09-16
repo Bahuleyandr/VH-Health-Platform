@@ -2,7 +2,7 @@
 
 **Single source of truth for pending work. Latest bounded update: OPEN-23 only,
 2026-09-16 at authoritative `github/main`
-`9810080c3b41931ecfa4f3bd11371c2cde2fab2a`. The remaining queue retains its
+`d60f1ea2c853a9fa525f4a15e60b9fe7b044fc4e`. The remaining queue retains its
 2026-09-08 evidence at `4c1f5654ca70b4dbc2699c96279e0ea03cc8e43c`.**
 
 The update below reconciles named audit queue items and merged slices only. It
@@ -99,16 +99,24 @@ import-race tasks from this immediate queue.
   local lineage/runtime-role verification, full hosted CI and separately
   authorized nonproduction postdeployment evidence. The target held zero
   pregnancy records, so this is not clinical-data or production clearance.
-  The committed census now records **408 absent declarations across 181
-  tables and 86 files** (465 total, 57 enforced); the class remains open.
-  See the ledger's September 16 receipt for exact heads, runs and limits.
+  #1088 is also merged: migration 801 restores five labor/partograph/delivery
+  CHECKs and 802 widens labor status to 22 characters for the existing
+  `discharged_undelivered` value. Local proof validated four CHECKs; delivery
+  remains `NOT VALID`, enforcing new writes while historical validation awaits
+  clinical-records/operator review. These are eight restored maternity CHECKs
+  with migration 800, not complete maternity client/workflow closure.
+  The committed census now records **403 absent declarations across 178
+  tables and 86 files** (465 total, 62 enforced); the class remains open.
+  See the ledger's separate September 16 receipts for exact source heads,
+  full hosted CI and evidence limits; #1079's counts remain historical.
   Prioritize supported writers lacking effective guards, not table names or
   raw counts: the former MFA-first candidate belongs to a retired duplicate
   stack. Keep its five entries pending explicit legacy-schema disposition.
   Agree any existing-data recovery authority before new forward-only SQL;
   do not silently backfill, quarantine or widen predicates. A new batch still
   requires a fresh database census and migration-allocation checks. This
-  documentation update neither remeasures a database nor claims migration 801.
+  documentation update neither remeasures a database nor claims migration 803,
+  #1088 postdeployment acceptance, or production/clinical/linguistic clearance.
 - **Reprocessing / cath readiness — preserve the parallel lane boundary.**
   #1025's clock fix, #1028's dialysis-isolation resolver and migration 767,
   #1014/#1029's design decisions, #1030's schema 768, and #1031's lifecycle
