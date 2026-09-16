@@ -100,6 +100,9 @@ d('discharge database-clock evidence', () => {
   ])('keeps write-time evidence ordered with $skew ms host skew in $timeZone', async ({ patient, timeZone, skew }) => {
     zone = timeZone;
     captures = [];
+    const [baselineSession] = await prisma.$queryRawUnsafe("SELECT current_setting('TimeZone') AS zone, current_user AS role");
+    expect(baselineSession.zone).toBe('UTC');
+    expect(baselineSession.role).not.toBe('vhhealth_app');
     const [admission] = await prisma.$queryRawUnsafe(
       `INSERT INTO admissions(tenant_id, patient_uid, status, encounter_id)
        VALUES ($1::uuid, $2::uuid, 'admitted', NULL) RETURNING id`, TENANT, patient,
@@ -205,6 +208,6 @@ d('discharge database-clock evidence', () => {
     expect(afterRetry).toEqual({ dispensed_ms: storedT3.dispensed_ms, timeline: 2, audit: 2 });
     expect(captures).toHaveLength(2);
     const [session] = await prisma.$queryRawUnsafe("SELECT current_setting('TimeZone') AS zone, current_user AS role, pg_backend_pid() AS backend_pid");
-    expect(session).toEqual({ zone: 'UTC', role: 'postgres', backend_pid: captures.at(-1).after.backend_pid });
+    expect(session).toEqual({ ...baselineSession, backend_pid: captures.at(-1).after.backend_pid });
   }, 120000);
 });
