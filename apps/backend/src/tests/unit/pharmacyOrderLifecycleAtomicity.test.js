@@ -56,8 +56,11 @@ const receiptQuery = jest.fn(async () => []);
 const catalogQuery = jest.fn(async () => []);
 const inventoryItemQuery = jest.fn(async () => []);
 const identityQuery = jest.fn(async () => []);
+const dispenseClockQuery = jest.fn();
+const DISPENSED_AT = new Date('2026-09-16T12:00:00.123Z');
 
 const SUPPORTING_QUERY_KINDS = [
+  [/SELECT FLOOR\(EXTRACT\(EPOCH FROM clock_timestamp\(\)\) \* 1000\)::bigint AS recorded_at_epoch_ms/, () => dispenseClockQuery],
   [/pg_advisory_xact_lock/, () => lockQuery],
   [/FROM pharmacy_order_command_receipts/, () => receiptQuery],
   [/FROM pharmacy_catalog/, () => catalogQuery],
@@ -539,6 +542,7 @@ describe('pharmacy order lifecycle canonical atomicity', () => {
     }));
     txExecute.mockResolvedValue(1);
     resolvePrescriptionLineIndexes.mockReturnValue([]);
+    dispenseClockQuery.mockReset().mockResolvedValue([{ recorded_at_epoch_ms: BigInt(DISPENSED_AT.getTime()) }]);
   });
 
   it.each([
@@ -712,6 +716,32 @@ describe('pharmacy order lifecycle canonical atomicity', () => {
       'Failed to update order',
     );
     expect(error).not.toHaveBeenCalled();
+  });
+
+  it.each([-86_400_000, 86_400_000])('binds the counter write, label and canonical event to one database instant with %i ms host skew', async (skew) => {
+    jest.useFakeTimers({ now: DISPENSED_AT.getTime() + skew });
+    try {
+      assertVerificationClearedTx.mockResolvedValue({ ...CLEARED_VERIFICATION, delivery_type: 'counter' });
+      txQuery.mockResolvedValueOnce([order({ status: 'PENDING', delivery_type: 'counter' })])
+        .mockResolvedValueOnce([order({ status: 'PENDING', delivery_type: 'counter', payment_mode: 'none' })])
+        .mockResolvedValueOnce([order({ status: 'PENDING', delivery_type: 'counter', payment_mode: 'none' })])
+        .mockResolvedValueOnce([order({ status: 'DISPENSED', delivery_type: 'counter', payment_status: 'paid', dispensed_at: DISPENSED_AT, updated_at: DISPENSED_AT })])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ pack_barcode: 'VHMP-71-CLOCK' }]);
+      await markCounterDispensed(req({ body: { payment_mode: 'none' } }), {});
+      expect(success).toHaveBeenCalledTimes(1);
+      expect(dispenseClockQuery).toHaveBeenCalledTimes(1);
+      expect(allocateOrderInventoryTx.mock.invocationCallOrder[0]).toBeLessThan(dispenseClockQuery.mock.invocationCallOrder[0]);
+      const dispenseWrite = txQuery.mock.calls.find(([sql]) => sql.includes('dispensed_at=$17::timestamptz'));
+      expect(dispenseWrite).toBeDefined();
+      expect(dispenseWrite[17]).toBe(DISPENSED_AT.toISOString());
+      expect(JSON.parse(dispenseWrite[12]).dispensed_at).toBe(DISPENSED_AT.toISOString());
+      expect(emitPharmacyOrderEvent).toHaveBeenCalledWith(expect.objectContaining({ db: tx, occurredAt: DISPENSED_AT }));
+      const packWrite = txQuery.mock.calls.find(([sql]) => sql.includes('pack_barcode=COALESCE'));
+      expect(packWrite[4]).toBe(DISPENSED_AT.toISOString());
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('does not write history or emit an event when the guarded update returns null', async () => {

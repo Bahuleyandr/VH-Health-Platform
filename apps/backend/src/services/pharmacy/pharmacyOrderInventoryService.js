@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 import { lockTenantPatientMergeStability } from '../../utils/patientMergeStabilityLock.js';
 import {
   assertPharmacyCapForDispenseTx,
@@ -2636,6 +2637,14 @@ export async function dispenseSubstitutionCommand({
         substitutionEvidence,
       ],
     };
+    const [clock] = await tx.$queryRawUnsafe(
+      'SELECT FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint AS recorded_at_epoch_ms',
+    );
+    const recordedAtMs = epochMsOrNull(clock?.recorded_at_epoch_ms);
+    if (recordedAtMs == null) {
+      throw AppError.internal('Dispense clock unavailable', 'PHARMACY_DISPENSE_DB_CLOCK_UNAVAILABLE');
+    }
+    const dispensedAt = new Date(recordedAtMs);
     const existingLabel = origin.dispense_label
       && typeof origin.dispense_label === 'object'
       && !Array.isArray(origin.dispense_label)
@@ -2644,6 +2653,7 @@ export async function dispenseSubstitutionCommand({
     const dispenseLabel = {
       ...existingLabel,
       order_number: origin.order_number,
+      dispensed_at: dispensedAt.toISOString(),
       substitutions: [
         ...(Array.isArray(existingLabel.substitutions) ? existingLabel.substitutions : []),
         substitutionEvidence,
@@ -2690,12 +2700,12 @@ export async function dispenseSubstitutionCommand({
               amount_collected = $10::numeric,
               payment_metadata = $11::jsonb,
               dispensed_by = $12::uuid,
-              dispensed_at = NOW(),
+              dispensed_at = $15::timestamptz,
               clinical_verification_catalog_sha256 = $13,
               clinical_verification_items_sha256 = $14,
               inventory_authority_version = inventory_authority_version + 1,
               clinically_verified_order_version = inventory_authority_version + 1,
-              updated_at = NOW()
+              updated_at = $15::timestamptz
         WHERE id = $1::int AND tenant_id = $2::uuid AND facility_id = $8::int
         RETURNING id, uid, tenant_id, patient_id, patient_name, status, total_amount,
                   partial_dispense, order_number, updated_at, dispensed_at`,
@@ -2713,6 +2723,7 @@ export async function dispenseSubstitutionCommand({
       actorUid,
       clinicalCatalogSha256,
       clinicalItemsSha256,
+      dispensedAt.toISOString(),
     );
     if (!updatedOrders.length) {
       throw AppError.conflict(
@@ -2723,7 +2734,7 @@ export async function dispenseSubstitutionCommand({
     await tx.$executeRawUnsafe(
       `UPDATE pharmacy_orders po
           SET clinical_verification_safety_version=safety.version,
-              updated_at=NOW()
+              updated_at=$3::timestamptz
          FROM pharmacy_patient_safety_versions safety
         WHERE po.tenant_id=$1::uuid
           AND po.id=$2::int
@@ -2731,6 +2742,7 @@ export async function dispenseSubstitutionCommand({
           AND safety.patient_id=po.patient_id`,
       tenantId,
       orderId,
+      dispensedAt.toISOString(),
     );
 
     if (nextOrderStatus !== origin.order_status) {
@@ -2770,6 +2782,7 @@ export async function dispenseSubstitutionCommand({
           : 'pharmacy.order_ready',
         eventStatus: nextOrderStatus,
         previousStatus: origin.order_status,
+        occurredAt: dispensedAt,
         payload: {
           substitution_movement_id: Number(movement.id),
           original_catalog_id: origId,
@@ -2785,6 +2798,7 @@ export async function dispenseSubstitutionCommand({
       patientUid,
       encounterId,
       eventType: 'pharmacy.dispense_substitution',
+      occurredAt: dispensedAt.toISOString(),
       eventStatus: 'dispensed',
       sourceTable: 'pharmacy_stock_movements',
       sourceId: String(movement.id),
@@ -2817,12 +2831,13 @@ export async function dispenseSubstitutionCommand({
 
     const packRows = await tx.$queryRawUnsafe(
       `UPDATE pharmacy_orders
-          SET pack_barcode=COALESCE(pack_barcode, $3), updated_at=NOW()
+          SET pack_barcode=COALESCE(pack_barcode, $3), updated_at=$4::timestamptz
         WHERE tenant_id=$1::uuid AND id=$2::int
         RETURNING pack_barcode`,
       tenantId,
       orderId,
       `VHMP-${orderId}-${commandKeySha256.slice(0, 8).toUpperCase()}`,
+      dispensedAt.toISOString(),
     );
     if (!packRows[0]?.pack_barcode) {
       throw AppError.conflict(

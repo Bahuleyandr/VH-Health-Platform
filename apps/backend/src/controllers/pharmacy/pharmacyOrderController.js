@@ -7,6 +7,7 @@ import { HTTP_STATUS } from '../../config/responseCodes.js';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
+import { epochMsOrNull } from '../../utils/dbInstant.js';
 import { screenUploadBuffer } from '../../services/security/fileScanService.js';
 import { uploadFileToR2, getSignedFileUrl } from '../../utils/r2Storage.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
@@ -351,7 +352,7 @@ export function canonicalManualConfirmationQuantity(value, index) {
   }
 }
 
-function emitPharmacyOrderEventInTx(tx, req, eventType, order, extra = {}) {
+function emitPharmacyOrderEventInTx(tx, req, eventType, order, extra = {}, occurredAt = null) {
   return emitPharmacyOrderEvent({
     db: tx,
     order: {
@@ -364,6 +365,7 @@ function emitPharmacyOrderEventInTx(tx, req, eventType, order, extra = {}) {
     eventStatus: extra.to_status || order?.status || null,
     previousStatus: extra.from_status || null,
     payload: extra,
+    occurredAt,
   });
 }
 
@@ -3953,6 +3955,14 @@ export const markCounterDispensed = async (req, res) => {
         );
       }
       const nextStatus = partialDispense ? 'PARTIALLY_DISPENSED' : 'DISPENSED';
+      const [clock] = await tx.$queryRawUnsafe(
+        'SELECT FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint AS recorded_at_epoch_ms',
+      );
+      const recordedAtMs = epochMsOrNull(clock?.recorded_at_epoch_ms);
+      if (recordedAtMs == null) {
+        throw AppError.internal('Dispense clock unavailable', 'PHARMACY_DISPENSE_DB_CLOCK_UNAVAILABLE');
+      }
+      const dispensedAt = new Date(recordedAtMs);
 
       // Build the dispense_label snapshot. Pharmacy app / staff app can
       // re-render this without re-reading the prescription. Keep the
@@ -3960,7 +3970,7 @@ export const markCounterDispensed = async (req, res) => {
       const dispenseLabel = {
         order_number: order.order_number,
         patient_name: order.patient_name,
-        dispensed_at: new Date().toISOString(),
+        dispensed_at: dispensedAt.toISOString(),
         partial_dispense: partialDispense,
         partial_reason: partial_reason ?? null,
         items: inventoryItems.map((i) => ({
@@ -3988,7 +3998,7 @@ export const markCounterDispensed = async (req, res) => {
         `UPDATE pharmacy_orders
             SET status=$15,
                 dispensed_by=$2::uuid,
-                dispensed_at=NOW(),
+                dispensed_at=$17::timestamptz,
                 delivery_tracking_active=FALSE,
                 items_list=$3::jsonb,
                 dispensed_medications=$3::jsonb,
@@ -4002,7 +4012,7 @@ export const markCounterDispensed = async (req, res) => {
                 payment_metadata=$11::jsonb,
                 dispense_label=$12::jsonb,
                 confirmation_notes=COALESCE($13, confirmation_notes),
-                updated_at=NOW()
+                updated_at=$17::timestamptz
           WHERE id=$1 AND tenant_id=$14::uuid AND facility_id=$16::int
           RETURNING id, uid, tenant_id, patient_id, patient_name, status, order_note,
                     total_amount, items_list, dispensed_medications,
@@ -4026,6 +4036,7 @@ export const markCounterDispensed = async (req, res) => {
         req.tenantId,
         nextStatus,
         order.facility_id,
+        dispensedAt.toISOString(),
       );
       const out = updated[0];
 
@@ -4065,15 +4076,16 @@ export const markCounterDispensed = async (req, res) => {
         payment_status: out.payment_status || null,
         inventory_allocations: inventory.allocations,
         tpa_cap_override: capOverride,
-      });
+      }, dispensedAt);
       const barcodeRows = await tx.$queryRawUnsafe(
         `UPDATE pharmacy_orders
-            SET pack_barcode=COALESCE(pack_barcode, $3), updated_at=NOW()
+            SET pack_barcode=COALESCE(pack_barcode, $3), updated_at=$4::timestamptz
           WHERE id=$1::int AND tenant_id=$2::uuid
           RETURNING pack_barcode`,
         orderId,
         req.tenantId,
         `VHMP-${orderId}-${commandKeySha256.slice(0, 8).toUpperCase()}`,
+        dispensedAt.toISOString(),
       );
       out.pack_barcode = barcodeRows[0]?.pack_barcode || null;
       const message = out.status === 'PARTIALLY_DISPENSED'
