@@ -2591,7 +2591,16 @@ async function markForDischarge(admissionId, requestedBy, requestedByRole = null
     }
     await assertControlledWardCustodyClosedTx(tx, admission);
 
-    const now = new Date();
+    // Prisma serializes typed Date values without an offset.
+    await tx.$executeRawUnsafe("SET LOCAL TIME ZONE 'UTC'");
+    const [clock] = await tx.$queryRawUnsafe(
+      'SELECT FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint AS recorded_at_epoch_ms',
+    );
+    const recordedAtMs = epochMsOrNull(clock?.recorded_at_epoch_ms);
+    if (recordedAtMs == null) {
+      throw AppError.internal('Discharge clock unavailable', 'DISCHARGE_DB_CLOCK_UNAVAILABLE');
+    }
+    const now = new Date(recordedAtMs);
     const updated = await tx.admissions.update({
       where: { id: admissionId },
       data: {
@@ -2601,6 +2610,9 @@ async function markForDischarge(admissionId, requestedBy, requestedByRole = null
       },
       select: ADMISSION_RETURNING_SELECT,
     });
+    updated.discharge_initiated_at = now;
+    updated.billing_closed_at = now;
+    updated.updated_at = now;
 
     // Open default consults — one per consult_type. UNIQUE
     // (admission_id, consult_type) prevents duplicates if this
@@ -2643,6 +2655,7 @@ async function markForDischarge(admissionId, requestedBy, requestedByRole = null
       consults,
       actorUid: requestedBy,
       actorRole: requestedByRole,
+      occurredAt: now,
     });
     await publishInpatientSourceEventTx({
       tx,
@@ -3159,11 +3172,23 @@ async function markDischargeDrugsDispensed(admissionId, dispensedBy, options = {
   }
 
   const updated = await setTenantTx(requireTenantId(existing.tenant_id), async (tx) => {
+    // Prisma serializes typed Date values without an offset.
+    await tx.$executeRawUnsafe("SET LOCAL TIME ZONE 'UTC'");
+    const [clock] = await tx.$queryRawUnsafe(
+      'SELECT FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000)::bigint AS recorded_at_epoch_ms',
+    );
+    const recordedAtMs = epochMsOrNull(clock?.recorded_at_epoch_ms);
+    if (recordedAtMs == null) {
+      throw AppError.internal('Discharge clock unavailable', 'DISCHARGE_DB_CLOCK_UNAVAILABLE');
+    }
+    const now = new Date(recordedAtMs);
     const row = await tx.admissions.update({
       where: { id: admissionId },
-      data: { discharge_drugs_dispensed_at: new Date(), updated_at: new Date() },
+      data: { discharge_drugs_dispensed_at: now, updated_at: now },
       select: ADMISSION_RETURNING_SELECT,
     });
+    row.discharge_drugs_dispensed_at = now;
+    row.updated_at = now;
 
     await tx.audit_logs.create({
       data: {
@@ -3171,7 +3196,7 @@ async function markDischargeDrugsDispensed(admissionId, dispensedBy, options = {
         action: 'MARK_DISCHARGE_DRUGS_DISPENSED',
         resource: 'admission',
         resource_id: String(admissionId),
-        metadata: { dispensed_at: new Date().toISOString() },
+        metadata: { dispensed_at: now.toISOString() },
         ip_address: null,
       },
     });
@@ -3181,6 +3206,7 @@ async function markDischargeDrugsDispensed(admissionId, dispensedBy, options = {
       admission: row,
       actorUid: dispensedBy,
       actorRole: options.actorRole || options.role || 'PHARMACY',
+      occurredAt: now,
     });
     await publishInpatientSourceEventTx({
       tx,
@@ -3189,7 +3215,7 @@ async function markDischargeDrugsDispensed(admissionId, dispensedBy, options = {
       admission: row,
       payload: {
         patient_uid: row.patient_uid,
-        discharge_drugs_dispensed_at: row.discharge_drugs_dispensed_at,
+        discharge_drugs_dispensed_at: now,
       },
     });
     return row;
