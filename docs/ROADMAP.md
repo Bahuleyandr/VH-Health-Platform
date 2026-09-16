@@ -101,9 +101,11 @@ import-race tasks from this immediate queue.
   pregnancy records, so this is not clinical-data or production clearance.
   #1088 is also merged: migration 801 restores five labor/partograph/delivery
   CHECKs and 802 widens labor status to 22 characters for the existing
-  `discharged_undelivered` value. Local proof validated four CHECKs; delivery
-  remains `NOT VALID`, enforcing new writes while historical validation awaits
-  clinical-records/operator review. These are eight restored maternity CHECKs
+  `discharged_undelivered` value. Local fresh-lineage proof validated four CHECKs;
+  newly added delivery CHECKs are `NOT VALID` and enforce new writes, while
+  existing validation state is preserved. Newly validating an unvalidated
+  delivery CHECK still requires clinical-records/operator review and a clean
+  pre-check. These are eight restored maternity CHECKs
   with migration 800, not complete maternity client/workflow closure.
   The committed census now records **403 absent declarations across 178
   tables and 86 files** (465 total, 62 enforced); the class remains open.
