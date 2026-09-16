@@ -5,6 +5,7 @@ import { Client } from 'pg';
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const describeIfDb = databaseUrl ? describe : describe.skip;
+const NativeDate = Date;
 
 const migrationSql = readFileSync(
   new URL(
@@ -220,7 +221,11 @@ async function seedPolicy(client, fixture, values = {}) {
   );
   const policyId = policy.rows[0].id;
 
-  const decidedAt = new Date();
+  const approvalClock = await client.query('SELECT clock_timestamp() AS decided_at');
+  expect(approvalClock.rows).toHaveLength(1);
+  const decidedAt = approvalClock.rows[0].decided_at;
+  expect(decidedAt).toBeInstanceOf(NativeDate);
+  expect(Number.isFinite(decidedAt.getTime())).toBe(true);
   const approvedBy = [fixture.clinicalUid, fixture.technicalUid].map((uid, index) => ({
     at: new Date(decidedAt.getTime() - (index + 1) * 1000).toISOString(),
     uid
@@ -260,6 +265,17 @@ async function seedPolicy(client, fixture, values = {}) {
       WHERE tenant_id = $4::uuid AND id = $5::uuid`,
     [Number(approval.rows[0].id), fixture.clinicalUid, decidedAt, fixture.tenantId, policyId]
   );
+  const storedApproval = await client.query(
+    `SELECT policy.approved_at = approval.decided_at AS same_instant,
+            policy.approved_at >= date_trunc('milliseconds', transaction_timestamp())
+              AND policy.approved_at <= clock_timestamp() AS database_clock_bounded
+       FROM clinical_continuity_policy_versions policy
+       JOIN approvals approval ON approval.id = policy.approval_id
+         AND approval.tenant_id = policy.tenant_id
+      WHERE policy.tenant_id = $1::uuid AND policy.id = $2::uuid`,
+    [fixture.tenantId, policyId]
+  );
+  expect(storedApproval.rows).toEqual([{ same_instant: true, database_clock_bounded: true }]);
   await client.query('SET CONSTRAINTS ALL IMMEDIATE');
   await client.query('SET CONSTRAINTS ALL DEFERRED');
   return policyId;
@@ -323,11 +339,19 @@ async function callJsonCommand(client, functionName, command) {
   return result.rows[0].receipt;
 }
 
-describeIfDb('migration 632 C6.3-TG database transition contract', () => {
+describeIfDb.each([0, 300_000, -300_000])('migration 632 C6.3-TG database transition contract (host skew %i ms)', (hostSkewMs) => {
   let client;
   let fixture;
 
   beforeAll(async () => {
+    global.Date = class extends NativeDate {
+      constructor(...args) {
+        super(...(args.length ? args : [NativeDate.now() + hostSkewMs]));
+      }
+
+      static now() { return NativeDate.now() + hostSkewMs; }
+      static [Symbol.hasInstance](value) { return value instanceof NativeDate; }
+    };
     client = new Client({ connectionString: databaseUrl });
     await client.connect();
     await client.query('BEGIN');
@@ -355,9 +379,11 @@ describeIfDb('migration 632 C6.3-TG database transition contract', () => {
   });
 
   afterAll(async () => {
-    if (client) {
-      await client.query('ROLLBACK');
-      await client.end();
+    try {
+      if (client) await client.query('ROLLBACK');
+    } finally {
+      global.Date = NativeDate;
+      if (client) await client.end();
     }
   });
 

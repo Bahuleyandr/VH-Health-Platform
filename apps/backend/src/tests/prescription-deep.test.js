@@ -1035,6 +1035,31 @@ describe('E-prescriptions — deep integration', () => {
     expect(paid.statusCode).toBe(200);
     expect(paid.body.data.payment_status).toBe('paid');
 
+    const clockRows = await prisma.$queryRawUnsafe(
+      `SELECT tenant_id,
+              FLOOR(EXTRACT(EPOCH FROM dispensed_at::timestamptz) * 1000)::bigint AS dispensed_ms,
+              FLOOR(EXTRACT(EPOCH FROM updated_at::timestamptz) * 1000)::bigint AS updated_ms,
+              FLOOR(EXTRACT(EPOCH FROM (dispense_label->>'dispensed_at')::timestamptz) * 1000)::bigint AS label_ms
+         FROM pharmacy_orders WHERE id=$1::int AND patient_id=$2::int`, orderId, patientId,
+    );
+    expect(clockRows).toHaveLength(1);
+    const clock = clockRows[0];
+    expect(clock.dispensed_ms).not.toBeNull();
+    expect(clock.updated_ms).toBe(clock.dispensed_ms);
+    expect(clock.label_ms).toBe(clock.dispensed_ms);
+    const timelineClocks = await prisma.$queryRawUnsafe(
+      `SELECT FLOOR(EXTRACT(EPOCH FROM occurred_at) * 1000)::bigint AS occurred_ms
+         FROM clinical_timeline_events WHERE tenant_id=$1::uuid AND source_table='pharmacy_orders'
+          AND source_id=$2 AND event_type='pharmacy.order_dispensed'`, clock.tenant_id, String(orderId),
+    );
+    const auditClocks = await prisma.$queryRawUnsafe(
+      `SELECT FLOOR(EXTRACT(EPOCH FROM occurred_at) * 1000)::bigint AS occurred_ms
+         FROM clinical_audit_events WHERE tenant_id=$1::uuid AND resource_table='pharmacy_orders'
+          AND resource_id=$2 AND action='pharmacy.order_dispensed'`, clock.tenant_id, String(orderId),
+    );
+    expect(timelineClocks).toEqual([{ occurred_ms: clock.dispensed_ms }]);
+    expect(auditClocks).toEqual([{ occurred_ms: clock.dispensed_ms }]);
+
     const detail = await pharmacy.get(`/api/v1/pharmacy/orders/${orderId}/detail`);
     expect(detail.statusCode).toBe(200);
     const labelItem = detail.body.data.order.dispense_label.items[0];
