@@ -5,7 +5,7 @@
     "ledger": "docs/FULL_REPOSITORY_AUDIT_2026_08.md",
     "generatedFromHead": "59a3d4db580823766c37d7da11a3a72544b25b1e"
   },
-  "expectedAbsentCount": 408,
+  "expectedAbsentCount": 403,
   "entries": [
     {
       "id": "001_create_beds_wards.sql#beds#beds_status_check",
@@ -4372,7 +4372,7 @@
       "constraintName": "maternity_labor_admissions_admission_reason_check",
       "clauseSha256": "ef60b0c7e9c678c90a878ac825f37fa972711e801605f194861895616fff27a9",
       "clause": "admission_reason IS NULL OR admission_reason IN ( 'spontaneous_labour', 'induction', 'elective_lscs', 'pprom', 'reduced_fm', 'postdated', 'other' )",
-      "enforced": false
+      "enforced": true
     },
     {
       "id": "155_maternity_workflow.sql#maternity_labor_admissions#maternity_labor_admissions_status_check",
@@ -4383,7 +4383,7 @@
       "constraintName": "maternity_labor_admissions_status_check",
       "clauseSha256": "a2a1dd178374466930d6c3248f61d727b3a305000630050bdf895a97cbe6d8fa",
       "clause": "status IN ('active', 'delivered', 'transferred', 'discharged_undelivered')",
-      "enforced": false
+      "enforced": true
     },
     {
       "id": "155_maternity_workflow.sql#maternity_partograph_entries#maternity_partograph_entries_descent_fifths_above_brim_check",
@@ -4394,7 +4394,7 @@
       "constraintName": "maternity_partograph_entries_descent_fifths_above_brim_check",
       "clauseSha256": "39292238b9c5367ec175e8942915050ffad1358719ff0ff4b1061d86c11c2520",
       "clause": "descent_fifths_above_brim BETWEEN 0 AND 5",
-      "enforced": false
+      "enforced": true
     },
     {
       "id": "155_maternity_workflow.sql#maternity_partograph_entries#maternity_partograph_entries_contractions_intensity_check",
@@ -4405,7 +4405,7 @@
       "constraintName": "maternity_partograph_entries_contractions_intensity_check",
       "clauseSha256": "3d1d98b30661037a2dc1dea888b32aa7ae455fdca878e8f0466dbaae89c00492",
       "clause": "contractions_intensity IS NULL OR contractions_intensity IN ('weak','moderate','strong')",
-      "enforced": false
+      "enforced": true
     },
     {
       "id": "155_maternity_workflow.sql#maternity_deliveries#maternity_deliveries_delivery_mode_check",
@@ -4416,7 +4416,7 @@
       "constraintName": "maternity_deliveries_delivery_mode_check",
       "clauseSha256": "983676156ad485986a4a521a45be15569059ad46af573b9a22e165f8451bfd99",
       "clause": "delivery_mode IN ('nvd', 'lscs_emergency', 'lscs_elective', 'instrumental_forceps', 'instrumental_vacuum', 'breech', 'destructive', 'other')",
-      "enforced": false
+      "enforced": true
     },
     {
       "id": "155_maternity_workflow.sql#maternity_newborns#maternity_newborns_sex_check",

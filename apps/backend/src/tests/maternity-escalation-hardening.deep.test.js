@@ -287,7 +287,7 @@ d('BE-H2 — ANC pre-eclampsia alert-persistence failure is surfaced, never swal
     const labor = await admitToLabor({
       tenantId: TENANT,
       pregnancy_id: pregnancy.id,
-      admission_reason: 'labour pains',
+      admission_reason: 'spontaneous_labour',
       cervix_dilation_cm: 4,
       fetal_heart_rate_bpm: 140,
       actor_uid: ACTOR_UID,

@@ -18,7 +18,7 @@ Run from apps/backend: `node scripts/rls-bypass-reacher-census.mjs --check`. Reg
 
 Lexical planning predicates (src excluding tests): 29 lines in 6 files match `runWithSuperAdmin\(`; 84 scheduler lines match `withJobLock\(`. These include comments/definitions and are not reaching statements.
 
-Measured populations: **109 entry-point calls; 84 registered jobs; 8502 database-call/source-statement records; 14588 split migration statements.** Entry points by kind: runWithSuperAdmin=25, withJobLock=83, withReplicaLocalJobGuard=1.
+Measured populations: **109 entry-point calls; 84 registered jobs; 8502 database-call/source-statement records; 14594 split migration statements.** Entry points by kind: runWithSuperAdmin=25, withJobLock=83, withReplicaLocalJobGuard=1.
 
 ## Table pins (users first)
 

@@ -544,6 +544,41 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
   let originalGate;
   const canonicalSourceIds = new Map();
 
+  async function maternityDomainState() {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT
+        (SELECT jsonb_agg(to_jsonb(p) ORDER BY p.id) FROM maternity_pregnancies p
+          WHERE p.tenant_id=$1::uuid AND p.id=$2::int) AS pregnancy,
+        (SELECT jsonb_agg(to_jsonb(l) ORDER BY l.id) FROM maternity_labor_admissions l
+          WHERE l.tenant_id=$1::uuid AND l.pregnancy_id=$2::int) AS labor,
+        (SELECT jsonb_agg(to_jsonb(e) ORDER BY e.id) FROM maternity_partograph_entries e
+          JOIN maternity_labor_admissions l ON l.id=e.labor_admission_id AND l.tenant_id=e.tenant_id
+          WHERE e.tenant_id=$1::uuid AND l.pregnancy_id=$2::int) AS partograph,
+        (SELECT jsonb_agg(to_jsonb(d) ORDER BY d.id) FROM maternity_deliveries d
+          WHERE d.tenant_id=$1::uuid AND d.pregnancy_id=$2::int) AS delivery,
+        (SELECT jsonb_build_object('is_pregnant',u.is_pregnant,'lmp_date',u.pregnancy_lmp_date)
+          FROM users u WHERE u.tenant_id=$1::uuid AND u.uid=$3::uuid) AS projection,
+        (SELECT jsonb_agg(to_jsonb(e) ORDER BY e.id) FROM clinical_timeline_events e
+          WHERE e.tenant_id=$1::uuid AND e.patient_uid=$3::uuid AND e.event_type LIKE 'maternity.%') AS timeline,
+        (SELECT jsonb_agg(to_jsonb(a) ORDER BY a.id) FROM clinical_audit_events a
+          WHERE a.tenant_id=$1::uuid AND a.patient_uid=$3::uuid AND a.action LIKE 'maternity.%') AS audit,
+        (SELECT jsonb_agg(to_jsonb(a) ORDER BY a.id) FROM clinical_alerts a
+          WHERE a.tenant_id=$1::uuid AND a.patient_id=$4::int) AS alerts`,
+      DEFAULT_TENANT, pregnancyId, MOTHER_UID, motherId
+    );
+    expect(rows).toHaveLength(1);
+    expect(rows[0].pregnancy).toHaveLength(1);
+    return { ...rows[0], outbound: await outboundCounts() };
+  }
+
+  async function assertRejectedDomain(path, body, code) {
+    const before = await maternityDomainState();
+    const rejected = await doctor.post(path).send(body);
+    expect(rejected.statusCode).toBe(400);
+    expect(rejected.body.code).toBe(code);
+    expect(await maternityDomainState()).toEqual(before);
+  }
+
   beforeAll(async () => {
     originalGate = process.env.OBGYN_LABOUR_WARD_PRIVILEGE_GATE_ENABLED;
     delete process.env.OBGYN_LABOUR_WARD_PRIVILEGE_GATE_ENABLED;
@@ -843,6 +878,12 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
   });
 
   it('records labour, partograph and delivery with landed staff-only canonical pairs', async () => {
+    await assertRejectedDomain('/api/v1/maternity/labor-admissions', {
+      pregnancy_id: pregnancyId,
+      admission_reason: 'invalid_reason',
+      attending_obstetrician: DOCTOR_UID
+    }, 'MATERNITY_CLINICAL_VALUE_INVALID');
+
     const labor = await doctor.post('/api/v1/maternity/labor-admissions').send({
       pregnancy_id: pregnancyId,
       admission_reason: 'spontaneous_labour',
@@ -862,20 +903,46 @@ describeJourney('Journey: OBGyn maternity to newborn immunisation', () => {
     // depend on the wall clock and can turn this normal 6 cm entry into a real
     // action-line escalation when the suite runs near a timezone boundary.
     const partographRecordedAt = new Date(labor.body.data.admitted_at).toISOString();
+    for (const invalid of [
+      { descent_fifths_above_brim: -1 },
+      { descent_fifths_above_brim: 6 },
+      { descent_fifths_above_brim: true },
+      { contractions_intensity: 'invalid' }
+    ]) {
+      await assertRejectedDomain('/api/v1/maternity/partograph', {
+        labor_admission_id: laborId,
+        recorded_at: partographRecordedAt,
+        ...invalid
+      }, Object.hasOwn(invalid, 'contractions_intensity')
+        ? 'MATERNITY_CLINICAL_VALUE_INVALID' : 'MATERNITY_CLINICAL_VALUE_OUT_OF_RANGE');
+    }
+
     const partograph = await doctor.post('/api/v1/maternity/partograph').send({
       labor_admission_id: laborId,
       recorded_at: partographRecordedAt,
       bp_systolic: 122,
       bp_diastolic: 78,
       cervix_dilation_cm: 6,
+      descent_fifths_above_brim: 2,
       contractions_per_10min: 3,
+      contractions_intensity: 'moderate',
       fetal_heart_rate_bpm: 144,
       notes: PRIVATE_PARTOGRAPH
     });
     expect(partograph.statusCode).toBe(200);
     expect(partograph.body.data.escalation_raised).toBe(false);
+    expect(partograph.body.data.descent_fifths_above_brim).toBe(2);
+    expect(partograph.body.data.contractions_intensity).toBe('moderate');
     partographId = Number(partograph.body.data.id);
     canonicalSourceIds.set('maternity.partograph_entry_recorded', partographId);
+
+    await assertRejectedDomain('/api/v1/maternity/deliveries', {
+      pregnancy_id: pregnancyId,
+      labor_admission_id: laborId,
+      delivery_datetime: `${birthDate}T05:00:00.000Z`,
+      delivery_mode: 'invalid_mode',
+      delivered_by: DOCTOR_UID
+    }, 'MATERNITY_CLINICAL_VALUE_INVALID');
 
     const delivery = await doctor.post('/api/v1/maternity/deliveries').send({
       pregnancy_id: pregnancyId,
