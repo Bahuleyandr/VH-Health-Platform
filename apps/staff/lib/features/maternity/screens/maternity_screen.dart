@@ -72,6 +72,7 @@ class _MaternityScreenState extends State<MaternityScreen> {
   }
 
   Future<void> _fetch() async {
+    if (!mounted) return;
     setState(() {
       _loading = true;
       _error = null;
@@ -248,8 +249,10 @@ class _LaborCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: OutlinedButton.icon(
-                    onPressed: () =>
-                        context.push('/maternity/labor/${labor.id}/chart'),
+                    onPressed: () async {
+                      await context.push('/maternity/labor/${labor.id}/chart');
+                      if (context.mounted) onChanged();
+                    },
                     icon: const Icon(Icons.show_chart),
                     label: Text(s.maternityActionPartographChart),
                   ),
