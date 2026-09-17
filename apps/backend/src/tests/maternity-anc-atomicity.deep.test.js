@@ -319,6 +319,40 @@ d('M-A ANC, supplement, reminder, and fetal-kick atomic writes', () => {
     });
   });
 
+  test.each([false, true])('ANC on a delivered episode audits the actual pregnancy projection (another ongoing episode: %s)', async (hasOngoingEpisode) => {
+    const patientUid = await seedUser();
+    const pregnancy = await seedPregnancy({ patientUid });
+    await prisma.$executeRawUnsafe(
+      `UPDATE maternity_pregnancies SET status = 'delivered'
+        WHERE tenant_id = $1::uuid AND id = $2::int`,
+      TENANT_A, pregnancy.id,
+    );
+    if (hasOngoingEpisode) await seedPregnancy({ patientUid });
+
+    const visit = await recordAncVisit({
+      tenantId: TENANT_A,
+      pregnancy_id: pregnancy.id,
+      visit_date: '2026-05-14',
+      recorded_by: ACTOR_UID,
+      actor_uid: ACTOR_UID,
+      actor_role: 'NURSING_STAFF',
+    });
+
+    const projection = await userProjectionVersion(patientUid);
+    expect(projection.is_pregnant).toBe(hasOngoingEpisode);
+    const { timeline, audit } = await canonicalRows(patientUid, 'maternity.anc_visit_recorded');
+    expect(timeline).toHaveLength(1);
+    expect(timeline[0]).toMatchObject({
+      source_id: String(visit.id),
+      visible_to_patient: false,
+    });
+    expect(audit).toHaveLength(1);
+    expect(audit[0].after_state).toEqual({
+      anc_visit_recorded: true,
+      user_is_pregnant: projection.is_pregnant,
+    });
+  });
+
   test('ANC A-to-B-to-A revisions each persist once while exact retries dedupe', async () => {
     const patientUid = await seedUser();
     const pregnancy = await seedPregnancy({ patientUid });
