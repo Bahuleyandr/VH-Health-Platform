@@ -1,8 +1,8 @@
 # VH Health Full-Repository Audit — Reconciled Ledger
 
 **Latest bounded reconciliation:** 2026-09-16, authoritative `github/main`
-`9810080c3b41931ecfa4f3bd11371c2cde2fab2a` (PR #1079). This update covers
-OPEN-23's three pregnancy constraints and its next-work priority only; it is
+`d60f1ea2c853a9fa525f4a15e60b9fe7b044fc4e` (PR #1088). This update covers
+OPEN-23's eight restored maternity constraints and status-width repair only; it is
 **not a new whole-repository audit**. Other rows retain their explicitly dated
 evidence, not an implied September 16 verification.
 
@@ -31,7 +31,58 @@ train. Both are replaced below.
   integrated into this branch.
 - This file — the current finding ledger and the historical PR #867 rating.
 
-### 2026-09-16 bounded OPEN-23 receipt
+### 2026-09-16 bounded OPEN-23 receipt — migrations 801–802
+
+[PR #1088](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1088)
+merged as `d60f1ea2c853a9fa525f4a15e60b9fe7b044fc4e` on September 16 UTC.
+Migration `801_restore_maternity_labor_delivery_checks.sql` restores five
+named CHECKs originally declared in migration 155 but absent from the
+baseline-owned tables:
+
+| Table | Column(s) | Verification boundary |
+| --- | --- | --- |
+| `maternity_labor_admissions` | `admission_reason`, `status` | Two named CHECKs; validation requires each live pre-check to find zero violating rows. |
+| `maternity_partograph_entries` | `descent_fifths_above_brim`, `contractions_intensity` | Two named CHECKs; validation requires each live pre-check to find zero violating rows. |
+| `maternity_deliveries` | `delivery_mode` | When newly added, the named CHECK is `NOT VALID` and enforces new writes; an existing same-name CHECK's validation state is preserved. |
+
+The seeded local fresh-lineage verification recorded four validated CHECKs and
+the delivery CHECK `NOT VALID`; that is not a claim about every deployed lineage.
+Existing validation state is preserved. Historical violations are not rewritten
+or silently accepted; newly validating an unvalidated delivery CHECK still
+requires a clean pre-check and clinical-records/operator review. Migration
+`802_widen_maternity_labor_status.sql` repairs the baseline
+`VARCHAR(20)` width to 22 so the already-declared `discharged_undelivered` value
+is representable; wider existing lineages are preserved. Neither migration
+authorizes a clinical lifecycle transition. The database-backed regression is
+`apps/backend/src/tests/maternity-labor-delivery-check-restoration-migration.deep.test.js`.
+
+At final PR head `f25220b1b7ef7c8b6fd7809e273eb0cdfc60c5e9`,
+[Canonical CI 35100279773](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/35100279773)
+succeeded with all three backend shards, six `full_*` jobs, and exact named
+`Merge Gate` and `Full Merge Gate` contexts. Independent review accepted the
+local lineage/runtime-role checks and full backend corpus (341 chunks, 2,042
+suites, 23,685 tests, zero skipped) at source head
+`de7c4b7610217a541ba6a8968debd831db7b5ed3`; the final child changes only the
+migration-registry status cell and has its own security/contracts verification.
+These are the implementation lane's receipts, not tests rerun by this
+documentation change. Retained evidence includes
+`D:/Dev/_codex/artifacts/logs/2026-09-16/maternity-802-successor-final-evidence.json`
+and `pr1088-f252-independent-hosted-verdict.json` in the same operator directory.
+
+Recomputed from the committed `scripts/ci/inline-check-census.json`: **465
+declarations, 62 enforced and 403 absent across 178 tables and 86 declaring
+files**. #1088 changes exactly five enforced flags; declaration identities and
+the calibration logic are unchanged. Combined with #1079, eight maternity
+CHECKs are restored. This documentation pass does not remeasure a database;
+declaration counts are not distinct physical constraints or a risk ranking.
+
+**OPEN-23 and maternity workflow closure remain open.** This receipt does not
+claim end-to-end antenatal, delivery, newborn or postnatal client wiring,
+historical-record acceptance, human linguistic approval, production readiness,
+or postdeployment acceptance for #1088. No migration 803 claim, pending RLS
+disposition or external-authority stop is changed.
+
+### 2026-09-16 historical OPEN-23 receipt — migration 800
 
 [PR #1079](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1079)
 merged as `9810080c3` on September 15 UTC (September 16 IST); both remotes'
@@ -50,7 +101,7 @@ succeeded with all three backend shards, six full jobs, and the exact named
 local lineage/runtime-role evidence and the hosted result. These are #1079's
 verification results, not tests rerun by this documentation change.
 
-The committed `scripts/ci/inline-check-census.json` now contains 465 declarations:
+At the #1079 snapshot, `scripts/ci/inline-check-census.json` contains 465 declarations:
 57 enforced and **408 absent across 181 tables and 86 declaring files**.
 Exactly three flags changed from absent to enforced; no declaration was removed.
 These counts are recomputed from the manifest, whose database calibration passed
@@ -411,7 +462,7 @@ IDs without leaving them falsely open.
 | OPEN-17 | **First-bed ADT emission remains an explicit interface-contract decision.** The capability string was narrowed rather than inventing an A02/A01 semantic. | Integration owner and receiving-vendor contract decide the event semantics before implementation or activation. ROADMAP `:1256-1288`. |
 | OPEN-18 | **Linen ward and CSSD theatre-case pickers remain unavailable to some roles already allowed to open their consoles.** Rechecked at `4c1f5654c`: the linen hook still calls `/wards` (`apps/admin/src/app/(with-auth)/dashboard/linen-laundry/components/useWardOptions.ts:41-42`), and CSSD still calls `/theatre/today` (`apps/admin/src/lib/api/cssd.ts:394-399`), retaining the narrower source-module authorization. | Owner-approved least-privilege lookup contract and role/journey tests; do not broadly grant ward/theatre PHI access. See ROADMAP's “Explicitly parked” section. The separately callerless CSSD warning endpoint is an intentional duplicate, not this finding. Plan 4 is not closure evidence for these existing controls. |
 | OPEN-21 | **Bounded five-locale technical parity is merged; human review is partial and repository-wide coverage is not established.** #970 (`d8930c98c`) closed its Patient/Staff/four-backend-contract technical scope, including the Staff Malayalam exemption (`apps/staff/scripts/i18n-verify.mjs:54`). The former 1,447 Patient / 6,502 Staff key counts describe that merge, not a new current count. #1013 (`212af1e95`) subsequently landed cath Batch 1/1.1 source corrections and recorded review; #1027 (`eb0dfeba1`) shares the six device-status labels between cards and messages. `TRANSLATION_REVIEW_TRACKER.md:14-23,48-54,686-710` still records partial Staff review, pending Patient review, a 4,008 English-source Malayalam placeholder baseline, and 24 new non-English device-status labels awaiting review. These are not blanket translation or activation approvals. | Continue the named human review queues (clinical, dosage/MAR, consent, emergency, controlled-drug, finance and legal wording first), preserving every batch's exact approval boundary. Payment templates still resolve all locales to frozen English/Hindi copy (`apps/backend/src/services/billing/paymentLinkService.js:46-52`); guardianship/consent and Staff Web activation copy retain their legal/linguistic and operator/release stops. The backend gate still imports four named presentation contracts (`apps/backend/src/tests/unit/fiveLocalePresentationContracts.test.js:1-14`), not a discovered repository-wide inventory; dynamic coverage and the Admin-localization scope decision remain open. Do not reopen the delivered #970 parity work or describe these remaining engineering/scope gaps as entirely human review. |
-| OPEN-23 | **Partly remediated: migration 800 / #1079 restores the three pregnancy CHECKs; 408 absent declarations remain.** See the September 16 receipt above for exact source, CI and nonproduction evidence. The current manifest has 465 declarations, 57 enforced and 408 absent (181 tables, 86 declaring files); declaration identity includes the declaring file, so repeated declarations do not represent distinct physical constraints. **Historical #989 measurement:** 2,194 inline CHECKs; 465 in `IF NOT EXISTS` re-declarations of baseline-owned tables (209 tables, 101 files), 411 absent (182 tables, 86 files) and 54 enforced. Later `CREATE TABLE IF NOT EXISTS` statements cannot add CHECKs to an existing baseline table; generating a new Prisma-derived baseline does not restore them. #989 added the unconditional static census/mutation gate and backend `--verify-db` calibration in both directions; its first CI calibration reported zero discrepancies over 2,108 database CHECKs. #1079 changes exactly three enforced flags, leaving all declarations and census protections intact. `maternity_pregnancies.edd_method`, `booking_status` and `status` now have database guards; this does not close the whole maternity workflow. | **Risk-based next batch, not MFA-first.** `mfa_devices` belongs to the retired duplicate MFA stack documented at `apps/backend/src/routes/admin/mfaApiClientsRoutes.js:5-12`; retain its five unresolved entries until an approved schema disposition, without claiming a current-login vulnerability or deleting the table. The five `abdm_consent_requests` enums have application guards in the examined create/transition paths (`apps/backend/src/services/abdmFull/abdmHipHiuService.js:48-58,125-135,562-651`), not proof of all writers or consent activation. Compare remaining supported clinical/consent paths for sole-guard loss. Counts alone are not risk: ambulance predicates repeat in migrations 126 and 233; `dialysis_patients` has zero absent and six enforced. Before a new batch, derive a nonempty missing set from a full-chain database, scan allocated migration slots, and obtain explicit disposition for violating data. Add explicitly named, lineage-safe `NOT VALID` constraints; validate only with documented zero-violation evidence and named-constraint/23514 tests under the tenant runtime role. Never silently backfill/quarantine, widen predicates, drop equivalent constraints, or edit applied migrations. No next migration number or external clinical, finance, consent or operator authority is granted here. |
+| OPEN-23 | **Partly remediated: migrations 800–802 / #1079 and #1088 restore eight maternity CHECKs and labor status width; 403 absent declarations remain.** See the separate September 16 receipts above for source, CI and evidence boundaries. The current manifest has 465 declarations, 62 enforced and 403 absent (178 tables, 86 declaring files); declaration identity includes the declaring file, so repeated declarations do not represent distinct physical constraints. **Historical #989 measurement:** 2,194 inline CHECKs; 465 in `IF NOT EXISTS` re-declarations of baseline-owned tables (209 tables, 101 files), 411 absent (182 tables, 86 files) and 54 enforced. Later `CREATE TABLE IF NOT EXISTS` statements cannot add CHECKs to an existing baseline table; generating a new Prisma-derived baseline does not restore them. #989 added the unconditional static census/mutation gate and backend `--verify-db` calibration in both directions; its first CI calibration reported zero discrepancies over 2,108 database CHECKs. #1079 changes three enforced flags and #1088 changes five more, leaving all declarations and census protections intact. Pregnancy domains, labor admission reason/status, partograph descent/intensity and delivery mode now have database guards. When newly added, the delivery CHECK is `NOT VALID` and enforces new writes; an existing same-name CHECK's validation state is preserved. New historical validation is not authorized here. Migration 802 makes the existing 22-character labor status representable; this does not close the whole maternity workflow. | **Risk-based next batch, not MFA-first.** `mfa_devices` belongs to the retired duplicate MFA stack documented at `apps/backend/src/routes/admin/mfaApiClientsRoutes.js:5-12`; retain its five unresolved entries until an approved schema disposition, without claiming a current-login vulnerability or deleting the table. The five `abdm_consent_requests` enums have application guards in the examined create/transition paths (`apps/backend/src/services/abdmFull/abdmHipHiuService.js:48-58,125-135,562-651`), not proof of all writers or consent activation. Compare remaining supported clinical/consent paths for sole-guard loss. Counts alone are not risk: ambulance predicates repeat in migrations 126 and 233; `dialysis_patients` has zero absent and six enforced. Before a new batch, derive a nonempty missing set from a full-chain database, scan allocated migration slots, and obtain explicit disposition for violating data. Add explicitly named, lineage-safe `NOT VALID` constraints; validate only with documented zero-violation evidence and named-constraint/23514 tests under the tenant runtime role. Never silently backfill/quarantine, widen predicates, drop equivalent constraints, or edit applied migrations. No next migration number or external clinical, finance, consent or operator authority is granted here. |
 
 ### Low
 
