@@ -9,6 +9,7 @@
 // reflects the dependent's identity, not the guardian's.
 
 import request from 'supertest';
+import { randomUUID } from 'node:crypto';
 import app from '../app.js';
 import prisma from '../lib/prisma.js';
 import {
@@ -434,20 +435,32 @@ describe('Acting-as delegation — deep integration', () => {
   });
 
   test('Direct (non-delegated) requests do not set the acting_as flag', async () => {
-    // Plain /dependents call — no X-Acting-As-Uid. The PHI logger writes
-    // a row with acting_as_dependent = false.
-    await guardianCall('get', '/api/v1/users/dependents');
-    await new Promise((r) => setTimeout(r, 250));
-    const rows = await prisma.$queryRawUnsafe(
-      `SELECT acting_as_dependent
-         FROM hipaa_access_log
-        WHERE accessed_by = $1::uuid
-        ORDER BY accessed_at DESC
-        LIMIT 3`,
-      GUARDIAN_UID,
-    );
-    // Most recent non-delegated rows have the flag off.
-    const nonActingRows = rows.filter((r) => r.acting_as_dependent === false);
-    expect(nonActingRows.length).toBeGreaterThanOrEqual(1);
+    const requestId = randomUUID();
+    const res = await guardianCall('get', '/api/v1/users/dependents')
+      .set('X-Request-Id', requestId);
+    expect(res.status).toBe(200);
+
+    // Response completion does not await the fire-and-forget audit INSERT.
+    const deadline = Date.now() + 2000;
+    let rows = [];
+    do {
+      rows = await prisma.$queryRawUnsafe(
+        `SELECT accessed_by, actor_uid, subject_uid, acting_as_dependent, record_type
+           FROM hipaa_access_log
+          WHERE request_id = $1`,
+        requestId,
+      );
+      if (rows.length > 0) break;
+      await new Promise((r) => setTimeout(r, 50));
+    } while (Date.now() < deadline);
+
+    expect(rows.length).toBeGreaterThanOrEqual(1);
+    for (const row of rows) {
+      expect(row.accessed_by).toBe(GUARDIAN_UID);
+      expect(row.actor_uid).toBe(GUARDIAN_UID);
+      expect(row.subject_uid).toBe(GUARDIAN_UID);
+      expect(row.acting_as_dependent).toBe(false);
+      expect(row.record_type).toBe('PATIENT_DEMOGRAPHICS');
+    }
   });
 });
