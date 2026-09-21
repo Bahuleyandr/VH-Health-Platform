@@ -18,7 +18,7 @@ import { createHash, randomUUID } from 'crypto';
 import prisma, { setTenantTx } from '../../lib/prisma.js';
 import { AppError } from '../../utils/AppError.js';
 import { boundedInteger } from '../../utils/pagination.js';
-import { exactPositiveInt4OrNull } from '../../utils/postgresInteger.js';
+import { exactPositiveInt4OrNull, PG_INT4_MAX } from '../../utils/postgresInteger.js';
 import logger from '../../logging/logger.js';
 import { checkVitalAnomalies } from '../../utils/clinical/vitalSignMonitor.js';
 import { istDateString } from '../../utils/dateUtils.js';
@@ -68,6 +68,13 @@ function assertClinicalDomain(field, value, allowed) {
       { field },
     );
   }
+}
+
+function clinicalIntegerOrNull(value) {
+  if (typeof value !== 'number'
+    && !(typeof value === 'string' && /^[+-]?\d+$/u.test(value.trim()))) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
 function canonicalStateFingerprint(state) {
@@ -867,7 +874,7 @@ export async function recordAncVisit({
     // visit against an already-delivered episode flipped the mother back to
     // pregnant, and whichever writer ran last won. Same CTE as the other two,
     // so all three writers now agree by construction.
-    const projected = await tx.$executeRawUnsafe(
+    const projectionRows = await tx.$queryRawUnsafe(
       `WITH projection AS (
          SELECT EXISTS (
                   SELECT 1
@@ -891,11 +898,12 @@ export async function recordAncVisit({
               pregnancy_lmp_date = projection.lmp_date,
               updated_at = NOW()
          FROM projection
-        WHERE u.tenant_id = $1::uuid AND u.uid = $2::uuid`,
+        WHERE u.tenant_id = $1::uuid AND u.uid = $2::uuid
+       RETURNING u.is_pregnant`,
       tid,
       String(lockedPregnancy.patient_uid),
     );
-    if (projected !== 1) throw AppError.notFound('Patient not found');
+    if (projectionRows.length !== 1) throw AppError.notFound('Patient not found');
 
     await recordCanonicalClinicalEvent({
       tenantId: tid,
@@ -918,7 +926,7 @@ export async function recordAncVisit({
       },
       afterState: {
         anc_visit_recorded: true,
-        user_is_pregnant: true,
+        user_is_pregnant: projectionRows[0].is_pregnant === true,
       },
       tags: ['maternity', 'anc'],
       timelineIdempotencyKey: `maternity_anc_visits:${recordedVisit.id}:${canonicalRevision}:tx:${txRevision}`,
@@ -3114,8 +3122,8 @@ export async function recordNewborn({
 }) {
   if (!delivery_id) throw AppError.badRequest('delivery_id is required');
   if (!birth_datetime) throw AppError.badRequest('birth_datetime is required');
-  const birthOrder = Number.parseInt(birth_order, 10);
-  if (!Number.isInteger(birthOrder) || birthOrder < 1) {
+  const birthOrder = clinicalIntegerOrNull(birth_order);
+  if (birthOrder === null || birthOrder < 1 || birthOrder > PG_INT4_MAX) {
     throw AppError.badRequest('birth_order must be a positive integer');
   }
   const outcomeValue = String(outcome || 'live');
@@ -3375,12 +3383,14 @@ export async function recordApgar({
   recorded_by, actor_uid, actor_role,
 }) {
   if (!newborn_id) throw AppError.badRequest('newborn_id is required');
-  if (![1, 5, 10].includes(Number(time_minute))) {
+  const timeMinute = clinicalIntegerOrNull(time_minute);
+  if (![1, 5, 10].includes(timeMinute)) {
     throw AppError.badRequest('time_minute must be 1, 5, or 10');
   }
   for (const k of ['appearance', 'pulse', 'grimace', 'activity', 'respiration']) {
     const v = { appearance, pulse, grimace, activity, respiration }[k];
-    if (v != null && (Number(v) < 0 || Number(v) > 2)) {
+    const score = clinicalIntegerOrNull(v);
+    if (v != null && (score === null || score < 0 || score > 2)) {
       throw AppError.badRequest(`${k} must be 0-2`);
     }
   }
@@ -3430,7 +3440,7 @@ export async function recordApgar({
           AND a.newborn_id = $2::int
           AND a.time_minute = $3::int
         FOR UPDATE`,
-      tid, Number(newborn.id), Number(time_minute),
+      tid, Number(newborn.id), timeMinute,
       incoming.appearance, incoming.pulse, incoming.grimace,
       incoming.activity, incoming.respiration, incoming.recorded_by,
     );
@@ -3464,7 +3474,7 @@ export async function recordApgar({
          recorded_at = NOW()
        WHERE maternity_apgar_scores.tenant_id = EXCLUDED.tenant_id
        RETURNING *`,
-      Number(newborn.id), Number(time_minute),
+      Number(newborn.id), timeMinute,
       incoming.appearance, incoming.pulse, incoming.grimace,
       incoming.activity, incoming.respiration, incoming.recorded_by,
       tid,
