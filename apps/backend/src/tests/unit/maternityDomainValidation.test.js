@@ -13,6 +13,8 @@ const {
   admitToLabor,
   recordPartographEntry,
   recordDelivery,
+  recordNewborn,
+  recordApgar,
 } = await import('../../services/maternity/maternityService.js');
 
 const tenantId = '00000000-0000-4000-8000-000000000001';
@@ -95,6 +97,69 @@ describe('maternity clinical domain validation', () => {
           .rejects.toBe(boundary);
         expect(query).toHaveBeenCalledTimes(1);
         expect(execute).not.toHaveBeenCalled();
+        expect(transaction).not.toHaveBeenCalled();
+      },
+    );
+  });
+
+  describe('newborn birth_order', () => {
+    const base = { tenantId, delivery_id: 1, birth_datetime: '2026-09-16T00:00:00Z' };
+
+    it.each([0, -1, 1.5, NaN, Infinity, null, true, false, [], [1], {}, '', ' ',
+      '1child', '1.5', '1e2', '0x10', 2147483648, '2147483648'])(
+      'rejects %p before any database call', async (value) => {
+        await expect(recordNewborn({ ...base, birth_order: value }))
+          .rejects.toMatchObject({ statusCode: 400, message: 'birth_order must be a positive integer' });
+        expectNoDatabaseCall();
+      },
+    );
+
+    it.each([undefined, 1, 2, 2147483647, '1', '02', '+3', ' 4 '])(
+      'preserves the database boundary for %p', async (value) => {
+        await expect(recordNewborn({ ...base, birth_order: value })).rejects.toBe(boundary);
+        expect(query).toHaveBeenCalledTimes(1);
+        expect(transaction).not.toHaveBeenCalled();
+      },
+    );
+  });
+
+  describe('Apgar integer domains', () => {
+    const base = { tenantId, newborn_id: 1, time_minute: 1 };
+    const invalid = [NaN, Infinity, 0.5, true, false, [], [1], {}, '', ' ',
+      'garbled', '1.5', '1e0', '0x1'];
+
+    for (const field of ['appearance', 'pulse', 'grimace', 'activity', 'respiration']) {
+      it.each([...invalid, -1, 3])(`${field} rejects %p before any database call`, async (value) => {
+        await expect(recordApgar({ ...base, [field]: value })).rejects.toMatchObject({
+          statusCode: 400,
+          message: expect.stringContaining(field),
+        });
+        expectNoDatabaseCall();
+      });
+
+      it.each([null, undefined, 0, 1, 2, '0', '2', ' 1 ', '+2'])(
+        `${field} preserves the database boundary for %p`, async (value) => {
+          await expect(recordApgar({ ...base, [field]: value })).rejects.toBe(boundary);
+          expect(query).toHaveBeenCalledTimes(1);
+          expect(transaction).not.toHaveBeenCalled();
+        },
+      );
+    }
+
+    it.each([...invalid, null, undefined, 0, 2, 15])(
+      'time_minute rejects %p before any database call', async (value) => {
+        await expect(recordApgar({ ...base, time_minute: value })).rejects.toMatchObject({
+          statusCode: 400,
+          message: 'time_minute must be 1, 5, or 10',
+        });
+        expectNoDatabaseCall();
+      },
+    );
+
+    it.each([1, 5, 10, '1', '5', '10', ' 1 ', '+5'])(
+      'time_minute preserves the database boundary for %p', async (value) => {
+        await expect(recordApgar({ ...base, time_minute: value })).rejects.toBe(boundary);
+        expect(query).toHaveBeenCalledTimes(1);
         expect(transaction).not.toHaveBeenCalled();
       },
     );

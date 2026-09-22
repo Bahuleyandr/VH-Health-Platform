@@ -45,8 +45,15 @@ interface PartographEntry {
   on_action_line: boolean | null;
 }
 
-function unwrap<T>(r: unknown): T {
-  return ((r as { data?: T }).data ?? r) as T;
+function unwrapRows<T>(response: unknown): T[] {
+  const data =
+    response && typeof response === "object" && "data" in response
+      ? response.data
+      : response;
+  if (!Array.isArray(data)) {
+    throw new Error("Invalid maternity response");
+  }
+  return data as T[];
 }
 
 function fmtTs(s: string | null): string {
@@ -66,14 +73,18 @@ function PartographDrilldown({
   laborId: number;
   onClose: () => void;
 }) {
-  const { data: rows = [], isLoading } = useQuery<PartographEntry[]>({
+  const {
+    data: rows = [],
+    error,
+    isLoading,
+    refetch,
+  } = useQuery<PartographEntry[]>({
     queryKey: ["maternity", "partograph", laborId],
     queryFn: async () => {
       const r = await fetchAdminAPI<unknown>(
         `/maternity/partograph/labor/${laborId}`,
       );
-      const data = unwrap<PartographEntry[]>(r);
-      return Array.isArray(data) ? data : [];
+      return unwrapRows<PartographEntry>(r);
     },
   });
 
@@ -94,6 +105,19 @@ function PartographDrilldown({
         <div className="p-4">
           {isLoading ? (
             <LoadingSpinner />
+          ) : error ? (
+            <div
+              role="alert"
+              className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+            >
+              <p>Unable to load partograph. Please retry.</p>
+              <button
+                onClick={() => refetch()}
+                className="mt-2 px-3 py-2 rounded-md border text-sm hover:bg-muted"
+              >
+                Retry
+              </button>
+            </div>
           ) : rows.length === 0 ? (
             <EmptyState
               title="No partograph entries"
@@ -187,8 +211,7 @@ export default function MaternityPage() {
       const r = await fetchAdminAPI<unknown>(
         "/maternity/labor-admissions/active?limit=50",
       );
-      const data = unwrap<ActiveLabor[]>(r);
-      return Array.isArray(data) ? data : [];
+      return unwrapRows<ActiveLabor>(r);
     },
     refetchInterval: 60_000,
   });
@@ -211,16 +234,21 @@ export default function MaternityPage() {
         </button>
       </div>
 
-      {error && (
-        <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-          {error instanceof Error
-            ? error.message
-            : "Failed to load labour board"}
-        </div>
-      )}
-
       {isLoading ? (
         <LoadingSpinner />
+      ) : error ? (
+        <div
+          role="alert"
+          className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive"
+        >
+          <p>Unable to load labour board. Please retry.</p>
+          <button
+            onClick={() => refetch()}
+            className="mt-2 px-3 py-2 rounded-md border text-sm hover:bg-muted"
+          >
+            Retry
+          </button>
+        </div>
       ) : rows.length === 0 ? (
         <EmptyState
           title="Labour ward is quiet"
