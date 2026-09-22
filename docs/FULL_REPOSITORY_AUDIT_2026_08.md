@@ -47,7 +47,7 @@ baseline-owned tables:
 
 The seeded local fresh-lineage verification recorded four validated CHECKs and
 the delivery CHECK `NOT VALID`; that is not a claim about every deployed lineage.
-Existing validation state is preserved. Historical violations are not rewritten
+An existing delivery CHECK retains its validation state. Historical violations are not rewritten
 or silently accepted; newly validating an unvalidated delivery CHECK still
 requires a clean pre-check and clinical-records/operator review. Migration
 `802_widen_maternity_labor_status.sql` repairs the baseline
