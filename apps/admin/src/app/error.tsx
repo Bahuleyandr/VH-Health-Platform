@@ -3,7 +3,7 @@
 import * as Sentry from "@sentry/nextjs";
 import { useEffect } from "react";
 
-export default function Error({
+export default function ApplicationError({
   error,
   reset,
 }: {
@@ -11,7 +11,7 @@ export default function Error({
   reset: () => void;
 }) {
   useEffect(() => {
-    Sentry.captureException(error);
+    Sentry.captureException(new Error("Application render failed"));
   }, [error]);
 
   return (

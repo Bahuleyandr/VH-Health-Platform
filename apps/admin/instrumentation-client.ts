@@ -37,6 +37,7 @@ export function register() {
       process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT || process.env.NODE_ENV,
     release: process.env.NEXT_PUBLIC_SENTRY_RELEASE,
     sendDefaultPii: false,
+    beforeBreadcrumb: () => null,
     beforeSend: (event) => scrubSentryEvent(event),
     beforeSendTransaction: (event) => scrubSentryEvent(event),
     enabled:

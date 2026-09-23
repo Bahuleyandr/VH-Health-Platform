@@ -72,6 +72,18 @@ export function scrubSentryEvent<T>(event: T): T {
   const originalTransaction =
     typeof event.transaction === "string" ? event.transaction : undefined;
   const scrubbed = scrubValue(event) as Record<string, unknown>;
+  delete scrubbed.breadcrumbs;
+  if (typeof scrubbed.message === "string") scrubbed.message = REDACTED;
+  if (
+    isRecord(scrubbed.exception) &&
+    Array.isArray(scrubbed.exception.values)
+  ) {
+    for (const value of scrubbed.exception.values) {
+      if (isRecord(value) && typeof value.value === "string") {
+        value.value = REDACTED;
+      }
+    }
+  }
 
   if (isRecord(scrubbed.request)) {
     const request = scrubbed.request;
