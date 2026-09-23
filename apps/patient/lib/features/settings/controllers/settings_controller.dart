@@ -9,8 +9,7 @@ import 'package:local_auth/local_auth.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 import 'package:flutter/foundation.dart';
-import 'package:http/http.dart' as http;
-import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth_core/services/http_client.dart';
 import 'package:vhhealth/core/providers/language_provider.dart';
 import 'package:vhhealth/core/providers/theme_provider.dart';
 import 'package:vhhealth/core/utils/cache_file_utils.dart';
@@ -180,10 +179,10 @@ class SettingsController {
     exportingData = true;
     refresh();
     try {
-      final uri = Uri.parse('${ApiConfig.baseUrl}/data-export/my-data');
-      final resp = await http
-          .get(uri, headers: await ApiConfig.authenticatedAuthHeaders())
-          .timeout(const Duration(seconds: 45));
+      final resp = await VHHttpClient.getBytes(
+        '/data-export/my-data',
+        timeout: const Duration(seconds: 45),
+      );
       if (resp.statusCode == 200 && resp.bodyBytes.isNotEmpty) {
         final fileName =
             'my-health-data-${DateTime.now().toIso8601String().split('T').first}.json';

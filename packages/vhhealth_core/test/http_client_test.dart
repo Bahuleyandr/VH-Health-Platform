@@ -393,6 +393,30 @@ void main() {
   });
 
   group('VHHttpClient - getBytes', () {
+    test(
+      'does not follow a binary redirect with authenticated headers',
+      () async {
+        await AuthService.setJwt('pdf-access');
+        var requests = 0;
+        VHHttpClient.setClientForTesting(
+          MockClient((req) async {
+            requests++;
+            expect(req.followRedirects, isFalse);
+            expect(req.headers['Authorization'], 'Bearer pdf-access');
+            return http.Response(
+              '',
+              302,
+              headers: {'location': 'http://untrusted.test/report.pdf'},
+            );
+          }),
+        );
+
+        final response = await VHHttpClient.getBytes('/billing.pdf');
+        expect(response.statusCode, 302);
+        expect(requests, 1);
+      },
+    );
+
     test('returns binary body bytes with authenticated headers', () async {
       await AuthService.setJwt('pdf-access');
 
@@ -433,6 +457,7 @@ void main() {
           }
 
           pdfCount++;
+          expect(req.followRedirects, isFalse);
           if (pdfCount == 1) {
             expect(req.headers['Authorization'], 'Bearer old-access');
             return http.Response(

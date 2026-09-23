@@ -6,9 +6,8 @@
 // which shows analyte-level values from the analyzer.
 
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
-import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth_core/services/http_client.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/cache_file_utils.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
@@ -140,12 +139,10 @@ class _LabOrdersScreenState extends State<LabOrdersScreen> {
     });
 
     try {
-      final uri = Uri.parse(
-        '${ApiConfig.baseUrl}/portal/lab-orders/${order.id}/pdf',
+      final resp = await VHHttpClient.getBytes(
+        '/portal/lab-orders/${order.id}/pdf',
+        timeout: const Duration(seconds: 30),
       );
-      final resp = await http
-          .get(uri, headers: await ApiConfig.authenticatedAuthHeaders())
-          .timeout(const Duration(seconds: 30));
       if (!mounted) return;
       if (resp.statusCode == 200 && resp.bodyBytes.isNotEmpty) {
         final fileName =

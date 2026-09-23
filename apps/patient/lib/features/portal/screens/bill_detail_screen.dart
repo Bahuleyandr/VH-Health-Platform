@@ -4,9 +4,8 @@
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
-import 'package:vhhealth/core/config/api_config.dart';
+import 'package:vhhealth_core/services/http_client.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/cache_file_utils.dart';
 import 'package:vhhealth/core/utils/safe_url_launcher.dart';
@@ -81,14 +80,10 @@ class _BillDetailScreenState extends State<BillDetailScreen> {
     final l = AppLocalizations.of(context)!;
     setState(() => _downloadingPdf = true);
     try {
-      // Same authenticated-download pattern as lab reports and prescriptions
-      // (lab_orders_screen.dart) — bills were the one document type without it.
-      final uri = Uri.parse(
-        '${ApiConfig.baseUrl}/portal/bills/${widget.invoiceId}/pdf',
+      final resp = await VHHttpClient.getBytes(
+        '/portal/bills/${widget.invoiceId}/pdf',
+        timeout: const Duration(seconds: 30),
       );
-      final resp = await http
-          .get(uri, headers: await ApiConfig.authenticatedAuthHeaders())
-          .timeout(const Duration(seconds: 30));
       if (!mounted) return;
       if (resp.statusCode == 200 && resp.bodyBytes.isNotEmpty) {
         final fileName =
