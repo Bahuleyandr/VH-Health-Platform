@@ -24,7 +24,9 @@ import logger from '../../logging/logger.js';
 import { maskPhoneForLog } from '../logMasking.js';
 import { notificationOutbox } from './notificationOutbox.js';
 import {
+  appointmentConfirmationPresentation,
   appointmentReminderPresentation,
+  renderAppointmentConfirmationSms as renderAppointmentConfirmationSmsCopy,
   renderAppointmentReminderSms as renderAppointmentReminderSmsCopy,
 } from './templates.js';
 
@@ -118,24 +120,19 @@ export async function queuePatientSms({
  * moved behind the outbox.
  */
 export function renderAppointmentConfirmationSms({
-  patientName, doctorName, date, time, tokenNumber, department,
+  patientName, doctorName, date, time, tokenNumber, department, language,
 }) {
-  const formattedDate = new Date(date).toLocaleDateString('en-IN', {
-    day: 'numeric', month: 'long', year: 'numeric',
-  });
-  const deptPart = department ? ` (${department})` : '';
   const hospitalPhone = process.env.HOSPITAL_PHONE || '044-XXXXXXXX';
-  return (
-    `Dear ${patientName}, your appointment at Venkataeswara Hospitals is confirmed.\n`
-    + `Date: ${formattedDate}\nTime: ${time}\nDoctor: Dr. ${doctorName}${deptPart}\n`
-    + `Token: #${tokenNumber}\n\nPlease arrive 15 min early. For queries call: ${hospitalPhone}`
-  );
+  return renderAppointmentConfirmationSmsCopy({
+    patientName, doctorName, date, time, tokenNumber, department, hospitalPhone, language,
+  });
 }
 
 /** Queue the appointment-confirmation SMS intent. */
 export async function queueAppointmentConfirmationSms({
   tenantId = null, recipientId = null, phone, patientName, doctorName,
   date, time, tokenNumber, department = null, appointmentId = null,
+  language = null,
 }) {
   if (!phone) {
     logger.warn('[SMS outbox] appointment-confirmation: no phone on file — no SMS intent recorded');
@@ -145,7 +142,7 @@ export async function queueAppointmentConfirmationSms({
     tenantId,
     recipientId,
     recipientPhone: phone,
-    title: 'Appointment confirmed',
+    title: appointmentConfirmationPresentation(language).smsTitle,
     body: renderAppointmentConfirmationSms({
       patientName: patientName || 'Patient',
       doctorName: doctorName || 'Doctor',
@@ -153,6 +150,7 @@ export async function queueAppointmentConfirmationSms({
       time,
       tokenNumber,
       department,
+      language,
     }),
     data: {
       type: 'appointment_confirmed',

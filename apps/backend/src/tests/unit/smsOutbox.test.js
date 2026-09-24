@@ -116,6 +116,11 @@ describe('appointment SMS templates', () => {
     expect(body).toContain('Doctor: Dr. Rao (Cardiology)');
     expect(body).toContain('Token: #12');
     expect(body).toContain('For queries call: 044-12345678');
+    expect(renderAppointmentConfirmationSms({
+      patientName: 'Asha', doctorName: 'Rao', date: '2026-08-20',
+      time: '10:30', tokenNumber: 12, department: 'Cardiology',
+      language: 'ml-IN',
+    })).toBe(body);
     delete process.env.HOSPITAL_PHONE;
   });
 
@@ -152,6 +157,19 @@ describe('appointment SMS templates', () => {
       recipientId: 77,
       sourceEventKey: 'appointment-confirmed:31',
       templateVersion: 'sms.appointment_confirmation.v1',
+    }));
+  });
+
+  it('selects the confirmation presentation without changing its unapproved English copy', async () => {
+    await queueAppointmentConfirmationSms({
+      tenantId: TENANT_ID, recipientId: 77, phone: '9000000001',
+      patientName: 'Asha', doctorName: 'Rao', date: '2026-08-20',
+      time: '10:30', tokenNumber: 12, appointmentId: 31, language: 'ml',
+    });
+    expect(queueMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Appointment confirmed',
+      body: expect.stringContaining('Dear Asha, your appointment at Venkataeswara Hospitals is confirmed.'),
+      sourceEventKey: 'appointment-confirmed:31',
     }));
   });
 

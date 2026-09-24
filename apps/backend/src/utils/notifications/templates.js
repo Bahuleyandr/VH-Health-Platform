@@ -32,6 +32,21 @@ export const APPOINTMENT_REMINDER_PRESENTATIONS = Object.freeze({
   ml: APPOINTMENT_REMINDER_TECHNICAL_PRESENTATION,
 });
 
+const APPOINTMENT_CONFIRMATION_TECHNICAL_PRESENTATION = Object.freeze({
+  pushTitle: 'Appointment Confirmed ✓',
+  pushBody: 'Your appointment on {shortDate} at {time} is confirmed. Token #{tokenNumber}',
+  smsTitle: 'Appointment confirmed',
+  smsBody: 'Dear {patientName}, your appointment at Venkataeswara Hospitals is confirmed.\nDate: {longDate}\nTime: {time}\nDoctor: Dr. {doctorName}{deptPart}\nToken: #{tokenNumber}\n\nPlease arrive 15 min early. For queries call: {hospitalPhone}',
+});
+
+export const APPOINTMENT_CONFIRMATION_PRESENTATIONS = Object.freeze({
+  en: APPOINTMENT_CONFIRMATION_TECHNICAL_PRESENTATION,
+  hi: APPOINTMENT_CONFIRMATION_TECHNICAL_PRESENTATION,
+  ta: APPOINTMENT_CONFIRMATION_TECHNICAL_PRESENTATION,
+  te: APPOINTMENT_CONFIRMATION_TECHNICAL_PRESENTATION,
+  ml: APPOINTMENT_CONFIRMATION_TECHNICAL_PRESENTATION,
+});
+
 function fiveLocaleKey(language) {
   const locale = String(language ?? '').trim().toLowerCase().replaceAll('_', '-').split('-')[0];
   return Object.hasOwn(INVESTIGATION_READY_PRESENTATIONS, locale) ? locale : 'en';
@@ -49,10 +64,17 @@ export function appointmentReminderPresentation(language) {
   return APPOINTMENT_REMINDER_PRESENTATIONS[fiveLocaleKey(language)];
 }
 
+export function appointmentConfirmationPresentation(language) {
+  return APPOINTMENT_CONFIRMATION_PRESENTATIONS[fiveLocaleKey(language)];
+}
+
 function renderFields(template, values) {
   return template.replace(
-    /\{(name|testName|time|doctorName|tokenNumber|patientName|hoursLabel)\}/g,
-    (_, field) => String(values[field]),
+    /\{([A-Za-z][A-Za-z0-9_]*)\}/g,
+    (_, field) => {
+      if (!Object.hasOwn(values, field)) throw new Error(`Unknown presentation field: ${field}`);
+      return String(values[field]);
+    },
   );
 }
 
@@ -75,6 +97,33 @@ export function renderAppointmentReminderSms({
   const hoursLabel = hoursAhead > 1 ? `${hoursAhead} hours` : '1 hour';
   return renderFields(appointmentReminderPresentation(language).smsBody, {
     patientName, doctorName, time, hoursLabel, tokenNumber,
+  });
+}
+
+export function renderAppointmentConfirmationPush({ date, time, tokenNumber, language }) {
+  const presentation = appointmentConfirmationPresentation(language);
+  return {
+    title: presentation.pushTitle,
+    body: renderFields(presentation.pushBody, {
+      shortDate: new Date(date).toLocaleDateString('en-IN'), time, tokenNumber,
+    }),
+  };
+}
+
+export function renderAppointmentConfirmationSms({
+  patientName, doctorName, date, time, tokenNumber, department, hospitalPhone, language,
+}) {
+  const presentation = appointmentConfirmationPresentation(language);
+  return renderFields(presentation.smsBody, {
+    patientName,
+    longDate: new Date(date).toLocaleDateString('en-IN', {
+      day: 'numeric', month: 'long', year: 'numeric',
+    }),
+    time,
+    doctorName,
+    deptPart: department ? ` (${department})` : '',
+    tokenNumber,
+    hospitalPhone,
   });
 }
 

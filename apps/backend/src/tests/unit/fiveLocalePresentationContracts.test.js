@@ -16,12 +16,15 @@ import {
   CLINICAL_ALERT_RECOVERY_ESCALATION_PRESENTATIONS,
 } from '../../services/clinical/clinicalAlertDeliveryObligationService.js';
 import {
+  APPOINTMENT_CONFIRMATION_PRESENTATIONS,
   APPOINTMENT_REMINDER_PRESENTATIONS,
   INVESTIGATION_READY_PRESENTATIONS,
+  appointmentConfirmationPresentation,
   appointmentReminderPresentation,
   investigationReadyLocaleKey,
   investigationReadyPresentation,
   NotificationTemplates,
+  renderAppointmentConfirmationPush,
   renderAppointmentReminderPush,
 } from '../../utils/notifications/templates.js';
 
@@ -68,8 +71,9 @@ describe('five-locale backend notification presentation contracts', () => {
       'CATH_INVENTORY_SHORTFALL_PRESENTATIONS',
       'INVESTIGATION_READY_PRESENTATIONS',
       'APPOINTMENT_REMINDER_PRESENTATIONS',
+      'APPOINTMENT_CONFIRMATION_PRESENTATIONS',
     ]));
-    expect(contracts.length).toBeGreaterThanOrEqual(6);
+    expect(contracts.length).toBeGreaterThanOrEqual(7);
 
     for (const { file, name } of contracts) {
       const module = await import(pathToFileURL(file).href);
@@ -205,6 +209,23 @@ describe('five-locale backend notification presentation contracts', () => {
     })).toEqual({
       title: 'Appointment in 1 Hour ⏰',
       body: 'Your appointment at 10:30 with Dr. Rao is in ~1 hour. Token #12',
+    });
+  });
+
+  test('appointment confirmation preserves its patient push copy in every locale branch', () => {
+    expectFiveLocaleContract(APPOINTMENT_CONFIRMATION_PRESENTATIONS, [
+      'pushTitle', 'pushBody', 'smsTitle', 'smsBody',
+    ]);
+    expect(appointmentConfirmationPresentation('ml-IN'))
+      .toBe(APPOINTMENT_CONFIRMATION_PRESENTATIONS.ml);
+    expect(appointmentConfirmationPresentation('unsupported'))
+      .toBe(APPOINTMENT_CONFIRMATION_PRESENTATIONS.en);
+    const date = '2026-08-20';
+    expect(renderAppointmentConfirmationPush({
+      date, time: '10:30', tokenNumber: 12, language: 'ml',
+    })).toEqual({
+      title: 'Appointment Confirmed ✓',
+      body: `Your appointment on ${new Date(date).toLocaleDateString('en-IN')} at 10:30 is confirmed. Token #12`,
     });
   });
 });
