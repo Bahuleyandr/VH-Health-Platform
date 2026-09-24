@@ -2,21 +2,6 @@
 import * as Sentry from "@sentry/nextjs";
 import { scrubSentryEvent } from "./src/lib/sentryScrubber";
 
-const replaySessionSampleRate = Number.parseFloat(
-  process.env.NEXT_PUBLIC_SENTRY_REPLAY_SESSION_SAMPLE_RATE ?? "0",
-);
-const replayErrorSampleRate = Number.parseFloat(
-  process.env.NEXT_PUBLIC_SENTRY_REPLAY_ERROR_SAMPLE_RATE ?? "0",
-);
-const tracesSampleRate = Number.parseFloat(
-  process.env.NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE ?? "",
-);
-const resolvedTracesSampleRate = Number.isFinite(tracesSampleRate)
-  ? tracesSampleRate
-  : process.env.NODE_ENV === "production"
-    ? 0.1
-    : 1.0;
-
 export function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
     return;
@@ -24,21 +9,22 @@ export function register() {
 
   Sentry.init({
     dsn: process.env.NEXT_PUBLIC_SENTRY_DSN,
-    integrations: [
-      Sentry.replayIntegration({
-        maskAllText: true,
-        blockAllMedia: true,
-      }),
-    ],
-    tracesSampleRate: resolvedTracesSampleRate,
-    replaysSessionSampleRate: replaySessionSampleRate,
-    replaysOnErrorSampleRate: replayErrorSampleRate,
+    integrations: (defaults) =>
+      defaults.filter(
+        ({ name }) => name !== "Replay" && name !== "SpanStreaming",
+      ),
+    tracesSampleRate: 0,
+    tracesSampler: () => 0,
+    traceLifecycle: "static",
+    replaysSessionSampleRate: 0,
+    replaysOnErrorSampleRate: 0,
     environment:
       process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT || process.env.NODE_ENV,
     release: process.env.NEXT_PUBLIC_SENTRY_RELEASE,
     sendDefaultPii: false,
+    beforeBreadcrumb: () => null,
     beforeSend: (event) => scrubSentryEvent(event),
-    beforeSendTransaction: (event) => scrubSentryEvent(event),
+    beforeSendTransaction: () => null,
     enabled:
       Boolean(process.env.NEXT_PUBLIC_SENTRY_DSN) &&
       process.env.NODE_ENV !== "test",
