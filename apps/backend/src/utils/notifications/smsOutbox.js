@@ -26,8 +26,10 @@ import { notificationOutbox } from './notificationOutbox.js';
 import {
   appointmentConfirmationPresentation,
   appointmentReminderPresentation,
+  appointmentReschedulePresentation,
   renderAppointmentConfirmationSms as renderAppointmentConfirmationSmsCopy,
   renderAppointmentReminderSms as renderAppointmentReminderSmsCopy,
+  renderAppointmentRescheduleSms as renderAppointmentRescheduleSmsCopy,
 } from './templates.js';
 
 /**
@@ -177,32 +179,20 @@ export async function queueAppointmentConfirmationSms({
  * promise a token the way the confirmation copy does.
  */
 export function renderAppointmentRescheduleSms({
-  patientName, doctorName, date, time, previousDate, previousTime, department,
+  patientName, doctorName, date, time, previousDate, previousTime, department, language,
 }) {
-  const formatDate = (value) => {
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime())
-      ? String(value ?? '')
-      : parsed.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
-  };
-  const deptPart = department ? ` (${department})` : '';
   const hospitalPhone = process.env.HOSPITAL_PHONE || '044-XXXXXXXX';
-  const previousPart = previousDate || previousTime
-    ? `Previously: ${formatDate(previousDate)}${previousTime ? ` at ${previousTime}` : ''}\n`
-    : '';
-  return (
-    `Dear ${patientName}, your appointment at Venkataeswara Hospitals has been RESCHEDULED.\n`
-    + `New date: ${formatDate(date)}\nNew time: ${time}\nDoctor: Dr. ${doctorName}${deptPart}\n`
-    + previousPart
-    + `\nPlease do not attend at the earlier time. For queries call: ${hospitalPhone}`
-  );
+  return renderAppointmentRescheduleSmsCopy({
+    patientName, doctorName, date, time, previousDate, previousTime,
+    department, hospitalPhone, language,
+  });
 }
 
 /** Queue the appointment-reschedule SMS intent. */
 export async function queueAppointmentRescheduleSms({
   tenantId = null, recipientId = null, phone, patientName, doctorName,
   date, time, previousDate = null, previousTime = null, department = null,
-  appointmentId = null,
+  appointmentId = null, language = null,
 }) {
   if (!phone) {
     logger.warn('[SMS outbox] appointment-reschedule: no phone on file — no SMS intent recorded');
@@ -212,7 +202,7 @@ export async function queueAppointmentRescheduleSms({
     tenantId,
     recipientId,
     recipientPhone: phone,
-    title: 'Appointment rescheduled',
+    title: appointmentReschedulePresentation(language).smsTitle,
     body: renderAppointmentRescheduleSms({
       patientName: patientName || 'Patient',
       doctorName: doctorName || 'Doctor',
@@ -221,6 +211,7 @@ export async function queueAppointmentRescheduleSms({
       previousDate,
       previousTime,
       department,
+      language,
     }),
     data: {
       type: 'appointment_rescheduled',

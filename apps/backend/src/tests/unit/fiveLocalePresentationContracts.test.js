@@ -18,14 +18,17 @@ import {
 import {
   APPOINTMENT_CONFIRMATION_PRESENTATIONS,
   APPOINTMENT_REMINDER_PRESENTATIONS,
+  APPOINTMENT_RESCHEDULE_PRESENTATIONS,
   INVESTIGATION_READY_PRESENTATIONS,
   appointmentConfirmationPresentation,
   appointmentReminderPresentation,
+  appointmentReschedulePresentation,
   investigationReadyLocaleKey,
   investigationReadyPresentation,
   NotificationTemplates,
   renderAppointmentConfirmationPush,
   renderAppointmentReminderPush,
+  renderAppointmentReschedulePush,
 } from '../../utils/notifications/templates.js';
 
 const FIVE_LOCALES = ['en', 'hi', 'ta', 'te', 'ml'];
@@ -72,8 +75,9 @@ describe('five-locale backend notification presentation contracts', () => {
       'INVESTIGATION_READY_PRESENTATIONS',
       'APPOINTMENT_REMINDER_PRESENTATIONS',
       'APPOINTMENT_CONFIRMATION_PRESENTATIONS',
+      'APPOINTMENT_RESCHEDULE_PRESENTATIONS',
     ]));
-    expect(contracts.length).toBeGreaterThanOrEqual(7);
+    expect(contracts.length).toBeGreaterThanOrEqual(8);
 
     for (const { file, name } of contracts) {
       const module = await import(pathToFileURL(file).href);
@@ -226,6 +230,27 @@ describe('five-locale backend notification presentation contracts', () => {
     })).toEqual({
       title: 'Appointment Confirmed ✓',
       body: `Your appointment on ${new Date(date).toLocaleDateString('en-IN')} at 10:30 is confirmed. Token #12`,
+    });
+  });
+
+  test('appointment reschedule preserves the old-time warning in every locale branch', () => {
+    expectFiveLocaleContract(APPOINTMENT_RESCHEDULE_PRESENTATIONS, [
+      'pushTitle', 'pushBody', 'smsTitle', 'smsBody',
+    ]);
+    expect(appointmentReschedulePresentation('ml-IN'))
+      .toBe(APPOINTMENT_RESCHEDULE_PRESENTATIONS.ml);
+    expect(appointmentReschedulePresentation('unsupported'))
+      .toBe(APPOINTMENT_RESCHEDULE_PRESENTATIONS.en);
+    const newDate = '2026-09-02';
+    const previousDate = '2026-08-14';
+    expect(renderAppointmentReschedulePush({
+      newDate, newTime: '11:30', doctorName: 'Rao',
+      previousDate, previousTime: '10:00', language: 'ml',
+    })).toEqual({
+      title: 'Appointment Rescheduled',
+      body: `Your appointment has been moved to ${new Date(newDate).toLocaleDateString('en-IN')}`
+        + ` at 11:30 with Dr. Rao. It was previously ${new Date(previousDate).toLocaleDateString('en-IN')}`
+        + ' at 10:00. Please do not attend at the earlier time.',
     });
   });
 });

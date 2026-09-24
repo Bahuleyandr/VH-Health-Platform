@@ -75,13 +75,14 @@ identified as needed later.
   the date, time, doctor, department and token wording before any non-English
   delivery claim or release activation.
 
-- **OPEN — backend appointment-reschedule notification routing.**
-  Reschedule still assembles patient push/in-app copy in
-  `appointmentCrudController.js` and SMS copy in `smsOutbox.js` without
-  selecting `users.preferred_language`. This is an engineering routing gap,
-  not merely a pending translation review. Preserve the exact existing
-  English copy and the warning about the old time when adding the five-locale
-  technical contract; all non-English wording still requires human review.
+- **OPEN — backend appointment-reschedule copy.**
+  Patient push, in-app and SMS reschedule now select
+  `users.preferred_language` through an `en/hi/ta/te/ml` presentation
+  contract. All five entries retain the exact existing English text as
+  technical placeholders, including the instruction not to attend at the old
+  time. Clinical and linguistic reviewers must approve the date, time,
+  doctor and warning wording before any non-English delivery claim or release
+  activation.
 
 - **CLOSED 2026-09-07 — shared localised device-status formatter used by device cards and messages.**
   Batch 1.2 added one formatter for the complete backend lifecycle vocabulary and routed both the

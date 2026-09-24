@@ -47,6 +47,21 @@ export const APPOINTMENT_CONFIRMATION_PRESENTATIONS = Object.freeze({
   ml: APPOINTMENT_CONFIRMATION_TECHNICAL_PRESENTATION,
 });
 
+const APPOINTMENT_RESCHEDULE_TECHNICAL_PRESENTATION = Object.freeze({
+  pushTitle: 'Appointment Rescheduled',
+  pushBody: 'Your appointment has been moved to {newDate} at {newTime}{doctorPart}.{previousPart} Please do not attend at the earlier time.',
+  smsTitle: 'Appointment rescheduled',
+  smsBody: 'Dear {patientName}, your appointment at Venkataeswara Hospitals has been RESCHEDULED.\nNew date: {newDate}\nNew time: {newTime}\nDoctor: Dr. {doctorName}{deptPart}\n{previousPart}\nPlease do not attend at the earlier time. For queries call: {hospitalPhone}',
+});
+
+export const APPOINTMENT_RESCHEDULE_PRESENTATIONS = Object.freeze({
+  en: APPOINTMENT_RESCHEDULE_TECHNICAL_PRESENTATION,
+  hi: APPOINTMENT_RESCHEDULE_TECHNICAL_PRESENTATION,
+  ta: APPOINTMENT_RESCHEDULE_TECHNICAL_PRESENTATION,
+  te: APPOINTMENT_RESCHEDULE_TECHNICAL_PRESENTATION,
+  ml: APPOINTMENT_RESCHEDULE_TECHNICAL_PRESENTATION,
+});
+
 function fiveLocaleKey(language) {
   const locale = String(language ?? '').trim().toLowerCase().replaceAll('_', '-').split('-')[0];
   return Object.hasOwn(INVESTIGATION_READY_PRESENTATIONS, locale) ? locale : 'en';
@@ -66,6 +81,10 @@ export function appointmentReminderPresentation(language) {
 
 export function appointmentConfirmationPresentation(language) {
   return APPOINTMENT_CONFIRMATION_PRESENTATIONS[fiveLocaleKey(language)];
+}
+
+export function appointmentReschedulePresentation(language) {
+  return APPOINTMENT_RESCHEDULE_PRESENTATIONS[fiveLocaleKey(language)];
 }
 
 function renderFields(template, values) {
@@ -123,6 +142,50 @@ export function renderAppointmentConfirmationSms({
     doctorName,
     deptPart: department ? ` (${department})` : '',
     tokenNumber,
+    hospitalPhone,
+  });
+}
+
+function formatRescheduleDate(value, options) {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime())
+    ? String(value ?? '')
+    : parsed.toLocaleDateString('en-IN', options);
+}
+
+export function renderAppointmentReschedulePush({
+  newDate, newTime, doctorName, previousDate, previousTime, language,
+}) {
+  const presentation = appointmentReschedulePresentation(language);
+  const doctorPart = doctorName ? ` with Dr. ${doctorName}` : '';
+  const previousPart = previousDate || previousTime
+    ? ` It was previously ${formatRescheduleDate(previousDate)}${previousTime ? ` at ${previousTime}` : ''}.`
+    : '';
+  return {
+    title: presentation.pushTitle,
+    body: renderFields(presentation.pushBody, {
+      newDate: formatRescheduleDate(newDate), newTime, doctorPart, previousPart,
+    }),
+  };
+}
+
+export function renderAppointmentRescheduleSms({
+  patientName, doctorName, date, time, previousDate, previousTime,
+  department, hospitalPhone, language,
+}) {
+  const presentation = appointmentReschedulePresentation(language);
+  const dateOptions = { day: 'numeric', month: 'long', year: 'numeric' };
+  const previousPart = previousDate || previousTime
+    ? `Previously: ${formatRescheduleDate(previousDate, dateOptions)}`
+      + `${previousTime ? ` at ${previousTime}` : ''}\n`
+    : '';
+  return renderFields(presentation.smsBody, {
+    patientName,
+    newDate: formatRescheduleDate(date, dateOptions),
+    newTime: time,
+    doctorName,
+    deptPart: department ? ` (${department})` : '',
+    previousPart,
     hospitalPhone,
   });
 }

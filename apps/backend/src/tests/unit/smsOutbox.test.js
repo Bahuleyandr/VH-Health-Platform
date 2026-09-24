@@ -18,8 +18,10 @@ const {
   queuePatientSms,
   queueAppointmentConfirmationSms,
   queueAppointmentReminderSms,
+  queueAppointmentRescheduleSms,
   renderAppointmentConfirmationSms,
   renderAppointmentReminderSms,
+  renderAppointmentRescheduleSms,
 } = await import('../../utils/notifications/smsOutbox.js');
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
@@ -170,6 +172,30 @@ describe('appointment SMS templates', () => {
       title: 'Appointment confirmed',
       body: expect.stringContaining('Dear Asha, your appointment at Venkataeswara Hospitals is confirmed.'),
       sourceEventKey: 'appointment-confirmed:31',
+    }));
+  });
+
+  it('preserves reschedule copy and the instruction not to attend the old slot', async () => {
+    const args = {
+      patientName: 'Asha', doctorName: 'Rao', date: '2026-09-02',
+      time: '11:30', previousDate: '2026-08-14', previousTime: '10:00',
+      department: 'Cardiology',
+    };
+    const body = renderAppointmentRescheduleSms(args);
+    expect(renderAppointmentRescheduleSms({ ...args, language: 'ml-IN' })).toBe(body);
+    expect(body).toContain('has been RESCHEDULED.');
+    expect(body).toContain('Previously:');
+    expect(body).toContain('at 10:00');
+    expect(body).toContain('Please do not attend at the earlier time.');
+
+    await queueAppointmentRescheduleSms({
+      ...args, tenantId: TENANT_ID, recipientId: 77, phone: '9000000001',
+      appointmentId: 31, language: 'ml',
+    });
+    expect(queueMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Appointment rescheduled',
+      body,
+      sourceEventKey: 'appointment-rescheduled:31',
     }));
   });
 
