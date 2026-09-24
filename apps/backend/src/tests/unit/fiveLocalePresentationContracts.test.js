@@ -142,6 +142,7 @@ describe('five-locale backend notification presentation contracts', () => {
   });
 
   test('investigation result notification preserves its copy while routing all five locales', () => {
+    expect(Object.keys(NotificationTemplates)).toEqual(['investigationReady']);
     expectFiveLocaleContract(INVESTIGATION_READY_PRESENTATIONS, [
       'pushTitle',
       'smsTitle',

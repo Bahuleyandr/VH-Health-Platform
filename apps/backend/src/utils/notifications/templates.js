@@ -25,9 +25,6 @@ export function investigationReadyPresentation(language) {
 }
 
 export const NotificationTemplates = {
-  appointmentReminder: ({ name, date, time, department, doctor }) =>
-    `Dear ${name}, this is a reminder for your appointment on ${date} at ${time} in ${department} department with Dr. ${doctor}. Please be on time.`,
-
   investigationReady: ({ name, testName, language }) => {
     const values = { name, testName };
     return investigationReadyPresentation(language).body.replace(
@@ -35,10 +32,4 @@ export const NotificationTemplates = {
       (_, field) => String(values[field]),
     );
   },
-
-  pharmacyReady: ({ name }) =>
-    `Hi ${name}, your pharmacy prescription has been processed. Please check the VH Health app to review or collect.`,
-
-  customBroadcast: ({ title, body }) =>
-    `${title}: ${body}`,
 };
