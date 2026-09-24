@@ -1,3 +1,6 @@
+import { readFileSync, readdirSync } from 'node:fs';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import path from 'node:path';
 import {
   GATEWAY_REFUND_RECONCILIATION_PRESENTATIONS,
 } from '../../services/billing/paymentGatewayService.js';
@@ -14,8 +17,24 @@ import {
 } from '../../services/clinical/clinicalAlertDeliveryObligationService.js';
 
 const FIVE_LOCALES = ['en', 'hi', 'ta', 'te', 'ml'];
+const SOURCE_ROOT = fileURLToPath(new URL('../../', import.meta.url));
+
+function presentationContractsIn(directory) {
+  return readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
+    if (entry.isDirectory()) {
+      if (['tests', 'docs', 'migrations'].includes(entry.name)) return [];
+      return presentationContractsIn(path.join(directory, entry.name));
+    }
+    if (!entry.isFile() || !/\.[cm]?js$/.test(entry.name)) return [];
+    const file = path.join(directory, entry.name);
+    const source = readFileSync(file, 'utf8');
+    return [...source.matchAll(/^\s*export\s+const\s+([A-Z][A-Z0-9_]*_PRESENTATIONS)\s*=/gm)]
+      .map((match) => ({ file, name: match[1] }));
+  });
+}
 
 function expectFiveLocaleContract(contract, fields) {
+  expect(fields.length).toBeGreaterThan(0);
   expect(Object.keys(contract).sort()).toEqual([...FIVE_LOCALES].sort());
   for (const locale of FIVE_LOCALES) {
     expect(Object.keys(contract[locale]).sort()).toEqual([...fields].sort());
@@ -27,6 +46,36 @@ function expectFiveLocaleContract(contract, fields) {
 }
 
 describe('five-locale backend notification presentation contracts', () => {
+  test('discovers every exported presentation contract and checks its locale and field parity', async () => {
+    const contracts = presentationContractsIn(SOURCE_ROOT);
+    const names = contracts.map(({ name }) => name);
+    expect(names).toEqual(expect.arrayContaining([
+      'PAYMENT_LINK_PRESENTATIONS',
+      'GATEWAY_REFUND_RECONCILIATION_PRESENTATIONS',
+      'CLINICAL_ALERT_RECOVERY_ESCALATION_PRESENTATIONS',
+      'CATH_INVENTORY_SHORTFALL_PRESENTATIONS',
+    ]));
+    expect(contracts.length).toBeGreaterThanOrEqual(4);
+
+    for (const { file, name } of contracts) {
+      const module = await import(pathToFileURL(file).href);
+      expectFiveLocaleContract(module[name], Object.keys(module[name]?.en || {}));
+    }
+  });
+
+  test('rejects an omitted locale or a missing presentation field', () => {
+    const complete = Object.fromEntries(FIVE_LOCALES.map((locale) => [
+      locale, { title: 'Technical placeholder', body: 'Technical placeholder' },
+    ]));
+    const withoutMalayalam = { ...complete };
+    delete withoutMalayalam.ml;
+    expect(() => expectFiveLocaleContract(withoutMalayalam, ['title', 'body'])).toThrow();
+    expect(() => expectFiveLocaleContract({
+      ...complete,
+      ml: { title: 'Technical placeholder' },
+    }, ['title', 'body'])).toThrow();
+  });
+
   test('payment links resolve Malayalam and preserve all template fields', () => {
     expectFiveLocaleContract(PAYMENT_LINK_PRESENTATIONS, [
       'subject',
