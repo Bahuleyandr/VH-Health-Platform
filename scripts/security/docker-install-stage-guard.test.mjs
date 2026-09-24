@@ -40,3 +40,11 @@ test('rejects a second install after a non-manifest copy', () => {
   );
   assert.equal(installStagesCopyOnlyManifestsBeforeNpmCi(changed, 2), false);
 });
+
+test('rejects a second BuildKit install after a non-manifest copy', () => {
+  const changed = backendDockerfile.replace(
+    'RUN ONNXRUNTIME_NODE_INSTALL=skip npm ci\n',
+    'RUN ONNXRUNTIME_NODE_INSTALL=skip npm ci\nCOPY scripts ./scripts\nRUN --mount=type=cache,target=/tmp npm ci\n',
+  );
+  assert.equal(installStagesCopyOnlyManifestsBeforeNpmCi(changed, 2), false);
+});

@@ -1,5 +1,5 @@
 // OPEN-22 (2026-09-03): install stages may copy only package manifests before
-// npm ci; a second install cannot bypass that boundary.
+// npm ci; another npm ci invocation cannot bypass that boundary.
 const MANIFEST_COPY = /^COPY package\.json package-lock\.json\*? \.\/$/;
 const NPM_CI = /^RUN (?:ONNXRUNTIME_NODE_INSTALL=skip )?npm ci(?:[ \t]|$)/gm;
 
@@ -12,7 +12,10 @@ export function installStagesCopyOnlyManifestsBeforeNpmCi(dockerfile, expectedSt
     expectedStageCount > 0 &&
     installStages.length === expectedStageCount &&
     installStages.every(({ stage, installs }) => {
-      if (installs.length !== 1) return false;
+      const npmCiLines = stage
+        .split(/\r?\n/)
+        .filter((line) => !/^\s*#/.test(line) && /\bnpm[ \t]+ci\b/.test(line));
+      if (installs.length !== 1 || npmCiLines.length !== 1) return false;
       const beforeInstall = stage.slice(0, installs[0].index);
       const copies = beforeInstall
         .split(/\r?\n/)
