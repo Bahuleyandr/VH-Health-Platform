@@ -34,6 +34,7 @@ jest.unstable_mockModule('../../services/clinical/canonicalClinicalPlatformServi
 const {
   captureCrfResponse,
   enrollPatient,
+  submitCrfResponse,
 } = await import('../../services/research/researchRegistryService.js');
 
 const TENANT = '00000000-0000-4000-8000-000000000777';
@@ -172,5 +173,46 @@ describe('research tenant and object authorization', () => {
     const insertCall = prismaMock.$queryRawUnsafe.mock.calls[3];
     expect(String(insertCall[0])).toMatch(/INSERT INTO research_crf_responses\s+\(tenant_id/i);
     expect(insertCall[1]).toBe(TENANT);
+  });
+
+  it('rejects a draft save when the response was submitted before the upsert acquired its row lock', async () => {
+    prismaMock.$queryRawUnsafe
+      .mockResolvedValueOnce([{
+        id: 77, tenant_id: TENANT, registry_id: 42, status: 'published',
+        field_schema: [{ key: 'score', label: 'Score', type: 'number' }],
+      }])
+      .mockResolvedValueOnce([{
+        id: 8, tenant_id: TENANT, registry_id: 42, patient_uid: PATIENT_UID,
+        status: 'enrolled',
+      }])
+      .mockResolvedValueOnce([{ id: 501, status: 'draft' }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ status: 'submitted' }]);
+
+    await expect(captureCrfResponse(77, {
+      enrollmentId: 8, data: { score: 10 }, autofill: false,
+    }, {
+      actorUid: ACTOR_UID, tenantId: TENANT,
+    })).rejects.toMatchObject({ code: 'INVALID_STATE_TRANSITION', statusCode: 400 });
+
+    const [upsert] = prismaMock.$queryRawUnsafe.mock.calls[3];
+    expect(String(upsert)).toMatch(/DO UPDATE SET[\s\S]*WHERE research_crf_responses\.status = 'draft'/i);
+    expect(prismaMock.$queryRawUnsafe.mock.calls[4][3]).toBe('baseline');
+  });
+
+  it('validates the row locked inside the submit transaction before changing state', async () => {
+    txMock.$queryRawUnsafe.mockResolvedValueOnce([{
+      id: 501, tenant_id: TENANT, status: 'draft', data: {},
+      field_schema: [{ key: 'score', label: 'Score', type: 'number', required: true }],
+    }]);
+
+    await expect(submitCrfResponse(501, {
+      actorUid: ACTOR_UID, tenantId: TENANT,
+    })).rejects.toMatchObject({ code: 'RESEARCH_RESPONSE_INCOMPLETE', statusCode: 400 });
+
+    expect(prismaMock.$queryRawUnsafe).not.toHaveBeenCalled();
+    expect(txMock.$queryRawUnsafe).toHaveBeenCalledTimes(1);
+    expect(String(txMock.$queryRawUnsafe.mock.calls[0][0])).toMatch(/FOR UPDATE OF r/i);
+    expect(recordCanonicalClinicalEventMock).not.toHaveBeenCalled();
   });
 });
