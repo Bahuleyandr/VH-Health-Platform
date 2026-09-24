@@ -5,7 +5,7 @@ FROM ${NODE_IMAGE} AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-RUN npm ci
+RUN ONNXRUNTIME_NODE_INSTALL=skip npm ci
 
 COPY prisma ./prisma
 RUN NODE_OPTIONS=--max-old-space-size=4096 npx prisma generate
@@ -50,7 +50,7 @@ RUN apk upgrade --no-cache && \
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev && \
+RUN ONNXRUNTIME_NODE_INSTALL=skip npm ci --omit=dev && \
     rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
