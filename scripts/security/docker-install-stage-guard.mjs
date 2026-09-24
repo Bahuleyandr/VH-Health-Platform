@@ -20,10 +20,10 @@ export function installStagesCopyOnlyManifestsBeforeNpmCi(dockerfile, expectedSt
     installStages.every(({ stage, installs, npmCiLines }) => {
       if (installs.length !== 1 || npmCiLines.length !== 1) return false;
       const beforeInstall = stage.slice(0, installs[0].index);
-      const copies = beforeInstall
+      const imports = beforeInstall
         .split(/\r?\n/)
-        .filter((line) => /^COPY\b/.test(line));
-      return copies.length === 1 && MANIFEST_COPY.test(copies[0]);
+        .filter((line) => /^(?:COPY|ADD)\b/i.test(line));
+      return imports.length === 1 && MANIFEST_COPY.test(imports[0]);
     })
   );
 }

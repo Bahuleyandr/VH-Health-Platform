@@ -33,6 +33,14 @@ test('rejects a non-manifest copy before an install', () => {
   assert.equal(installStagesCopyOnlyManifestsBeforeNpmCi(changed, 2), false);
 });
 
+test('rejects a non-manifest add before an install', () => {
+  const changed = backendDockerfile.replace(
+    'RUN ONNXRUNTIME_NODE_INSTALL=skip npm ci',
+    'ADD scripts ./scripts\nRUN ONNXRUNTIME_NODE_INSTALL=skip npm ci',
+  );
+  assert.equal(installStagesCopyOnlyManifestsBeforeNpmCi(changed, 2), false);
+});
+
 test('rejects a second install after a non-manifest copy', () => {
   const changed = backendDockerfile.replace(
     'RUN ONNXRUNTIME_NODE_INSTALL=skip npm ci\n',
