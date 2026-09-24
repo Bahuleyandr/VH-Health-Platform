@@ -67,6 +67,16 @@ identified as needed later.
   or release activation. The staff-facing doctor reminder is a separate
   English-only path and is not covered by this patient contract.
 
+- **OPEN — additional backend appointment notification routing.**
+  Appointment confirmation still assembles patient push/in-app copy in
+  `appointmentWorkflowController.js` and SMS copy in `smsOutbox.js` without
+  selecting `users.preferred_language`. Reschedule does the same in
+  `appointmentCrudController.js` and `smsOutbox.js`. These are engineering
+  routing gaps, not merely pending translation reviews, and are not covered by
+  the reminder contract above. Preserve the exact existing English copy and
+  the reschedule warning about the old time when adding five-locale technical
+  contracts; all non-English wording still requires human review.
+
 - **CLOSED 2026-09-07 — shared localised device-status formatter used by device cards and messages.**
   Batch 1.2 added one formatter for the complete backend lifecycle vocabulary and routed both the
   lookup card and `post_use_device_already_discarded` through it. The Batch 1.1 temporary exception
