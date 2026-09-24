@@ -6,15 +6,18 @@ const NPM_CI = /^RUN (?:ONNXRUNTIME_NODE_INSTALL=skip )?npm ci(?:[ \t]|$)/gm;
 export function installStagesCopyOnlyManifestsBeforeNpmCi(dockerfile, expectedStageCount) {
   const installStages = dockerfile
     .split(/^FROM /m)
-    .map((stage) => ({ stage, installs: [...stage.matchAll(NPM_CI)] }))
-    .filter(({ installs }) => installs.length > 0);
+    .map((stage) => ({
+      stage,
+      installs: [...stage.matchAll(NPM_CI)],
+      npmCiLines: stage
+        .split(/\r?\n/)
+        .filter((line) => !/^\s*#/.test(line) && /\bnpm[ \t]+ci\b/.test(line)),
+    }))
+    .filter(({ npmCiLines }) => npmCiLines.length > 0);
   return (
     expectedStageCount > 0 &&
     installStages.length === expectedStageCount &&
-    installStages.every(({ stage, installs }) => {
-      const npmCiLines = stage
-        .split(/\r?\n/)
-        .filter((line) => !/^\s*#/.test(line) && /\bnpm[ \t]+ci\b/.test(line));
+    installStages.every(({ stage, installs, npmCiLines }) => {
       if (installs.length !== 1 || npmCiLines.length !== 1) return false;
       const beforeInstall = stage.slice(0, installs[0].index);
       const copies = beforeInstall

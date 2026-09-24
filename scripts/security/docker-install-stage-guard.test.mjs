@@ -48,3 +48,11 @@ test('rejects a second BuildKit install after a non-manifest copy', () => {
   );
   assert.equal(installStagesCopyOnlyManifestsBeforeNpmCi(changed, 2), false);
 });
+
+test('rejects an alternate install in an additional stage', () => {
+  const changed = `${backendDockerfile}FROM node AS alternate
+COPY scripts ./scripts
+RUN --mount=type=cache,target=/tmp npm ci
+`;
+  assert.equal(installStagesCopyOnlyManifestsBeforeNpmCi(changed, 2), false);
+});
