@@ -43,6 +43,8 @@ function presentationContractsIn(directory) {
 }
 
 function expectFiveLocaleContract(contract, fields) {
+  const placeholders = (value) => [...value.matchAll(/\{([A-Za-z][A-Za-z0-9_]*)\}/g)]
+    .map((match) => match[1]).sort();
   expect(fields.length).toBeGreaterThan(0);
   expect(Object.keys(contract).sort()).toEqual([...FIVE_LOCALES].sort());
   for (const locale of FIVE_LOCALES) {
@@ -50,6 +52,7 @@ function expectFiveLocaleContract(contract, fields) {
     for (const field of fields) {
       expect(typeof contract[locale][field]).toBe('string');
       expect(contract[locale][field].trim()).not.toBe('');
+      expect(placeholders(contract[locale][field])).toEqual(placeholders(contract.en[field]));
     }
   }
 }
@@ -74,7 +77,7 @@ describe('five-locale backend notification presentation contracts', () => {
     }
   });
 
-  test('rejects an omitted locale or a missing presentation field', () => {
+  test('rejects an omitted locale, missing field, or changed interpolation tokens', () => {
     const complete = Object.fromEntries(FIVE_LOCALES.map((locale) => [
       locale, { title: 'Technical placeholder', body: 'Technical placeholder' },
     ]));
@@ -84,6 +87,11 @@ describe('five-locale backend notification presentation contracts', () => {
     expect(() => expectFiveLocaleContract({
       ...complete,
       ml: { title: 'Technical placeholder' },
+    }, ['title', 'body'])).toThrow();
+    expect(() => expectFiveLocaleContract({
+      ...complete,
+      en: { title: 'Technical placeholder', body: 'Hello {name} on {date}' },
+      ml: { title: 'Technical placeholder', body: 'Hello {name}' },
     }, ['title', 'body'])).toThrow();
   });
 
