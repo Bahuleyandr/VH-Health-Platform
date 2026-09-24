@@ -208,11 +208,13 @@ describe('appointment reminder job', () => {
       due24h: [{
         id: 31, tenant_id: TENANT_ID, appointment_time: '10:30', token_number: 4,
         patient_user_id: 77, patient_name: 'Asha', patient_phone: '9000000001',
+        patient_language: 'ml',
         doctor_name: 'Rao', department: 'Cardiology',
       }],
       due1h: [{
         id: 32, tenant_id: TENANT_ID, appointment_time: '11:30', token_number: 5,
         patient_user_id: 78, patient_name: 'Bala', patient_phone: '9000000002',
+        patient_language: 'hi',
         doctor_user_id: null, doctor_uid: null,
         doctor_name: 'Rao', department: 'Cardiology',
       }],
@@ -223,9 +225,11 @@ describe('appointment reminder job', () => {
     expect(queueAppointmentReminderSmsMock).toHaveBeenCalledTimes(2);
     expect(queueAppointmentReminderSmsMock).toHaveBeenNthCalledWith(1, expect.objectContaining({
       tenantId: TENANT_ID, recipientId: 77, hoursAhead: 24, appointmentId: 31,
+      language: 'ml',
     }));
     expect(queueAppointmentReminderSmsMock).toHaveBeenNthCalledWith(2, expect.objectContaining({
       tenantId: TENANT_ID, recipientId: 78, hoursAhead: 1, appointmentId: 32,
+      language: 'hi',
     }));
     expect(notificationOutboxQueueMock).toHaveBeenCalledTimes(2);
     expect(notificationOutboxQueueMock).toHaveBeenNthCalledWith(1, expect.objectContaining({
@@ -253,6 +257,7 @@ describe('appointment reminder job', () => {
     expect(selectCalls).toHaveLength(2);
     for (const [sql, tenantId, fallbackTimezone, from, until] of selectCalls) {
       expect(String(sql)).toContain('appointment.appointment_date + appointment.appointment_time::time');
+      expect(String(sql)).toContain('patient.preferred_language AS patient_language');
       expect(String(sql)).toContain('pg_timezone_names AS configured_timezone');
       expect(String(sql)).toContain('AT TIME ZONE tenant_clock.timezone');
       expect(String(sql)).toContain('appointment_at >= $3::timestamptz');

@@ -16,10 +16,13 @@ import {
   CLINICAL_ALERT_RECOVERY_ESCALATION_PRESENTATIONS,
 } from '../../services/clinical/clinicalAlertDeliveryObligationService.js';
 import {
+  APPOINTMENT_REMINDER_PRESENTATIONS,
   INVESTIGATION_READY_PRESENTATIONS,
+  appointmentReminderPresentation,
   investigationReadyLocaleKey,
   investigationReadyPresentation,
   NotificationTemplates,
+  renderAppointmentReminderPush,
 } from '../../utils/notifications/templates.js';
 
 const FIVE_LOCALES = ['en', 'hi', 'ta', 'te', 'ml'];
@@ -61,8 +64,9 @@ describe('five-locale backend notification presentation contracts', () => {
       'CLINICAL_ALERT_RECOVERY_ESCALATION_PRESENTATIONS',
       'CATH_INVENTORY_SHORTFALL_PRESENTATIONS',
       'INVESTIGATION_READY_PRESENTATIONS',
+      'APPOINTMENT_REMINDER_PRESENTATIONS',
     ]));
-    expect(contracts.length).toBeGreaterThanOrEqual(5);
+    expect(contracts.length).toBeGreaterThanOrEqual(6);
 
     for (const { file, name } of contracts) {
       const module = await import(pathToFileURL(file).href);
@@ -170,5 +174,29 @@ describe('five-locale backend notification presentation contracts', () => {
       testName: 'CBC',
       language: 'ml-IN',
     })).toBe(expectedBody);
+  });
+
+  test('appointment reminders preserve existing English copy under the five-locale contract', () => {
+    expectFiveLocaleContract(APPOINTMENT_REMINDER_PRESENTATIONS, [
+      'push24Title', 'push24Body', 'push1Title', 'push1Body', 'smsTitle', 'smsBody',
+    ]);
+    expect(appointmentReminderPresentation('ml-IN'))
+      .toBe(APPOINTMENT_REMINDER_PRESENTATIONS.ml);
+    expect(appointmentReminderPresentation('unsupported'))
+      .toBe(APPOINTMENT_REMINDER_PRESENTATIONS.en);
+    expect(renderAppointmentReminderPush({
+      time: '10:30', doctorName: 'Rao', tokenNumber: 12,
+      hoursAhead: 24, language: 'ml',
+    })).toEqual({
+      title: 'Appointment Tomorrow 📅',
+      body: 'Reminder: Your appointment is tomorrow at 10:30 with Dr. Rao. Token #12',
+    });
+    expect(renderAppointmentReminderPush({
+      time: '10:30', doctorName: 'Rao', tokenNumber: 12,
+      hoursAhead: 1, language: 'hi',
+    })).toEqual({
+      title: 'Appointment in 1 Hour ⏰',
+      body: 'Your appointment at 10:30 with Dr. Rao is in ~1 hour. Token #12',
+    });
   });
 });

@@ -57,6 +57,16 @@ identified as needed later.
   non-English delivery claim or release activation. The structural gate does
   not provide that approval.
 
+- **OPEN — backend appointment-reminder copy.**
+  The scheduled 24-hour and 1-hour patient push, in-app and SMS reminders now
+  select `users.preferred_language` through an `en/hi/ta/te/ml` presentation
+  contract. All five entries retain the exact existing English copy as
+  technical placeholders. Clinical and linguistic reviewers must approve the
+  push titles, reminder bodies and SMS text, including their time, doctor,
+  patient-name and token interpolation, before any non-English delivery claim
+  or release activation. The staff-facing doctor reminder is a separate
+  English-only path and is not covered by this patient contract.
+
 - **CLOSED 2026-09-07 — shared localised device-status formatter used by device cards and messages.**
   Batch 1.2 added one formatter for the complete backend lifecycle vocabulary and routed both the
   lookup card and `post_use_device_already_discarded` through it. The Batch 1.1 temporary exception

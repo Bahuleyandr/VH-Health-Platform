@@ -23,6 +23,10 @@
 import logger from '../../logging/logger.js';
 import { maskPhoneForLog } from '../logMasking.js';
 import { notificationOutbox } from './notificationOutbox.js';
+import {
+  appointmentReminderPresentation,
+  renderAppointmentReminderSms as renderAppointmentReminderSmsCopy,
+} from './templates.js';
 
 /**
  * Queue one patient-facing SMS intent on the notification outbox.
@@ -237,19 +241,17 @@ export async function queueAppointmentRescheduleSms({
  * `smsService.sendAppointmentReminderSMS` used to compose.
  */
 export function renderAppointmentReminderSms({
-  patientName, doctorName, time, hoursAhead, tokenNumber,
+  patientName, doctorName, time, hoursAhead, tokenNumber, language,
 }) {
-  const hoursLabel = hoursAhead > 1 ? `${hoursAhead} hours` : '1 hour';
-  return (
-    `Reminder: Dear ${patientName}, you have an appointment at Venkataeswara Hospitals in ${hoursLabel}.\n`
-    + `Time: ${time} | Dr. ${doctorName} | Token #${tokenNumber}`
-  );
+  return renderAppointmentReminderSmsCopy({
+    patientName, doctorName, time, hoursAhead, tokenNumber, language,
+  });
 }
 
 /** Queue the appointment-reminder SMS intent. */
 export async function queueAppointmentReminderSms({
   tenantId = null, recipientId = null, phone, patientName, doctorName,
-  time, hoursAhead, tokenNumber, appointmentId = null,
+  time, hoursAhead, tokenNumber, appointmentId = null, language = null,
 }) {
   if (!phone) {
     logger.warn('[SMS outbox] appointment-reminder: no phone on file — no SMS intent recorded');
@@ -259,13 +261,14 @@ export async function queueAppointmentReminderSms({
     tenantId,
     recipientId,
     recipientPhone: phone,
-    title: 'Appointment reminder',
+    title: appointmentReminderPresentation(language).smsTitle,
     body: renderAppointmentReminderSms({
       patientName: patientName || 'Patient',
       doctorName: doctorName || 'Doctor',
       time,
       hoursAhead,
       tokenNumber,
+      language,
     }),
     data: {
       type: `appointment_reminder_${hoursAhead}h`,
