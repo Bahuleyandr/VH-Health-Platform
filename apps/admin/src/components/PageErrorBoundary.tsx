@@ -7,10 +7,7 @@ import { ReactNode } from "react";
 
 import type { FallbackProps } from "react-error-boundary";
 
-function ErrorFallback({ error, resetErrorBoundary }: FallbackProps) {
-  // Avoid leaking the raw error message to the user — the message may
-  // contain internal detail. Log the real error to Sentry instead (see
-  // `onError` below) and show a generic, reassuring fallback.
+function ErrorFallback({ resetErrorBoundary }: FallbackProps) {
   return (
     <div className="min-h-[400px] flex items-center justify-center">
       <div className="text-center max-w-md px-4">
@@ -26,11 +23,6 @@ function ErrorFallback({ error, resetErrorBoundary }: FallbackProps) {
         >
           Try again
         </button>
-        {process.env.NODE_ENV === "development" && error instanceof Error && (
-          <pre className="mt-4 text-left text-xs text-muted-foreground whitespace-pre-wrap">
-            {error.message}
-          </pre>
-        )}
       </div>
     </div>
   );
@@ -44,15 +36,8 @@ export function PageErrorBoundary({ children }: PageErrorBoundaryProps) {
   return (
     <ErrorBoundary
       FallbackComponent={ErrorFallback}
-      onError={(error, info) => {
-        Sentry.captureException(error, {
-          contexts: {
-            react: { componentStack: info.componentStack },
-          },
-        });
-        if (process.env.NODE_ENV === "development") {
-          console.error("Page error:", error);
-        }
+      onError={() => {
+        Sentry.captureException(new Error("Authenticated page render failed"));
       }}
     >
       {children}
