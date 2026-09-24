@@ -15,6 +15,12 @@ import {
 import {
   CLINICAL_ALERT_RECOVERY_ESCALATION_PRESENTATIONS,
 } from '../../services/clinical/clinicalAlertDeliveryObligationService.js';
+import {
+  INVESTIGATION_READY_PRESENTATIONS,
+  investigationReadyLocaleKey,
+  investigationReadyPresentation,
+  NotificationTemplates,
+} from '../../utils/notifications/templates.js';
 
 const FIVE_LOCALES = ['en', 'hi', 'ta', 'te', 'ml'];
 const SOURCE_ROOT = fileURLToPath(new URL('../../', import.meta.url));
@@ -54,8 +60,9 @@ describe('five-locale backend notification presentation contracts', () => {
       'GATEWAY_REFUND_RECONCILIATION_PRESENTATIONS',
       'CLINICAL_ALERT_RECOVERY_ESCALATION_PRESENTATIONS',
       'CATH_INVENTORY_SHORTFALL_PRESENTATIONS',
+      'INVESTIGATION_READY_PRESENTATIONS',
     ]));
-    expect(contracts.length).toBeGreaterThanOrEqual(4);
+    expect(contracts.length).toBeGreaterThanOrEqual(5);
 
     for (const { file, name } of contracts) {
       const module = await import(pathToFileURL(file).href);
@@ -132,5 +139,35 @@ describe('five-locale backend notification presentation contracts', () => {
       'title',
       'body',
     ]);
+  });
+
+  test('investigation result notification preserves its copy while routing all five locales', () => {
+    expectFiveLocaleContract(INVESTIGATION_READY_PRESENTATIONS, [
+      'pushTitle',
+      'smsTitle',
+      'body',
+    ]);
+    for (const [input, expected] of [
+      ['ml', 'ml'],
+      ['ml-IN', 'ml'],
+      ['HI_in', 'hi'],
+      ['ta', 'ta'],
+      ['te', 'te'],
+      ['en-GB', 'en'],
+      ['unsupported', 'en'],
+      ['constructor', 'en'],
+      [null, 'en'],
+    ]) {
+      expect(investigationReadyLocaleKey(input)).toBe(expected);
+      expect(investigationReadyPresentation(input))
+        .toBe(INVESTIGATION_READY_PRESENTATIONS[expected]);
+    }
+    const expectedBody = 'Hello Asha {testName}, your investigation report for "CBC" is now ready. '
+      + 'You can view or download it from the VH Health app.';
+    expect(NotificationTemplates.investigationReady({
+      name: 'Asha {testName}',
+      testName: 'CBC',
+      language: 'ml-IN',
+    })).toBe(expectedBody);
   });
 });

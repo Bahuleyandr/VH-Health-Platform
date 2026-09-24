@@ -72,6 +72,7 @@ jest.unstable_mockModule('../../controllers/delivery/deliveryTrackingController.
 const { sendInvestigationNotifications } = await import(
   '../../utils/notifications/InvestigationNotificationJob.js'
 );
+const { NotificationTemplates } = await import('../../utils/notifications/templates.js');
 const { sendTimedReminders } = await import(
   '../../utils/notifications/appointmentReminderJob.js'
 );
@@ -112,6 +113,33 @@ beforeEach(() => {
 });
 
 describe('investigation report notification job', () => {
+  it('selects the patient locale and passes it into the presentation renderer', async () => {
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 502, test_name: 'CBC', patient_id: 78, name: 'Asha',
+        phone: '9000000002', device_token: null, user_id: 78,
+        preferred_language: 'ml', tenant_id: TENANT_ID,
+      }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 502 }])
+      .mockResolvedValue([]);
+    const renderSpy = jest.spyOn(NotificationTemplates, 'investigationReady');
+    try {
+      await sendInvestigationNotifications();
+
+      expect(String(queryRawUnsafeMock.mock.calls[0][0])).toContain('u.preferred_language');
+      expect(renderSpy).toHaveBeenCalledWith({
+        name: 'Asha', testName: 'CBC', language: 'ml',
+      });
+      expect(queuePatientSmsMock).toHaveBeenCalledWith(expect.objectContaining({
+        title: 'Investigation report ready',
+        sourceEventKey: 'investigation-report-ready:502',
+      }));
+    } finally {
+      renderSpy.mockRestore();
+    }
+  });
+
   it('queues the SMS intent with the patient tenant instead of sending', async () => {
     queryRawUnsafeMock
       .mockResolvedValueOnce([{

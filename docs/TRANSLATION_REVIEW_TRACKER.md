@@ -47,6 +47,16 @@ Work items surfaced by a review but deliberately not done in the batch that surf
 priority queue (those are review queues); this is a queue of engineering/process work a review
 identified as needed later.
 
+- **OPEN — backend investigation-result notification copy.**
+  `apps/backend/src/utils/notifications/templates.js` now exposes the
+  `en/hi/ta/te/ml` presentation contract used by the scheduled push, SMS and
+  in-app notification path. The four non-English entries deliberately retain
+  the exact existing English title/body as technical placeholders, not approved
+  translations. Clinical and linguistic reviewers must approve each title and
+  the full body (including `{name}` and `{testName}` interpolation) before any
+  non-English delivery claim or release activation. The structural gate does
+  not provide that approval.
+
 - **CLOSED 2026-09-07 — shared localised device-status formatter used by device cards and messages.**
   Batch 1.2 added one formatter for the complete backend lifecycle vocabulary and routed both the
   lookup card and `post_use_device_already_discarded` through it. The Batch 1.1 temporary exception
