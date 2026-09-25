@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { X, AlertTriangle, RefreshCw } from "lucide-react";
 import {
@@ -160,6 +160,38 @@ function IncidentPanel({
   const [publicUpdate, setPublicUpdate] = useState("");
   const [internalNote, setInternalNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      } else if (event.key === "Tab") {
+        const focusable = Array.from(
+          dialogRef.current?.querySelectorAll<HTMLElement>(
+            'button:not(:disabled), select:not(:disabled), textarea:not(:disabled)',
+          ) ?? [],
+        );
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (!dialogRef.current?.contains(document.activeElement)) {
+          event.preventDefault();
+          (event.shiftKey ? last : first)?.focus();
+        } else if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -195,18 +227,30 @@ function IncidentPanel({
   return (
     <div className="fixed inset-0 z-50 flex">
       <div className="flex-1 bg-black/40" onClick={onClose} />
-      <div className="w-full max-w-2xl bg-card shadow-xl flex flex-col overflow-hidden">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="incident-panel-title"
+        className="w-full max-w-2xl bg-card shadow-xl flex flex-col overflow-hidden"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b bg-gray-50">
           <div>
             <p className="text-xs text-gray-500 font-mono">
               {incident.report_number}
             </p>
-            <h2 className="font-bold text-gray-800 text-lg leading-tight">
+            <h2
+              id="incident-panel-title"
+              className="font-bold text-gray-800 text-lg leading-tight"
+            >
               {incident.title}
             </h2>
           </div>
           <button
+            ref={closeButtonRef}
+            type="button"
+            aria-label="Close incident details"
             onClick={onClose}
             className="p-2 rounded-lg hover:bg-gray-200"
           >
@@ -415,6 +459,17 @@ export default function IncidentsPage() {
   const [filterSeverity, setFilterSeverity] = useState("");
   const [filterType, setFilterType] = useState("");
   const [selected, setSelected] = useState<Incident | null>(null);
+  const openerRef = useRef<HTMLButtonElement | null>(null);
+
+  const openPanel = (incident: Incident, opener: HTMLButtonElement | null) => {
+    openerRef.current = opener;
+    setSelected(incident);
+  };
+
+  const closePanel = useCallback(() => {
+    setSelected(null);
+    openerRef.current?.focus();
+  }, []);
 
   const { connected, subscribed, lastEventAt } = useRealtimeInvalidation(INCIDENTS_CHANNEL, [
     ["incidents"],
@@ -677,11 +732,20 @@ export default function IncidentsPage() {
                 {incidents.map((inc) => (
                   <tr
                     key={inc.id}
-                    onClick={() => setSelected(inc)}
-                    className="hover:bg-blue-50 cursor-pointer transition-colors"
+                    className="hover:bg-blue-50 transition-colors"
                   >
                     <td className="px-4 py-3 font-mono text-xs text-blue-600 font-bold whitespace-nowrap">
-                      {inc.report_number}
+                      <button
+                        type="button"
+                        aria-label={`Review incident ${inc.report_number}: ${inc.title}`}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          openPanel(inc, event.currentTarget);
+                        }}
+                        className="rounded text-left hover:underline focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        {inc.report_number}
+                      </button>
                     </td>
                     <td className="px-4 py-3 max-w-xs">
                       <p className="font-medium text-gray-800 truncate">
@@ -726,7 +790,7 @@ export default function IncidentsPage() {
       {selected && (
         <IncidentPanel
           incident={selected}
-          onClose={() => setSelected(null)}
+          onClose={closePanel}
           onUpdated={handleUpdated}
         />
       )}
