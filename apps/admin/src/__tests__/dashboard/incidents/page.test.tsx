@@ -1,7 +1,11 @@
 import IncidentsPage from "@/app/(with-auth)/dashboard/incidents/page";
-import { getIncidents, getIncidentStats } from "@/lib/api/reports";
+import {
+  getIncidents,
+  getIncidentStats,
+  updateIncident,
+} from "@/lib/api/reports";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 
@@ -26,6 +30,9 @@ const mockedGetIncidents = getIncidents as jest.MockedFunction<
 >;
 const mockedGetIncidentStats = getIncidentStats as jest.MockedFunction<
   typeof getIncidentStats
+>;
+const mockedUpdateIncident = updateIncident as jest.MockedFunction<
+  typeof updateIncident
 >;
 
 function renderWithQuery(ui: ReactElement) {
@@ -96,7 +103,10 @@ describe("<IncidentsPage />", () => {
 
   it("opens the named incident dialog by keyboard and returns focus after closing", async () => {
     const user = userEvent.setup();
-    mockedGetIncidents.mockResolvedValue({ incidents: [incident], total: 1 } as never);
+    mockedGetIncidents.mockResolvedValue({
+      incidents: [incident],
+      total: 1,
+    } as never);
     renderWithQuery(<IncidentsPage />);
 
     const opener = await screen.findByRole("button", {
@@ -113,7 +123,9 @@ describe("<IncidentsPage />", () => {
     expect(close).toHaveFocus();
 
     await user.tab({ shift: true });
-    expect(within(dialog).getByRole("button", { name: "Save Changes" })).toHaveFocus();
+    expect(
+      within(dialog).getByRole("button", { name: "Save Changes" }),
+    ).toHaveFocus();
     await user.tab();
     expect(close).toHaveFocus();
 
@@ -124,7 +136,10 @@ describe("<IncidentsPage />", () => {
 
   it("closes the incident dialog with Escape and returns focus to its review button", async () => {
     const user = userEvent.setup();
-    mockedGetIncidents.mockResolvedValue({ incidents: [incident], total: 1 } as never);
+    mockedGetIncidents.mockResolvedValue({
+      incidents: [incident],
+      total: 1,
+    } as never);
     renderWithQuery(<IncidentsPage />);
 
     const opener = await screen.findByRole("button", {
@@ -132,10 +147,69 @@ describe("<IncidentsPage />", () => {
     });
     opener.focus();
     await user.keyboard(" ");
-    expect(screen.getByRole("dialog", { name: "Ward fall" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("dialog", { name: "Ward fall" }),
+    ).toBeInTheDocument();
 
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     expect(opener).toHaveFocus();
+  });
+
+  it("does not present the whole incident row as clickable", async () => {
+    const user = userEvent.setup();
+    mockedGetIncidents.mockResolvedValue({
+      incidents: [incident],
+      total: 1,
+    } as never);
+    renderWithQuery(<IncidentsPage />);
+
+    const opener = await screen.findByRole("button", {
+      name: "Review incident INC-001: Ward fall",
+    });
+    const row = opener.closest("tr");
+    expect(row).not.toHaveClass("hover:bg-blue-50");
+    expect(opener).toHaveClass("hover:underline");
+    await user.click(within(row!).getByText("Ward fall"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    await user.click(opener);
+    expect(
+      screen.getByRole("dialog", { name: "Ward fall" }),
+    ).toBeInTheDocument();
+  });
+
+  it("returns focus to Refresh when an update removes the filtered opener row", async () => {
+    const user = userEvent.setup();
+    let savedStatus = "submitted";
+    mockedGetIncidents.mockImplementation(async (params) => {
+      const incidents =
+        params?.status && params.status !== savedStatus
+          ? []
+          : [{ ...incident, status: savedStatus }];
+      return { incidents, total: incidents.length } as never;
+    });
+    mockedUpdateIncident.mockImplementation(async () => {
+      savedStatus = "resolved";
+      return {} as never;
+    });
+    renderWithQuery(<IncidentsPage />);
+
+    await user.selectOptions(screen.getAllByRole("combobox")[0], "submitted");
+    const opener = await screen.findByRole("button", {
+      name: "Review incident INC-001: Ward fall",
+    });
+    await user.click(opener);
+    const dialog = screen.getByRole("dialog", { name: "Ward fall" });
+    await user.selectOptions(within(dialog).getByRole("combobox"), "resolved");
+    await user.click(
+      within(dialog).getByRole("button", { name: "Save Changes" }),
+    );
+
+    await waitFor(() => expect(opener).not.toBeInTheDocument());
+    await user.click(
+      within(dialog).getByRole("button", { name: "Close incident details" }),
+    );
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Refresh" })).toHaveFocus();
   });
 });

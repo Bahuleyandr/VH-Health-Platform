@@ -172,7 +172,7 @@ function IncidentPanel({
       } else if (event.key === "Tab") {
         const focusable = Array.from(
           dialogRef.current?.querySelectorAll<HTMLElement>(
-            'button:not(:disabled), select:not(:disabled), textarea:not(:disabled)',
+            "button:not(:disabled), select:not(:disabled), textarea:not(:disabled)",
           ) ?? [],
         );
         const first = focusable[0];
@@ -460,6 +460,7 @@ export default function IncidentsPage() {
   const [filterType, setFilterType] = useState("");
   const [selected, setSelected] = useState<Incident | null>(null);
   const openerRef = useRef<HTMLButtonElement | null>(null);
+  const refreshButtonRef = useRef<HTMLButtonElement>(null);
 
   const openPanel = (incident: Incident, opener: HTMLButtonElement | null) => {
     openerRef.current = opener;
@@ -468,15 +469,20 @@ export default function IncidentsPage() {
 
   const closePanel = useCallback(() => {
     setSelected(null);
-    openerRef.current?.focus();
+    const opener = openerRef.current;
+    (opener?.isConnected ? opener : refreshButtonRef.current)?.focus();
   }, []);
 
-  const { connected, subscribed, lastEventAt } = useRealtimeInvalidation(INCIDENTS_CHANNEL, [
-    ["incidents"],
-    ["incident-stats"],
-  ]);
+  const { connected, subscribed, lastEventAt } = useRealtimeInvalidation(
+    INCIDENTS_CHANNEL,
+    [["incidents"], ["incident-stats"]],
+  );
 
-  const liveLabel = subscribed ? "● Live" : connected ? "○ Connecting" : "○ Offline";
+  const liveLabel = subscribed
+    ? "● Live"
+    : connected
+      ? "○ Connecting"
+      : "○ Offline";
   const liveTitle = subscribed
     ? lastEventAt
       ? `Real-time via staff:incidents — last update ${new Date(lastEventAt).toLocaleTimeString()}`
@@ -552,7 +558,9 @@ export default function IncidentsPage() {
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold text-gray-900">Incident Reports</h1>
+            <h1 className="text-2xl font-bold text-gray-900">
+              Incident Reports
+            </h1>
             <span
               data-testid="incidents-realtime-indicator"
               role="status"
@@ -562,7 +570,11 @@ export default function IncidentsPage() {
                   : "Offline — real-time updates unavailable"
               }
               title={liveTitle}
-              className={subscribed ? "text-xs font-medium text-green-600" : "text-xs font-medium text-gray-400"}
+              className={
+                subscribed
+                  ? "text-xs font-medium text-green-600"
+                  : "text-xs font-medium text-gray-400"
+              }
             >
               {liveLabel}
             </span>
@@ -572,6 +584,7 @@ export default function IncidentsPage() {
           </p>
         </div>
         <button
+          ref={refreshButtonRef}
           onClick={() => {
             qc.invalidateQueries({ queryKey: ["incidents"] });
             qc.invalidateQueries({ queryKey: ["incident-stats"] });
@@ -730,18 +743,12 @@ export default function IncidentsPage() {
                   </tr>
                 )}
                 {incidents.map((inc) => (
-                  <tr
-                    key={inc.id}
-                    className="hover:bg-blue-50 transition-colors"
-                  >
+                  <tr key={inc.id}>
                     <td className="px-4 py-3 font-mono text-xs text-blue-600 font-bold whitespace-nowrap">
                       <button
                         type="button"
                         aria-label={`Review incident ${inc.report_number}: ${inc.title}`}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          openPanel(inc, event.currentTarget);
-                        }}
+                        onClick={(event) => openPanel(inc, event.currentTarget)}
                         className="rounded text-left hover:underline focus:outline-none focus:ring-2 focus:ring-blue-500"
                       >
                         {inc.report_number}
