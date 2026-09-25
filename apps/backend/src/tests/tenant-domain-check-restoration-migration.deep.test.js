@@ -167,6 +167,47 @@ describe('migration 803 tenant domain CHECK restoration', () => {
     )).rows).toEqual(rowsBefore.rows);
   });
 
+  test.each(domains)('$column rejects a same-named CHECK with a different predicate', async (domain) => {
+    const schema = `tenant_803_${randomUUID().replaceAll('-', '')}`;
+    const publicBefore = await catalog();
+    await client.query('SAVEPOINT tenant_domain_conflicting_lineage');
+    try {
+      await client.query(`CREATE SCHEMA ${schema}`);
+      await client.query(
+        `CREATE TABLE ${schema}.tenants (
+          region varchar(10) NOT NULL DEFAULT 'IN',
+          compliance_profile varchar(20) NOT NULL DEFAULT 'DPDP',
+          status varchar(20) NOT NULL DEFAULT 'active'
+        )`,
+      );
+      await client.query(`INSERT INTO ${schema}.tenants DEFAULT VALUES`);
+      await client.query(
+        `ALTER TABLE ${schema}.tenants ADD CONSTRAINT ${constraintName(domain)}
+         CHECK (${domain.column} <> '${domain.invalid}') NOT VALID`,
+      );
+      const before = await catalog(`${schema}.tenants`);
+      expect(before).toHaveLength(1);
+      const body = migration.replace(/^BEGIN;\s*$/m, '').replace(/^COMMIT;\s*$/m, '')
+        .replaceAll('public.tenants', `${schema}.tenants`);
+      await client.query('SAVEPOINT tenant_domain_conflicting_apply');
+      try {
+        await expect(client.query(body)).rejects.toMatchObject({
+          code: 'P0001',
+          message: expect.stringContaining('different predicate; operator review required'),
+        });
+      } finally {
+        await client.query('ROLLBACK TO SAVEPOINT tenant_domain_conflicting_apply');
+        await client.query('RELEASE SAVEPOINT tenant_domain_conflicting_apply');
+      }
+      expect(await catalog(`${schema}.tenants`)).toEqual(before);
+      expect((await client.query(`SELECT count(*)::int AS rows FROM ${schema}.tenants`)).rows).toEqual([{ rows: 1 }]);
+    } finally {
+      await client.query('ROLLBACK TO SAVEPOINT tenant_domain_conflicting_lineage');
+      await client.query('RELEASE SAVEPOINT tenant_domain_conflicting_lineage');
+    }
+    expect(await catalog()).toEqual(publicBefore);
+  });
+
   test.each(domains)('$column rejects $invalid with its own 23514 under the runtime role', async (domain) => {
     expect(process.env.AUTH_ENFORCE_TENANT_RLS).toBe('true');
     expect(process.env.AUTH_TENANT_RLS_RUNTIME_ROLE).toBe('vhhealth_app');

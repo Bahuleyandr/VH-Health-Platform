@@ -49,6 +49,24 @@ BEGIN
       CHECK (status IN ('active', 'suspended', 'offboarding')) NOT VALID;
   END IF;
 
+  -- A same-named historical CHECK must not count as the declared domain unless its predicate matches.
+  IF EXISTS (
+    SELECT 1
+      FROM pg_constraint c
+      JOIN (VALUES
+        ('tenants_region_check',
+         'CHECK (((region)::text = ANY ((ARRAY[''IN''::character varying, ''EU''::character varying, ''US''::character varying, ''AP''::character varying, ''OTHER''::character varying])::text[])))'),
+        ('tenants_compliance_profile_check',
+         'CHECK (((compliance_profile)::text = ANY ((ARRAY[''DPDP''::character varying, ''HIPAA''::character varying, ''GDPR''::character varying, ''NONE''::character varying])::text[])))'),
+        ('tenants_status_check',
+         'CHECK (((status)::text = ANY ((ARRAY[''active''::character varying, ''suspended''::character varying, ''offboarding''::character varying])::text[])))')
+      ) AS expected(name, definition) ON expected.name = c.conname
+     WHERE c.conrelid = 'public.tenants'::regclass
+       AND regexp_replace(pg_get_constraintdef(c.oid, false), ' NOT VALID$', '') <> expected.definition
+  ) THEN
+    RAISE EXCEPTION 'Migration 803: existing tenant-domain CHECK name has a different predicate; operator review required';
+  END IF;
+
   SELECT
     count(*) FILTER (WHERE (region IN ('IN', 'EU', 'US', 'AP', 'OTHER')) IS FALSE),
     count(*) FILTER (WHERE (compliance_profile IN ('DPDP', 'HIPAA', 'GDPR', 'NONE')) IS FALSE),
