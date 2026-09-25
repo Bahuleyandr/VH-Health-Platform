@@ -1,9 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:vhhealth_staff/core/navigation/app_router.dart';
 import 'package:vhhealth_staff/features/nursing/screens/mar_scan_screen.dart';
 
 void main() {
+  testWidgets('declared MAR route applies the malformed-ID guard', (
+    tester,
+  ) async {
+    final route = appRouter.configuration.routes
+        .whereType<ShellRoute>()
+        .expand((shell) => shell.routes)
+        .whereType<GoRoute>()
+        .singleWhere((candidate) => candidate.name == 'mar-scan');
+    final router = GoRouter(routes: [route], initialLocation: '/mar/scan/abc');
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(MaterialApp.router(routerConfig: router));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(MarScanScreen), findsNothing);
+    expect(find.text('Page not found: /mar/scan/abc'), findsOneWidget);
+  });
+
   testWidgets('malformed MAR route IDs show the route error, not the scanner', (
     tester,
   ) async {
