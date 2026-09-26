@@ -12,6 +12,8 @@ const logAuditMock = jest.fn();
 const ensureAppointmentQueueForAppointmentMock = jest.fn();
 const recordAppointmentCreatedEvidenceTxMock = jest.fn();
 const recordAppointmentMutationEvidenceTxMock = jest.fn();
+const queueAppointmentConfirmationSmsMock = jest.fn(async () => ({ queued: true, outboxId: 1 }));
+const recordPatientFeedNotificationMock = jest.fn(async () => null);
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -89,7 +91,13 @@ jest.unstable_mockModule('../../logging/logger.js', () => ({
 }));
 
 jest.unstable_mockModule('../../utils/notifications/smsOutbox.js', () => ({
-  queueAppointmentConfirmationSms: jest.fn(async () => ({ queued: true, outboxId: 1 })),
+  queueAppointmentConfirmationSms: queueAppointmentConfirmationSmsMock,
+}));
+
+jest.unstable_mockModule('../../utils/notifications/patientNotificationFeed.js', () => ({
+  recordPatientFeedNotification: recordPatientFeedNotificationMock,
+  recordPatientFeedNotificationWithReceipt: recordPatientFeedNotificationMock,
+  outboxDrainWillWriteFeedRow: jest.fn(async () => false),
 }));
 
 jest.unstable_mockModule('../../utils/notifications/sendPushNotification.js', () => ({
@@ -202,7 +210,10 @@ describe('appointment workflow audit logging', () => {
       .mockResolvedValueOnce([updated]);
     txExecuteRawUnsafe.mockResolvedValueOnce({});
     prismaMock.$queryRawUnsafe
-      .mockResolvedValueOnce([{ device_token: null, name: 'Patient Demo', phone: '+919999999999' }])
+      .mockResolvedValueOnce([{
+        device_token: null, name: 'Patient Demo', phone: '+919999999999',
+        preferred_language: 'ml',
+      }])
       .mockResolvedValueOnce([{ name: 'Dr Demo', department: 'General Medicine' }]);
 
     const req = makeReq({
@@ -220,7 +231,18 @@ describe('appointment workflow audit logging', () => {
     expect(txQueryRawUnsafe.mock.calls[2][0]).toContain('AND tenant_id = $7::uuid');
     expect(txQueryRawUnsafe.mock.calls[2][7]).toBe(TENANT_ID);
     expect(prismaMock.$queryRawUnsafe.mock.calls[0][0]).toContain('tenant_id=$2::uuid');
+    expect(prismaMock.$queryRawUnsafe.mock.calls[0][0]).toContain('preferred_language');
     expect(prismaMock.$queryRawUnsafe.mock.calls[0][2]).toBe(TENANT_ID);
+    expect(setImmediateSpy).toHaveBeenCalledTimes(1);
+    await setImmediateSpy.mock.calls.at(-1)[0]();
+    expect(queueAppointmentConfirmationSmsMock).toHaveBeenCalledWith(expect.objectContaining({
+      language: 'ml',
+      appointmentId: '42',
+    }));
+    expect(recordPatientFeedNotificationMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Appointment Confirmed ✓',
+      body: expect.stringContaining('Token #7'),
+    }));
     expect(req.phiContext).toEqual(expect.objectContaining({
       appointmentId: 42,
       appointment_id: 42,

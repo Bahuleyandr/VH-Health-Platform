@@ -72,6 +72,7 @@ jest.unstable_mockModule('../../controllers/delivery/deliveryTrackingController.
 const { sendInvestigationNotifications } = await import(
   '../../utils/notifications/InvestigationNotificationJob.js'
 );
+const { NotificationTemplates } = await import('../../utils/notifications/templates.js');
 const { sendTimedReminders } = await import(
   '../../utils/notifications/appointmentReminderJob.js'
 );
@@ -112,6 +113,33 @@ beforeEach(() => {
 });
 
 describe('investigation report notification job', () => {
+  it('selects the patient locale and passes it into the presentation renderer', async () => {
+    queryRawUnsafeMock
+      .mockResolvedValueOnce([{
+        id: 502, test_name: 'CBC', patient_id: 78, name: 'Asha',
+        phone: '9000000002', device_token: null, user_id: 78,
+        preferred_language: 'ml', tenant_id: TENANT_ID,
+      }])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 502 }])
+      .mockResolvedValue([]);
+    const renderSpy = jest.spyOn(NotificationTemplates, 'investigationReady');
+    try {
+      await sendInvestigationNotifications();
+
+      expect(String(queryRawUnsafeMock.mock.calls[0][0])).toContain('u.preferred_language');
+      expect(renderSpy).toHaveBeenCalledWith({
+        name: 'Asha', testName: 'CBC', language: 'ml',
+      });
+      expect(queuePatientSmsMock).toHaveBeenCalledWith(expect.objectContaining({
+        title: 'Investigation report ready',
+        sourceEventKey: 'investigation-report-ready:502',
+      }));
+    } finally {
+      renderSpy.mockRestore();
+    }
+  });
+
   it('queues the SMS intent with the patient tenant instead of sending', async () => {
     queryRawUnsafeMock
       .mockResolvedValueOnce([{
@@ -180,11 +208,13 @@ describe('appointment reminder job', () => {
       due24h: [{
         id: 31, tenant_id: TENANT_ID, appointment_time: '10:30', token_number: 4,
         patient_user_id: 77, patient_name: 'Asha', patient_phone: '9000000001',
+        patient_language: 'ml',
         doctor_name: 'Rao', department: 'Cardiology',
       }],
       due1h: [{
         id: 32, tenant_id: TENANT_ID, appointment_time: '11:30', token_number: 5,
         patient_user_id: 78, patient_name: 'Bala', patient_phone: '9000000002',
+        patient_language: 'hi',
         doctor_user_id: null, doctor_uid: null,
         doctor_name: 'Rao', department: 'Cardiology',
       }],
@@ -195,9 +225,11 @@ describe('appointment reminder job', () => {
     expect(queueAppointmentReminderSmsMock).toHaveBeenCalledTimes(2);
     expect(queueAppointmentReminderSmsMock).toHaveBeenNthCalledWith(1, expect.objectContaining({
       tenantId: TENANT_ID, recipientId: 77, hoursAhead: 24, appointmentId: 31,
+      language: 'ml',
     }));
     expect(queueAppointmentReminderSmsMock).toHaveBeenNthCalledWith(2, expect.objectContaining({
       tenantId: TENANT_ID, recipientId: 78, hoursAhead: 1, appointmentId: 32,
+      language: 'hi',
     }));
     expect(notificationOutboxQueueMock).toHaveBeenCalledTimes(2);
     expect(notificationOutboxQueueMock).toHaveBeenNthCalledWith(1, expect.objectContaining({
@@ -225,6 +257,7 @@ describe('appointment reminder job', () => {
     expect(selectCalls).toHaveLength(2);
     for (const [sql, tenantId, fallbackTimezone, from, until] of selectCalls) {
       expect(String(sql)).toContain('appointment.appointment_date + appointment.appointment_time::time');
+      expect(String(sql)).toContain('patient.preferred_language AS patient_language');
       expect(String(sql)).toContain('pg_timezone_names AS configured_timezone');
       expect(String(sql)).toContain('AT TIME ZONE tenant_clock.timezone');
       expect(String(sql)).toContain('appointment_at >= $3::timestamptz');

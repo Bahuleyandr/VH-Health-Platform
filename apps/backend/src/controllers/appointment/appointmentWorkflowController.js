@@ -5,6 +5,7 @@ import logger from '../../logging/logger.js';
 import { computeGestationalAge } from '../../services/maternity/maternityService.js';
 import { recordCanonicalClinicalEvent } from '../../services/clinical/canonicalClinicalPlatformService.js';
 import { queueAppointmentConfirmationSms } from '../../utils/notifications/smsOutbox.js';
+import { renderAppointmentConfirmationPush } from '../../utils/notifications/templates.js';
 import { recordPatientFeedNotification } from '../../utils/notifications/patientNotificationFeed.js';
 import { sendPushNotification } from '../../utils/notifications/sendPushNotification.js';
 import { logAudit } from '../../utils/logAudit.js';
@@ -342,7 +343,7 @@ export const confirmAppointment = async (req, res) => {
     });
 
     // Notify patient via FCM + SMS (fire-and-forget, outside transaction).
-    const patient = await prisma.$queryRawUnsafe('SELECT uid::text AS uid, device_token, name, phone FROM users WHERE id=$1 AND tenant_id=$2::uuid', a.patient_id, tenantId);
+    const patient = await prisma.$queryRawUnsafe('SELECT uid::text AS uid, device_token, name, phone, preferred_language FROM users WHERE id=$1 AND tenant_id=$2::uuid', a.patient_id, tenantId);
     const patientRow = patient[0];
     const doctorRow = await prisma.$queryRawUnsafe(
       'SELECT u.name, doc.department FROM users u LEFT JOIN doctors doc ON doc.user_id = u.id WHERE u.id=$1 AND u.tenant_id=$2::uuid',
@@ -352,29 +353,32 @@ export const confirmAppointment = async (req, res) => {
     const doctorName = doctorRow[0]?.name || 'Doctor';
     const department = doctorRow[0]?.department || a.department || null;
 
-    const confirmTitle = 'Appointment Confirmed ✓';
-    const confirmBody = `Your appointment on ${new Date(newDate).toLocaleDateString('en-IN')} at ${newTime} is confirmed. Token #${tokenNumber}`;
-
     setImmediate(async () => {
-      // In-app feed row first, and unconditionally. The push below is
-      // privacy-stripped to a generic "open the app" that routes to
-      // /notifications, so without this row the buzz opens an empty inbox.
-      await recordPatientFeedNotification({
-        tenantId,
-        userId: a.patient_id,
-        uid: patientRow?.uid || result.patient_uid || null,
-        phone: patientRow?.phone || a.phone || null,
-        title: confirmTitle,
-        body: confirmBody,
-        type: 'appointment_confirmed',
-        data: {
-          type: 'appointment_confirmed',
-          appointment_id: String(id),
-          token: String(tokenNumber),
-        },
-        context: 'appointment-confirmed',
-      });
       try {
+        const { title: confirmTitle, body: confirmBody } = renderAppointmentConfirmationPush({
+          date: newDate,
+          time: newTime,
+          tokenNumber,
+          language: patientRow?.preferred_language,
+        });
+        // In-app feed row first, and unconditionally. The push below is
+        // privacy-stripped to a generic "open the app" that routes to
+        // /notifications, so without this row the buzz opens an empty inbox.
+        await recordPatientFeedNotification({
+          tenantId,
+          userId: a.patient_id,
+          uid: patientRow?.uid || result.patient_uid || null,
+          phone: patientRow?.phone || a.phone || null,
+          title: confirmTitle,
+          body: confirmBody,
+          type: 'appointment_confirmed',
+          data: {
+            type: 'appointment_confirmed',
+            appointment_id: String(id),
+            token: String(tokenNumber),
+          },
+          context: 'appointment-confirmed',
+        });
         if (patientRow?.device_token) {
           await sendPushNotification({
             tokens: patientRow.device_token,
@@ -396,6 +400,7 @@ export const confirmAppointment = async (req, res) => {
           tokenNumber,
           department,
           appointmentId: id,
+          language: patientRow?.preferred_language,
         });
       } catch (e) { logger.warn('Appointment notification/SMS failed:', e.message); }
     });
