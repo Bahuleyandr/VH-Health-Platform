@@ -89,7 +89,6 @@ configMapGenerator:
       - DB_HOST=vhhealth-pg-rw.vhhealth-platform.svc.cluster.local
       - DB_POOLER_HOST=vhhealth-pg-rw-pooler.vhhealth-platform.svc.cluster.local
       - REDIS_SENTINEL_HOST=redis-sentinel.vhhealth-platform.svc.cluster.local
-      - MINIO_ENDPOINT=minio-api.vhhealth-platform.svc.cluster.local
       - R2_ENDPOINT=https://dbe488236c64499a3dfc797a750c912d.r2.cloudflarestorage.com
 
 replacements:

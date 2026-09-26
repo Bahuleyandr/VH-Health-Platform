@@ -11,6 +11,7 @@ import {
   EXPECTED_CURL_IMAGE,
   EXPECTED_PG_IMAGE,
   HELD_OLLAMA_IMAGE,
+  LOCAL_STORAGE_HELD_SOURCE_HASHES,
   NON_PROD_ACTIVE_PG_IMAGE,
   PG17_ARCHIVE_IDENTITY,
   PG18_ARCHIVE_IDENTITY,
@@ -19,6 +20,8 @@ import {
   assertDatabaseGenerationContract,
   assertDatabaseGenerationPairing,
   assertLiteralAndImageContract,
+  assertLocalStorageHeldSources,
+  assertLocalStorageHold,
   extractImageRefs,
   findDeclarativeTemplateTokens,
   parseRenderedDocuments,
@@ -27,6 +30,7 @@ import {
 } from './check-c1-1-manifest-contract.mjs';
 import { stagesForChangedFiles } from './ci/stage-selection.mjs';
 import { assertNoIngressClassParameters } from './validate-kubernetes-manifests.mjs';
+import { VERIFIED_ROOTS } from './check-prod-digests-pinned.mjs';
 
 const minio =
   'quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z@sha256:ac591851803a79aee64bc37f66d77c56b0a4b6e12d9e5356380f4105510f2332';
@@ -38,7 +42,6 @@ function validLiteralFixture() {
       // The PostgreSQL 18.4 target appears only as the inert provenance marker.
       `imageName: ${EXPECTED_ACTIVE_PG_IMAGE}`,
       `postgresImage: ${EXPECTED_PG_IMAGE}`,
-      `image: ${minio}`,
       'script.sh: |',
       '  echo "${RUNTIME_ONLY}"',
       '',
@@ -81,6 +84,120 @@ test('splits rendered resources and reads only top-level metadata', () => {
       { apiVersion: 'v1', kind: 'ServiceAccount', name: 'runner', namespace: null },
     ],
   );
+});
+
+function localStorageHoldFixture() {
+  const job = (name, held = false) => [
+    'apiVersion: batch/v1',
+    'kind: CronJob',
+    'metadata:',
+    `  name: ${name}`,
+    ...(held ? ['  annotations:', '    vhhealth.app/deploy-state: held-local-object-storage'] : []),
+    'spec:',
+    `  suspend: ${held}`,
+  ].join('\n');
+  const longhorn = [
+    'apiVersion: argoproj.io/v1alpha1',
+    'kind: Application',
+    'metadata:',
+    '  name: longhorn',
+    'spec:',
+    '  source:',
+    '    chart: longhorn',
+    '    helm:',
+    '      values: |',
+    '        defaultSettings:',
+    '          backupTarget: ""',
+    '          backupTargetCredentialSecret: ""',
+    '  syncPolicy:',
+    '    syncOptions:',
+    '    - ServerSideApply=true',
+  ].join('\n');
+  return new Map(VERIFIED_ROOTS.map((root) => [root,
+    root.endsWith('/apps')
+      ? [job('vhhealth-backend-r2-sync', true), job('backup-verification')].join('\n---\n')
+      : [job('cnpg-backup-verify'), ...(root.endsWith('/dev') ? [] : [longhorn])].join('\n---\n'),
+  ]));
+}
+
+test('local-storage hold covers all five active roots and cannot pass an empty population', () => {
+  const roots = localStorageHoldFixture();
+  assert.equal(roots.size, 5);
+  assert.doesNotThrow(() => assertLocalStorageHold(roots));
+  for (const root of VERIFIED_ROOTS) {
+    const missing = new Map(roots);
+    missing.delete(root);
+    assert.throws(() => assertLocalStorageHold(missing), /missing from local-storage hold proof/);
+    missing.set(root, '# empty');
+    assert.throws(() => assertLocalStorageHold(missing), /no resources for local-storage hold proof/);
+  }
+});
+
+test('held MinIO and Harbor sources remain intact, including credential examples', () => {
+  assert.equal(Object.keys(LOCAL_STORAGE_HELD_SOURCE_HASHES).length, 8);
+  assert.doesNotThrow(() => assertLocalStorageHeldSources());
+  for (const path of Object.keys(LOCAL_STORAGE_HELD_SOURCE_HASHES)) {
+    assert.throws(() => assertLocalStorageHeldSources((relative) => {
+      const source = readFileSync(new URL(`../${relative}`, import.meta.url), 'utf8');
+      return relative.endsWith(path) ? `${source}\n# drift\n` : source;
+    }), /changed from the retained pre-hold source/);
+  }
+});
+
+test('every active root rejects Tenant, workload, image-marker and Helm reactivation', () => {
+  const additions = [
+    'apiVersion: minio.min.io/v2\nkind: Tenant\nmetadata:\n  name: renamed',
+    'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: harmless\ndata:\n  minioImage: ' + minio,
+    'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: harmless\ndata:\n  operatorImage: quay.io/minio/operator:v5@sha256:' + 'a'.repeat(64),
+    'apiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: renamed\nspec:\n  image: docker.io/goharbor/registry-photon:v2@sha256:' + 'a'.repeat(64),
+    'apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: harbor-chart-tracker',
+    'apiVersion: argoproj.io/v1alpha1\nkind: Application\nmetadata:\n  name: renamed\nspec:\n  source:\n    chart: harbor',
+    'apiVersion: argoproj.io/v1alpha1\nkind: Application\nmetadata:\n  name: renamed\nspec:\n  source:\n    path: infra/kubernetes/held/local-object-storage/minio',
+  ];
+  for (const root of VERIFIED_ROOTS) {
+    for (const addition of additions) {
+      const roots = localStorageHoldFixture();
+      roots.set(root, `${roots.get(root)}\n---\n${addition}\n`);
+      assert.throws(() => assertLocalStorageHold(roots), /activates.*HELD/);
+    }
+  }
+});
+
+test('archive producer stays suspended while independent archive and database verification remain active', () => {
+  for (const root of VERIFIED_ROOTS) {
+    const roots = localStorageHoldFixture();
+    const original = roots.get(root);
+    if (root.endsWith('/apps')) {
+      assert.match(original, /suspend: true/);
+      roots.set(root, original.replace('suspend: true', 'suspend: false'));
+      assert.throws(() => assertLocalStorageHold(roots), /must suspend the local-record archive producer/);
+      roots.set(root, original.replace('name: vhhealth-backend-r2-sync', 'name: renamed-producer'));
+      assert.throws(() => assertLocalStorageHold(roots), /exactly one held archive producer/);
+      roots.set(root, original.replace('held-local-object-storage', 'active'));
+      assert.throws(() => assertLocalStorageHold(roots), /lacks the explicit local-storage hold/);
+    }
+    roots.set(root, original.replace('suspend: false', 'suspend: true'));
+    assert.throws(() => assertLocalStorageHold(roots), /must keep.*verification active/);
+    roots.set(root, original.replace(root.endsWith('/apps') ? 'name: backup-verification' : 'name: cnpg-backup-verify', 'name: renamed-verifier'));
+    assert.throws(() => assertLocalStorageHold(roots), /must retain exactly one.*verifier/);
+  }
+});
+
+test('Longhorn cannot silently activate the held backup dependency or automatic sync', () => {
+  for (const root of ['infra/kubernetes/overlays/prod', 'infra/kubernetes/overlays/staging']) {
+    for (const field of ['backupTarget', 'backupTargetCredentialSecret']) {
+      const roots = localStorageHoldFixture();
+      assert.ok(roots.get(root).includes(`${field}: ""`));
+      roots.set(root, roots.get(root).replace(`${field}: ""`, `${field}: "reactivated"`));
+      assert.throws(() => assertLocalStorageHold(roots), /Longhorn.*must remain empty/);
+    }
+    const roots = localStorageHoldFixture();
+    roots.set(root, roots.get(root).replace('  syncPolicy:', '  syncPolicy:\n    automated: {}'));
+    assert.throws(() => assertLocalStorageHold(roots), /Longhorn must remain manual-sync/);
+    const overridden = localStorageHoldFixture();
+    overridden.set(root, overridden.get(root).replace('    helm:', '    helm:\n      parameters:\n      - name: defaultSettings.backupTarget\n        value: reactivated'));
+    assert.throws(() => assertLocalStorageHold(overridden), /without backup overrides/);
+  }
 });
 
 test('allows runtime shell expansion in block scalars but rejects declarative tokens', () => {

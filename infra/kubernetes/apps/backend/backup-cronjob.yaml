@@ -23,11 +23,14 @@ metadata:
   name: vhhealth-backend-r2-sync
   annotations:
     argocd.argoproj.io/sync-wave: "2"
+    vhhealth.app/deploy-state: "held-local-object-storage"
   labels:
     app.kubernetes.io/name: vhhealth-backend-r2-sync
     app.kubernetes.io/component: backup-archive-producer
     app.kubernetes.io/part-of: vhhealth
 spec:
+  # No qualified local source exists; independent R2 verification stays active.
+  suspend: true
   schedule: "0 */6 * * *"
   timeZone: "Asia/Kolkata"
   concurrencyPolicy: Forbid
