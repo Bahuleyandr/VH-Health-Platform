@@ -568,6 +568,7 @@ export async function captureCrfResponse(formId, {
      ON CONFLICT (enrollment_id, form_id, visit_label)
      DO UPDATE SET data = EXCLUDED.data, autofilled = EXCLUDED.autofilled,
                    recorded_by = EXCLUDED.recorded_by, updated_at = NOW()
+     WHERE research_crf_responses.status = 'draft'
      RETURNING id, tenant_id, form_id, enrollment_id, visit_label, data, autofilled, status, created_at, updated_at`,
     scopedTenantId,
     form.id,
@@ -577,37 +578,47 @@ export async function captureCrfResponse(formId, {
     JSON.stringify(autofilled),
     actorUid,
   );
+  if (!rows.length) {
+    const current = await prisma.$queryRawUnsafe(
+      `SELECT status FROM research_crf_responses
+       WHERE enrollment_id = $1 AND form_id = $2 AND visit_label = $3 AND tenant_id = $4::uuid`,
+      enrollment.id, form.id, String(visitLabel).trim(), scopedTenantId,
+    );
+    if (current.length) throw AppError.invalidTransition(current[0].status, 'draft edit', ['draft']);
+    throw AppError.conflict('Response state changed concurrently', 'RESEARCH_RESPONSE_RACE');
+  }
   return { ...rows[0], missing_required: errors.filter((e) => e.endsWith('is required')) };
 }
 
 export async function submitCrfResponse(responseId, { actorUid = null, actorRole = null, tenantId = DEFAULT_TENANT_ID } = {}) {
   const scopedTenantId = normalizeTenantId(tenantId);
-  const rows = await prisma.$queryRawUnsafe(
-    `SELECT r.id, r.tenant_id, r.status, r.data, r.visit_label, r.form_id, r.enrollment_id,
-            f.field_schema, f.name AS form_name, f.version AS form_version, f.registry_id,
-            e.patient_uid, e.subject_code
-     FROM research_crf_responses r
-     JOIN research_crf_forms f ON f.id = r.form_id AND f.tenant_id = r.tenant_id
-     JOIN research_enrollments e ON e.id = r.enrollment_id AND e.tenant_id = r.tenant_id
-     WHERE r.id = $1
-       AND r.tenant_id = $2::uuid`,
-    Number(responseId),
-    scopedTenantId,
-  );
-  if (!rows.length) throw AppError.notFound('CRF response not found', 'RESEARCH_RESPONSE_NOT_FOUND');
-  const response = rows[0];
-  if (response.status !== 'draft') {
-    throw AppError.invalidTransition(response.status, 'submitted', ['draft']);
-  }
-
-  const schema = Array.isArray(response.field_schema) ? response.field_schema : JSON.parse(response.field_schema || '[]');
-  const dataObj = typeof response.data === 'object' && response.data !== null ? response.data : JSON.parse(response.data || '{}');
-  const { errors } = validateResponseData(schema, dataObj);
-  if (errors.length) {
-    throw AppError.badRequest('CRF response incomplete', 'RESEARCH_RESPONSE_INCOMPLETE', { errors });
-  }
-
   return setTenantTx(scopedTenantId, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT r.id, r.tenant_id, r.status, r.data, r.visit_label, r.form_id, r.enrollment_id,
+              f.field_schema, f.name AS form_name, f.version AS form_version, f.registry_id,
+              e.patient_uid, e.subject_code
+       FROM research_crf_responses r
+       JOIN research_crf_forms f ON f.id = r.form_id AND f.tenant_id = r.tenant_id
+       JOIN research_enrollments e ON e.id = r.enrollment_id AND e.tenant_id = r.tenant_id
+       WHERE r.id = $1
+         AND r.tenant_id = $2::uuid
+       FOR UPDATE OF r`,
+      Number(responseId),
+      scopedTenantId,
+    );
+    if (!rows.length) throw AppError.notFound('CRF response not found', 'RESEARCH_RESPONSE_NOT_FOUND');
+    const response = rows[0];
+    if (response.status !== 'draft') {
+      throw AppError.invalidTransition(response.status, 'submitted', ['draft']);
+    }
+
+    const schema = Array.isArray(response.field_schema) ? response.field_schema : JSON.parse(response.field_schema || '[]');
+    const dataObj = typeof response.data === 'object' && response.data !== null ? response.data : JSON.parse(response.data || '{}');
+    const { errors } = validateResponseData(schema, dataObj);
+    if (errors.length) {
+      throw AppError.badRequest('CRF response incomplete', 'RESEARCH_RESPONSE_INCOMPLETE', { errors });
+    }
+
     const updated = await tx.$queryRawUnsafe(
       `UPDATE research_crf_responses
        SET status = 'submitted', submitted_at = NOW(), updated_at = NOW()
