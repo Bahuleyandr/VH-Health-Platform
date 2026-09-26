@@ -129,7 +129,7 @@
     "checkedInManifests": [
       "infra/kubernetes/base/_common/network-policies.yaml",
       "infra/kubernetes/base/redis/redis-sentinel.yaml",
-      "infra/kubernetes/base/minio/tenant.yaml",
+      "infra/kubernetes/held/local-object-storage/minio/tenant.yaml",
       "infra/kubernetes/optional/tenant-network-boundary/network-policy.yaml"
     ],
     "localChecks": [
