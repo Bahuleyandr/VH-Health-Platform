@@ -9,6 +9,9 @@ const fullRunPatterns = [
 ];
 
 const backendPatterns = [/^apps\/backend\//];
+const backendCensusInputs = [
+  /^docs\/security\/rls-bypass-reacher-(?:pin-2026-09-08\.json|census-2026-09-08\.md)$/,
+];
 const adminPatterns = [/^apps\/admin\//];
 const flutterPatterns = [
   /^apps\/patient\//,
@@ -168,7 +171,7 @@ export function stagesForChangedFiles(files, stageOrder) {
 
   for (const file of files) {
     if (matchesAny(file, contractsPatterns)) selected.add('contracts');
-    if (matchesAny(file, backendPatterns)) selected.add('backend');
+    if (matchesAny(file, backendPatterns) || matchesAny(file, backendCensusInputs)) selected.add('backend');
     if (matchesAny(file, adminPatterns)) selected.add('admin');
     if (matchesAny(file, flutterPatterns)) selected.add('flutter');
     if (matchesAny(file, fhirPatterns)) selected.add('fhir');
