@@ -357,8 +357,8 @@ test('a stale host helper fails the GitHub deploy instead of skipping it green',
   );
 });
 
-test('MinIO capacity and failure claims match the rendered single-pool topology', () => {
-  const tenant = readRepo('infra/kubernetes/base/minio/tenant.yaml');
+test('MinIO capacity and failure claims match the held single-pool topology', () => {
+  const tenant = readRepo('infra/kubernetes/held/local-object-storage/minio/tenant.yaml');
   const hardware = readRepo('docs/HARDWARE_REQUIREMENTS.md');
 
   assert.match(tenant, /1 pool \* 4 servers \* 4 volumes \* 100Gi = 1600 GiB = 1\.5625 TiB raw/);

@@ -84,7 +84,7 @@ function validateAccessPolicy() {
 function validateNetworkPolicies() {
   const commonRel = 'infra/kubernetes/base/_common/network-policies.yaml';
   const redisRel = 'infra/kubernetes/base/redis/redis-sentinel.yaml';
-  const minioRel = 'infra/kubernetes/base/minio/tenant.yaml';
+  const minioRel = 'infra/kubernetes/held/local-object-storage/minio/tenant.yaml';
   const tenantRel = 'infra/kubernetes/optional/tenant-network-boundary/network-policy.yaml';
   const namespaceRel = 'infra/kubernetes/optional/tenant-network-boundary/namespace.yaml';
 
