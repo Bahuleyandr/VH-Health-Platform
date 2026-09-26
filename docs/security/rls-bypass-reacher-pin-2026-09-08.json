@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "kind": "CENSUS_ONLY",
-  "revision": "4c6302ad8901efd55b4bbba223be782cfe89f175",
+  "revision": "43c182eede07bce1635a9194a0fb96889415139d",
   "method": "Static conservative enumeration. PENDING includes paths whose context, activation, historical ledger or dynamic dispatch still needs disposition proof. No job was invoked and no disposition is accepted here.",
   "closureRule": "K = 0 for the table, exact list and count, disposition tests in the same closure PR; each test explicitly enables AUTH_ENFORCE_TENANT_RLS=true and AUTH_TENANT_RLS_RUNTIME_ROLE=vhhealth_app and asserts current_user/rolsuper/rolbypassrls, population first and nonzero job work.",
   "lexical": {"runWithSuperAdminLines":29,"runWithSuperAdminFiles":6,"runWithSuperAdminLocations":["apps/backend/src/lib/tenantContext.js:20","apps/backend/src/lib/tenantContext.js:44","apps/backend/src/middleware/tenantRlsMiddleware.js:14","apps/backend/src/middleware/tenantRlsMiddleware.js:21","apps/backend/src/services/appointment/appointmentReaperService.js:55","apps/backend/src/services/compliance/breachService.js:228","apps/backend/src/services/compliance/breachService.js:269","apps/backend/src/utils/canaryHealthCheck.js:17","apps/backend/src/utils/scheduler.js:186","apps/backend/src/utils/scheduler.js:217","apps/backend/src/utils/scheduler.js:1546","apps/backend/src/utils/scheduler.js:1549","apps/backend/src/utils/scheduler.js:1552","apps/backend/src/utils/scheduler.js:1623","apps/backend/src/utils/scheduler.js:1660","apps/backend/src/utils/scheduler.js:1663","apps/backend/src/utils/scheduler.js:1672","apps/backend/src/utils/scheduler.js:1685","apps/backend/src/utils/scheduler.js:1698","apps/backend/src/utils/scheduler.js:1718","apps/backend/src/utils/scheduler.js:1731","apps/backend/src/utils/scheduler.js:1744","apps/backend/src/utils/scheduler.js:1757","apps/backend/src/utils/scheduler.js:1761","apps/backend/src/utils/scheduler.js:1765","apps/backend/src/utils/scheduler.js:1770","apps/backend/src/utils/scheduler.js:1774","apps/backend/src/utils/scheduler.js:1778","apps/backend/src/utils/scheduler.js:1784"],"withJobLockLines":84},
-  "counts": {"sources":1378,"functions":25642,"registrations":84,"roots":109,"residualRoots":12747,"sql":8502,"targetSql":1972,"reachingTableStatementsByContext":418},
+  "counts": {"sources":1378,"functions":25642,"registrations":84,"roots":109,"residualRoots":12767,"sql":8502,"targetSql":1972,"reachingTableStatementsByContext":418},
   "sourceManifest": [
     {"file":"apps/backend/admin/backup-db.js","sha256":"df38fb9a4cb801f28a528a04767f44975a2e359980db18d93b2c1ea6f1b8d558"},
     {"file":"apps/backend/admin/purge-archives.js","sha256":"1c659de13b7dd35c284a48eabd67636c1043abb97beebde6c57bda8b3e48fe53"},
@@ -1295,7 +1295,7 @@
     {"file":"apps/backend/src/utils/notifications/smsProviders/twilioCallbackAuth.js","sha256":"0424bc013d028c99e768350b6fdb33d77d8f1de77e2b495c7a2d2c103b0c089b"},
     {"file":"apps/backend/src/utils/notifications/smsProviders/twilioSmsProvider.js","sha256":"b1bf3a4ab56ae509488850c6e4edba0d0e77e63102d86e27534491edee088d98"},
     {"file":"apps/backend/src/utils/notifications/stuckOrderEscalation.js","sha256":"fa12c5645fb43669d4385b820d85ae682393d357c95c45711aaf3ce9c76ceb6a"},
-    {"file":"apps/backend/src/utils/notifications/templates.js","sha256":"01c8dfdcf7028791c63d345222da093385f08c3831ef7028752109362905e15d"},
+    {"file":"apps/backend/src/utils/notifications/templates.js","sha256":"00cd40db883991a9f78171dcb855456eae34816e609acb336dbfb06833617104"},
     {"file":"apps/backend/src/utils/notifications/tenantNotificationChannels.js","sha256":"58b360f1048b3e683a12d7a2a5ff8f0be56fd228a6eb5b646e17d0198ae9708d"},
     {"file":"apps/backend/src/utils/notifications/terminalRejectionCodes.js","sha256":"f447b0bf7cc03ab0fd66c72854c4a92c8bba3c24ee1b0fcb03c80676f2e19f8b"},
     {"file":"apps/backend/src/utils/oidcJwt.js","sha256":"448e0e58d60ca5ae7c33037b3e20fc7249b7d4792965c84750ce5ef9ea2107d8"},
