@@ -16,6 +16,18 @@
 | Production adoption | `infra/kubernetes/overlays/prod/longhorn-pvc-patch.yaml` is excluded by a commented entry in the production kustomization. No workload adopts Longhorn through that patch. |
 | Argo CD behavior | The four top-level Applications are manual-sync. The Longhorn child Application is also manual-sync in this revision. A merge performs no sync or storage action. |
 | Failure domains | Three Longhorn replicas mean three node copies. They do not prove three independent racks, power feeds, UPS paths, switches, rooms, or facilities. |
+| Local object storage and Harbor | Owner attestation dated 2026-09-26 says VH Health MinIO and Harbor were never deployed elsewhere; bounded root Dalek metadata inspection found none (unrelated `khata-minio` excluded). Their historical manifests are held outside active composition. The old Longhorn `longhorn-backups` S3 target was only a Helm reference, not evidence of a bucket or backup. |
+
+The owner-approved local-storage hold suspends MinIO, Harbor, the Longhorn
+local backup target, and new local-records archive production pending the
+[Rook/Ceph design gate](OBJECT_STORE_ROOK_CEPH_REPLACEMENT_DESIGN.md).
+It leaves the independent R2 encrypted-archive verifier and CloudNativePG's
+direct-R2 backup/restore contract intact. An empty or stale verifier result
+must be investigated, not muted or reported as a successful backup. This
+bounded absence evidence means a **new installation** is the current design
+case, not a claimed data migration; if a real source is found later, its
+version/retention-preserving migration needs a separate evidence and approval
+packet. Neither case is authorized by C1.2's Longhorn placement gate alone.
 
 Longhorn upgrades must advance one supported minor at a time after compatibility
 and restore qualification. Downgrade is not an accepted recovery path.
@@ -219,8 +231,12 @@ Longhorn advances one minor at a time and never uses downgrade as rollback.
 
 ### 8. Service-by-service migration and abort plan
 
-The proposal must cover CNPG data and WAL, Redis, Vault, step-ca, MinIO, Harbor
-jobservice/Trivy data, and every additional PVC discovered by the inventory.
+The proposal must cover CNPG data and WAL, Redis, Vault, step-ca, and every
+additional PVC discovered by the inventory. Include MinIO and Harbor
+jobservice/Trivy data **only if** an actual deployed source or owned PVC is
+discovered; do not invent their migration receipts from held manifests. A
+future Rook/Ceph first installation has its own separately approved object
+store, retention, Harbor, off-cluster restore, and failure-domain gates.
 For each service, provide:
 
 1. current owner, StorageClass, PV/PVC set, replicas, data authority, and
@@ -240,8 +256,9 @@ For each service, provide:
 9. the criteria and separate authorization for retiring old storage.
 
 A blanket patch, generic destructive replacement instruction, or untested
-one-sequence-fits-all plan does not pass. CNPG, MinIO, Vault, Redis, step-ca,
-and Harbor have different authorities and recovery contracts.
+one-sequence-fits-all plan does not pass. CNPG, Vault, Redis, and step-ca have
+different authorities and recovery contracts; any newly discovered MinIO or
+Harbor source requires its own evidence and owner decision.
 
 ## Decision record
 
