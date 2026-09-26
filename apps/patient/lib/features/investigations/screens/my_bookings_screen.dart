@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:vhhealth/core/services/api_client.dart';
-import 'package:vhhealth/core/utils/safe_url_launcher.dart';
+import 'package:vhhealth/core/utils/document_opener.dart';
 import 'package:vhhealth/core/widgets/data_state_builder.dart';
 import 'package:vhhealth/core/widgets/delivery_tracking_card.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
@@ -263,9 +262,9 @@ class _MyBookingsScreenState extends State<MyBookingsScreen>
                 padding: const EdgeInsets.only(top: 12),
                 child: FilledButton.icon(
                   onPressed: () async {
-                    await SafeUrlLauncher.launch(
-                      booking['result_file_url'],
-                      mode: LaunchMode.externalApplication,
+                    await DocumentOpener.openFromUrl(
+                      context,
+                      booking['result_file_url'].toString(),
                     );
                   },
                   icon: const Icon(Icons.download),

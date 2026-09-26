@@ -7,11 +7,10 @@
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
+import 'package:vhhealth_core/services/http_client.dart';
 
-import 'package:vhhealth/core/config/api_config.dart';
 import 'package:vhhealth/core/providers/user_provider.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/core/utils/cache_file_utils.dart';
@@ -139,14 +138,11 @@ class InvestigationResultsTabState extends State<InvestigationResultsTab>
     final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
 
-    final uri = Uri.parse(
-      '${ApiConfig.baseUrl}/investigations/$investigationId/files/$fileId/download',
-    );
-
     try {
-      final resp = await http
-          .get(uri, headers: await ApiConfig.authenticatedAuthHeaders())
-          .timeout(const Duration(seconds: 15));
+      final resp = await VHHttpClient.getBytes(
+        '/investigations/$investigationId/files/$fileId/download',
+        timeout: const Duration(seconds: 15),
+      );
       if (!mounted) return;
 
       if (resp.statusCode == 200) {

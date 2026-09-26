@@ -3,13 +3,11 @@
 import 'dart:io';
 
 import 'package:path_provider/path_provider.dart';
-import 'package:http/http.dart' as http;
 import 'package:open_filex/open_filex.dart';
 import 'package:flutter/foundation.dart'; // needed for debugPrint
-import 'package:vhhealth_core/config/api_config.dart';
-import 'package:vhhealth_core/services/http_client.dart';
 import 'package:vhhealth/core/offline/api_cache_manager.dart';
 import 'package:vhhealth/core/utils/doc_staging.dart';
+import 'package:vhhealth/core/utils/document_download.dart';
 import 'package:vhhealth/core/utils/safe_filename.dart';
 
 /// On-disk cache for downloaded PHI documents (lab reports, prescriptions,
@@ -58,21 +56,7 @@ class CacheFileUtils {
   static Future<File?> downloadAndCacheFile(String fileKey, String url) async {
     final session = CacheProfileScope.current();
     try {
-      // Backend PHI URLs go through the SPKI-pinned client (auth + 401-refresh);
-      // off-host URLs (e.g. pre-signed R2) keep a plain GET since pinning to the
-      // API host would be wrong for them.
-      final http.Response response;
-      if (url.startsWith(ApiConfig.baseUrl)) {
-        final rest = url.substring(ApiConfig.baseUrl.length);
-        final qIndex = rest.indexOf('?');
-        final path = qIndex == -1 ? rest : rest.substring(0, qIndex);
-        final query = qIndex == -1
-            ? null
-            : Uri.splitQueryString(rest.substring(qIndex + 1));
-        response = await VHHttpClient.getBytes(path, queryParameters: query);
-      } else {
-        response = await http.get(Uri.parse(url));
-      }
+      final response = await DocumentDownload.get(url);
       if (response.statusCode == 200) {
         // Encrypt PHI bytes before they touch disk, then persist. Only persist
         // on success — never leave a partial file in the cache.
