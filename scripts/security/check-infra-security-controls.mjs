@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { PATCHED_DEPENDENCY_FLOORS, dependencyViolations } from './dependency-floors.mjs';
+import { installStagesCopyOnlyManifestsBeforeNpmCi } from './docker-install-stage-guard.mjs';
 
 const repoRoot = process.cwd();
 
@@ -38,27 +39,6 @@ const githubDalekDeploy = read('.github/workflows/deploy-dalekdefender.yml');
 const backendIngress = read('infra/kubernetes/apps/backend/ingress.yaml');
 
 const sha256Digest = '@sha256:[a-f0-9]{64}';
-// OPEN-22 (2026-09-03): the install used to copy a patch script into every
-// `npm ci` stage and rewrite node_modules from postinstall. That is retired;
-// each install stage may copy ONLY the manifests before `npm ci`, and nothing
-// under scripts/ may be named like an install-time compatibility patch.
-const MANIFEST_COPY = /^COPY package\.json package-lock\.json\*? \.\/$/;
-function installStagesCopyOnlyManifestsBeforeNpmCi(dockerfile, expectedStageCount) {
-  const installStages = dockerfile
-    .split(/^FROM /m)
-    .filter((stage) => stage.includes('RUN npm ci'));
-  return (
-    installStages.length === expectedStageCount &&
-    installStages.every((stage) => {
-      const beforeInstall = stage.slice(0, stage.indexOf('RUN npm ci'));
-      const copies = beforeInstall
-        .split(/\r?\n/)
-        .filter((line) => /^COPY\b/.test(line));
-      return copies.length === 1 && MANIFEST_COPY.test(copies[0]);
-    })
-  );
-}
-
 const GUARDED_DEPENDENCIES = Object.keys(PATCHED_DEPENDENCY_FLOORS);
 function lockfileMeetsPatchedFloors(lockfile) {
   return GUARDED_DEPENDENCIES.every(
