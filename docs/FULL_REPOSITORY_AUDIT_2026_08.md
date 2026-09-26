@@ -1,10 +1,10 @@
 # VH Health Full-Repository Audit — Reconciled Ledger
 
-**Latest bounded reconciliation:** 2026-09-16, authoritative `github/main`
-`d60f1ea2c853a9fa525f4a15e60b9fe7b044fc4e` (PR #1088). This update covers
-OPEN-23's eight restored maternity constraints and status-width repair only; it is
-**not a new whole-repository audit**. Other rows retain their explicitly dated
-evidence, not an implied September 16 verification.
+**Latest bounded reconciliation:** 2026-09-26, authoritative `github/main`
+`95baac6b534f611771d2f7a6d8ee9114b45dd086`. This update records the merged
+scope of #1023 and #1091 only; it is **not a new whole-repository audit**.
+OPEN-23 retains its September 16 constraint receipt below. Other rows retain
+their explicitly dated evidence, not an implied September 26 verification.
 
 The original remediation snapshot was branch `fix/full-repository-audit-2026-08`,
 head `b3807dccbc9281e94182041dd440542e6e77f14d`, draft PR
@@ -30,6 +30,41 @@ train. Both are replaced below.
   now fully superseded: every lane it lists has been reviewed, committed, and
   integrated into this branch.
 - This file — the current finding ledger and the historical PR #867 rating.
+
+### 2026-09-26 bounded merged-scope receipt — cath design and maternity refresh
+
+GitHub was queried directly for both PRs, and both merge commits are ancestors
+of the main SHA above. No application or environment tests were rerun for this
+documentation receipt.
+
+[PR #1023](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1023)
+merged on September 8 as `d45a63037b9757fdb6805c941ec49578ea267769`.
+Its delivered scope is the cath-readiness design and implementation plan in
+`docs/superpowers/specs/2026-09-06-cath-readiness-never-restricts-design.md`
+and `docs/superpowers/plans/2026-09-06-cath-readiness-never-restricts.md`,
+plus a `.gitleaks.toml` change. It is no longer a draft. This design merge is
+not proof that the planned runtime workflows or clinical activation are complete.
+The September 8 snapshot below retains its historical PR-state observation.
+
+[PR #1091](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1091)
+merged on September 22 as `d3bf7b3136004adf5b0644a0c41dac6d8a6f32ef`.
+`apps/staff/lib/features/maternity/screens/maternity_screen.dart:251-254`
+awaits return from the partograph chart and refreshes the board while its
+context remains mounted. The seven widget regressions in
+`apps/staff/test/features/maternity/maternity_screen_test.dart:127` cover
+nested entry and chart return, direct save/cancel, failed refresh with retry,
+and disposal during navigation or an outstanding refresh.
+
+At final PR head `48d482a2dca0ceaef4678be6bd538a9be27f2dca`,
+[Canonical CI 35709283504](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/35709283504)
+reports successful `Merge Gate` and `Full Merge Gate` checks, all three backend
+shards, and six `full_*` jobs, including the Flutter workspace and web build.
+These are hosted receipts read from that head, not new local test results.
+
+Only this board-refresh defect is recorded as implemented. **OPEN-19 remains
+open**: #1091 adds no delivery, newborn or postnatal capture form, and supplies
+no recorder/performer decision, linguistic review, clinical approval or
+activation evidence. It does not expand the migration-800–802 closure scope.
 
 ### 2026-09-16 bounded OPEN-23 receipt — migrations 801–802
 

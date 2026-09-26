@@ -1,9 +1,10 @@
 # VH Health Platform — Consolidated Roadmap
 
-**Single source of truth for pending work. Latest bounded update: OPEN-23 only,
-2026-09-16 at authoritative `github/main`
-`d60f1ea2c853a9fa525f4a15e60b9fe7b044fc4e`. The remaining queue retains its
-2026-09-08 evidence at `4c1f5654ca70b4dbc2699c96279e0ea03cc8e43c`.**
+**Single source of truth for pending work. Latest bounded update: #1023 and
+#1091 merged-scope receipts, 2026-09-26 at authoritative `github/main`
+`95baac6b534f611771d2f7a6d8ee9114b45dd086`. OPEN-23 retains its September 16
+receipt at `d60f1ea2c853a9fa525f4a15e60b9fe7b044fc4e`; the remaining queue
+retains its September 8 evidence at `4c1f5654ca70b4dbc2699c96279e0ea03cc8e43c`.**
 
 The update below reconciles named audit queue items and merged slices only. It
 is not a fresh audit of every historical section in this roadmap.
@@ -49,7 +50,7 @@ Code merges and green checks do not authorize deployment or activation.
 
 ---
 
-## Current audit-remediation queue (September 8; OPEN-23 updated September 16)
+## Current audit-remediation queue (bounded receipts through September 26)
 
 This is the pending-work cross-link for the canonical audit ledger, not a second
 finding ledger. Finding classifications, historical IDs, exact evidence, and
@@ -124,7 +125,8 @@ import-race tasks from this immediate queue.
   #1014/#1029's design decisions, #1030's schema 768, and #1031's lifecycle
   kernel are merged. The remaining Plan 4 integration, domain workflows,
   review and clinical activation are not closed by those slices. Cath
-  readiness redesign #1023 is still draft. Continue from the current
+  readiness design/plan #1023 merged September 8 as `d45a63037`; the design
+  merge does not establish runtime or activation closure. Continue from the current
   [Plan 4 plan](superpowers/plans/2026-09-05-reprocessable-devices-platform.md)
   under its existing owner; do not allocate an already-used migration number
   or implement overlapping work from an older handoff.
@@ -142,6 +144,12 @@ import-race tasks from this immediate queue.
   immunisations, document-signature reads, bed inspections, and Ask-a-Doubt's
   intentionally one-way product contract. Existing detail remains in the
   re-audit sections below.
+  #1091 merged September 22 as `d3bf7b313`: the existing Staff maternity board
+  refreshes after returning from the partograph chart, with seven widget
+  regressions and full hosted CI at `48d482a2d`. This closes that refresh
+  defect only; it adds no delivery/newborn/postnatal capture forms or
+  recorder/performer, clinical, linguistic or activation approval. The
+  canonical ledger's September 26 receipt records the exact evidence.
 
 ### External and activation stops `[OPERATOR]` `[EXTERNAL]`
 
