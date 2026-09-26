@@ -5,9 +5,10 @@
 // with autofill provenance → submit → verify → de-identified export →
 // withdraw. Conflict + gating paths included.
 
-import prisma from '../lib/prisma.js';
+import prisma, { setTenantTx } from '../lib/prisma.js';
 import { authClient } from './testClient.js';
 import { DEFAULT_TENANT_ID } from '../services/tenant/tenantService.js';
+import { captureCrfResponse, submitCrfResponse } from '../services/research/researchRegistryService.js';
 
 const DB_CONFIGURED = !!(process.env.DATABASE_URL || process.env.TEST_DATABASE_URL);
 const d = DB_CONFIGURED ? describe : describe.skip;
@@ -24,6 +25,61 @@ let registryId;
 let formId;
 let enrollmentId;
 let responseId;
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
+}
+
+async function waitForBlockedCrfQuery(fragment) {
+  for (let attempt = 0; attempt < 160; attempt += 1) {
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n FROM pg_stat_activity
+       WHERE datname = current_database() AND pid <> pg_backend_pid()
+         AND wait_event_type = 'Lock' AND query ILIKE $1`,
+      `%${fragment}%`,
+    );
+    if (rows[0].n > 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Timed out waiting for blocked CRF query: ${fragment}`);
+}
+
+async function raceAgainstLockedResponse(id, waitingQuery, operation, mutation) {
+  const locked = deferred();
+  const release = deferred();
+  const holder = setTenantTx(DEFAULT_TENANT_ID, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `SELECT id FROM research_crf_responses WHERE id = $1 AND tenant_id = $2::uuid FOR UPDATE`,
+      id, DEFAULT_TENANT_ID,
+    );
+    if (rows.length !== 1) throw new Error('CRF race fixture not found');
+    locked.resolve();
+    await release.promise;
+    await mutation(tx);
+  }, { timeout: 20_000 }).catch((error) => {
+    locked.reject(error);
+    throw error;
+  });
+  holder.catch(() => {});
+
+  await locked.promise;
+  const result = operation();
+  result.catch(() => {});
+  let waitError;
+  try {
+    await waitForBlockedCrfQuery(waitingQuery);
+  } catch (error) {
+    waitError = error;
+  } finally {
+    release.resolve();
+  }
+  await holder;
+  if (waitError) throw waitError;
+  return result;
+}
 
 async function cleanup() {
   await prisma.$executeRawUnsafe(
@@ -227,6 +283,74 @@ d('Research/registry capture — deep round-trip (roadmap D6)', () => {
     expect(res.status).toBe(400);
     expect(JSON.stringify(res.body)).toContain('above maximum');
   });
+
+  test('a stale draft save cannot overwrite data after the response is submitted', async () => {
+    const original = await captureCrfResponse(formId, {
+      enrollmentId, visitLabel: 'race-save', autofill: false,
+      data: { weight_kg: 72.5, age_years: 46, on_treatment: true },
+    }, { actorUid: DOCTOR_UID, tenantId: DEFAULT_TENANT_ID });
+
+    const save = raceAgainstLockedResponse(
+      original.id,
+      'INSERT INTO research_crf_responses',
+      () => captureCrfResponse(formId, {
+        enrollmentId, visitLabel: 'race-save', autofill: false,
+        data: { weight_kg: 72.5, age_years: 46, on_treatment: false },
+      }, { actorUid: DOCTOR_UID, tenantId: DEFAULT_TENANT_ID }),
+      (tx) => tx.$executeRawUnsafe(
+        `UPDATE research_crf_responses SET status = 'submitted', submitted_at = NOW()
+         WHERE id = $1 AND tenant_id = $2::uuid`,
+        original.id, DEFAULT_TENANT_ID,
+      ),
+    );
+    await expect(save).rejects.toMatchObject({
+      code: 'INVALID_STATE_TRANSITION', statusCode: 400,
+    });
+
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT status, data, autofilled FROM research_crf_responses
+       WHERE id = $1 AND tenant_id = $2::uuid`,
+      original.id, DEFAULT_TENANT_ID,
+    );
+    expect(rows[0]).toMatchObject({
+      status: 'submitted', data: original.data, autofilled: original.autofilled,
+    });
+  }, 20_000);
+
+  test('submission validates the latest locked draft, not data read before a concurrent save', async () => {
+    const original = await captureCrfResponse(formId, {
+      enrollmentId, visitLabel: 'race-submit', autofill: false,
+      data: { weight_kg: 72.5, age_years: 46, on_treatment: true },
+    }, { actorUid: DOCTOR_UID, tenantId: DEFAULT_TENANT_ID });
+
+    const submit = raceAgainstLockedResponse(
+      original.id,
+      'FOR UPDATE OF r',
+      () => submitCrfResponse(original.id, {
+        actorUid: DOCTOR_UID, actorRole: 'DOCTOR', tenantId: DEFAULT_TENANT_ID,
+      }),
+      (tx) => tx.$executeRawUnsafe(
+        `UPDATE research_crf_responses SET data = '{"weight_kg": 72.5}'::jsonb
+         WHERE id = $1 AND tenant_id = $2::uuid`,
+        original.id, DEFAULT_TENANT_ID,
+      ),
+    );
+    await expect(submit).rejects.toMatchObject({
+      code: 'RESEARCH_RESPONSE_INCOMPLETE', statusCode: 400,
+    });
+
+    const rows = await prisma.$queryRawUnsafe(
+      `SELECT status, data FROM research_crf_responses WHERE id = $1 AND tenant_id = $2::uuid`,
+      original.id, DEFAULT_TENANT_ID,
+    );
+    expect(rows[0]).toMatchObject({ status: 'draft', data: { weight_kg: 72.5 } });
+    const events = await prisma.$queryRawUnsafe(
+      `SELECT COUNT(*)::int AS n FROM clinical_timeline_events
+       WHERE source_table = 'research_crf_responses' AND source_id = $1`,
+      String(original.id),
+    );
+    expect(events[0].n).toBe(0);
+  }, 20_000);
 
   test('submits then verifies the response; draft edits are blocked after submit', async () => {
     const submit = await doctor.post(`/api/v1/research/responses/${responseId}/submit`).send({});
