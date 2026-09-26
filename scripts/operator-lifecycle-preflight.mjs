@@ -269,7 +269,7 @@ export function checkStaticContract({ cwd = repoRoot, kustomize = findKustomize(
   const markers = [
     'infra/kubernetes/base/cert-manager/cert-manager.yaml',
     'infra/kubernetes/base/cnpg/operator.yaml',
-    'infra/kubernetes/base/minio/operator.yaml',
+    'infra/kubernetes/held/local-object-storage/minio/operator.yaml',
   ].map(path => readFileSync(join(cwd, path), 'utf8')).join('\n');
   for (const expected of OPERATOR_APPLICATIONS) {
     for (const value of [expected.repository, expected.revision, expected.chartDigest]) {

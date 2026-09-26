@@ -121,14 +121,28 @@ assert.equal(
   behaviorLines(removeInternalClass(sourceAtBaseline(publicPath))),
   'public controller changed beyond nginx-internal IngressClass extraction',
 );
+function longhornWithoutHeldBackup(source, historical) {
+  let normalized = source;
+  for (const [field, oldValue] of [
+    ['backupTarget', '"s3://longhorn-backups@apsouth1/"'],
+    ['backupTargetCredentialSecret', 'longhorn-s3-secret'],
+  ]) {
+    const pattern = new RegExp(`^          ${field}: (.+)$`, 'gm');
+    const matches = [...normalized.matchAll(pattern)];
+    assert.equal(matches.length, 1, `Longhorn must declare exactly one ${field}`);
+    assert.equal(matches[0][1], historical ? oldValue : '""', `unexpected Longhorn ${field}`);
+    normalized = normalized.replace(pattern, `          ${field}: REVIEWED_LOCAL_STORAGE_HOLD`);
+  }
+  return behaviorLines(normalized);
+}
 assert.equal(
-  sourceAtBaseline('infra/kubernetes/base/longhorn/longhorn-app.yaml'),
-  read('infra/kubernetes/base/longhorn/longhorn-app.yaml'),
+  longhornWithoutHeldBackup(sourceAtBaseline('infra/kubernetes/base/longhorn/longhorn-app.yaml'), true),
+  longhornWithoutHeldBackup(read('infra/kubernetes/base/longhorn/longhorn-app.yaml'), false),
   'Longhorn public-class behavior changed',
 );
 assert.equal(
   sourceAtBaseline('infra/kubernetes/base/harbor/harbor-values.yaml'),
-  read('infra/kubernetes/base/harbor/harbor-values.yaml'),
+  read('infra/kubernetes/held/local-object-storage/harbor/harbor-values.yaml'),
   'Harbor public-class behavior changed',
 );
 
@@ -273,7 +287,7 @@ assert.ok(
 const heldSources = [
   'infra/kubernetes/apps/backend/ingress-clinical-internal.yaml',
   'infra/kubernetes/apps/staff-web/ingress.yaml',
-  'infra/kubernetes/base/minio/tenant.yaml',
+  'infra/kubernetes/held/local-object-storage/minio/tenant.yaml',
   'infra/kubernetes/base/monitoring/kube-prometheus-values.yaml',
   'infra/kubernetes/base/argocd/argocd-values.yaml',
   'infra/kubernetes/optional/metabase/metabase.yaml',
