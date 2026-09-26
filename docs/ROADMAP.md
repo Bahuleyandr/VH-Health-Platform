@@ -1,8 +1,9 @@
 # VH Health Platform — Consolidated Roadmap
 
-**Single source of truth for pending work. Latest bounded update: #1023 and
-#1091 merged-scope receipts, 2026-09-26 at authoritative `github/main`
-`95baac6b534f611771d2f7a6d8ee9114b45dd086`. OPEN-23 retains its September 16
+**Single source of truth for pending work. Latest bounded update: #1098–#1100
+merged-scope receipts, 2026-09-27 at authoritative `github/main`
+`b727ce31ed5117df03e57e38d6824b0868edcc6e`, preserving the September 26
+#1023/#1091 receipts. OPEN-23 retains its September 16
 receipt at `d60f1ea2c853a9fa525f4a15e60b9fe7b044fc4e`; the remaining queue
 retains its September 8 evidence at `4c1f5654ca70b4dbc2699c96279e0ea03cc8e43c`.**
 
@@ -50,7 +51,7 @@ Code merges and green checks do not authorize deployment or activation.
 
 ---
 
-## Current audit-remediation queue (bounded receipts through September 26)
+## Current audit-remediation queue (bounded receipts through September 27)
 
 This is the pending-work cross-link for the canonical audit ledger, not a second
 finding ledger. Finding classifications, historical IDs, exact evidence, and
@@ -91,10 +92,17 @@ import-race tasks from this immediate queue.
   [`TRANSLATION_REVIEW_TRACKER.md`](TRANSLATION_REVIEW_TRACKER.md):
   the 4,008 English-source Staff Malayalam placeholder baseline is not
   translated by these batches, Patient review remains pending, and all
-  24 new non-English Batch 1.2 labels await review. Broaden the currently
-  four-contract backend inventory gate and obtain an explicit Admin
-  localization scope decision. Payment, clinical, consent, legal and Staff Web
-  copy retain their named authority stops; technical parity is not approval.
+  24 new non-English Batch 1.2 labels await review. #1098 (`b727ce31e`)
+  adds discovery of exported backend `*_PRESENTATIONS` contracts, a nonempty
+  inventory including eight named contracts, and tested five-locale routing
+  for investigation results and patient appointment reminders, confirmations
+  and reschedules, preserving persisted SMS jobs. The new contracts retain
+  existing English wording as technical placeholders pending human review.
+  This is not coverage of every hardcoded backend string; the staff-facing
+  doctor reminder remains English-only. Obtain the explicit Admin-localization scope decision and
+  continue the remaining coverage work. Payment, clinical, consent, legal and
+  Staff Web copy retain their named authority stops; technical parity is not
+  approval. The canonical ledger's September 27 receipt records this scope.
 - **OPEN-23 — absent inline CHECK constraints** `[CODE]` `[OPERATOR]`.
   #1079 is merged: migration 800 restores the three pregnancy CHECKs, with
   local lineage/runtime-role verification, full hosted CI and separately
@@ -166,13 +174,28 @@ import-race tasks from this immediate queue.
 - HL7v2/FHIR adapters await conformance evidence against real receiving
   endpoints before any interoperability activation.
 - Production digests, R2/allowlists, Sealed Secrets, PG18, operator lifecycle,
-  target-cluster qualification, Redis failover, MinIO recovery, and Android
-  release evidence remain owner/environment gates.
+  target-cluster qualification, Redis failover and Android release evidence
+  remain owner/environment gates.
+- #1099 (`38603f9c3`) holds the never-deployed VH MinIO/Harbor declarations
+  outside active composition, suspends the dependent local archive producer
+  and holds the Longhorn local backup target. Independent CNPG direct-to-R2
+  backups and encrypted archive verification remain preserved; their evidence
+  is not supplied by this hold. The
+  `docs/OBJECT_STORE_ROOK_CEPH_REPLACEMENT_DESIGN.md` design remains **NOT
+  QUALIFIED**. Named owner decisions, failure-domain/retention/restore
+  qualification and separate activation authority remain required; do not
+  turn the historical MinIO recovery task into permission to install it.
+- #1100 (`eb235c114`) delivers the backend Alpine cache refresh and guarded
+  install-only ONNX download skip. This bounded image repair does not clear
+  storage qualification, owner-secret, notification-delivery or production
+  release gates, does not qualify model inference, and is not a permanent
+  vulnerability-free image claim.
 - Alertmanager validation is wired by #961, but delivery still awaits owner
   webhook/PagerDuty/Slack/SMTP inputs, sealing, manual Argo sync, and captured
   notification proof.
 - Five-locale parity is `en`/`hi`/`ta`/`te`/`ml`. #965/#970 technical
-  coverage and #1013/#1027's bounded cath follow-ups are merged, not overall
+  coverage, #1013/#1027's bounded cath follow-ups and #1098's named backend
+  notification contracts are merged, not overall
   linguistic sign-off. OPEN-21 and the translation tracker retain the exact
   review queue. Clinical, dosage, consent, legal, identity, security, payment
   and ABDM wording need the appropriate named human approval; Staff Web
