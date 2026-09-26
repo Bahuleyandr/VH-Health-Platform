@@ -103,6 +103,45 @@ describe('five-locale backend notification presentation contracts', () => {
     }, ['title', 'body'])).toThrow();
   });
 
+  describe.each([
+    ['investigation ready', INVESTIGATION_READY_PRESENTATIONS, investigationReadyPresentation],
+    ['appointment reminder', APPOINTMENT_REMINDER_PRESENTATIONS, appointmentReminderPresentation],
+    ['appointment confirmation', APPOINTMENT_CONFIRMATION_PRESENTATIONS, appointmentConfirmationPresentation],
+    ['appointment reschedule', APPOINTMENT_RESCHEDULE_PRESENTATIONS, appointmentReschedulePresentation],
+  ])('%s locale selector', (_name, presentations, selectPresentation) => {
+    test('keeps five distinct frozen locale entries', () => {
+      const entries = FIVE_LOCALES.map((locale) => presentations[locale]);
+      expect(Object.isFrozen(presentations)).toBe(true);
+      expect(new Set(entries).size).toBe(FIVE_LOCALES.length);
+      for (const entry of entries) {
+        expect(Object.isFrozen(entry)).toBe(true);
+      }
+    });
+
+    test.each([
+      ['en', 'en'],
+      ['hi', 'hi'],
+      ['ta', 'ta'],
+      ['te', 'te'],
+      ['ml', 'ml'],
+      ['en-GB', 'en'],
+      ['HI_in', 'hi'],
+      ['  ta-IN  ', 'ta'],
+      ['te_IN', 'te'],
+      [' ML_in ', 'ml'],
+      ['unsupported', 'en'],
+      ['constructor', 'en'],
+      ['toString', 'en'],
+      ['__proto__', 'en'],
+      ['', 'en'],
+      ['   ', 'en'],
+      [null, 'en'],
+      [undefined, 'en'],
+    ])('maps %p to the %s entry', (language, expectedLocale) => {
+      expect(selectPresentation(language)).toBe(presentations[expectedLocale]);
+    });
+  });
+
   test('payment links resolve Malayalam and preserve all template fields', () => {
     expectFiveLocaleContract(PAYMENT_LINK_PRESENTATIONS, [
       'subject',
