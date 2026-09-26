@@ -41,12 +41,62 @@ test('rejects a non-manifest add before an install', () => {
   assert.equal(installStagesCopyOnlyManifestsBeforeNpmCi(changed, 2), false);
 });
 
+test('rejects indented non-manifest imports before an install', () => {
+  for (const instruction of ['  COPY', '\tADD', '  copy', '\tadd']) {
+    const changed = backendDockerfile.replace(
+      'RUN ONNXRUNTIME_NODE_INSTALL=skip npm ci',
+      `${instruction} scripts ./scripts\nRUN ONNXRUNTIME_NODE_INSTALL=skip npm ci`,
+    );
+    assert.equal(installStagesCopyOnlyManifestsBeforeNpmCi(changed, 2), false);
+  }
+});
+
+test('accepts indented manifest-only copies', () => {
+  assert.equal(installStagesCopyOnlyManifestsBeforeNpmCi(
+    backendDockerfile.replaceAll('COPY package.json', '  COPY package.json'), 2,
+  ), true);
+});
+
 test('rejects a second install after a non-manifest copy', () => {
   const changed = backendDockerfile.replace(
     'RUN ONNXRUNTIME_NODE_INSTALL=skip npm ci\n',
     'RUN ONNXRUNTIME_NODE_INSTALL=skip npm ci\nCOPY scripts ./scripts\nRUN npm ci\n',
   );
   assert.equal(installStagesCopyOnlyManifestsBeforeNpmCi(changed, 2), false);
+});
+
+test('rejects a second install on the same physical line', () => {
+  const changed = backendDockerfile.replace(
+    'RUN ONNXRUNTIME_NODE_INSTALL=skip npm ci\n',
+    'RUN ONNXRUNTIME_NODE_INSTALL=skip npm ci && npm ci --omit=dev\n',
+  );
+  assert.equal(installStagesCopyOnlyManifestsBeforeNpmCi(changed, 2), false);
+});
+
+test('rejects alternate Docker command forms for a second install', () => {
+  const continuation = String.fromCharCode(92, 10);
+  for (const command of [
+    'RUN ["npm", "ci"]',
+    'RUN ["/usr/local/bin/npm", "ci"]',
+    'RUN ["np\\u006d", "ci"]',
+    'RUN --mount=type=cache,target=/tmp ["npm", "ci"]',
+    `RUN npm ${continuation}    ci`,
+    `RUN npm ${continuation}# install continuation\n    ci`,
+  ]) {
+    const changed = backendDockerfile.replace(
+      'RUN ONNXRUNTIME_NODE_INSTALL=skip npm ci\n',
+      `RUN ONNXRUNTIME_NODE_INSTALL=skip npm ci\nCOPY scripts ./scripts\n${command}\n`,
+    );
+    assert.equal(installStagesCopyOnlyManifestsBeforeNpmCi(changed, 2), false);
+  }
+});
+
+test('accepts a continued manifest-only install command', () => {
+  const changed = backendDockerfile.replace(
+    'RUN ONNXRUNTIME_NODE_INSTALL=skip npm ci\n',
+    `RUN ONNXRUNTIME_NODE_INSTALL=skip npm ${String.fromCharCode(92, 10)}    ci\n`,
+  );
+  assert.equal(installStagesCopyOnlyManifestsBeforeNpmCi(changed, 2), true);
 });
 
 test('rejects a second BuildKit install after a non-manifest copy', () => {
