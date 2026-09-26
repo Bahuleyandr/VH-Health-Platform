@@ -144,6 +144,118 @@ void main() {
     },
   );
 
+  for (final location in <String?>[null, '']) {
+    test(
+      'rejects a ${location == null ? 'missing' : 'empty'} redirect location '
+      'before a second send',
+      () async {
+        var sends = 0;
+        final client = MockClient((request) async {
+          sends++;
+          if (sends > 1) throw StateError('Unexpected second request');
+          expect(request.followRedirects, isFalse);
+          return http.Response(
+            '',
+            302,
+            headers: {if (location != null) 'location': location},
+          );
+        });
+        await expectLater(
+          DocumentDownload.get(
+            'https://storage.example.test/first.pdf',
+            externalClient: client,
+          ),
+          throwsA(isA<DocumentUrlException>()),
+        );
+        expect(sends, 1);
+      },
+    );
+  }
+
+  test('rejects a redirect cycle before resending a visited URL', () async {
+    final requests = <Uri>[];
+    final client = MockClient((request) async {
+      requests.add(request.url);
+      if (requests.length > 2) throw StateError('Unexpected repeated request');
+      expect(request.followRedirects, isFalse);
+      return http.Response(
+        '',
+        302,
+        headers: {
+          'location': requests.length == 1 ? '/second.pdf' : '/first.pdf',
+        },
+      );
+    });
+    await expectLater(
+      DocumentDownload.get(
+        'https://storage.example.test/first.pdf',
+        externalClient: client,
+      ),
+      throwsA(isA<DocumentUrlException>()),
+    );
+    expect(requests, hasLength(2));
+    expect(requests.map((url) => url.toString()), [
+      'https://storage.example.test/first.pdf',
+      'https://storage.example.test/second.pdf',
+    ]);
+  });
+
+  test('accepts exactly five redirects with six requests', () async {
+    final requests = <Uri>[];
+    final client = MockClient((request) async {
+      requests.add(request.url);
+      if (requests.length > 6) throw StateError('Unexpected seventh request');
+      expect(request.followRedirects, isFalse);
+      if (requests.length == 6) return http.Response.bytes([6, 7], 200);
+      return http.Response(
+        '',
+        302,
+        headers: {'location': '/hop${requests.length}.pdf'},
+      );
+    });
+    final response = await DocumentDownload.get(
+      'https://storage.example.test/hop0.pdf',
+      externalClient: client,
+    );
+    expect(response.statusCode, 200);
+    expect(response.bodyBytes, [6, 7]);
+    expect(requests, hasLength(6));
+    expect(requests.map((url) => url.toString()), [
+      for (var hop = 0; hop <= 5; hop++)
+        'https://storage.example.test/hop$hop.pdf',
+    ]);
+  });
+
+  test('rejects a sixth redirect before sending its target', () async {
+    final requests = <Uri>[];
+    final client = MockClient((request) async {
+      requests.add(request.url);
+      if (requests.length > 6) throw StateError('Unexpected seventh request');
+      expect(request.followRedirects, isFalse);
+      return http.Response(
+        '',
+        302,
+        headers: {'location': '/hop${requests.length}.pdf'},
+      );
+    });
+    await expectLater(
+      DocumentDownload.get(
+        'https://storage.example.test/hop0.pdf',
+        externalClient: client,
+      ),
+      throwsA(isA<DocumentUrlException>()),
+    );
+    expect(requests, hasLength(6));
+    expect(requests.map((url) => url.toString()), [
+      for (var hop = 0; hop <= 5; hop++)
+        'https://storage.example.test/hop$hop.pdf',
+    ]);
+    expect(
+      requests,
+      isNot(contains(Uri.parse('https://storage.example.test/hop6.pdf'))),
+    );
+  });
+
   test('rejects a downgrade before reading a failed redirect body', () async {
     var sends = 0;
     final client = _StreamClient((request) async {
