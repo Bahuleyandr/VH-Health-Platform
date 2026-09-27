@@ -15,6 +15,7 @@
 // Self-skips without a DB (same pattern as news2EscalationRecipient.deep).
 
 import prisma from '../lib/prisma.js';
+import { cleanupCriticalVitalFixtures } from './helpers/criticalVitalFixtureCleanup.js';
 import { recordVitals, correctVitals } from '../services/emr/vitalsChartService.js';
 import {
   ICU_FLOWSHEET_BOUNDS,
@@ -55,6 +56,7 @@ function expectedConstraintDefinition() {
 }
 
 async function cleanup() {
+  await cleanupCriticalVitalFixtures(prisma, TENANT, [PATIENT]);
   const patientRows = await query(`SELECT id FROM users WHERE uid = $1::uuid`, PATIENT);
   const patientId = patientRows[0]?.id ?? null;
   await prisma.$transaction(async (tx) => {
@@ -64,19 +66,19 @@ async function cleanup() {
       `DELETE FROM workflow_sla_instances WHERE patient_uid = $1::uuid`,
       PATIENT,
     );
-  }).catch(() => {});
-  await exec(`DELETE FROM cds_alerts WHERE patient_uid = $1::uuid`, PATIENT).catch(() => {});
+  });
+  await exec(`DELETE FROM cds_alerts WHERE patient_uid = $1::uuid`, PATIENT);
   if (patientId != null) {
-    await exec(`DELETE FROM clinical_alerts WHERE patient_id = $1::int`, patientId).catch(() => {});
+    await exec(`DELETE FROM clinical_alerts WHERE patient_id = $1::int`, patientId);
   }
-  await exec(`DELETE FROM news2_scores WHERE patient_uid = $1::uuid`, PATIENT).catch(() => {});
+  await exec(`DELETE FROM news2_scores WHERE patient_uid = $1::uuid`, PATIENT);
   // Append-only guarded tables — the test-DB role is a superuser (the
   // guard's accepted escape hatch), same as the sibling canonical deep tests.
-  await exec(`DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`, PATIENT).catch(() => {});
-  await exec(`DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid`, PATIENT).catch(() => {});
-  await exec(`DELETE FROM audit_logs WHERE uid = $1::uuid AND action = 'CORRECT_VITALS'`, NURSE).catch(() => {});
-  await exec(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, PATIENT).catch(() => {});
-  await exec(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT, NURSE).catch(() => {});
+  await exec(`DELETE FROM clinical_timeline_events WHERE patient_uid = $1::uuid`, PATIENT);
+  await exec(`DELETE FROM clinical_audit_events WHERE patient_uid = $1::uuid`, PATIENT);
+  await exec(`DELETE FROM audit_logs WHERE uid = $1::uuid AND action = 'CORRECT_VITALS'`, NURSE);
+  await exec(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, PATIENT);
+  await exec(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid)`, PATIENT, NURSE);
 }
 
 d('R5/R4 — plausibility floors + correction re-score (real Postgres)', () => {
@@ -97,8 +99,11 @@ d('R5/R4 — plausibility floors + correction re-score (real Postgres)', () => {
   });
 
   afterAll(async () => {
-    await cleanup();
-    await prisma.$disconnect().catch(() => {});
+    try {
+      await cleanup();
+    } finally {
+      await prisma.$disconnect();
+    }
   });
 
   it('R5: HR 15 during an arrest is accepted and scored as a NEWS2 red parameter', async () => {
