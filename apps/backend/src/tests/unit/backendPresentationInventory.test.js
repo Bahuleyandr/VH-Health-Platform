@@ -70,6 +70,133 @@ describe('backend presentation source inventory', () => {
       .toThrow(/stale/);
   });
 
+  test('resolves frozen module string records copied into distinct locale entries without approving wording', () => {
+    const source = `throw new Error('must not execute');
+      const copy = Object.freeze({title:'Frozen copy', body:'Reference {id}'});
+      const NEW_PRESENTATIONS = Object.freeze({
+        en:Object.freeze({...copy}),hi:Object.freeze({...copy}),ta:Object.freeze({...copy}),
+        te:Object.freeze({...copy}),ml:Object.freeze({...copy})});`;
+    const sites = sample(source);
+    const matrices = sites.filter(site => site.kind === 'frozen-locale-matrix');
+    expect(matrices).toHaveLength(1);
+    expect(matrices[0].locales).toEqual([...FIVE_LOCALES].sort());
+    expect(matrices[0].fields).toEqual(['body', 'title']);
+    const held = declaration(sites);
+    expect(validatePresentationInventory(sites, held).localizationReadiness).toBe('incomplete');
+    const changed = sample(source.replace('Frozen copy', 'Changed copy'));
+    expect(changed.find(site => site.kind === 'frozen-locale-matrix').id).not.toBe(matrices[0].id);
+    expect(() => validatePresentationInventory(changed, held)).toThrow(/stale/);
+  });
+
+  test('resolves nested frozen string-record copies and preserves genuine prototype-named fields', () => {
+    const source = `const title = Object.freeze({title:'Notice'});
+      const copy = Object.freeze({...title,body:'Reference {id}',['__proto__']:'Own field'});
+      const NEW_PRESENTATIONS = {en:{...copy},hi:{...copy},ta:{...copy},te:{...copy},ml:{...copy}};`;
+    const matrices = sample(source).filter(site => site.kind === 'frozen-locale-matrix');
+    expect(matrices).toHaveLength(1);
+    expect(matrices[0].fields).toEqual(['__proto__', 'body', 'title']);
+  });
+
+  test('retains read-only local object aliases and immutable primitive aliases', () => {
+    const source = `const title='Notice'; const copy={title,body:'Reference {id}'};
+      const alias=copy;
+      const NEW_PRESENTATIONS={en:alias,hi:copy,ta:copy,te:copy,ml:alias};`;
+    const sites = sample(source);
+    expect(sites.filter(site => site.kind === 'frozen-locale-matrix')).toHaveLength(1);
+    expect(validatePresentationInventory(sites, declaration(sites)).localizationReadiness).toBe('incomplete');
+  });
+
+  test.each([
+    `const copy={title:'Notice'}; copy.title='Changed';`,
+    `const seed=Object.freeze({title:'Notice'}); const copy={...seed}; copy.title='Changed';`,
+    `const copy={title:'Notice'}; const alias=copy; alias.title='Changed';`,
+    `const copy={title:'Notice'}; const alias=copy; consume(alias);`,
+    `const copy={title:'Notice'}; consume(copy);`,
+    `const copy={title:'Notice'}; const holder={copy}; consume(holder);`,
+    `const copy={title:'Notice'}; function alter(Object){const discarded=Object.freeze(copy);}
+      alter({freeze(value){value.title='Changed'; return value;}});`,
+    `const copy={title:'Notice'}; Object.assign(copy,{title:'Changed'});`,
+    `const copy={title:'Notice'}; delete copy.title;`,
+    `const copy={title:'Notice'}; export {copy};`,
+  ])('rejects mutable object aliases with mutation or escape: %s', (declarations) => {
+    expect(() => sample(`${declarations}
+      const NEW_PRESENTATIONS={en:copy,hi:copy,ta:copy,te:copy,ml:copy};`))
+      .toThrow(/mutated or escaped static object alias/);
+  });
+
+  test.each([
+    `Object.freeze = value => ({title:'Replaced'});`,
+    `globalThis.Object.freeze = value => ({title:'Replaced'});`,
+    `globalThis['Object']['freeze'] = replacement;`,
+    `globalThis.Object = replacement;`,
+    `delete Object.freeze;`,
+    `Object.assign(Object,{freeze:replacement});`,
+    `Object.defineProperty(Object,'freeze',{value:replacement});`,
+    `Reflect.set(Object,'freeze',replacement);`,
+    `const NativeObject=Object; NativeObject.freeze=replacement;`,
+    `const NativeObject=globalThis.Object; NativeObject.freeze=replacement;`,
+    `const global=globalThis; global.Object.freeze=replacement;`,
+    `const {Object:NativeObject}=globalThis; NativeObject.freeze=replacement;`,
+    `const {freeze}=Object;`,
+  ])('rejects mutation or escape of global freeze authority: %s', (mutation) => {
+    expect(() => sample(`${mutation}
+      const copy=Object.freeze({title:'Notice'});
+      const NEW_PRESENTATIONS={en:{...copy},hi:{...copy},ta:{...copy},te:{...copy},ml:{...copy}};`))
+      .toThrow(/Object(?:\.freeze)? authority/);
+  });
+
+  test('unrelated local Object bindings do not alter native module freeze authority', () => {
+    const source = `function unrelated(Object) { Object.freeze=replacement; }
+      const copy=Object.freeze({title:'Notice'});
+      const NEW_PRESENTATIONS={en:{...copy},hi:{...copy},ta:{...copy},te:{...copy},ml:{...copy}};`;
+    expect(sample(source).filter(site => site.kind === 'frozen-locale-matrix')).toHaveLength(1);
+  });
+
+  test.each([
+    ['unfrozen record', `const copy={title:'Notice'};`, /frozen module constant/],
+    ['mutated record before freezing', `const value={title:'Notice'}; value.title='Changed'; const copy=Object.freeze(value);`, /frozen module constant/],
+    ['mutable binding', `let copy=Object.freeze({title:'Notice'});`, /frozen module constant/],
+    ['imported record', `import copy from './would-start-service.js';`, /frozen module constant/],
+    ['unknown call result', `const copy=Object.freeze(loadCopy());`, /frozen module constant/],
+    ['unresolved alias', `const copy=unknown;`, /frozen module constant/],
+    ['unfrozen nested value', `const copy=Object.freeze({title:{text:'Notice'}});`, /fields must be strings/],
+    ['accessor', `const copy=Object.freeze({get title(){throw new Error('must not execute');}});`, /accessor/],
+    ['prototype setter', `const copy=Object.freeze({__proto__:'not an own field',title:'Notice'});`, /prototype setter/],
+    ['dynamic key', `const copy=Object.freeze({[field]:'Notice'});`, /computed key/],
+    ['shadowed Object', `const Object={freeze: custom}; const copy=Object.freeze({title:'Notice'});`, /shadowed Object/],
+    ['direct write', `const copy=Object.freeze({title:'Notice'}); copy.title='Changed';`, /spread source reference/],
+    ['delete', `const copy=Object.freeze({title:'Notice'}); delete copy.title;`, /spread source reference/],
+    ['increment', `const copy=Object.freeze({title:'Notice'}); copy.title++;`, /spread source reference/],
+    ['assignment helper', `const copy=Object.freeze({title:'Notice'}); Object.assign(copy,{title:'Changed'});`, /spread source reference/],
+    ['property definition', `const copy=Object.freeze({title:'Notice'}); Object.defineProperty(copy,'title',{value:'Changed'});`, /spread source reference/],
+    ['escaped value', `const copy=Object.freeze({title:'Notice'}); consume(copy);`, /spread source reference/],
+    ['escaped alias', `const copy=Object.freeze({title:'Notice'}); const other=copy; other.title='Changed';`, /spread source reference/],
+    ['array spread', `const copy=Object.freeze({title:'Notice'}); const other=[...copy];`, /spread source reference/],
+    ['call spread', `const copy=Object.freeze({title:'Notice'}); consume(...copy);`, /spread source reference/],
+    ['cyclic spreads', `const first=Object.freeze({...copy}); const copy=Object.freeze({...first});`, /cyclic static locale value/],
+  ])('rejects unsafe or unsupported copied locale input: %s', (_name, declarations, expected) => {
+    expect(() => sample(`${declarations}
+      const NEW_PRESENTATIONS={en:{...copy},hi:{...copy},ta:{...copy},te:{...copy},ml:{...copy}};`))
+      .toThrow(expected);
+  });
+
+  test.each([
+    `function render(copy) { const NEW_PRESENTATIONS={en:{...copy},hi:{...copy},ta:{...copy},te:{...copy},ml:{...copy}}; }`,
+    `function render() { const copy=Object.freeze({title:'Local'}); const NEW_PRESENTATIONS={en:{...copy},hi:{...copy},ta:{...copy},te:{...copy},ml:{...copy}}; }`,
+  ])('rejects shadowed and non-module spread bindings: %s', (body) => {
+    expect(() => sample(`const copy=Object.freeze({title:'Module'}); ${body}`)).toThrow(/frozen module constant/);
+  });
+
+  test.each([
+    'en:{...copy,title:"Override"}',
+    'en:{title:"Override",...copy}',
+    'en:{...copy,...copy}',
+  ])('does not silently accept duplicate spread fields: %s', (entry) => {
+    expect(() => sample(`const copy=Object.freeze({title:'Notice'});
+      const NEW_PRESENTATIONS={${entry},hi:{...copy},ta:{...copy},te:{...copy},ml:{...copy}};`))
+      .toThrow(/duplicate locale\/field/);
+  });
+
   test.each([
     ['missing Malayalam', `const NEW_PRESENTATIONS={en:{title:'a'},hi:{title:'b'},ta:{title:'c'},te:{title:'d'}};`, /missing required locale/],
     ['empty wording', matrix('words', { ml: { body: '  ' } }), /empty\/non-string/],

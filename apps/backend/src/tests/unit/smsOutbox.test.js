@@ -18,8 +18,10 @@ const {
   queuePatientSms,
   queueAppointmentConfirmationSms,
   queueAppointmentReminderSms,
+  queueAppointmentRescheduleSms,
   renderAppointmentConfirmationSms,
   renderAppointmentReminderSms,
+  renderAppointmentRescheduleSms,
 } = await import('../../utils/notifications/smsOutbox.js');
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000001';
@@ -116,6 +118,11 @@ describe('appointment SMS templates', () => {
     expect(body).toContain('Doctor: Dr. Rao (Cardiology)');
     expect(body).toContain('Token: #12');
     expect(body).toContain('For queries call: 044-12345678');
+    expect(renderAppointmentConfirmationSms({
+      patientName: 'Asha', doctorName: 'Rao', date: '2026-08-20',
+      time: '10:30', tokenNumber: 12, department: 'Cardiology',
+      language: 'ml-IN',
+    })).toBe(body);
     delete process.env.HOSPITAL_PHONE;
   });
 
@@ -131,6 +138,13 @@ describe('appointment SMS templates', () => {
       patientName: 'Asha', doctorName: 'Rao', time: '10:30',
       hoursAhead: 1, tokenNumber: 12,
     })).toContain('in 1 hour.');
+    expect(renderAppointmentReminderSms({
+      patientName: 'Asha', doctorName: 'Rao', time: '10:30',
+      hoursAhead: 24, tokenNumber: 12, language: 'ml-IN',
+    })).toBe(
+      'Reminder: Dear Asha, you have an appointment at Venkataeswara Hospitals in 24 hours.\n'
+      + 'Time: 10:30 | Dr. Rao | Token #12',
+    );
   });
 
   it('queues the confirmation as an idempotent sms intent', async () => {
@@ -148,6 +162,43 @@ describe('appointment SMS templates', () => {
     }));
   });
 
+  it('selects the confirmation presentation without changing its unapproved English copy', async () => {
+    await queueAppointmentConfirmationSms({
+      tenantId: TENANT_ID, recipientId: 77, phone: '9000000001',
+      patientName: 'Asha', doctorName: 'Rao', date: '2026-08-20',
+      time: '10:30', tokenNumber: 12, appointmentId: 31, language: 'ml',
+    });
+    expect(queueMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Appointment confirmed',
+      body: expect.stringContaining('Dear Asha, your appointment at Venkataeswara Hospitals is confirmed.'),
+      sourceEventKey: 'appointment-confirmed:31',
+    }));
+  });
+
+  it('preserves reschedule copy and the instruction not to attend the old slot', async () => {
+    const args = {
+      patientName: 'Asha', doctorName: 'Rao', date: '2026-09-02',
+      time: '11:30', previousDate: '2026-08-14', previousTime: '10:00',
+      department: 'Cardiology',
+    };
+    const body = renderAppointmentRescheduleSms(args);
+    expect(renderAppointmentRescheduleSms({ ...args, language: 'ml-IN' })).toBe(body);
+    expect(body).toContain('has been RESCHEDULED.');
+    expect(body).toContain('Previously:');
+    expect(body).toContain('at 10:00');
+    expect(body).toContain('Please do not attend at the earlier time.');
+
+    await queueAppointmentRescheduleSms({
+      ...args, tenantId: TENANT_ID, recipientId: 77, phone: '9000000001',
+      appointmentId: 31, language: 'ml',
+    });
+    expect(queueMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Appointment rescheduled',
+      body,
+      sourceEventKey: 'appointment-rescheduled:31',
+    }));
+  });
+
   it('queues 24h and 1h reminders under distinct idempotency keys', async () => {
     const base = {
       tenantId: TENANT_ID, recipientId: 77, phone: '9000000001',
@@ -161,6 +212,20 @@ describe('appointment SMS templates', () => {
       'appointment-reminder-24h:31',
       'appointment-reminder-1h:31',
     ]);
+  });
+
+  it('records the patient locale choice without claiming translated wording', async () => {
+    await queueAppointmentReminderSms({
+      tenantId: TENANT_ID, recipientId: 77, phone: '9000000001',
+      patientName: 'Asha', doctorName: 'Rao', time: '10:30',
+      hoursAhead: 24, tokenNumber: 12, appointmentId: 31, language: 'ml',
+    });
+    expect(queueMock).toHaveBeenCalledWith(expect.objectContaining({
+      title: 'Appointment reminder',
+      body: 'Reminder: Dear Asha, you have an appointment at Venkataeswara Hospitals in 24 hours.\n'
+        + 'Time: 10:30 | Dr. Rao | Token #12',
+      sourceEventKey: 'appointment-reminder-24h:31',
+    }));
   });
 
   it('does not queue an appointment SMS when the patient has no phone', async () => {

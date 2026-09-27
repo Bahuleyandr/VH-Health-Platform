@@ -87,6 +87,7 @@ function canonical(node) {
 
 function scopesFor(ast) {
   const scopes = new WeakMap();
+  scopes.parents = new WeakMap();
   function bindUnknown(pattern, scope) {
     if (!pattern) { return; }
     if (pattern.type === 'Identifier') { scope.bindings.set(pattern.name, null); }
@@ -99,7 +100,8 @@ function scopesFor(ast) {
       for (const property of pattern.properties) { bindUnknown(property.value || property.argument, scope); }
     }
   }
-  function visit(node, outer) {
+  function visit(node, outer, parent) {
+    scopes.parents.set(node, parent);
     if (['FunctionDeclaration', 'ClassDeclaration'].includes(node.type) && node.id && outer) {
       outer.bindings.set(node.id.name, null);
     }
@@ -107,7 +109,7 @@ function scopesFor(ast) {
     const opens = ['Program', 'BlockStatement', 'StaticBlock', 'CatchClause', 'ForStatement', 'ForOfStatement', 'ForInStatement', 'SwitchStatement'].includes(node.type)
       || isClass || /^(?:FunctionDeclaration|FunctionExpression|ArrowFunctionExpression)$/.test(node.type);
     const functionBoundary = ['Program', 'StaticBlock'].includes(node.type) || /^(?:FunctionDeclaration|FunctionExpression|ArrowFunctionExpression)$/.test(node.type);
-    const scope = opens ? { parent: outer, bindings: new Map(), functionBoundary } : outer;
+    const scope = opens ? { parent: outer, bindings: new Map(), functionBoundary, node } : outer;
     scopes.set(node, scope);
     for (const param of node.params || []) { bindUnknown(param, scope); }
     if (node.type === 'FunctionExpression' || isClass) { bindUnknown(node.id, scope); }
@@ -126,10 +128,147 @@ function scopesFor(ast) {
         } else { bindUnknown(declaration.id, bindingScope); }
       }
     }
-    for (const child of children(node)) { visit(child, scope); }
+    for (const child of children(node)) { visit(child, scope, node); }
   }
   visit(ast, null);
   return scopes;
+}
+
+function bindingFor(node, scopes) {
+  let scope = scopes.get(node);
+  while (scope && !scope.bindings.has(node.name)) { scope = scope.parent; }
+  return scope;
+}
+
+function assertUnchangedFreeze(node, scopes) {
+  let module = scopes.get(node);
+  while (module.parent) { module = module.parent; }
+  function inspect(current) {
+    if (current.type === 'Identifier' && !bindingFor(current, scopes)) {
+      const parent = scopes.parents.get(current);
+      let authority = null;
+      if (current.name === 'Object') {
+        const key = parent?.type === 'Property' && parent.key === current && !parent.computed && !parent.shorthand;
+        const memberKey = parent?.type === 'MemberExpression' && parent.property === current && !parent.computed;
+        if (!key && !memberKey) { authority = current; }
+      }
+      if (current.name === 'globalThis') {
+        const key = parent?.type === 'Property' && parent.key === current && !parent.computed && !parent.shorthand;
+        const memberKey = parent?.type === 'MemberExpression' && parent.property === current && !parent.computed;
+        if (!key && !memberKey) {
+          if (parent?.type !== 'MemberExpression' || parent.object !== current || memberName(parent) === null) {
+            throw new Error('unsupported dynamic or escaped global Object authority');
+          }
+          if (memberName(parent) === 'Object') { authority = parent; }
+        }
+      }
+      if (authority) {
+        let use = scopes.parents.get(authority);
+        if (use?.type !== 'MemberExpression' || use.object !== authority || memberName(use) === null) {
+          throw new Error('mutated or escaped global Object authority');
+        }
+        if (memberName(use) === 'freeze') {
+          const call = scopes.parents.get(use);
+          if (call?.type !== 'CallExpression' || call.callee !== use) {
+            throw new Error('mutated or escaped Object.freeze authority');
+          }
+        }
+        while (scopes.parents.get(use)?.type === 'MemberExpression' && scopes.parents.get(use).object === use) {
+          use = scopes.parents.get(use);
+        }
+        const target = scopes.parents.get(use);
+        if ((target?.type === 'AssignmentExpression' && target.left === use)
+            || target?.type === 'UpdateExpression' || (target?.type === 'UnaryExpression' && target.operator === 'delete')) {
+          throw new Error('mutated global Object authority');
+        }
+      }
+    }
+    for (const child of children(current)) { inspect(child); }
+  }
+  inspect(module.node);
+}
+
+function assertReadOnlyAlias(node, initializer, scopes, immutableRecord = false, seen = new Set()) {
+  const scope = bindingFor(node, scopes);
+  if (seen.has(initializer)) { return; }
+  const next = new Set(seen).add(initializer);
+  let module = scope;
+  while (module.parent) { module = module.parent; }
+  function destination(value) {
+    const parent = scopes.parents.get(value);
+    if (parent?.type === 'VariableDeclarator' && parent.init === value && parent.id.type === 'Identifier') {
+      const binding = bindingFor(parent.id, scopes);
+      if (binding?.bindings.get(parent.id.name) !== value
+          || scopes.parents.get(scopes.parents.get(parent))?.type === 'ExportNamedDeclaration') {
+        throw new Error('mutated or escaped static object alias');
+      }
+      assertReadOnlyAlias(parent.id, value, scopes, immutableRecord, next);
+      return;
+    }
+    if (parent?.type === 'Property' && parent.value === value && parent.kind === 'init' && !parent.method) {
+      if (immutableRecord) { return; }
+      destination(scopes.parents.get(parent));
+      return;
+    }
+    if (parent?.type === 'CallExpression' && parent.arguments.length === 1 && parent.arguments[0] === value
+        && parent.callee.type === 'MemberExpression' && parent.callee.object.name === 'Object'
+        && memberName(parent.callee) === 'freeze') {
+      if (bindingFor(parent.callee.object, scopes)) {
+        throw new Error('mutated or escaped static object alias through shadowed Object.freeze');
+      }
+      assertUnchangedFreeze(parent, scopes);
+      destination(parent);
+      return;
+    }
+    throw new Error('mutated or escaped static object alias');
+  }
+  function inspect(current) {
+    if (current.type === 'Identifier' && current.name === node.name && bindingFor(current, scopes) === scope) {
+      const parent = scopes.parents.get(current);
+      const declaration = parent?.type === 'VariableDeclarator' && parent.id === current && parent.init === initializer;
+      const key = parent?.type === 'Property' && parent.key === current && !parent.computed && !parent.shorthand;
+      const memberKey = parent?.type === 'MemberExpression' && parent.property === current && !parent.computed;
+      if (!declaration && !key && !memberKey) { destination(current); }
+    }
+    for (const child of children(current)) { inspect(child); }
+  }
+  inspect(module.node);
+}
+
+function staticSpreadValue(node, scopes, seen) {
+  if (node?.type !== 'Identifier') { throw new Error('unsupported spread source: expected a frozen module constant'); }
+  let scope = scopes.get(node);
+  while (scope && !scope.bindings.has(node.name)) { scope = scope.parent; }
+  const initializer = scope?.bindings.get(node.name);
+  if (!scope || scope.parent || initializer?.type !== 'CallExpression'
+      || initializer.callee.type !== 'MemberExpression'
+      || initializer.callee.object.name !== 'Object' || memberName(initializer.callee) !== 'freeze'
+      || initializer.arguments.length !== 1 || initializer.arguments[0].type !== 'ObjectExpression') {
+    throw new Error('unsupported spread source: expected a frozen module constant');
+  }
+  function inspectReferences(current, parent, grandparent) {
+    if (current.type === 'Identifier' && current.name === node.name) {
+      let binding = scopes.get(current);
+      while (binding && !binding.bindings.has(current.name)) { binding = binding.parent; }
+      const declaration = parent?.type === 'VariableDeclarator' && parent.id === current
+        && parent.init === initializer;
+      const propertyKey = parent?.type === 'Property' && parent.key === current
+        && !parent.computed && !parent.shorthand;
+      const memberKey = parent?.type === 'MemberExpression' && parent.property === current && !parent.computed;
+      const spread = parent?.type === 'SpreadElement' && parent.argument === current
+        && grandparent?.type === 'ObjectExpression';
+      if (binding === scope && !declaration && !propertyKey && !memberKey && !spread) {
+        throw new Error('unsupported spread source reference: only object-spread copies are supported');
+      }
+    }
+    for (const child of children(current)) { inspectReferences(child, current, parent); }
+  }
+  inspectReferences(scope.node, null);
+  const value = staticValue(initializer, scopes, seen);
+  if (Object.values(value).some(field => typeof field !== 'string')) {
+    throw new Error('unsupported spread source: frozen fields must be strings');
+  }
+  return value;
 }
 
 function staticValue(node, scopes, seen = new Set()) {
@@ -139,7 +278,15 @@ function staticValue(node, scopes, seen = new Set()) {
     let scope = scopes.get(node);
     while (scope && !scope.bindings.has(node.name)) { scope = scope.parent; }
     if (!scope || !scope.bindings.get(node.name)) { throw new Error(`unresolved locale alias ${node.name}`); }
-    return staticValue(scope.bindings.get(node.name), scopes, next);
+    const initializer = scope.bindings.get(node.name);
+    const value = staticValue(initializer, scopes, next);
+    if (typeof value === 'object') {
+      const immutableRecord = initializer.type === 'CallExpression' && initializer.callee.type === 'MemberExpression'
+        && initializer.callee.object.name === 'Object' && memberName(initializer.callee) === 'freeze'
+        && Object.values(value).every(field => typeof field === 'string');
+      assertReadOnlyAlias(node, initializer, scopes, immutableRecord);
+    }
+    return value;
   }
   if (node.type === 'CallExpression' && node.callee.type === 'MemberExpression'
       && node.callee.object.name === 'Object' && memberName(node.callee) === 'freeze'
@@ -149,6 +296,7 @@ function staticValue(node, scopes, seen = new Set()) {
       if (scope.bindings.has('Object')) { throw new Error('shadowed Object.freeze is not a static locale wrapper'); }
       scope = scope.parent;
     }
+    assertUnchangedFreeze(node, scopes);
     return staticValue(node.arguments[0], scopes, next);
   }
   if (node.type === 'Literal' && typeof node.value === 'string') { return node.value; }
@@ -158,6 +306,14 @@ function staticValue(node, scopes, seen = new Set()) {
   if (node.type !== 'ObjectExpression') { throw new Error(`unsupported static locale expression ${node.type}`); }
   const result = {};
   for (const property of node.properties) {
+    if (property.type === 'SpreadElement') {
+      const fields = staticSpreadValue(property.argument, scopes, next);
+      for (const [key, value] of Object.entries(fields)) {
+        if (Object.hasOwn(result, key)) { throw new Error(`duplicate locale/field ${key}`); }
+        Object.defineProperty(result, key, { value, enumerable: true });
+      }
+      continue;
+    }
     const key = propertyName(property.key);
     if (property.type !== 'Property' || property.method || property.kind !== 'init'
         || !key || (property.computed && property.key.type !== 'Literal')) {

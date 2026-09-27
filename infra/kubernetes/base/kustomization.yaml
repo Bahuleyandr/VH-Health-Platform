@@ -20,8 +20,8 @@ resources:
   - vault
   - cnpg
   - redis
-  - minio
-  - harbor
+  # Local object storage and its Harbor consumer are held pending qualification.
+  # Retained sources: ../held/local-object-storage/README.md.
   - ingress-nginx
   - ingress-nginx-internal
   - cloudflare-tunnel
