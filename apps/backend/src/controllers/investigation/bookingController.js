@@ -971,43 +971,47 @@ export const getBookingDetail = async (req, res) => {
     if (!/^[1-9]\d{0,18}$/.test(id) || BigInt(id) > 9223372036854775807n) {
       return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
     }
-    const booking = await prisma.$queryRawUnsafe(`
-      SELECT ib.id, ib.booking_number, ib.investigation_id, ib.appointment_id,
-        ib.patient_id, ib.patient_name, ib.patient_phone,
-        ib.test_name, ib.selected_tests, ib.actual_tests, ib.custom_test_names,
-        ib.status, ib.notes, ib.confirmation_notes, ib.collection_notes, ib.result_notes,
-        ib.collection_type, ib.collection_address, ib.collection_landmark,
-        ib.collection_lat, ib.collection_lng,
-        ib.preferred_date, ib.preferred_time_slot, ib.scheduled_date,
-        ib.estimated_cost, ib.final_cost,
-        ib.slip_photo_key, ib.slip_photo_scan_status,
-        ib.result_file_key, ib.result_file_scan_status,
-        ib.phlebotomist_id, ib.assigned_collector, ib.collector_phone,
-        ib.confirmed_by, ib.confirmed_at, ib.dispatched_at, ib.collected_at,
-        ib.processing_started_at, ib.result_uploaded_at,
-        ib.sla_confirm_target, ib.sla_dispatch_target, ib.sla_collect_target, ib.sla_result_target,
-        ib.created_at, ib.updated_at,
-        (SELECT json_agg(t) FROM investigation_test_catalog t WHERE t.id = ANY(ib.selected_tests)) as test_details,
-        cu.name as confirmed_by_name,
-        au.name as collector_name
-      FROM investigation_bookings ib
-      LEFT JOIN users cu ON ib.confirmed_by = cu.id AND cu.tenant_id = $2::uuid
-      LEFT JOIN users au ON ib.assigned_collector = au.id AND au.tenant_id = $2::uuid
-      WHERE ib.id = $1::bigint AND ib.tenant_id = $2::uuid
-    `, id, tenantId);
-    if (!booking.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
-    if (String(req.user?.role || '').toUpperCase() === 'PATIENT'
-      && String(booking[0].patient_id) !== String(req.user?.id)) {
-      return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
-    }
+    const detail = await setTenantTx(tenantId, async (tx) => {
+      const booking = await tx.$queryRawUnsafe(`
+        SELECT ib.id, ib.booking_number, ib.investigation_id, ib.appointment_id,
+          ib.patient_id, ib.patient_name, ib.patient_phone,
+          ib.test_name, ib.selected_tests, ib.actual_tests, ib.custom_test_names,
+          ib.status, ib.notes, ib.confirmation_notes, ib.collection_notes, ib.result_notes,
+          ib.collection_type, ib.collection_address, ib.collection_landmark,
+          ib.collection_lat, ib.collection_lng,
+          ib.preferred_date, ib.preferred_time_slot, ib.scheduled_date,
+          ib.estimated_cost, ib.final_cost,
+          ib.slip_photo_key, ib.slip_photo_scan_status,
+          ib.result_file_key, ib.result_file_scan_status,
+          ib.phlebotomist_id, ib.assigned_collector, ib.collector_phone,
+          ib.confirmed_by, ib.confirmed_at, ib.dispatched_at, ib.collected_at,
+          ib.processing_started_at, ib.result_uploaded_at,
+          ib.sla_confirm_target, ib.sla_dispatch_target, ib.sla_collect_target, ib.sla_result_target,
+          ib.created_at, ib.updated_at,
+          (SELECT json_agg(t) FROM investigation_test_catalog t WHERE t.id = ANY(ib.selected_tests)) as test_details,
+          cu.name as confirmed_by_name,
+          au.name as collector_name
+        FROM investigation_bookings ib
+        LEFT JOIN users cu ON ib.confirmed_by = cu.id AND cu.tenant_id = $2::uuid
+        LEFT JOIN users au ON ib.assigned_collector = au.id AND au.tenant_id = $2::uuid
+        WHERE ib.id = $1::bigint AND ib.tenant_id = $2::uuid
+      `, id, tenantId);
+      if (!booking.length) return null;
+      if (String(req.user?.role || '').toUpperCase() === 'PATIENT'
+        && String(booking[0].patient_id) !== String(req.user?.id)) {
+        return null;
+      }
 
-    const history = await prisma.$queryRawUnsafe(
-      'SELECT id, booking_id, from_status, to_status, changed_by, changed_by_role, notes, created_at FROM investigation_booking_history WHERE booking_id=$1::bigint AND tenant_id=$2::uuid ORDER BY created_at',
-      id, tenantId,
-    );
+      const history = await tx.$queryRawUnsafe(
+        'SELECT id, booking_id, from_status, to_status, changed_by, changed_by_role, notes, created_at FROM investigation_booking_history WHERE booking_id=$1::bigint AND tenant_id=$2::uuid ORDER BY created_at',
+        id, tenantId,
+      );
+      return { booking: booking[0], history };
+    });
+    if (!detail) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
 
     const baseUrl = `${req.protocol}://${req.get('host')}`;
-    const b = booking[0];
+    const { booking: b, history } = detail;
     b.slip_photo_url = await gatedSignedUrl(b.slip_photo_key, b.slip_photo_scan_status, baseUrl);
     b.result_file_url = await gatedSignedUrl(b.result_file_key, b.result_file_scan_status, baseUrl);
 
