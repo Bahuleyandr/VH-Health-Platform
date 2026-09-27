@@ -191,14 +191,13 @@ async function cleanFixture(fixture) {
 
 async function withFixture(operation) {
   const fixture = { slug: `atomicity-${randomUUID()}`, ids: new Set(), fault: null };
-  let failure;
+  const errors = [];
   try {
     await assertPopulation();
     await operation(fixture);
   } catch (error) {
-    failure = error;
+    errors.push(error);
   } finally {
-    const errors = failure ? [failure] : [];
     for (const cleanup of [() => removeFault(fixture), () => cleanFixture(fixture)]) {
       try {
         await cleanup();
@@ -206,9 +205,9 @@ async function withFixture(operation) {
         errors.push(error);
       }
     }
-    if (errors.length === 1) throw errors[0];
-    if (errors.length > 1) throw new AggregateError(errors, 'Tenant provisioning regression or fixture cleanup failed');
   }
+  if (errors.length === 1) throw errors[0];
+  if (errors.length > 1) throw new AggregateError(errors, 'Tenant provisioning regression or fixture cleanup failed');
 }
 
 async function installFault(fixture, table) {
