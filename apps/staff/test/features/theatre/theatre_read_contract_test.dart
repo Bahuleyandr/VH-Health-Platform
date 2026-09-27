@@ -133,11 +133,13 @@ void main() {
       expect(find.text(strings.theatreChecklistReadOnly), findsNothing);
       expect(
         tester.widgetList<SwitchListTile>(find.byType(SwitchListTile)),
-        everyElement(isA<SwitchListTile>().having(
-          (tile) => tile.onChanged,
-          'onChanged',
-          isNotNull,
-        )),
+        everyElement(
+          isA<SwitchListTile>().having(
+            (tile) => tile.onChanged,
+            'onChanged',
+            isNotNull,
+          ),
+        ),
       );
       await tester.tap(find.byType(SwitchListTile).at(1));
       await tester.pump();
@@ -172,12 +174,15 @@ void main() {
       expect(find.text(strings.theatreChecklistReadOnly), findsOneWidget);
       expect(find.text(strings.theatreSubmitChecklist), findsNothing);
       expect(
-        tester.widgetList<SwitchListTile>(find.byType(SwitchListTile))
+        tester
+            .widgetList<SwitchListTile>(find.byType(SwitchListTile))
             .every((tile) => tile.onChanged == null),
         isTrue,
       );
       expect(
-        jsonDecode(tester.widget<SelectableText>(find.byType(SelectableText)).data!),
+        jsonDecode(
+          tester.widget<SelectableText>(find.byType(SelectableText)).data!,
+        ),
         responseChecklist,
       );
       expect(requests.map((request) => request.method), ['GET']);
@@ -202,10 +207,14 @@ void main() {
       final strings = await openChecklist(tester);
       expect(find.text(strings.theatreChecklistReadOnly), findsOneWidget);
       expect(find.text(strings.theatreSubmitChecklist), findsNothing);
-      final tiles = tester.widgetList<SwitchListTile>(find.byType(SwitchListTile));
+      final tiles = tester.widgetList<SwitchListTile>(
+        find.byType(SwitchListTile),
+      );
       expect(tiles.every((tile) => tile.onChanged == null), isTrue);
       expect(
-        jsonDecode(tester.widget<SelectableText>(find.byType(SelectableText)).data!),
+        jsonDecode(
+          tester.widget<SelectableText>(find.byType(SelectableText)).data!,
+        ),
         responseChecklist,
       );
       await tester.tap(find.byType(SwitchListTile).first);
@@ -232,12 +241,15 @@ void main() {
         expect(find.text(strings.theatreChecklistReadOnly), findsOneWidget);
         expect(find.text(strings.theatreSubmitChecklist), findsNothing);
         expect(
-          tester.widgetList<SwitchListTile>(find.byType(SwitchListTile))
+          tester
+              .widgetList<SwitchListTile>(find.byType(SwitchListTile))
               .every((tile) => tile.onChanged == null),
           isTrue,
         );
         expect(
-          jsonDecode(tester.widget<SelectableText>(find.byType(SelectableText)).data!),
+          jsonDecode(
+            tester.widget<SelectableText>(find.byType(SelectableText)).data!,
+          ),
           responseChecklist,
         );
         await tester.ensureVisible(find.text(strings.actionClose));

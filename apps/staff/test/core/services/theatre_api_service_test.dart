@@ -204,57 +204,56 @@ void main() {
     },
   );
 
-  test('canonical availability preserves room names and date occupancy', () async {
-    final roomSchedules = [
-      {
-        'ot_room': 'OT-1',
-        'surgery_count': 1,
-        'times': ['10:00:00'],
-        'statuses': ['scheduled'],
-      },
-      {
-        'ot_room': 'OT-2',
-        'surgery_count': 1,
-        'times': ['08:00:00'],
-        'statuses': ['completed'],
-      },
-    ];
-    var requests = 0;
-    VHHttpClient.setClientForTesting(
-      MockClient((request) async {
-        requests++;
-        expect(request.method, 'GET');
-        expect(request.url.path, endsWith('/theatre/availability'));
-        expect(request.url.queryParameters, {'date': '2026-09-11'});
-        expect(request.headers['authorization'], 'Bearer staff-access-token');
-        return http.Response(
-          jsonEncode({
-            'success': true,
-            'data': {
-              'date': '2026-09-11',
-              'booked_rooms': ['OT-1'],
-              'room_schedules': roomSchedules,
-            },
-          }),
-          200,
-        );
-      }),
-    );
-    expect(await TheatreApiService.getAvailability('2026-09-11'), [
-      {...roomSchedules[0], 'name': 'OT-1', 'available': false},
-      {...roomSchedules[1], 'name': 'OT-2', 'available': true},
-    ]);
-    expect(requests, 1);
-  });
+  test(
+    'canonical availability preserves room names and date occupancy',
+    () async {
+      final roomSchedules = [
+        {
+          'ot_room': 'OT-1',
+          'surgery_count': 1,
+          'times': ['10:00:00'],
+          'statuses': ['scheduled'],
+        },
+        {
+          'ot_room': 'OT-2',
+          'surgery_count': 1,
+          'times': ['08:00:00'],
+          'statuses': ['completed'],
+        },
+      ];
+      var requests = 0;
+      VHHttpClient.setClientForTesting(
+        MockClient((request) async {
+          requests++;
+          expect(request.method, 'GET');
+          expect(request.url.path, endsWith('/theatre/availability'));
+          expect(request.url.queryParameters, {'date': '2026-09-11'});
+          expect(request.headers['authorization'], 'Bearer staff-access-token');
+          return http.Response(
+            jsonEncode({
+              'success': true,
+              'data': {
+                'date': '2026-09-11',
+                'booked_rooms': ['OT-1'],
+                'room_schedules': roomSchedules,
+              },
+            }),
+            200,
+          );
+        }),
+      );
+      expect(await TheatreApiService.getAvailability('2026-09-11'), [
+        {...roomSchedules[0], 'name': 'OT-1', 'available': false},
+        {...roomSchedules[1], 'name': 'OT-2', 'available': true},
+      ]);
+      expect(requests, 1);
+    },
+  );
 
   test('empty room summaries do not invent available rooms', () async {
     respond({
       'success': true,
-      'data': {
-        'date': '2026-09-11',
-        'booked_rooms': [],
-        'room_schedules': [],
-      },
+      'data': {'date': '2026-09-11', 'booked_rooms': [], 'room_schedules': []},
     });
     expect(await TheatreApiService.getAvailability('2026-09-11'), isEmpty);
   });
@@ -265,13 +264,24 @@ void main() {
     'missing booked rooms': {'room_schedules': []},
     'missing room schedules': {'booked_rooms': []},
     'non-list booked rooms': {'booked_rooms': 'OT-1', 'room_schedules': []},
-    'invalid booked room': {'booked_rooms': [null], 'room_schedules': []},
+    'invalid booked room': {
+      'booked_rooms': [null],
+      'room_schedules': [],
+    },
     'non-list room schedules': {'booked_rooms': [], 'room_schedules': {}},
-    'invalid room row': {'booked_rooms': [], 'room_schedules': [null]},
-    'missing room name': {'booked_rooms': [], 'room_schedules': [{}]},
+    'invalid room row': {
+      'booked_rooms': [],
+      'room_schedules': [null],
+    },
+    'missing room name': {
+      'booked_rooms': [],
+      'room_schedules': [{}],
+    },
     'empty room name': {
       'booked_rooms': [],
-      'room_schedules': [{'ot_room': ''}],
+      'room_schedules': [
+        {'ot_room': ''},
+      ],
     },
   }.entries) {
     test('rejects malformed availability data: ${entry.key}', () async {
@@ -284,7 +294,10 @@ void main() {
   }
 
   test('availability server failure is not an empty room result', () async {
-    respond({'success': false, 'message': 'Theatre request denied'}, status: 403);
+    respond({
+      'success': false,
+      'message': 'Theatre request denied',
+    }, status: 403);
     await expectLater(
       TheatreApiService.getAvailability('2026-09-11'),
       throwsException,

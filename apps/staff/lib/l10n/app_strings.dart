@@ -6117,8 +6117,7 @@ class AppStrings {
       'theatre.checklist.patient_id': 'Patient Identified',
       'theatre.submit_checklist': 'Submit Checklist',
       'theatre.checklist_updated': 'Checklist updated',
-      'theatre.checklist_read_only':
-          'Read only: this checklist contains additional or unsupported data that this editor cannot safely update.',
+      'theatre.checklist_read_only': 'Read only: this checklist contains additional or unsupported data that this editor cannot safely update.',
       'theatre.status_updated_to': 'Status updated to',
       'theatre.begin_preop': 'Begin pre-op',
       'theatre.move_postop': 'Move to post-op',
@@ -14057,8 +14056,7 @@ class AppStrings {
       // REVIEW: clinical-action confirmation
       'theatre.checklist_updated': 'चेकलिस्ट अपडेट की गई',
       // REVIEW: English source placeholder; human linguistic review pending.
-      'theatre.checklist_read_only':
-          'Read only: this checklist contains additional or unsupported data that this editor cannot safely update.',
+      'theatre.checklist_read_only': 'Read only: this checklist contains additional or unsupported data that this editor cannot safely update.',
       // REVIEW: clinical-action confirmation
       'theatre.status_updated_to': 'स्थिति अपडेट की गई:',
       'theatre.begin_preop': 'प्री-ऑप शुरू करें',
@@ -23144,8 +23142,7 @@ class AppStrings {
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'theatre.checklist_updated': 'சரிபார்ப்பு பட்டியல் புதுப்பிக்கப்பட்டது',
       // REVIEW: English source placeholder; human linguistic review pending.
-      'theatre.checklist_read_only':
-          'Read only: this checklist contains additional or unsupported data that this editor cannot safely update.',
+      'theatre.checklist_read_only': 'Read only: this checklist contains additional or unsupported data that this editor cannot safely update.',
       // REVIEW: AI first-pass ta translation - confirm clinical/security/financial wording before production
       'theatre.status_updated_to': 'நிலை புதுப்பிக்கப்பட்டது',
       'theatre.begin_preop': 'அறுவை சிகிச்சைக்கு முன் பணியைத் தொடங்கு',
@@ -32158,8 +32155,7 @@ class AppStrings {
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'theatre.checklist_updated': 'చెక్‌లిస్ట్ నవీకరించబడింది',
       // REVIEW: English source placeholder; human linguistic review pending.
-      'theatre.checklist_read_only':
-          'Read only: this checklist contains additional or unsupported data that this editor cannot safely update.',
+      'theatre.checklist_read_only': 'Read only: this checklist contains additional or unsupported data that this editor cannot safely update.',
       // REVIEW: AI first-pass te translation - confirm clinical/security/financial wording before production
       'theatre.status_updated_to': 'స్థితి అప్‌డేట్ చేయబడింది',
       'theatre.begin_preop': 'ప్రీ-ఆప్ ప్రారంభించండి',
@@ -37973,8 +37969,7 @@ class AppStrings {
     // technical terms: ഫാർമസി, അപ്പോയിന്റ്മെന്റ്, ഡോസ്).
     'ml': {
       // REVIEW: English source placeholder; human linguistic review pending.
-      'theatre.checklist_read_only':
-          'Read only: this checklist contains additional or unsupported data that this editor cannot safely update.',
+      'theatre.checklist_read_only': 'Read only: this checklist contains additional or unsupported data that this editor cannot safely update.',
       'presentation.notification_fallback_title': 'അറിയിപ്പ്',
       'presentation.bed_board_print.occupancy': 'കിടക്ക ഉപയോഗനില',
       'presentation.bed_board_print.occupancy_date': 'കിടക്ക ഉപയോഗനില · {date}',
