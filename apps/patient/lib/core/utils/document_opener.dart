@@ -4,15 +4,11 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:vhhealth_core/config/api_config.dart';
-import 'package:vhhealth_core/services/http_client.dart';
 import 'package:open_filex/open_filex.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:vhhealth/core/offline/api_cache_manager.dart';
 import 'package:vhhealth/core/utils/doc_staging.dart';
+import 'package:vhhealth/core/utils/document_download.dart';
 import 'package:vhhealth/core/utils/safe_filename.dart';
-import 'package:vhhealth/core/utils/safe_url_launcher.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
@@ -22,7 +18,7 @@ class DocumentOpener {
   /// Download a file from a URL and open it with the system viewer.
   /// Shows a loading dialog while downloading.
   /// Adds auth headers for backend URLs.
-  /// Falls back to url_launcher on failure.
+  /// Never delegates a document URL to an external browser on failure.
   static Future<void> openFromUrl(
     BuildContext context,
     String url, {
@@ -58,23 +54,7 @@ class DocumentOpener {
     );
 
     try {
-      // Download the file. Backend PHI URLs go through the SPKI-pinned client
-      // (auth + 401-refresh handled there) — never a raw http.get with a
-      // hand-attached bearer, which bypasses cert pinning AND the refresh flow.
-      // Genuinely off-host URLs (e.g. pre-signed R2 links on a different host)
-      // can't be pinned to the API host, so they keep a plain GET.
-      final http.Response response;
-      if (url.startsWith(ApiConfig.baseUrl)) {
-        final rest = url.substring(ApiConfig.baseUrl.length);
-        final qIndex = rest.indexOf('?');
-        final path = qIndex == -1 ? rest : rest.substring(0, qIndex);
-        final query = qIndex == -1
-            ? null
-            : Uri.splitQueryString(rest.substring(qIndex + 1));
-        response = await VHHttpClient.getBytes(path, queryParameters: query);
-      } else {
-        response = await http.get(Uri.parse(url));
-      }
+      final response = await DocumentDownload.get(url);
       if (response.statusCode != 200) {
         throw HttpException('HTTP ${response.statusCode}');
       }
@@ -107,8 +87,11 @@ class DocumentOpener {
       final result = await OpenFilex.open(stagedFile.path);
       opened = result.type == ResultType.done;
       if (result.type != ResultType.done && context.mounted) {
-        // Fallback to browser
-        await SafeUrlLauncher.launch(url, mode: LaunchMode.externalApplication);
+        ScaffoldMessenger.of(context).showSnackBar(
+          LiveRegionSnackBar.build(
+            message: AppLocalizations.of(context)!.documentCouldNotOpen,
+          ),
+        );
       }
     } catch (e) {
       if (kDebugMode) debugPrint('DocumentOpener error: $e');
@@ -116,19 +99,12 @@ class DocumentOpener {
       // Close loading dialog
       if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
 
-      // Fallback to browser
       if (context.mounted) {
-        final launched = await SafeUrlLauncher.launch(
-          url,
-          mode: LaunchMode.externalApplication,
+        ScaffoldMessenger.of(context).showSnackBar(
+          LiveRegionSnackBar.build(
+            message: AppLocalizations.of(context)!.documentCouldNotOpen,
+          ),
         );
-        if (!launched && context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            LiveRegionSnackBar.build(
-              message: AppLocalizations.of(context)!.documentCouldNotOpen,
-            ),
-          );
-        }
       }
     } finally {
       if (!opened && stagedFile != null) {
