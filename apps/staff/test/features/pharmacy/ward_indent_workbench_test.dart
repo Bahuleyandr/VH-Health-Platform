@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vhhealth_core/models/client_readiness.dart';
@@ -9,6 +11,7 @@ import 'package:vhhealth_staff/features/pharmacy/models/ward_indent_models.dart'
 import 'package:vhhealth_staff/features/pharmacy/services/ward_indent_gateway.dart';
 import 'package:vhhealth_staff/features/pharmacy/services/ward_indent_role_policy.dart';
 import 'package:vhhealth_staff/features/pharmacy/widgets/ward_indent_workbench.dart';
+import 'package:vhhealth_staff/features/pharmacy/widgets/ward_indent_request_sheet.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -97,6 +100,907 @@ void main() {
     expect(gateway.getIds, [73]);
     expect(find.byKey(const Key('ward-indent-detail-73')), findsOneWidget);
     expect(find.text('WARD-73'), findsWidgets);
+  });
+
+  for (final failOlderRequest in [false, true]) {
+    testWidgets(
+      'late row detail ${failOlderRequest ? 'failure' : 'success'} cannot replace a newer deep link',
+      (tester) async {
+        final older = _indent(id: 73, number: 'WARD-73');
+        final newer = _indent(id: 74, number: 'WARD-74');
+        final pending = Completer<WardIndent>();
+        final gateway = _FakeWardIndentGateway(
+          listRows: [older, newer],
+          initialDetail: older,
+          detailLoader: (id) =>
+              id == older.id ? pending.future : Future.value(newer),
+        );
+
+        await _pumpWorkbench(
+          tester,
+          gateway: gateway,
+          rawRole: 'PHARMACY_STAFF',
+        );
+        await tester.tap(find.byKey(const Key('ward-indent-row-73')));
+        await tester.pump();
+        expect(gateway.getIds, [73]);
+        final state = tester.state(find.byType(WardIndentWorkbench));
+        await _pumpWorkbench(
+          tester,
+          gateway: gateway,
+          rawRole: 'PHARMACY_STAFF',
+          initialIndentId: 74,
+          settle: false,
+        );
+        await tester.pump();
+        expect(tester.state(find.byType(WardIndentWorkbench)), same(state));
+        expect(gateway.getIds, [73, 74]);
+        expect(find.byKey(const Key('ward-indent-detail-74')), findsOneWidget);
+
+        if (failOlderRequest) {
+          pending.completeError(Exception('older detail failed'));
+        } else {
+          pending.complete(older);
+        }
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('ward-indent-detail-74')), findsOneWidget);
+        expect(find.byKey(const Key('ward-indent-detail-73')), findsNothing);
+        expect(find.byKey(const Key('ward-indent-action-error')), findsNothing);
+        expect(gateway.mutateCalls, 0);
+      },
+    );
+
+    testWidgets(
+      'late refresh ${failOlderRequest ? 'failure' : 'success'} cannot affect a newer deep link',
+      (tester) async {
+        final older = _indent(id: 73, number: 'WARD-73');
+        final newer = _indent(id: 74, number: 'WARD-74');
+        final pending = Completer<WardIndent>();
+        var olderReads = 0;
+        final gateway = _FakeWardIndentGateway(
+          listRows: [older, newer],
+          initialDetail: older,
+          detailLoader: (id) {
+            if (id == newer.id) return Future.value(newer);
+            olderReads += 1;
+            return olderReads == 1 ? Future.value(older) : pending.future;
+          },
+        );
+
+        await _pumpWorkbench(
+          tester,
+          gateway: gateway,
+          rawRole: 'PHARMACY_STAFF',
+          initialIndentId: 73,
+        );
+        final refresh = tester.widget<RefreshIndicator>(
+          find.ancestor(
+            of: find.byKey(const Key('ward-indent-detail-73')),
+            matching: find.byType(RefreshIndicator),
+          ),
+        );
+        final refreshResult = expectLater(refresh.onRefresh(), completes);
+        expect(gateway.getIds, [73, 73]);
+        final state = tester.state(find.byType(WardIndentWorkbench));
+        await _pumpWorkbench(
+          tester,
+          gateway: gateway,
+          rawRole: 'PHARMACY_STAFF',
+          initialIndentId: 74,
+        );
+        expect(tester.state(find.byType(WardIndentWorkbench)), same(state));
+        expect(gateway.getIds, [73, 73, 74]);
+
+        if (failOlderRequest) {
+          pending.completeError(Exception('older refresh failed'));
+        } else {
+          pending.complete(older);
+        }
+        await refreshResult;
+        await tester.pumpAndSettle();
+
+        expect(find.byKey(const Key('ward-indent-detail-74')), findsOneWidget);
+        expect(find.byKey(const Key('ward-indent-detail-73')), findsNothing);
+        expect(find.byKey(const Key('ward-indent-action-error')), findsNothing);
+        expect(gateway.mutateCalls, 0);
+      },
+    );
+  }
+
+  testWidgets(
+    'confirmation for an older selection cannot mutate a newer indent',
+    (tester) async {
+      final older = _indent(id: 73, number: 'WARD-73', status: 'reserved');
+      final newer = _indent(id: 74, number: 'WARD-74', status: 'reserved');
+      final gateway = _FakeWardIndentGateway(
+        listRows: [older, newer],
+        initialDetail: older,
+        detailLoader: (id) => Future.value(id == older.id ? older : newer),
+      );
+
+      await _pumpWorkbench(
+        tester,
+        gateway: gateway,
+        rawRole: 'PHARMACY_INCHARGE',
+        initialIndentId: 73,
+      );
+      final approve = find.byKey(const Key('ward-indent-action-approve'));
+      await tester.ensureVisible(approve);
+      await tester.tap(approve);
+      await tester.pumpAndSettle();
+      expect(find.text('Confirm'), findsOneWidget);
+      final state = tester.state(
+        find.byType(WardIndentWorkbench, skipOffstage: false),
+      );
+      await _pumpWorkbench(
+        tester,
+        gateway: gateway,
+        rawRole: 'PHARMACY_INCHARGE',
+        initialIndentId: 74,
+      );
+      expect(
+        tester.state(find.byType(WardIndentWorkbench, skipOffstage: false)),
+        same(state),
+      );
+      expect(gateway.getIds, [73, 74]);
+      expect(
+        find.byKey(const Key('ward-indent-detail-74'), skipOffstage: false),
+        findsOneWidget,
+      );
+      expect(find.text('Confirm'), findsOneWidget);
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+
+      expect(gateway.mutateCalls, 0);
+      expect(find.byKey(const Key('ward-indent-detail-74')), findsOneWidget);
+    },
+  );
+
+  for (final change in [
+    'round-trip',
+    'role',
+    'typed-role',
+    'gateway',
+    'version',
+  ]) {
+    testWidgets('pending confirmation is cancelled by $change context change', (
+      tester,
+    ) async {
+      final initial = _indent(id: 73, number: 'WARD-73', status: 'reserved');
+      final other = _indent(id: 74, number: 'WARD-74', status: 'reserved');
+      final refreshed = _indent(
+        id: 73,
+        number: 'WARD-73',
+        status: 'reserved',
+        version: 2,
+      );
+      var reads = 0;
+      final gateway = _FakeWardIndentGateway(
+        listRows: [initial, other],
+        initialDetail: initial,
+        detailLoader: (id) {
+          reads += 1;
+          return Future.value(
+            id == 74
+                ? other
+                : change == 'version' && reads > 1
+                ? refreshed
+                : initial,
+          );
+        },
+      );
+      final replacement = _FakeWardIndentGateway(
+        listRows: [initial],
+        initialDetail: initial,
+      );
+      await _pumpWorkbench(
+        tester,
+        gateway: gateway,
+        rawRole: 'PHARMACY_INCHARGE',
+        initialIndentId: 73,
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('ward-indent-action-approve')),
+      );
+      await tester.tap(find.byKey(const Key('ward-indent-action-approve')));
+      await tester.pumpAndSettle();
+      final state = tester.state(
+        find.byType(WardIndentWorkbench, skipOffstage: false),
+      );
+      if (change == 'version') {
+        await _detailRefresh(tester, 73)();
+        await tester.pump();
+        expect(find.text('v2', skipOffstage: false), findsOneWidget);
+      } else {
+        await _pumpWorkbench(
+          tester,
+          gateway: change == 'gateway' ? replacement : gateway,
+          rawRole: change == 'role' ? 'ADMISSION_OFFICER' : 'PHARMACY_INCHARGE',
+          role: change == 'typed-role'
+              ? StaffRole.fromString('ADMISSION_OFFICER')
+              : null,
+          initialIndentId: change == 'round-trip' ? 74 : 73,
+        );
+        if (change == 'round-trip') {
+          await _pumpWorkbench(
+            tester,
+            gateway: gateway,
+            rawRole: 'PHARMACY_INCHARGE',
+            initialIndentId: 73,
+          );
+          expect(gateway.getIds, [73, 74, 73]);
+        }
+      }
+      expect(
+        tester.state(find.byType(WardIndentWorkbench, skipOffstage: false)),
+        same(state),
+      );
+      expect(find.text('Confirm'), findsOneWidget);
+      await tester.tap(find.text('Confirm'));
+      await tester.pumpAndSettle();
+      expect(gateway.mutateCalls, 0);
+      expect(replacement.mutateCalls, 0);
+    });
+  }
+
+  for (final change in ['role', 'typed-role', 'gateway', 'requester-gateway']) {
+    for (final failingRead in ['list', 'detail']) {
+      testWidgets(
+        'failed $failingRead after $change change cannot expose or mutate the old selection',
+        (tester) async {
+          final initial = _indent(
+            id: 73,
+            number: 'WARD-73',
+            status: 'reserved',
+          );
+          var changed = false;
+          Future<WardIndentPage> loadList() async {
+            if (changed && failingRead == 'list') {
+              throw Exception('new context list failed');
+            }
+            return WardIndentPage(items: [initial], hasMore: false);
+          }
+
+          Future<WardIndent> loadDetail(int id) async {
+            if (changed && failingRead == 'detail') {
+              throw Exception('new context detail failed');
+            }
+            return initial;
+          }
+
+          final gateway = _FakeWardIndentGateway(
+            listRows: [initial],
+            initialDetail: initial,
+            listLoader: loadList,
+            detailLoader: loadDetail,
+          );
+          final replacement = _FakeWardIndentGateway(
+            listRows: [initial],
+            initialDetail: initial,
+            listLoader: loadList,
+            detailLoader: loadDetail,
+          );
+          await _pumpWorkbench(
+            tester,
+            gateway: gateway,
+            rawRole: 'PHARMACY_STAFF',
+            initialIndentId: 73,
+          );
+          final state = tester.state(find.byType(WardIndentWorkbench));
+          final oldAction = tester
+              .widget<FilledButton>(
+                find.byKey(const Key('ward-indent-action-approve')),
+              )
+              .onPressed!;
+          changed = true;
+          await _pumpWorkbench(
+            tester,
+            gateway: change == 'gateway' ? replacement : gateway,
+            rawRole: change == 'role' ? 'ADMISSION_OFFICER' : 'PHARMACY_STAFF',
+            role: change == 'typed-role'
+                ? StaffRole.fromString('ADMISSION_OFFICER')
+                : null,
+            requesterGateway: change == 'requester-gateway'
+                ? const ApiWardIndentGateway()
+                : null,
+            initialIndentId: 73,
+          );
+          expect(tester.state(find.byType(WardIndentWorkbench)), same(state));
+          expect(
+            find.textContaining('new context $failingRead failed'),
+            findsOneWidget,
+          );
+          expect(find.byKey(const Key('ward-indent-detail-73')), findsNothing);
+          expect(find.byKey(const Key('ward-indent-row-73')), findsNothing);
+          expect(
+            find.byKey(const Key('ward-indent-action-approve')),
+            findsNothing,
+          );
+          final activeGateway = change == 'gateway' ? replacement : gateway;
+          expect(
+            activeGateway.listRequests.length,
+            change == 'gateway' ? 1 : 2,
+          );
+          expect(
+            activeGateway.getIds,
+            change == 'gateway'
+                ? (failingRead == 'detail' ? [73] : <int>[])
+                : (failingRead == 'detail' ? [73, 73] : [73]),
+          );
+          oldAction();
+          await tester.pumpAndSettle();
+          expect(find.text('Confirm'), findsNothing);
+          expect(gateway.mutateCalls, 0);
+          expect(replacement.mutateCalls, 0);
+        },
+      );
+    }
+  }
+
+  testWidgets(
+    'authority reload preserves the selected target when no initial deep link is supplied',
+    (tester) async {
+      final initial = _indent(id: 73, number: 'WARD-73');
+      final gateway = _FakeWardIndentGateway(
+        listRows: [initial],
+        initialDetail: initial,
+      );
+      final replacement = _FakeWardIndentGateway(
+        listRows: [initial],
+        initialDetail: initial,
+      );
+      await _pumpWorkbench(tester, gateway: gateway, rawRole: 'PHARMACY_STAFF');
+      await tester.tap(find.byKey(const Key('ward-indent-row-73')));
+      await tester.pumpAndSettle();
+      await _pumpWorkbench(
+        tester,
+        gateway: replacement,
+        rawRole: 'PHARMACY_STAFF',
+      );
+      expect(replacement.getIds, [73]);
+      expect(find.byKey(const Key('ward-indent-detail-73')), findsOneWidget);
+    },
+  );
+
+  for (final failingRead in ['list', 'detail']) {
+    testWidgets(
+      'failed new deep-link $failingRead does not retain the old detail',
+      (tester) async {
+        final initial = _indent(id: 73, number: 'WARD-73', status: 'reserved');
+        var changed = false;
+        final gateway = _FakeWardIndentGateway(
+          listRows: [initial],
+          initialDetail: initial,
+          listLoader: () async {
+            if (changed && failingRead == 'list') {
+              throw Exception('new target failed');
+            }
+            return WardIndentPage(items: [initial], hasMore: false);
+          },
+          detailLoader: (id) async {
+            if (id == 74) throw Exception('new target failed');
+            return initial;
+          },
+        );
+        await _pumpWorkbench(
+          tester,
+          gateway: gateway,
+          rawRole: 'PHARMACY_STAFF',
+          initialIndentId: 73,
+        );
+        final oldAction = tester
+            .widget<FilledButton>(
+              find.byKey(const Key('ward-indent-action-approve')),
+            )
+            .onPressed!;
+        changed = true;
+        await _pumpWorkbench(
+          tester,
+          gateway: gateway,
+          rawRole: 'PHARMACY_STAFF',
+          initialIndentId: 74,
+        );
+        expect(find.textContaining('new target failed'), findsOneWidget);
+        expect(find.byKey(const Key('ward-indent-row-73')), findsOneWidget);
+        expect(find.byKey(const Key('ward-indent-detail-73')), findsNothing);
+        expect(
+          find.byKey(const Key('ward-indent-action-approve')),
+          findsNothing,
+        );
+        expect(gateway.getIds, failingRead == 'detail' ? [73, 74] : [73]);
+        oldAction();
+        await tester.pumpAndSettle();
+        expect(gateway.mutateCalls, 0);
+        expect(find.text('Confirm'), findsNothing);
+      },
+    );
+  }
+
+  for (final fails in [false, true]) {
+    testWidgets(
+      'late mutation ${fails ? 'failure' : 'success'} preserves new selection and receipt identity',
+      (tester) async {
+        final initial = _indent(id: 73, number: 'WARD-73', status: 'reserved');
+        final other = _indent(id: 74, number: 'WARD-74', status: 'reserved');
+        final pending = Completer<WardIndent>();
+        final attempts = IdempotencyAttemptRegistry();
+        final gateway = _FakeWardIndentGateway(
+          listRows: [initial, other],
+          initialDetail: initial,
+          detailLoader: (id) => Future.value(id == 73 ? initial : other),
+          mutationLoader: (_) => pending.future,
+        );
+        await _pumpWorkbench(
+          tester,
+          gateway: gateway,
+          rawRole: 'PHARMACY_STAFF',
+          initialIndentId: 73,
+          attempts: attempts,
+        );
+        await tester.ensureVisible(
+          find.byKey(const Key('ward-indent-action-approve')),
+        );
+        await tester.tap(find.byKey(const Key('ward-indent-action-approve')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Confirm'));
+        await tester.pump();
+        expect(gateway.mutateCalls, 1);
+        final originalKey = attempts.current('ward-indent:73:approve');
+        expect(originalKey, isNotNull);
+        await _pumpWorkbench(
+          tester,
+          gateway: gateway,
+          rawRole: 'PHARMACY_STAFF',
+          initialIndentId: 74,
+          attempts: attempts,
+          settle: false,
+        );
+        await _pumpUntilFound(
+          tester,
+          find.byKey(const Key('ward-indent-detail-74')),
+        );
+        final button = tester.widget<FilledButton>(
+          find.byKey(const Key('ward-indent-action-approve')),
+        );
+        expect(button.onPressed, isNull);
+        if (fails) {
+          pending.completeError(Exception('old command response lost'));
+        } else {
+          pending.complete(
+            _indent(id: 73, number: 'WARD-73', status: 'approved', version: 2),
+          );
+        }
+        await tester.pumpAndSettle();
+        expect(gateway.getIds, [73, 74]);
+        expect(find.byKey(const Key('ward-indent-detail-74')), findsOneWidget);
+        expect(find.byKey(const Key('ward-indent-action-error')), findsNothing);
+        expect(find.byType(SnackBar), findsNothing);
+        expect(
+          attempts.current('ward-indent:73:approve'),
+          fails ? originalKey : isNull,
+        );
+        expect(
+          tester
+              .widget<FilledButton>(
+                find.byKey(const Key('ward-indent-action-approve')),
+              )
+              .onPressed,
+          isNotNull,
+        );
+      },
+    );
+  }
+
+  testWidgets(
+    'mutation failure refresh cannot overwrite navigation that happens during the refresh',
+    (tester) async {
+      final initial = _indent(id: 73, number: 'WARD-73', status: 'reserved');
+      final other = _indent(id: 74, number: 'WARD-74', status: 'reserved');
+      final refresh = Completer<WardIndent>();
+      var reads = 0;
+      final gateway = _FakeWardIndentGateway(
+        listRows: [initial, other],
+        initialDetail: initial,
+        detailLoader: (id) {
+          if (id == 74) return Future.value(other);
+          reads += 1;
+          return reads == 1 ? Future.value(initial) : refresh.future;
+        },
+        mutateError: Exception('command conflict'),
+      );
+      await _pumpWorkbench(
+        tester,
+        gateway: gateway,
+        rawRole: 'PHARMACY_STAFF',
+        initialIndentId: 73,
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('ward-indent-action-approve')),
+      );
+      await tester.tap(find.byKey(const Key('ward-indent-action-approve')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Confirm'));
+      await tester.pump();
+      expect(gateway.getIds, [73, 73]);
+      await _pumpWorkbench(
+        tester,
+        gateway: gateway,
+        rawRole: 'PHARMACY_STAFF',
+        initialIndentId: 74,
+        settle: false,
+      );
+      await _pumpUntilFound(
+        tester,
+        find.byKey(const Key('ward-indent-detail-74')),
+      );
+      refresh.complete(
+        _indent(id: 73, number: 'WARD-73', status: 'approved', version: 2),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('ward-indent-detail-74')), findsOneWidget);
+      expect(find.byKey(const Key('ward-indent-action-error')), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'late inventory candidates cannot continue reservation in a new selection',
+    (tester) async {
+      final initial = _indent(id: 73, number: 'WARD-73');
+      final other = _indent(id: 74, number: 'WARD-74');
+      final candidates = Completer<List<WardIndentInventoryItem>>();
+      final gateway = _FakeWardIndentGateway(
+        listRows: [initial, other],
+        initialDetail: initial,
+        detailLoader: (id) => Future.value(id == 73 ? initial : other),
+        candidateLoader: () => candidates.future,
+      );
+      await _pumpWorkbench(
+        tester,
+        gateway: gateway,
+        rawRole: 'PHARMACY_STAFF',
+        initialIndentId: 73,
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('ward-indent-action-reserve')),
+      );
+      await tester.tap(find.byKey(const Key('ward-indent-action-reserve')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Confirm'));
+      await tester.pump();
+      expect(gateway.inventoryCandidateCalls, 1);
+      await _pumpWorkbench(
+        tester,
+        gateway: gateway,
+        rawRole: 'PHARMACY_STAFF',
+        initialIndentId: 74,
+        settle: false,
+      );
+      await _pumpUntilFound(
+        tester,
+        find.byKey(const Key('ward-indent-detail-74')),
+      );
+      candidates.complete(gateway.inventoryCandidates);
+      await tester.pumpAndSettle();
+      expect(gateway.mutateCalls, 0);
+      expect(find.byKey(const Key('ward-indent-detail-74')), findsOneWidget);
+      expect(find.byType(SimpleDialog), findsNothing);
+    },
+  );
+
+  testWidgets('old success cannot clear a newer shared-registry attempt', (
+    tester,
+  ) async {
+    final initial = _indent(id: 73, number: 'WARD-73', status: 'reserved');
+    final pending = Completer<WardIndent>();
+    final attempts = IdempotencyAttemptRegistry();
+    final gateway = _FakeWardIndentGateway(
+      listRows: [initial],
+      initialDetail: initial,
+      mutationLoader: (_) => pending.future,
+    );
+    await _pumpWorkbench(
+      tester,
+      gateway: gateway,
+      rawRole: 'PHARMACY_STAFF',
+      initialIndentId: 73,
+      attempts: attempts,
+    );
+    await tester.ensureVisible(
+      find.byKey(const Key('ward-indent-action-approve')),
+    );
+    await tester.tap(find.byKey(const Key('ward-indent-action-approve')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Confirm'));
+    await tester.pump();
+    final oldKey = gateway.lastIdempotencyKey;
+    final newerKey = attempts.keyFor('ward-indent:73:approve', {
+      'expected_version': 2,
+    });
+    expect(newerKey, isNot(oldKey));
+    pending.complete(
+      _indent(id: 73, number: 'WARD-73', status: 'approved', version: 2),
+    );
+    await tester.pumpAndSettle();
+    expect(attempts.current('ward-indent:73:approve'), newerKey);
+  });
+
+  for (final stage in ['candidates', 'request', 'credentials', 'approval']) {
+    for (final invalidation in ['navigation', 'offline']) {
+      testWidgets('controlled $stage continuation stops after $invalidation', (
+        tester,
+      ) async {
+        final initial = _controlledIndent();
+        final other = _indent(id: 74, number: 'WARD-74');
+        final candidates = Completer<List<WardIndentInventoryItem>>();
+        final request = Completer<Map<String, dynamic>>();
+        final approval = Completer<Map<String, dynamic>>();
+        final attempts = IdempotencyAttemptRegistry();
+        final gateway = _FakeWardIndentGateway(
+          listRows: [initial, other],
+          initialDetail: initial,
+          detailLoader: (id) => Future.value(id == 73 ? initial : other),
+          inventoryCandidates: _controlledCandidates,
+          candidateLoader: stage == 'candidates'
+              ? () => candidates.future
+              : null,
+          witnessRequestLoader: stage == 'request'
+              ? () => request.future
+              : null,
+          witnessApprovalLoader: stage == 'approval'
+              ? () => approval.future
+              : null,
+        );
+        await _pumpWorkbench(
+          tester,
+          gateway: gateway,
+          rawRole: 'PHARMACY_STAFF',
+          initialIndentId: 73,
+          attempts: attempts,
+        );
+        await tester.ensureVisible(
+          find.byKey(const Key('ward-indent-action-controlledHandoff')),
+        );
+        await tester.tap(
+          find.byKey(const Key('ward-indent-action-controlledHandoff')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Confirm'));
+        await tester.pump();
+        if (stage == 'credentials' || stage == 'approval') {
+          await _pumpUntilFound(
+            tester,
+            find.byKey(const Key('ward-indent-witness-employee-id')),
+          );
+          if (stage == 'approval') {
+            await _submitWitness(tester);
+            await tester.pump();
+            expect(gateway.witnessApprovalCalls, 1);
+          }
+        }
+        if (invalidation == 'navigation') {
+          await _pumpWorkbench(
+            tester,
+            gateway: gateway,
+            rawRole: 'PHARMACY_STAFF',
+            initialIndentId: 74,
+            attempts: attempts,
+            settle: false,
+          );
+          await _pumpUntilFound(
+            tester,
+            find.byKey(const Key('ward-indent-detail-74'), skipOffstage: false),
+          );
+        } else {
+          ConnectivitySyncService.instance.setConnectionStateForTesting(
+            transport: ClientTransportState.unavailable,
+            continuity: ContinuityLifecycleState.notReady,
+          );
+          await tester.pump();
+        }
+        if (stage == 'candidates') candidates.complete(_controlledCandidates);
+        if (stage == 'request') request.complete({'id': 'approval-1'});
+        if (stage == 'approval') approval.complete({'status': 'approved'});
+        if (stage == 'credentials' ||
+            (stage == 'request' && invalidation == 'offline')) {
+          await _pumpUntilFound(
+            tester,
+            find.byKey(const Key('ward-indent-witness-employee-id')),
+          );
+          await _submitWitness(tester);
+        }
+        await tester.pumpAndSettle();
+        expect(gateway.witnessRequestCalls, stage == 'candidates' ? 0 : 1);
+        expect(gateway.witnessApprovalCalls, stage == 'approval' ? 1 : 0);
+        expect(gateway.mutateCalls, 0);
+        if (stage != 'candidates') {
+          expect(
+            attempts.current('ward-indent:73:controlled-witness-request:701'),
+            isNull,
+          );
+        }
+        if (invalidation == 'navigation') {
+          expect(
+            find.byKey(const Key('ward-indent-detail-74')),
+            findsOneWidget,
+          );
+          expect(
+            find.byKey(const Key('ward-indent-action-error')),
+            findsNothing,
+          );
+          expect(find.byType(SnackBar), findsNothing);
+        }
+      });
+    }
+  }
+
+  testWidgets(
+    'unmounted historical-recovery dialog cannot continue or clear a disposed controller',
+    (tester) async {
+      final initial = _controlledIndent(historical: true);
+      final gateway = _FakeWardIndentGateway(
+        listRows: [initial],
+        initialDetail: initial,
+      );
+      await _pumpWorkbench(
+        tester,
+        gateway: gateway,
+        rawRole: 'PHARMACY_INCHARGE',
+        initialIndentId: 73,
+      );
+      await tester.ensureVisible(
+        find.byKey(const Key('ward-indent-action-controlledHandoff')),
+      );
+      await tester.tap(
+        find.byKey(const Key('ward-indent-action-controlledHandoff')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Confirm'));
+      await _pumpUntilFound(
+        tester,
+        find.byKey(const Key('ward-indent-historical-recovery-reason-701')),
+      );
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(gateway.mutateCalls, 0);
+    },
+  );
+
+  testWidgets(
+    'newer refresh wins when two reads of the same indent finish backwards',
+    (tester) async {
+      final initial = _indent(id: 73, number: 'WARD-73');
+      final older = Completer<WardIndent>();
+      final newer = Completer<WardIndent>();
+      var reads = 0;
+      final gateway = _FakeWardIndentGateway(
+        listRows: [initial],
+        initialDetail: initial,
+        detailLoader: (_) {
+          reads += 1;
+          return reads == 1
+              ? Future.value(initial)
+              : reads == 2
+              ? older.future
+              : newer.future;
+        },
+      );
+      await _pumpWorkbench(
+        tester,
+        gateway: gateway,
+        rawRole: 'PHARMACY_STAFF',
+        initialIndentId: 73,
+      );
+      final refresh = _detailRefresh(tester, 73);
+      final first = refresh();
+      final second = refresh();
+      newer.complete(_indent(id: 73, number: 'WARD-73', version: 3));
+      await second;
+      await tester.pumpAndSettle();
+      expect(find.text('v3'), findsOneWidget);
+      older.complete(_indent(id: 73, number: 'WARD-73', version: 2));
+      await first;
+      await tester.pumpAndSettle();
+      expect(find.text('v3'), findsOneWidget);
+      expect(find.text('v2'), findsNothing);
+    },
+  );
+
+  testWidgets('current refresh failure remains visible and a retry clears it', (
+    tester,
+  ) async {
+    final initial = _indent(id: 73, number: 'WARD-73');
+    var reads = 0;
+    final gateway = _FakeWardIndentGateway(
+      listRows: [initial],
+      initialDetail: initial,
+      detailLoader: (_) async {
+        reads += 1;
+        if (reads == 2) throw Exception('current refresh failed');
+        return initial;
+      },
+    );
+    await _pumpWorkbench(
+      tester,
+      gateway: gateway,
+      rawRole: 'PHARMACY_STAFF',
+      initialIndentId: 73,
+    );
+    await _detailRefresh(tester, 73)();
+    await tester.pumpAndSettle();
+    expect(find.textContaining('current refresh failed'), findsOneWidget);
+    await _detailRefresh(tester, 73)();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('ward-indent-action-error')), findsNothing);
+  });
+
+  testWidgets(
+    'obsolete worklist response cannot start a detail read on a replacement gateway',
+    (tester) async {
+      final initial = _indent(id: 73, number: 'WARD-73');
+      final other = _indent(id: 74, number: 'WARD-74');
+      final page = Completer<WardIndentPage>();
+      final oldGateway = _FakeWardIndentGateway(
+        listRows: [initial],
+        initialDetail: initial,
+        listLoader: () => page.future,
+      );
+      final newGateway = _FakeWardIndentGateway(
+        listRows: [other],
+        initialDetail: other,
+      );
+      await _pumpWorkbench(
+        tester,
+        gateway: oldGateway,
+        rawRole: 'PHARMACY_STAFF',
+        initialIndentId: 73,
+        settle: false,
+      );
+      await _pumpWorkbench(
+        tester,
+        gateway: newGateway,
+        rawRole: 'PHARMACY_STAFF',
+        initialIndentId: 74,
+      );
+      page.complete(WardIndentPage(items: [initial], hasMore: false));
+      await tester.pumpAndSettle();
+      expect(oldGateway.getIds, isEmpty);
+      expect(newGateway.getIds, [74]);
+      expect(find.byKey(const Key('ward-indent-detail-74')), findsOneWidget);
+    },
+  );
+
+  testWidgets('late request-sheet result does not replace a new deep link', (
+    tester,
+  ) async {
+    final initial = _indent(id: 73, number: 'WARD-73');
+    final other = _indent(id: 74, number: 'WARD-74');
+    final gateway = _FakeWardIndentGateway(
+      listRows: [initial, other],
+      initialDetail: initial,
+      detailLoader: (id) => Future.value(id == 73 ? initial : other),
+    );
+    await _pumpWorkbench(
+      tester,
+      gateway: gateway,
+      rawRole: 'PHARMACY_STAFF',
+      initialIndentId: 73,
+    );
+    await tester.tap(find.byKey(const Key('ward-indent-request-open')));
+    await tester.pumpAndSettle();
+    expect(find.byType(WardIndentRequestSheet), findsOneWidget);
+    final sheetContext = tester.element(find.byType(WardIndentRequestSheet));
+    await _pumpWorkbench(
+      tester,
+      gateway: gateway,
+      rawRole: 'PHARMACY_STAFF',
+      initialIndentId: 74,
+    );
+    Navigator.of(sheetContext).pop(_indent(id: 75, number: 'WARD-75'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('ward-indent-detail-74')), findsOneWidget);
+    expect(find.byType(SnackBar), findsNothing);
   });
 
   testWidgets('read-only actor cannot inherit owner lifecycle actions', (
@@ -1049,8 +1953,11 @@ Future<void> _pumpWorkbench(
   WidgetTester tester, {
   required _FakeWardIndentGateway gateway,
   required String rawRole,
+  StaffRole? role,
+  WardIndentRequesterGateway? requesterGateway,
   int? initialIndentId,
   IdempotencyAttemptRegistry? attempts,
+  bool settle = true,
 }) async {
   tester.view.physicalSize = const Size(1200, 900);
   tester.view.devicePixelRatio = 1;
@@ -1061,15 +1968,16 @@ Future<void> _pumpWorkbench(
       home: Scaffold(
         body: WardIndentWorkbench(
           rawRole: rawRole,
-          role: StaffRole.fromString(rawRole),
+          role: role ?? StaffRole.fromString(rawRole),
           initialIndentId: initialIndentId,
           gateway: gateway,
+          requesterGateway: requesterGateway,
           attempts: attempts ?? IdempotencyAttemptRegistry(),
         ),
       ),
     ),
   );
-  await tester.pumpAndSettle();
+  if (settle) await tester.pumpAndSettle();
 }
 
 Future<void> _pumpUntilFound(WidgetTester tester, Finder finder) async {
@@ -1079,6 +1987,67 @@ Future<void> _pumpUntilFound(WidgetTester tester, Finder finder) async {
   }
   fail('Timed out waiting for the requested ward-indent widget');
 }
+
+RefreshCallback _detailRefresh(WidgetTester tester, int id) => tester
+    .widget<RefreshIndicator>(
+      find.ancestor(
+        of: find.byKey(Key('ward-indent-detail-$id'), skipOffstage: false),
+        matching: find.byType(RefreshIndicator, skipOffstage: false),
+      ),
+    )
+    .onRefresh;
+
+Future<void> _submitWitness(WidgetTester tester) async {
+  await tester.enterText(
+    find.byKey(const Key('ward-indent-witness-employee-id')),
+    'wit-2',
+  );
+  await tester.enterText(
+    find.byKey(const Key('ward-indent-witness-password')),
+    'secret',
+  );
+  await tester.tap(find.byKey(const Key('ward-indent-witness-confirm')));
+}
+
+WardIndent _controlledIndent({bool historical = false}) => _indent(
+  id: 73,
+  number: 'WARD-73',
+  status: 'controlled_handoff_required',
+  version: 3,
+  quantityReserved: 2,
+  quantityApproved: 2,
+  controlledReference: 'ward-indent:73:item:701',
+  recovery: historical
+      ? const {
+          'item_id': 701,
+          'status': 'available',
+          'candidate_count': 1,
+          'movement_id': 801,
+          'register_id': 901,
+        }
+      : const {'item_id': 701, 'status': 'missing', 'candidate_count': 0},
+);
+
+const _controlledCandidates = [
+  WardIndentInventoryItem(
+    id: 501,
+    catalogId: 101,
+    displayName: 'Controlled stock',
+    scheduleClass: 'X',
+    isNarcotic: true,
+    unitLabel: 'each',
+    unreservedQuantity: 8,
+    batches: [
+      WardIndentInventoryBatch(
+        id: 601,
+        inventoryItemId: 501,
+        batchNumber: 'B-1',
+        remainingQuantity: 10,
+        unreservedQuantity: 8,
+      ),
+    ],
+  ),
+];
 
 WardIndent _indent({
   required int id,
@@ -1171,6 +2140,12 @@ class _FakeWardIndentGateway implements WardIndentGateway {
     required this.initialDetail,
     this.listPages,
     this.refreshedDetail,
+    this.detailLoader,
+    this.listLoader,
+    this.mutationLoader,
+    this.candidateLoader,
+    this.witnessRequestLoader,
+    this.witnessApprovalLoader,
     this.mutationResult,
     this.mutateError,
     this.mutateErrors,
@@ -1190,6 +2165,12 @@ class _FakeWardIndentGateway implements WardIndentGateway {
   final List<List<WardIndent>>? listPages;
   final WardIndent initialDetail;
   final WardIndent? refreshedDetail;
+  final Future<WardIndent> Function(int id)? detailLoader;
+  final Future<WardIndentPage> Function()? listLoader;
+  final Future<WardIndent> Function(WardIndent indent)? mutationLoader;
+  final Future<List<WardIndentInventoryItem>> Function()? candidateLoader;
+  final Future<Map<String, dynamic>> Function()? witnessRequestLoader;
+  final Future<Map<String, dynamic>> Function()? witnessApprovalLoader;
   final WardIndent? mutationResult;
   final Object? mutateError;
   final List<Object?>? mutateErrors;
@@ -1229,6 +2210,7 @@ class _FakeWardIndentGateway implements WardIndentGateway {
         limit: limit,
       ),
     );
+    if (listLoader != null) return listLoader!();
     final pages = listPages;
     if (pages == null) {
       return WardIndentPage(items: listRows, hasMore: false);
@@ -1249,6 +2231,7 @@ class _FakeWardIndentGateway implements WardIndentGateway {
   @override
   Future<WardIndent> getIndent(int id) async {
     getIds.add(id);
+    if (detailLoader != null) return detailLoader!(id);
     return getIds.length == 1
         ? initialDetail
         : (refreshedDetail ?? initialDetail);
@@ -1268,6 +2251,7 @@ class _FakeWardIndentGateway implements WardIndentGateway {
     idempotencyKeys.add(idempotencyKey);
     lastAction = action;
     lastPayload = payload;
+    if (mutationLoader != null) return mutationLoader!(indent);
     final queuedError =
         mutateErrors != null && mutateCalls <= mutateErrors!.length
         ? mutateErrors![mutateCalls - 1]
@@ -1301,6 +2285,7 @@ class _FakeWardIndentGateway implements WardIndentGateway {
     int itemId,
   ) async {
     inventoryCandidateCalls += 1;
+    if (candidateLoader != null) return candidateLoader!();
     return inventoryCandidates;
   }
 
@@ -1323,6 +2308,7 @@ class _FakeWardIndentGateway implements WardIndentGateway {
     required String idempotencyKey,
   }) async {
     witnessRequestCalls += 1;
+    if (witnessRequestLoader != null) return witnessRequestLoader!();
     return {'id': 'approval-1'};
   }
 
@@ -1338,6 +2324,7 @@ class _FakeWardIndentGateway implements WardIndentGateway {
   }) async {
     witnessApprovalCalls += 1;
     lastWitnessEmployeeId = employeeId;
+    if (witnessApprovalLoader != null) return witnessApprovalLoader!();
     return const {'status': 'approved'};
   }
 }

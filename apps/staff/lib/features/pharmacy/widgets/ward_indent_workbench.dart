@@ -55,6 +55,7 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
   bool _hasMore = false;
   bool _detailLoading = false;
   bool _mutating = false;
+  bool _actionInFlight = false;
   bool _showNarrowDetail = false;
   // The historical-recovery reason field belongs to the STATE, not to the
   // dialog route. showDialog completes its future when the dialog is popped,
@@ -68,6 +69,7 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
   DateTime? _nextBeforeRequestedAt;
   int? _nextBeforeId;
   int _loadGeneration = 0;
+  int _contextGeneration = 0;
   late final IdempotencyAttemptRegistry _attempts;
 
   @override
@@ -80,9 +82,24 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
   @override
   void didUpdateWidget(covariant WardIndentWorkbench oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.initialIndentId != widget.initialIndentId ||
-        oldWidget.rawRole != widget.rawRole) {
-      _loadWorkbench();
+    final authorityChanged =
+        oldWidget.rawRole != widget.rawRole ||
+        oldWidget.role != widget.role ||
+        oldWidget.gateway != widget.gateway ||
+        oldWidget.requesterGateway != widget.requesterGateway;
+    final targetChanged = oldWidget.initialIndentId != widget.initialIndentId;
+    if (authorityChanged || targetChanged) {
+      final targetId = widget.initialIndentId ?? _selected?.id;
+      if (authorityChanged) {
+        _indents = const [];
+        _selected = null;
+        _hasMore = false;
+        _nextBeforeRequestedAt = null;
+        _nextBeforeId = null;
+      } else if (widget.initialIndentId != null) {
+        _selected = null;
+      }
+      _loadWorkbench(targetId: targetId);
     }
   }
 
@@ -105,38 +122,50 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
         .toList(growable: false);
   }
 
-  Future<void> _loadWorkbench() async {
+  Future<void> _loadWorkbench({int? targetId}) async {
     final generation = ++_loadGeneration;
+    final contextGeneration = ++_contextGeneration;
     final requestedFilter = _filter;
+    final gateway = widget.gateway;
+    final initialIndentId = widget.initialIndentId;
+    final requestedTargetId = targetId ?? initialIndentId ?? _selected?.id;
     if (mounted) {
       setState(() {
         _loading = true;
         _loadingMore = false;
+        _detailLoading = false;
         _loadError = null;
+        _actionError = null;
       });
     }
     try {
-      final page = await widget.gateway.listIndents(
+      final page = await gateway.listIndents(
         worklist: requestedFilter.name,
         limit: _pageSize,
       );
-      final targetId = widget.initialIndentId ?? _selected?.id;
+      if (!_isCurrentContext(contextGeneration)) return;
       WardIndent? detail;
-      if (targetId != null && targetId > 0) {
-        detail = await widget.gateway.getIndent(targetId);
+      if (requestedTargetId != null && requestedTargetId > 0) {
+        detail = await gateway.getIndent(requestedTargetId);
       }
-      if (!mounted || generation != _loadGeneration) return;
+      if (!_isCurrentContext(contextGeneration) ||
+          generation != _loadGeneration) {
+        return;
+      }
       setState(() {
         _indents = _replaceOrAdd(page.items, detail);
         _selected = detail;
-        _showNarrowDetail = detail != null && widget.initialIndentId != null;
+        _showNarrowDetail = detail != null && initialIndentId != null;
         _hasMore = page.hasMore;
         _nextBeforeRequestedAt = page.nextBeforeRequestedAt;
         _nextBeforeId = page.nextBeforeId;
         _loading = false;
       });
     } catch (error) {
-      if (!mounted || generation != _loadGeneration) return;
+      if (!_isCurrentContext(contextGeneration) ||
+          generation != _loadGeneration) {
+        return;
+      }
       setState(() {
         _loadError = _errorText(error);
         _loading = false;
@@ -197,13 +226,15 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
   }
 
   Future<void> _openIndent(WardIndent indent) async {
+    final generation = ++_contextGeneration;
+    final gateway = widget.gateway;
     setState(() {
       _detailLoading = true;
       _actionError = null;
     });
     try {
-      final detail = await widget.gateway.getIndent(indent.id);
-      if (!mounted) return;
+      final detail = await gateway.getIndent(indent.id);
+      if (!_isCurrentContext(generation)) return;
       setState(() {
         _selected = detail;
         _indents = _replaceOrAdd(_indents, detail);
@@ -211,7 +242,7 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
         _detailLoading = false;
       });
     } catch (error) {
-      if (!mounted) return;
+      if (!_isCurrentContext(generation)) return;
       setState(() {
         _actionError = _errorText(error);
         _detailLoading = false;
@@ -233,37 +264,54 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
   }
 
   Future<void> _openOrderBoundRequest() async {
+    final generation = _contextGeneration;
+    final gateway = _requesterGateway;
+    final admissionId = _selected?.admissionId;
     final created = await showModalBottomSheet<WardIndent>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       builder: (_) => WardIndentRequestSheet(
-        gateway: _requesterGateway,
-        initialAdmissionId: _selected?.admissionId,
+        gateway: gateway,
+        initialAdmissionId: admissionId,
         attempts: _attempts,
       ),
     );
-    if (created != null && mounted) _acceptMutation(created);
+    if (created != null && _isCurrentContext(generation)) {
+      _acceptMutation(created);
+    }
   }
+
+  bool _isCurrentContext(int generation) =>
+      mounted && generation == _contextGeneration;
 
   Future<WardIndent?> _refreshSelected() async {
     final selected = _selected;
     if (selected == null) return null;
-    final fresh = await widget.gateway.getIndent(selected.id);
-    if (mounted) {
+    final generation = ++_contextGeneration;
+    final gateway = widget.gateway;
+    setState(() => _actionError = null);
+    try {
+      final fresh = await gateway.getIndent(selected.id);
+      if (!_isCurrentContext(generation)) return null;
       setState(() {
         _selected = fresh;
         _indents = _replaceOrAdd(_indents, fresh);
       });
+      return fresh;
+    } catch (error) {
+      if (_isCurrentContext(generation)) _setActionError(_errorText(error));
+      return null;
     }
-    return fresh;
   }
 
   void _acceptMutation(WardIndent result) {
+    ++_contextGeneration;
     setState(() {
       _selected = result;
       _indents = _replaceOrAdd(_indents, result);
       _actionError = null;
+      _detailLoading = false;
     });
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -277,11 +325,12 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
   }
 
   Future<void> _mutate(
+    WardIndent indent,
+    int generation,
     WardIndentAction action,
     Map<String, dynamic> payload,
   ) async {
-    final indent = _selected;
-    if (indent == null || _mutating) return;
+    if (!_isCurrentContext(generation)) return;
     if (!OnlineOnlyActionGuard.require(context)) return;
     final attemptScope = _attemptScope(indent.id, action.apiPath);
     final attemptPayload = {
@@ -300,14 +349,15 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
         payload: payload,
         idempotencyKey: intentKey,
       );
-      _attempts.complete(attemptScope);
-      if (!mounted) return;
+      _completeAttempt(attemptScope, intentKey);
+      if (!_isCurrentContext(generation)) return;
       _acceptMutation(result);
     } catch (error) {
+      if (!_isCurrentContext(generation)) return;
       var message = _errorText(error);
       try {
         final fresh = await widget.gateway.getIndent(indent.id);
-        if (mounted) {
+        if (mounted && _isCurrentContext(generation)) {
           setState(() {
             _selected = fresh;
             _indents = _replaceOrAdd(_indents, fresh);
@@ -321,15 +371,34 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
         // Preserve the mutation error when the authoritative refresh also
         // fails. The user can retry the visible refresh action.
       }
-      if (mounted) setState(() => _actionError = message);
-    } finally {
-      if (mounted) setState(() => _mutating = false);
+      if (_isCurrentContext(generation)) setState(() => _actionError = message);
     }
   }
 
   Future<void> _handleAction(WardIndentAction action) async {
     final indent = _selected;
-    if (indent == null || _mutating) return;
+    if (indent == null || _actionInFlight) return;
+    final generation = _contextGeneration;
+    // Keep one action in flight through navigation so an older receipt cannot
+    // clear the idempotency key of a newer attempt with the same scope.
+    setState(() => _actionInFlight = true);
+    try {
+      await _performAction(indent, generation, action);
+    } finally {
+      if (mounted) {
+        setState(() {
+          _actionInFlight = false;
+          _mutating = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _performAction(
+    WardIndent indent,
+    int generation,
+    WardIndentAction action,
+  ) async {
     final s = AppStrings.of(context);
     final actionLabel = _actionLabel(s, action);
 
@@ -337,46 +406,61 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
       case WardIndentAction.reserve:
       case WardIndentAction.approve:
       case WardIndentAction.issue:
-        if (!await _confirm(actionLabel)) return;
+        if (!await _confirm(actionLabel) || !_isCurrentContext(generation)) {
+          return;
+        }
         if (action == WardIndentAction.reserve) {
-          final selections = await _collectInventorySelections({
-            for (final item in indent.items) item.id: item.quantityRequested,
-          });
+          final selections = await _collectInventorySelections(
+            indent,
+            generation,
+            {for (final item in indent.items) item.id: item.quantityRequested},
+          );
           if (selections == null) return;
-          await _mutate(action, {'inventory_selections': selections});
+          await _mutate(indent, generation, action, {
+            'inventory_selections': selections,
+          });
         } else {
-          await _mutate(action, const {});
+          await _mutate(indent, generation, action, const {});
         }
         return;
       case WardIndentAction.approveSubstitution:
-        if (!await _confirm(actionLabel)) return;
-        await _mutate(action, const {});
+        if (!await _confirm(actionLabel) || !_isCurrentContext(generation)) {
+          return;
+        }
+        await _mutate(indent, generation, action, const {});
         return;
       case WardIndentAction.applyApprovedSubstitution:
-        if (!await _confirm(actionLabel)) return;
+        if (!await _confirm(actionLabel) || !_isCurrentContext(generation)) {
+          return;
+        }
         final substitutionTargets = {
           for (final item in indent.items)
             if (item.substitutionStatus == 'approved')
               item.id: item.proposedQuantity ?? item.quantityRequested,
         };
         final substitutionSelections = await _collectInventorySelections(
+          indent,
+          generation,
           substitutionTargets,
           useProposedCatalog: true,
         );
         if (substitutionSelections == null) return;
-        await _mutate(action, {'inventory_selections': substitutionSelections});
+        await _mutate(indent, generation, action, {
+          'inventory_selections': substitutionSelections,
+        });
         return;
       case WardIndentAction.shortSupply:
         final reason = await _askReason(actionLabel);
-        if (reason == null) return;
+        if (reason == null || !_isCurrentContext(generation)) return;
         final quantities = await _askQuantities(
+          indent: indent,
           title: s.lookup('ward_indent.quantity.available'),
           fieldName: 'quantity_available',
           initial: (item) => item.quantityReserved,
           minimum: (_) => 0,
           maximum: (item) => item.quantityRequested,
         );
-        if (quantities == null) return;
+        if (quantities == null || !_isCurrentContext(generation)) return;
         final hasShortfall = indent.items.any((item) {
           final row = quantities.firstWhere(
             (entry) => entry['item_id'] == item.id,
@@ -388,21 +472,25 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
           _setActionError(s.lookup('ward_indent.error.shortfall_required'));
           return;
         }
-        final selections = await _collectInventorySelections({
-          for (final row in quantities)
-            row['item_id'] as int: (row['quantity_available'] as num)
-                .toDouble(),
-        });
+        final selections = await _collectInventorySelections(
+          indent,
+          generation,
+          {
+            for (final row in quantities)
+              row['item_id'] as int: (row['quantity_available'] as num)
+                  .toDouble(),
+          },
+        );
         if (selections == null) return;
-        await _mutate(action, {
+        await _mutate(indent, generation, action, {
           'reason': reason,
           'item_quantities_available': quantities,
           'inventory_selections': selections,
         });
         return;
       case WardIndentAction.proposeSubstitution:
-        final payload = await _buildSubstitutionPayload();
-        if (payload != null) await _mutate(action, payload);
+        final payload = await _buildSubstitutionPayload(indent, generation);
+        if (payload != null) await _mutate(indent, generation, action, payload);
         return;
       case WardIndentAction.rejectSubstitution:
       case WardIndentAction.reject:
@@ -410,20 +498,23 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
       case WardIndentAction.cancel:
       case WardIndentAction.close:
         final reason = await _askReason(actionLabel);
-        if (reason != null) await _mutate(action, {'reason': reason});
+        if (reason != null) {
+          await _mutate(indent, generation, action, {'reason': reason});
+        }
         return;
       case WardIndentAction.controlledHandoff:
-        await _completeControlledHandoff();
+        await _completeControlledHandoff(indent, generation);
         return;
       case WardIndentAction.receive:
         final quantities = await _askQuantities(
+          indent: indent,
           title: s.lookup('ward_indent.quantity.received'),
           fieldName: 'quantity_received',
           initial: (item) => item.quantityIssued,
           minimum: (item) => item.quantityReceived,
           maximum: (item) => item.quantityIssued,
         );
-        if (quantities == null) return;
+        if (quantities == null || !_isCurrentContext(generation)) return;
         final progressed = indent.items.any((item) {
           final row = quantities.firstWhere(
             (entry) => entry['item_id'] == item.id,
@@ -449,7 +540,7 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
             !await _confirmSubstitutionAcknowledgements(acknowledgements)) {
           return;
         }
-        await _mutate(action, {
+        await _mutate(indent, generation, action, {
           'item_quantities_received': quantities,
           'substitution_acknowledgements': [
             for (final item in acknowledgements) {'item_id': item.id},
@@ -458,15 +549,16 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
         return;
       case WardIndentAction.requestReturn:
         final reason = await _askReason(actionLabel);
-        if (reason == null) return;
+        if (reason == null || !_isCurrentContext(generation)) return;
         final quantities = await _askQuantities(
+          indent: indent,
           title: s.lookup('ward_indent.quantity.returned'),
           fieldName: 'quantity_returned',
           initial: indent.returnCeilingForItem,
           minimum: (item) => item.quantityReturned,
           maximum: indent.returnCeilingForItem,
         );
-        if (quantities == null) return;
+        if (quantities == null || !_isCurrentContext(generation)) return;
         final progressed = indent.items.any((item) {
           final row = quantities.firstWhere(
             (entry) => entry['item_id'] == item.id,
@@ -478,24 +570,25 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
           _setActionError(s.lookup('ward_indent.error.return_required'));
           return;
         }
-        await _mutate(action, {
+        await _mutate(indent, generation, action, {
           'reason': reason,
           'item_quantities_returned': quantities,
         });
         return;
       case WardIndentAction.reconcile:
-        final payload = await _buildReconciliationPayload();
-        if (payload != null) await _mutate(action, payload);
+        final payload = await _buildReconciliationPayload(indent, generation);
+        if (payload != null) await _mutate(indent, generation, action, payload);
         return;
     }
   }
 
   Future<List<Map<String, dynamic>>?> _collectInventorySelections(
+    WardIndent indent,
+    int generation,
     Map<int, double> targetQuantities, {
     bool useProposedCatalog = false,
   }) async {
-    final indent = _selected;
-    if (indent == null) return null;
+    if (!_isCurrentContext(generation)) return null;
     final strings = AppStrings.of(context);
     final selections = <Map<String, dynamic>>[];
     setState(() => _mutating = true);
@@ -536,6 +629,7 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
             line.id,
           );
         }
+        if (!_isCurrentContext(generation)) return null;
         if (!useProposedCatalog || line.substitutionStatus != 'pending') {
           candidates = candidates
               .where(
@@ -570,12 +664,12 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
                     '${_quantity(candidate.unreservedQuantity)} '
                     '${candidate.unitLabel ?? ''}',
               );
-        if (selected == null) return null;
+        if (selected == null || !_isCurrentContext(generation)) return null;
         selections.add({'item_id': line.id, 'inventory_item_id': selected.id});
       }
       return selections;
     } catch (error) {
-      if (mounted) _setActionError(_errorText(error));
+      if (_isCurrentContext(generation)) _setActionError(_errorText(error));
       return null;
     } finally {
       if (mounted) setState(() => _mutating = false);
@@ -615,9 +709,10 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
         false;
   }
 
-  Future<Map<String, dynamic>?> _buildSubstitutionPayload() async {
-    final indent = _selected;
-    if (indent == null) return null;
+  Future<Map<String, dynamic>?> _buildSubstitutionPayload(
+    WardIndent indent,
+    int generation,
+  ) async {
     final strings = AppStrings.of(context);
     final shortItems = indent.items
         .where((item) => item.quantityReserved < item.quantityRequested)
@@ -630,7 +725,11 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
           '${item.name} (${_quantity(item.quantityReserved)}/'
           '${_quantity(item.quantityRequested)})',
     );
-    if (line == null || line.catalogId == null) return null;
+    if (line == null ||
+        line.catalogId == null ||
+        !_isCurrentContext(generation)) {
+      return null;
+    }
 
     setState(() => _mutating = true);
     CompositionAlternativesResult alternatives;
@@ -639,12 +738,12 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
         line.catalogId!,
       );
     } catch (error) {
-      if (mounted) _setActionError(_errorText(error));
+      if (_isCurrentContext(generation)) _setActionError(_errorText(error));
       return null;
     } finally {
       if (mounted) setState(() => _mutating = false);
     }
-    if (!mounted) return null;
+    if (!_isCurrentContext(generation)) return null;
     final candidates = alternatives.alternatives
         .where(
           (item) =>
@@ -662,11 +761,11 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
       candidates,
       (item) => '${item.displayName} - ${item.stockLabel}',
     );
-    if (substitute == null) return null;
+    if (substitute == null || !_isCurrentContext(generation)) return null;
     final reason = await _askReason(
       strings.lookup('ward_indent.action.propose_substitution'),
     );
-    if (reason == null) return null;
+    if (reason == null || !_isCurrentContext(generation)) return null;
     return {
       'substitutions': [
         {
@@ -679,13 +778,14 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
     };
   }
 
-  Future<Map<String, dynamic>?> _buildReconciliationPayload() async {
-    final indent = _selected;
-    if (indent == null) return null;
+  Future<Map<String, dynamic>?> _buildReconciliationPayload(
+    WardIndent indent,
+    int generation,
+  ) async {
     final reason = await _askReason(
       AppStrings.of(context).lookup('ward_indent.action.reconcile'),
     );
-    if (reason == null) return null;
+    if (reason == null || !_isCurrentContext(generation)) return null;
 
     final varianceItems = indent.items
         .where((item) => item.unresolvedVariance > 0)
@@ -694,7 +794,7 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
       varianceItems,
       reason,
     );
-    if (reconciliations == null) return null;
+    if (reconciliations == null || !_isCurrentContext(generation)) return null;
     final allocationReturns = _buildAllocationReturns(indent);
     if (allocationReturns == null) return null;
     return {
@@ -841,14 +941,16 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
     );
   }
 
-  Future<void> _completeControlledHandoff() async {
-    final initial = _selected;
-    if (initial == null || _mutating) return;
+  Future<void> _completeControlledHandoff(
+    WardIndent initial,
+    int generation,
+  ) async {
     if (!OnlineOnlyActionGuard.require(context)) return;
     final strings = AppStrings.of(context);
     if (!await _confirm(
-      _actionLabel(strings, WardIndentAction.controlledHandoff),
-    )) {
+          _actionLabel(strings, WardIndentAction.controlledHandoff),
+        ) ||
+        !_isCurrentContext(generation)) {
       return;
     }
 
@@ -892,7 +994,7 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
             );
           }
           final reason = await _askHistoricalRecoveryReason(line, recovery);
-          if (reason == null) return;
+          if (reason == null || !_isCurrentContext(generation)) return;
           evidence.add({
             'item_id': line.id,
             'historical_recovery': {
@@ -916,6 +1018,7 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
           current.id,
           line.id,
         );
+        if (!_isCurrentContext(generation)) return;
         final exactInventory = candidates
             .where((candidate) => candidate.id == allocation.inventoryItemId)
             .toList(growable: false);
@@ -935,39 +1038,49 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
           );
           final witnessRequestPayload = {
             'item_id': line.id,
-            'allocation_id': '${allocation.id}',
+            'allocation_id': allocation.id,
           };
+          if (!mounted || !OnlineOnlyActionGuard.require(context)) return;
+          final witnessRequestKey = _attempts.keyFor(
+            witnessRequestScope,
+            witnessRequestPayload,
+          );
           final requested = await widget.gateway
               .requestWardControlledWitnessApproval(
                 indentId: current.id,
                 itemId: line.id,
                 allocationId: allocation.id,
-                idempotencyKey: _attempts.keyFor(
-                  witnessRequestScope,
-                  witnessRequestPayload,
-                ),
+                idempotencyKey: witnessRequestKey,
               );
           final approvalId =
               requested['id']?.toString() ??
               requested['approval_id']?.toString();
+          if (approvalId != null && approvalId.trim().isNotEmpty) {
+            _completeAttempt(witnessRequestScope, witnessRequestKey);
+          }
+          if (!_isCurrentContext(generation)) return;
           if (approvalId == null || approvalId.trim().isEmpty) {
             throw StateError(
               strings.lookup('ward_indent.controlled.witness_id_missing'),
             );
           }
-          _attempts.complete(witnessRequestScope);
           final credentials = await _askWitnessCredentials(line.name);
-          if (credentials == null) return;
+          if (credentials == null || !_isCurrentContext(generation)) return;
           final witnessApprovalScope = _attemptScope(
             current.id,
             'controlled-witness-approve:$approvalId',
           );
           final witnessApprovalPayload = <String, dynamic>{
             'item_id': line.id,
-            'allocation_id': '${allocation.id}',
+            'allocation_id': allocation.id,
             'employeeId': credentials.employeeId.trim().toUpperCase(),
             'password': credentials.password,
           };
+          if (!mounted || !OnlineOnlyActionGuard.require(context)) return;
+          final witnessApprovalKey = _attempts.keyFor(
+            witnessApprovalScope,
+            witnessApprovalPayload,
+          );
           await widget.gateway.approveWardControlledWitnessApproval(
             indentId: current.id,
             approvalId: approvalId,
@@ -975,12 +1088,10 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
             allocationId: allocation.id,
             employeeId: witnessApprovalPayload['employeeId'] as String,
             password: witnessApprovalPayload['password'] as String,
-            idempotencyKey: _attempts.keyFor(
-              witnessApprovalScope,
-              witnessApprovalPayload,
-            ),
+            idempotencyKey: witnessApprovalKey,
           );
-          _attempts.complete(witnessApprovalScope);
+          _completeAttempt(witnessApprovalScope, witnessApprovalKey);
+          if (!_isCurrentContext(generation)) return;
           itemEvidence['witness_approval_id'] = approvalId;
         }
         evidence.add(itemEvidence);
@@ -991,23 +1102,30 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
         current.id,
         WardIndentAction.controlledHandoff.apiPath,
       );
+      if (!mounted ||
+          !_isCurrentContext(generation) ||
+          !OnlineOnlyActionGuard.require(context)) {
+        return;
+      }
+      final handoffKey = _attempts.keyFor(handoffScope, {
+        ...handoffPayload,
+        'expected_version': current.stateVersion,
+      });
       final result = await widget.gateway.mutateIndent(
         current,
         WardIndentAction.controlledHandoff,
         payload: handoffPayload,
-        idempotencyKey: _attempts.keyFor(handoffScope, {
-          ...handoffPayload,
-          'expected_version': current.stateVersion,
-        }),
+        idempotencyKey: handoffKey,
       );
-      _attempts.complete(handoffScope);
-      if (!mounted) return;
+      _completeAttempt(handoffScope, handoffKey);
+      if (!_isCurrentContext(generation)) return;
       _acceptMutation(result);
     } catch (error) {
+      if (!_isCurrentContext(generation)) return;
       var message = _errorText(error);
       try {
         final fresh = await widget.gateway.getIndent(initial.id);
-        if (mounted) {
+        if (_isCurrentContext(generation)) {
           setState(() {
             _selected = fresh;
             _indents = _replaceOrAdd(_indents, fresh);
@@ -1018,9 +1136,7 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
           );
         }
       } catch (_) {}
-      if (mounted) setState(() => _actionError = message);
-    } finally {
-      if (mounted) setState(() => _mutating = false);
+      if (_isCurrentContext(generation)) setState(() => _actionError = message);
     }
   }
 
@@ -1126,7 +1242,7 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
       ),
     );
     // Cleared, never disposed here — see the field declaration.
-    controller.clear();
+    if (mounted) controller.clear();
     return result;
   }
 
@@ -1243,14 +1359,13 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
   }
 
   Future<List<Map<String, dynamic>>?> _askQuantities({
+    required WardIndent indent,
     required String title,
     required String fieldName,
     required double Function(WardIndentItem item) initial,
     required double Function(WardIndentItem item) minimum,
     required double Function(WardIndentItem item) maximum,
   }) async {
-    final indent = _selected;
-    if (indent == null) return null;
     final values = {
       for (final item in indent.items) item.id: _quantity(initial(item)),
     };
@@ -1381,7 +1496,7 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
                     message: isOnline ? '' : offlineMessage,
                     child: FilledButton.tonalIcon(
                       key: const Key('ward-indent-request-open'),
-                      onPressed: isOnline && !_mutating && !_loadingMore
+                      onPressed: isOnline && !_actionInFlight && !_loadingMore
                           ? _openOrderBoundRequest
                           : null,
                       icon: const Icon(Icons.add_shopping_cart),
@@ -1690,7 +1805,7 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
                         .map(
                           (action) => FilledButton.tonal(
                             key: Key('ward-indent-action-${action.name}'),
-                            onPressed: isOnline && !_mutating
+                            onPressed: isOnline && !_actionInFlight
                                 ? () => _handleAction(action)
                                 : null,
                             child: Text(_actionLabel(s, action)),
@@ -1829,6 +1944,10 @@ class _WardIndentWorkbenchState extends State<WardIndentWorkbench> {
 
   String _attemptScope(int indentId, String action) =>
       'ward-indent:$indentId:${action.replaceAll('/', '-')}';
+
+  void _completeAttempt(String scope, String key) {
+    if (_attempts.current(scope) == key) _attempts.complete(scope);
+  }
 }
 
 class _WitnessCredentials {
