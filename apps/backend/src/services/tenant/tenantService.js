@@ -1,4 +1,4 @@
-import prisma from '../../lib/prisma.js';
+import prisma, { setTenantTx } from '../../lib/prisma.js';
 import logger from '../../logging/logger.js';
 import { AppError } from '../../utils/AppError.js';
 import { isDefaultTenantAllowed } from '../../config/tenantRlsConfig.js';
@@ -134,60 +134,63 @@ export async function createTenant(data = {}) {
     [RESERVED_CARE_TEAM_ENFORCEMENT_SETTINGS_KEY]: DEFAULT_CARE_TEAM_ENFORCEMENT_MODE,
   });
 
-  const rows = await prisma.$queryRawUnsafe(
-    `INSERT INTO tenants (slug, name, region, compliance_profile, settings, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5::jsonb, NOW(), NOW())
-     ON CONFLICT (slug) DO NOTHING
-     RETURNING id, slug, name, region, compliance_profile, status, settings, created_at, updated_at`,
-    slug,
-    name,
-    region,
-    compliance,
-    serializedSettings
-  );
-  if (!rows[0]) {
-    throw AppError.conflict(`Tenant slug already exists: ${slug}`);
-  }
+  const tenant = await setTenantTx(null, async (tx) => {
+    const rows = await tx.$queryRawUnsafe(
+      `INSERT INTO tenants (slug, name, region, compliance_profile, settings, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5::jsonb, NOW(), NOW())
+       ON CONFLICT (slug) DO NOTHING
+       RETURNING id, slug, name, region, compliance_profile, status, settings, created_at, updated_at`,
+      slug,
+      name,
+      region,
+      compliance,
+      serializedSettings
+    );
+    if (!rows[0]) {
+      throw AppError.conflict(`Tenant slug already exists: ${slug}`);
+    }
 
-  // Seed a default package entitlement so a fresh tenant is never hard-blocked
-  // from the admin surface it needs to finish its own onboarding (the
-  // /api/v1/admin barrel is gated on admin.operations since 2026-08-23).
-  // Same preserve-access reasoning as migration 434's backfill; commercial
-  // packaging downgrades are an explicit operator action afterwards.
-  await prisma.$executeRawUnsafe(
-    `INSERT INTO tenant_entitlements (tenant_id, package_key, status, starts_at, source, metadata)
-     VALUES ($1::uuid, 'enterprise', 'active', NOW(), 'tenant_creation_default',
-             '{"reason": "Default package at tenant creation; adjust during commercial onboarding."}'::jsonb)
-     ON CONFLICT (tenant_id, package_key) DO NOTHING`,
-    rows[0].id,
-  );
+    // Seed a default package entitlement so a fresh tenant is never hard-blocked
+    // from the admin surface it needs to finish its own onboarding (the
+    // /api/v1/admin barrel is gated on admin.operations since 2026-08-23).
+    // Same preserve-access reasoning as migration 434's backfill; commercial
+    // packaging downgrades are an explicit operator action afterwards.
+    await tx.$executeRawUnsafe(
+      `INSERT INTO tenant_entitlements (tenant_id, package_key, status, starts_at, source, metadata)
+       VALUES ($1::uuid, 'enterprise', 'active', NOW(), 'tenant_creation_default',
+               '{"reason": "Default package at tenant creation; adjust during commercial onboarding."}'::jsonb)
+       ON CONFLICT (tenant_id, package_key) DO NOTHING`,
+      rows[0].id,
+    );
 
-  // Inherit the platform-baseline tenant-scoped config from the default tenant.
-  //
-  // WHAT is copied is declared once in tenantProvisioningRegistry.js and shared
-  // with the backfill migrations (727, 728) — this loop used to be a
-  // hand-maintained pair of copy blocks, which is precisely how
-  // lab_critical_thresholds and escalation_rules came to be missing (once-over
-  // 2026-08-23). To provision one more table, add a registry entry and its
-  // backfill migration; nothing here changes.
-  //
-  // lab_critical_thresholds is NOT one of the copied tables. It was in the
-  // registry through two rounds of review and was withdrawn — a new tenant born
-  // with copied critical limits but no agreeing lab_reference_ranges has its lab
-  // results REJECTED, not merely unalerted. That header explains it; the
-  // remaining gap is parked in docs/ROADMAP.md.
-  //
-  // A failure here still propagates, exactly as the two hand-written copies did.
-  // Swallowing it would hand back a tenant whose TAT thresholds, escalation
-  // tiers and SLA clocks are silently empty — the failure mode this loop exists
-  // to remove. Every copy is idempotent, so re-running createTenant's
-  // provisioning after a fixed fault is safe.
-  for (const entry of TENANT_PROVISIONING_REGISTRY) {
-    await prisma.$executeRawUnsafe(buildTenantCopySql(entry), rows[0].id);
-  }
+    // Inherit the platform-baseline tenant-scoped config from the default tenant.
+    //
+    // WHAT is copied is declared once in tenantProvisioningRegistry.js and shared
+    // with the backfill migrations (727, 728) — this loop used to be a
+    // hand-maintained pair of copy blocks, which is precisely how
+    // lab_critical_thresholds and escalation_rules came to be missing (once-over
+    // 2026-08-23). To provision one more table, add a registry entry and its
+    // backfill migration; nothing here changes.
+    //
+    // lab_critical_thresholds is NOT one of the copied tables. It was in the
+    // registry through two rounds of review and was withdrawn — a new tenant born
+    // with copied critical limits but no agreeing lab_reference_ranges has its lab
+    // results REJECTED, not merely unalerted. That header explains it; the
+    // remaining gap is parked in docs/ROADMAP.md.
+    //
+    // A failure here still propagates, exactly as the two hand-written copies did.
+    // Swallowing it would hand back a tenant whose TAT thresholds, escalation
+    // tiers and SLA clocks are silently empty — the failure mode this loop exists
+    // to remove. Provisioning rolls back with the tenant on any copy failure.
+    for (const entry of TENANT_PROVISIONING_REGISTRY) {
+      await tx.$executeRawUnsafe(buildTenantCopySql(entry), rows[0].id);
+    }
 
-  invalidateCache(rows[0].id);
-  return rows[0];
+    return rows[0];
+  }, { superAdmin: true });
+
+  invalidateCache(tenant.id);
+  return tenant;
 }
 
 export async function updateTenant(tenantId, patch = {}) {
