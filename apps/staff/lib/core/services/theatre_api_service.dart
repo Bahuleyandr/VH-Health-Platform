@@ -57,14 +57,50 @@ class TheatreApiService {
     if (date != null) query['date'] = date;
     if (otRoom != null) query['ot_room'] = otRoom;
     if (status != null) query['status'] = status;
-    final data = await _get('/theatre/today', query: query);
-    return data['schedules'] as List? ?? data['data'] as List? ?? [];
+    final resp = await ApiClient.get('/theatre/today', queryParameters: query);
+    if (resp.isSuccess && resp.raw is Map) {
+      final raw = resp.raw as Map<String, dynamic>;
+      if (raw['success'] == true) {
+        final data = raw['data'];
+        if (data is List &&
+            data.every(
+              (row) =>
+                  row is Map<String, dynamic> &&
+                  (row['pre_op_checklist'] == null ||
+                      row['pre_op_checklist'] is Map<String, dynamic>),
+            )) {
+          return data;
+        }
+        throw const FormatException('Invalid theatre schedule response');
+      }
+    }
+    throw Exception(resp.message ?? 'Request failed (${resp.statusCode})');
   }
 
   /// GET /theatre/availability?date=
   static Future<List<dynamic>> getAvailability(String date) async {
     final data = await _get('/theatre/availability', query: {'date': date});
-    return data['rooms'] as List? ?? data['data'] as List? ?? [];
+    final bookedRooms = data['booked_rooms'];
+    final roomSchedules = data['room_schedules'];
+    if (bookedRooms is! List ||
+        !bookedRooms.every((room) => room is String) ||
+        roomSchedules is! List ||
+        !roomSchedules.every(
+          (room) =>
+              room is Map<String, dynamic> &&
+              room['ot_room'] is String &&
+              (room['ot_room'] as String).isNotEmpty,
+        )) {
+      throw const FormatException('Invalid theatre availability response');
+    }
+    return [
+      for (final room in roomSchedules)
+        {
+          ...room as Map<String, dynamic>,
+          'name': room['ot_room'],
+          'available': !bookedRooms.contains(room['ot_room']),
+        },
+    ];
   }
 
   /// POST /theatre/schedule

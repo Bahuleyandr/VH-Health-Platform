@@ -758,3 +758,13 @@ cd apps/patient && flutter gen-l10n
 
 Generated patient files under `apps/patient/lib/generated/` should be committed
 when ARB edits change them.
+
+## Theatre checklist read-only restriction (2026-09-27)
+
+`theatre.checklist_read_only` uses the English source message: "Read only: this
+checklist contains additional or unsupported data that this editor cannot safely
+update." The `hi`, `ta`, `te`, and `ml` entries are temporary English-source
+placeholders for structural parity, marked `// REVIEW:` in `app_strings.dart`.
+Human linguistic review is **pending** for all four translations. This entry
+records a UI write restriction, not clinical wording, readiness, translation, or
+activation approval; all existing approvals remain unchanged.
