@@ -177,7 +177,7 @@ function IncidentPanel({
         );
         const first = focusable[0];
         const last = focusable[focusable.length - 1];
-        if (!dialogRef.current?.contains(document.activeElement)) {
+        if (!focusable.some((element) => element === document.activeElement)) {
           event.preventDefault();
           (event.shiftKey ? last : first)?.focus();
         } else if (event.shiftKey && document.activeElement === first) {
@@ -366,10 +366,14 @@ function IncidentPanel({
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-medium text-gray-500 block mb-1">
+                <label
+                  htmlFor="incident-status"
+                  className="text-xs font-medium text-gray-500 block mb-1"
+                >
                   Status
                 </label>
                 <select
+                  id="incident-status"
                   value={status}
                   onChange={(e) => setStatus(e.target.value)}
                   className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -384,10 +388,14 @@ function IncidentPanel({
             </div>
 
             <div>
-              <label className="text-xs font-medium text-gray-500 block mb-1">
+              <label
+                htmlFor="incident-public-update"
+                className="text-xs font-medium text-gray-500 block mb-1"
+              >
                 Public Update (visible to reporter)
               </label>
               <textarea
+                id="incident-public-update"
                 value={publicUpdate}
                 onChange={(e) => setPublicUpdate(e.target.value)}
                 rows={2}
@@ -397,11 +405,15 @@ function IncidentPanel({
             </div>
 
             <div>
-              <label className="text-xs font-medium text-gray-500 block mb-1 flex items-center gap-1">
+              <label
+                htmlFor="incident-internal-note"
+                className="text-xs font-medium text-gray-500 block mb-1 flex items-center gap-1"
+              >
                 <span className="text-orange-600">🔒</span> Internal Note (admin
                 only — not visible to reporter)
               </label>
               <textarea
+                id="incident-internal-note"
                 value={internalNote}
                 onChange={(e) => setInternalNote(e.target.value)}
                 rows={2}
@@ -412,10 +424,14 @@ function IncidentPanel({
 
             {(status === "resolved" || status === "closed") && (
               <div>
-                <label className="text-xs font-medium text-gray-500 block mb-1">
+                <label
+                  htmlFor="incident-resolution"
+                  className="text-xs font-medium text-gray-500 block mb-1"
+                >
                   Resolution (visible to reporter)
                 </label>
                 <textarea
+                  id="incident-resolution"
                   value={resolution}
                   onChange={(e) => setResolution(e.target.value)}
                   rows={2}
@@ -426,10 +442,14 @@ function IncidentPanel({
             )}
 
             <div>
-              <label className="text-xs font-medium text-gray-500 block mb-1">
+              <label
+                htmlFor="incident-admin-notes"
+                className="text-xs font-medium text-gray-500 block mb-1"
+              >
                 Admin Notes (private)
               </label>
               <textarea
+                id="incident-admin-notes"
                 value={adminNotes}
                 onChange={(e) => setAdminNotes(e.target.value)}
                 rows={2}
@@ -458,16 +478,22 @@ export default function IncidentsPage() {
   const [filterStatus, setFilterStatus] = useState("");
   const [filterSeverity, setFilterSeverity] = useState("");
   const [filterType, setFilterType] = useState("");
-  const [selected, setSelected] = useState<Incident | null>(null);
+  const [selected, setSelected] = useState<{
+    incident: Incident;
+    generation: number;
+  } | null>(null);
+  const panelGenerationRef = useRef(0);
+  const detailRequestRef = useRef(0);
   const openerRef = useRef<HTMLButtonElement | null>(null);
   const refreshButtonRef = useRef<HTMLButtonElement>(null);
 
   const openPanel = (incident: Incident, opener: HTMLButtonElement | null) => {
     openerRef.current = opener;
-    setSelected(incident);
+    setSelected({ incident, generation: ++panelGenerationRef.current });
   };
 
   const closePanel = useCallback(() => {
+    panelGenerationRef.current += 1;
     setSelected(null);
     const opener = openerRef.current;
     (opener?.isConnected ? opener : refreshButtonRef.current)?.focus();
@@ -518,15 +544,27 @@ export default function IncidentsPage() {
   const handleUpdated = useCallback(() => {
     qc.invalidateQueries({ queryKey: ["incidents"] });
     qc.invalidateQueries({ queryKey: ["incident-stats"] });
-    if (selected) {
+    if (selected && selected.generation === panelGenerationRef.current) {
+      const request = ++detailRequestRef.current;
+      const isCurrent = () =>
+        selected.generation === panelGenerationRef.current &&
+        request === detailRequestRef.current;
       // Re-fetch full detail for the panel
       getIncidents<IncidentsResponse>({ limit: 100 })
         .then(unwrap<IncidentsResponse>)
         .then((d) => {
-          const fresh = d.incidents.find((i) => i.id === selected.id);
-          if (fresh) setSelected(fresh);
+          if (!isCurrent()) return;
+          const fresh = d.incidents.find((i) => i.id === selected.incident.id);
+          if (fresh) {
+            setSelected((current) =>
+              isCurrent() && current?.generation === selected.generation
+                ? { ...current, incident: fresh }
+                : current,
+            );
+          }
         })
         .catch((err: unknown) => {
+          if (!isCurrent()) return;
           // The list/stats invalidation above still refreshes the board, but
           // the open detail panel would silently keep showing stale data.
           console.error("Failed to refresh incident detail", err);
@@ -650,6 +688,7 @@ export default function IncidentsPage() {
       {/* Filters */}
       <div className="flex flex-wrap gap-3">
         <select
+          aria-label="Filter by status"
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value)}
           className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -662,6 +701,7 @@ export default function IncidentsPage() {
           ))}
         </select>
         <select
+          aria-label="Filter by severity"
           value={filterSeverity}
           onChange={(e) => setFilterSeverity(e.target.value)}
           className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -674,6 +714,7 @@ export default function IncidentsPage() {
           ))}
         </select>
         <select
+          aria-label="Filter by type"
           value={filterType}
           onChange={(e) => setFilterType(e.target.value)}
           className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -796,7 +837,8 @@ export default function IncidentsPage() {
       {/* Side panel */}
       {selected && (
         <IncidentPanel
-          incident={selected}
+          key={selected.generation}
+          incident={selected.incident}
           onClose={closePanel}
           onUpdated={handleUpdated}
         />

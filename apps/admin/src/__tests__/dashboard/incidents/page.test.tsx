@@ -458,6 +458,45 @@ describe("<IncidentsPage />", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("ignores an older detail failure after a newer response in the same opening", async () => {
+    const consoleError = jest
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    try {
+      const { user, dialog, details } = await openIncidentWithDeferredDetails();
+      await user.click(
+        within(dialog).getByRole("button", { name: "Save Changes" }),
+      );
+      await waitFor(() => expect(details).toHaveLength(1));
+      await waitFor(() =>
+        expect(
+          within(dialog).getByRole("button", { name: "Save Changes" }),
+        ).toBeEnabled(),
+      );
+      await user.click(
+        within(dialog).getByRole("button", { name: "Save Changes" }),
+      );
+      await waitFor(() => expect(details).toHaveLength(2));
+      await resolveDetail(details[1], "Newest incident detail");
+      expect(
+        screen.getByRole("dialog", { name: "Newest incident detail" }),
+      ).toBe(dialog);
+
+      await act(async () => {
+        details[0].reject(new Error("Synthetic obsolete detail failure"));
+        await details[0].promise.catch(() => undefined);
+      });
+
+      expect(toast.error).not.toHaveBeenCalled();
+      expect(consoleError).not.toHaveBeenCalled();
+      expect(
+        screen.getByRole("dialog", { name: "Newest incident detail" }),
+      ).toBe(dialog);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it("reports a failed detail refresh while its incident opening is still current", async () => {
     const consoleError = jest
       .spyOn(console, "error")
