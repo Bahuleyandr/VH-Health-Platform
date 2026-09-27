@@ -1,9 +1,11 @@
 # VH Health Platform — Consolidated Roadmap
 
-**Single source of truth for pending work. Latest bounded update: OPEN-23 only,
-2026-09-16 at authoritative `github/main`
-`d60f1ea2c853a9fa525f4a15e60b9fe7b044fc4e`. The remaining queue retains its
-2026-09-08 evidence at `4c1f5654ca70b4dbc2699c96279e0ea03cc8e43c`.**
+**Single source of truth for pending work. Latest bounded update: #1094–#1095 and #1097–#1100
+merged-scope receipts, 2026-09-27 at authoritative `github/main`
+`6543707c78ef01bd3e4894f5f38e162bcf462ee9`, preserving the September 26
+#1023/#1091 receipts. OPEN-23 retains its September 16
+receipt at `d60f1ea2c853a9fa525f4a15e60b9fe7b044fc4e`; the remaining queue
+retains its September 8 evidence at `4c1f5654ca70b4dbc2699c96279e0ea03cc8e43c`.**
 
 The update below reconciles named audit queue items and merged slices only. It
 is not a fresh audit of every historical section in this roadmap.
@@ -49,7 +51,7 @@ Code merges and green checks do not authorize deployment or activation.
 
 ---
 
-## Current audit-remediation queue (September 8; OPEN-23 updated September 16)
+## Current audit-remediation queue (bounded receipts through September 27)
 
 This is the pending-work cross-link for the canonical audit ledger, not a second
 finding ledger. Finding classifications, historical IDs, exact evidence, and
@@ -90,10 +92,17 @@ import-race tasks from this immediate queue.
   [`TRANSLATION_REVIEW_TRACKER.md`](TRANSLATION_REVIEW_TRACKER.md):
   the 4,008 English-source Staff Malayalam placeholder baseline is not
   translated by these batches, Patient review remains pending, and all
-  24 new non-English Batch 1.2 labels await review. Broaden the currently
-  four-contract backend inventory gate and obtain an explicit Admin
-  localization scope decision. Payment, clinical, consent, legal and Staff Web
-  copy retain their named authority stops; technical parity is not approval.
+  24 new non-English Batch 1.2 labels await review. #1098 (`b727ce31e`)
+  adds discovery of exported backend `*_PRESENTATIONS` contracts, a nonempty
+  inventory including eight named contracts, and tested five-locale routing
+  for investigation results and patient appointment reminders, confirmations
+  and reschedules, preserving persisted SMS jobs. The new contracts retain
+  existing English wording as technical placeholders pending human review.
+  This is not coverage of every hardcoded backend string; the staff-facing
+  doctor reminder remains English-only. Obtain the explicit Admin-localization scope decision and
+  continue the remaining coverage work. Payment, clinical, consent, legal and
+  Staff Web copy retain their named authority stops; technical parity is not
+  approval. The canonical ledger's September 27 receipt records this scope.
 - **OPEN-23 — absent inline CHECK constraints** `[CODE]` `[OPERATOR]`.
   #1079 is merged: migration 800 restores the three pregnancy CHECKs, with
   local lineage/runtime-role verification, full hosted CI and separately
@@ -124,7 +133,8 @@ import-race tasks from this immediate queue.
   #1014/#1029's design decisions, #1030's schema 768, and #1031's lifecycle
   kernel are merged. The remaining Plan 4 integration, domain workflows,
   review and clinical activation are not closed by those slices. Cath
-  readiness redesign #1023 is still draft. Continue from the current
+  readiness design/plan #1023 merged September 8 as `d45a63037`; the design
+  merge does not establish runtime or activation closure. Continue from the current
   [Plan 4 plan](superpowers/plans/2026-09-05-reprocessable-devices-platform.md)
   under its existing owner; do not allocate an already-used migration number
   or implement overlapping work from an older handoff.
@@ -142,6 +152,30 @@ import-race tasks from this immediate queue.
   immunisations, document-signature reads, bed inspections, and Ask-a-Doubt's
   intentionally one-way product contract. Existing detail remains in the
   re-audit sections below.
+  #1091 merged September 22 as `d3bf7b313`: the existing Staff maternity board
+  refreshes after returning from the partograph chart, with seven widget
+  regressions and full hosted CI at `48d482a2d`. This closes that refresh
+  defect only; it adds no delivery/newborn/postnatal capture forms or
+  recorder/performer, clinical, linguistic or activation approval. The
+  canonical ledger's September 26 receipt records the exact evidence.
+  #1097 (`7097cd7bc`) additionally hardens research CRF draft capture and
+  submission against concurrent state changes; it adds no research client
+  workflow or product/clinical activation authority.
+
+The former #1097/#1094/#1095 merge train is complete. #1094's Patient document
+URL/redirect boundary and #1095's generic Admin dashboard error/retry behavior
+landed together, with successful full hosted CI on combined final head
+`abdc069985`; this does not relabel #1094's earlier failed hosted run. The
+canonical ledger's September 27 receipt retains exact merge/head/run evidence
+and the qualified local teardown receipt. None of these bounded repairs
+closes the remaining OPEN-19 workflows or grants release authority.
+
+The separately published [draft #1102](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1102)
+at `55a7c0a5f` contains Ward-indent, booking-access, theatre-read and RLS-census
+repairs. It is **not merged**. Exact-head hosted run `36333311625` passed both
+merge gates, all three backend shards and all six `full_*` jobs; that result
+and its local evidence are not closure evidence on current main. Do not duplicate that owned scope
+or move its audit items to implemented before a reviewed merge receipt.
 
 ### External and activation stops `[OPERATOR]` `[EXTERNAL]`
 
@@ -158,13 +192,28 @@ import-race tasks from this immediate queue.
 - HL7v2/FHIR adapters await conformance evidence against real receiving
   endpoints before any interoperability activation.
 - Production digests, R2/allowlists, Sealed Secrets, PG18, operator lifecycle,
-  target-cluster qualification, Redis failover, MinIO recovery, and Android
-  release evidence remain owner/environment gates.
+  target-cluster qualification, Redis failover and Android release evidence
+  remain owner/environment gates.
+- #1099 (`38603f9c3`) holds the never-deployed VH MinIO/Harbor declarations
+  outside active composition, suspends the dependent local archive producer
+  and holds the Longhorn local backup target. Independent CNPG direct-to-R2
+  backups and encrypted archive verification remain preserved; their evidence
+  is not supplied by this hold. The
+  `docs/OBJECT_STORE_ROOK_CEPH_REPLACEMENT_DESIGN.md` design remains **NOT
+  QUALIFIED**. Named owner decisions, failure-domain/retention/restore
+  qualification and separate activation authority remain required; do not
+  turn the historical MinIO recovery task into permission to install it.
+- #1100 (`eb235c114`) delivers the backend Alpine cache refresh and guarded
+  install-only ONNX download skip. This bounded image repair does not clear
+  storage qualification, owner-secret, notification-delivery or production
+  release gates, does not qualify model inference, and is not a permanent
+  vulnerability-free image claim.
 - Alertmanager validation is wired by #961, but delivery still awaits owner
   webhook/PagerDuty/Slack/SMTP inputs, sealing, manual Argo sync, and captured
   notification proof.
 - Five-locale parity is `en`/`hi`/`ta`/`te`/`ml`. #965/#970 technical
-  coverage and #1013/#1027's bounded cath follow-ups are merged, not overall
+  coverage, #1013/#1027's bounded cath follow-ups and #1098's named backend
+  notification contracts are merged, not overall
   linguistic sign-off. OPEN-21 and the translation tracker retain the exact
   review queue. Clinical, dosage, consent, legal, identity, security, payment
   and ABDM wording need the appropriate named human approval; Staff Web

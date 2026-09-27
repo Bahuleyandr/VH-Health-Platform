@@ -1,10 +1,11 @@
 # VH Health Full-Repository Audit — Reconciled Ledger
 
-**Latest bounded reconciliation:** 2026-09-16, authoritative `github/main`
-`d60f1ea2c853a9fa525f4a15e60b9fe7b044fc4e` (PR #1088). This update covers
-OPEN-23's eight restored maternity constraints and status-width repair only; it is
-**not a new whole-repository audit**. Other rows retain their explicitly dated
-evidence, not an implied September 16 verification.
+**Latest bounded reconciliation:** 2026-09-27, authoritative `github/main`
+`6543707c78ef01bd3e4894f5f38e162bcf462ee9`. This update records the merged
+scope of #1094–#1095 and #1097–#1100, preserving the September 26 receipts for #1023 and
+#1091; it is **not a new whole-repository audit**. OPEN-23 retains its
+September 16 constraint receipt below. Other rows retain their explicitly
+dated evidence, not an implied September 27 verification.
 
 The original remediation snapshot was branch `fix/full-repository-audit-2026-08`,
 head `b3807dccbc9281e94182041dd440542e6e77f14d`, draft PR
@@ -30,6 +31,147 @@ train. Both are replaced below.
   now fully superseded: every lane it lists has been reviewed, committed, and
   integrated into this branch.
 - This file — the current finding ledger and the historical PR #867 rating.
+
+### 2026-09-27 bounded merged-scope receipt — completed repair train
+
+The following merge commits are ancestors of the main SHA above. This
+documentation pass inspected committed source, live GitHub PR state and
+exact-commit check runs, plus retained lane receipts. It reran no application,
+image, database or environment checks. The former #1097/#1094/#1095 pending
+merge-train claim is superseded: all three are merged.
+
+- [PR #1094](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1094)
+  merged as `869bc260c9e7808c64fe472e7472dc8d19e79462` and
+  [PR #1095](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1095)
+  as `abdc069985f51320ad8814c7cfee7a29a69e54aa`, both September 27 UTC.
+  Patient document downloads now separate authenticated same-origin API
+  requests from unauthenticated external HTTPS requests and validate every
+  redirect; authenticated binary redirects are refused
+  (`apps/patient/lib/core/utils/document_download.dart:18-71,90-139`;
+  `packages/vhhealth_core/lib/services/http_client.dart:233`). The corresponding
+  regressions are `apps/patient/test/core/utils/document_download_test.dart:48`
+  and `packages/vhhealth_core/test/http_client_test.dart`. Admin dashboard
+  failure UI and Sentry capture use generic text while retry remains wired
+  (`apps/admin/src/app/(with-auth)/dashboard/error.tsx:14-26`;
+  `apps/admin/src/__tests__/dashboard/error-boundary.test.tsx:16`).
+  **Verification belongs to the combined final head `abdc069985`, not a
+  rewritten claim about #1094's old head:** #1094's individual hosted run
+  `36099257607` still reports failed aggregate gates from its earlier infra
+  failure. The combined head's full hosted run is successful as recorded
+  below. Its retained full-local receipt separately accepts the passing
+  backend corpus plus later same-allocation resource closure after naturally
+  cleared TCP `TIME_WAIT`; the original immediate resource postflight remains
+  failed. Full Flutter retains one pre-existing Staff scaffold-test skip.
+  The retained artifact is
+  `pr1094-1095-batch-abdc06998-full-local-receipt.md` (September 27 coordinator
+  evidence, not a repository-contained or newly rerun test result).
+  These bounded URL/privacy repairs do not certify all client privacy,
+  production telemetry delivery or staging/release distribution.
+- [PR #1097](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1097)
+  merged as `7097cd7bcf4ac3d91c8516557c4e8551ea12d93d`. Research CRF draft
+  upsert is conditioned on still being a draft, and submission locks and
+  validates the current response before status mutation and canonical event
+  recording in the same tenant transaction
+  (`apps/backend/src/services/research/researchRegistryService.js:565-649`).
+  `apps/backend/src/tests/research-registry.deep.test.js:287,320` covers stale
+  draft overwrite and concurrent-save/submission races; tenant authorization
+  coverage remains in `apps/backend/src/tests/unit/researchTenantAuthorization.test.js`.
+  This is state/transaction hardening, not the research client workflow or
+  product/clinical authorization; **OPEN-19 remains open**.
+
+- [PR #1098](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1098)
+  merged as `b727ce31ed5117df03e57e38d6824b0868edcc6e`, from final source
+  `9ba08a41d68769f3400122f1f195ede253155600`. The backend parity gate now
+  discovers exported `*_PRESENTATIONS` contracts and requires a nonempty
+  inventory including eight named contracts, five locale keys, matching
+  fields and interpolation placeholders
+  (`apps/backend/src/tests/unit/fiveLocalePresentationContracts.test.js`).
+  Investigation-result notifications and patient appointment reminders,
+  confirmations and reschedules select the five-locale presentation contract;
+  selector tests distinguish all five entries despite identical technical
+  wording. SMS outbox regressions retain legacy persisted-job compatibility.
+  These are discovered presentation-contract and named-path receipts, not
+  coverage of every hardcoded backend string. `docs/TRANSLATION_REVIEW_TRACKER.md`
+  explicitly keeps the new non-English placeholders pending human review;
+  the separate staff-facing doctor reminder remains English-only. **OPEN-21
+  remains open**, including Admin scope and clinical/linguistic/legal review.
+- [PR #1099](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1099)
+  merged as `38603f9c3ee47f0b5972baef2630c1164eddc970`. Under the owner's
+  never-deployed VH MinIO/Harbor attestation, historical declarations moved to
+  `infra/kubernetes/held/local-object-storage/`, outside active composition.
+  The dependent local archive producer is suspended and the Longhorn local
+  backup target is held. Independent CNPG direct-to-R2 backups and encrypted
+  archive verification remain preserved; a missing/stale archive is not a
+  healthy-backup receipt. The replacement design in
+  `docs/OBJECT_STORE_ROOK_CEPH_REPLACEMENT_DESIGN.md` is **NOT QUALIFIED**.
+  This is a hold, not installation, data migration, restore qualification or
+  activation. `docs/GO_LIVE_ACTIVATION_CHECKLIST.md` A6 records the stop line.
+- [PR #1100](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1100)
+  merged as `eb235c114871de87990017c743f906327d92b5a2`. The backend Dockerfile
+  refreshes the Alpine security-cache epoch and uses install-scoped
+  `ONNXRUNTIME_NODE_INSTALL=skip` at both npm install stages, not a runtime
+  disable flag. Native ONNX import failed in both old and new Alpine images
+  with `ERR_DLOPEN_FAILED`; only missing-model fallback was established, not
+  model inference. `scripts/security/docker-install-stage-guard.test.mjs`
+  is wired into the unconditional security stage. This records the bounded
+  image/install repair, not a permanent vulnerability-free image claim or
+  clearance of storage, notification-delivery or release authority.
+
+Live exact-head hosted evidence read for this bounded receipt:
+
+| Scope | Verified commit | Canonical CI run | Literal aggregate checks |
+| --- | --- | --- | --- |
+| #1094/#1095 combined final tree | `abdc069985f51320ad8814c7cfee7a29a69e54aa` | [36287728363](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/36287728363) | `Merge Gate` and `Full Merge Gate`: success; three backend shards and six `full_*` jobs succeeded. |
+| #1097 final head | `b3fefbd1c71bc6a8faa3bed1f154b45cc03979bb` | [36279703054](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/36279703054) | Both exact aggregate names: success; three backend shards and six `full_*` jobs succeeded. |
+| #1098 final head | `9ba08a41d68769f3400122f1f195ede253155600` | [36259285778](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/36259285778) | Both exact aggregate names: success; three backend shards and six `full_*` jobs succeeded. |
+| #1099 final head | `a7134f4f317dc5b1a6ae718a560a78c23e48452d` | [36233930556](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/36233930556) | Both exact aggregate names: success. |
+| #1100 final head | `fb9d5b6c3851d30e40e0081da1d28762ab27e09a` | [36246946190](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/36246946190) | Both exact aggregate names: success. |
+
+[PR #1102](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1102) was
+queried separately: **OPEN, draft**, head
+`55a7c0a5f39ba7f1e7b8b50936528885e5385c4f`. Its Ward-indent, booking-access,
+theatre-read and RLS-census repairs are not implemented-on-main evidence.
+Hosted run [36333311625](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/36333311625)
+completed successfully on that exact head: `Merge Gate`, `Full Merge Gate`,
+three backend shards and six `full_*` jobs all succeeded. That result and the
+local verification packet do not close any finding in this ledger before a
+reviewed merge. External authority stops below remain unchanged.
+
+### 2026-09-26 bounded merged-scope receipt — cath design and maternity refresh
+
+GitHub was queried directly for both PRs against main
+`95baac6b534f611771d2f7a6d8ee9114b45dd086`, and both merge commits are ancestors
+of that SHA. No application or environment tests were rerun for this
+documentation receipt.
+
+[PR #1023](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1023)
+merged on September 8 as `d45a63037b9757fdb6805c941ec49578ea267769`.
+Its delivered scope is the cath-readiness design and implementation plan in
+`docs/superpowers/specs/2026-09-06-cath-readiness-never-restricts-design.md`
+and `docs/superpowers/plans/2026-09-06-cath-readiness-never-restricts.md`,
+plus a `.gitleaks.toml` change. It is no longer a draft. This design merge is
+not proof that the planned runtime workflows or clinical activation are complete.
+The September 8 snapshot below retains its historical PR-state observation.
+
+[PR #1091](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1091)
+merged on September 22 as `d3bf7b3136004adf5b0644a0c41dac6d8a6f32ef`.
+`apps/staff/lib/features/maternity/screens/maternity_screen.dart:251-254`
+awaits return from the partograph chart and refreshes the board while its
+context remains mounted. The seven widget regressions in
+`apps/staff/test/features/maternity/maternity_screen_test.dart:127` cover
+nested entry and chart return, direct save/cancel, failed refresh with retry,
+and disposal during navigation or an outstanding refresh.
+
+At final PR head `48d482a2dca0ceaef4678be6bd538a9be27f2dca`,
+[Canonical CI 35709283504](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/35709283504)
+reports successful `Merge Gate` and `Full Merge Gate` checks, all three backend
+shards, and six `full_*` jobs, including the Flutter workspace and web build.
+These are hosted receipts read from that head, not new local test results.
+
+Only this board-refresh defect is recorded as implemented. **OPEN-19 remains
+open**: #1091 adds no delivery, newborn or postnatal capture form, and supplies
+no recorder/performer decision, linguistic review, clinical approval or
+activation evidence. It does not expand the migration-800–802 closure scope.
 
 ### 2026-09-16 bounded OPEN-23 receipt — migrations 801–802
 
@@ -396,7 +538,7 @@ branch.
 | INT-007 | Activatable connector kinds had no runtime; `http_outbound` could activate without an endpoint. | Protocol-specific readiness required at both service and DB activation boundaries. |
 | INF-003 | Backend expected a standalone `REDIS_URL` while Sentinel exposed only 26379. | `apps/backend/src/lib/redis.js` parses `REDIS_SENTINEL_HOSTS`, requires ≥3 unique sentinels and named non-`default` ACL identities in strict mode, and rejects configuring both modes at once. |
 | INF-004 | Redis boot always re-elected ordinal 0, permitting a former primary to return independently writable; config checksum was a literal placeholder. | Quorum topology enforced (`41ad6d68e`), failover security blockers closed (`2a96ed6a3`), deterministic harness in `scripts/check-redis-ha-contract.test.mjs`. **Live drill remains unproven — see ENV-1.** |
-| INF-005 | MinIO comments claimed four pools/16 pods while the manifest defined one pool/four servers. | `infra/kubernetes/base/minio/tenant.yaml` and the hardware doc reconciled to one authoritative topology. **At 3 nodes that topology is recovery-only under whole-node loss (2 co-located pods = 8/16 drives, outside EC:4); only the recovery drill remains unproven — see ENV-2.** |
+| INF-005 | MinIO comments claimed four pools/16 pods while the manifest defined one pool/four servers. | Historical topology documentation was reconciled; that topology never established whole-node tolerance (2 co-located pods = 8/16 drives lost, outside EC:4). #1099 (`38603f9c3`) subsequently moved the never-deployed declaration to `infra/kubernetes/held/local-object-storage/minio/tenant.yaml` and removed it from active composition. This historical correction does not qualify the Rook/Ceph replacement; see ENV-2 and the September 27 receipt. |
 | INF-008 | Dalekdefender deploy exited 0 when prerequisites were missing, so green could mean no deployment. | `.forgejo/workflows/deploy-dalekdefender.yml` and `scripts/ci/forgejo-deploy-preflight.mjs` fail closed in required mode and emit machine-readable `not_deployed` otherwise. This is statically tested; a real Forgejo execution remains unproven under OPEN-7/ENV evidence. |
 | INF-009 | Sealed Secrets and Argo bootstrap docs used the wrong controller namespace/name and `kubectl apply -f` on a Kustomize directory. | Corrected, plus `scripts/bootstrap-sealed-secrets.sh`, `scripts/validate-sealed-secrets-bootstrap.mjs`, and `scripts/sealed-secrets-bootstrap-smoke.mjs`. |
 | CI-001 | Admin clinical-AI bundle budget was false-green because an absent manifest passed. | `apps/admin/scripts/check-clinical-ai-bundle.mjs` throws on a missing manifest, a chunk path escaping `.next`, and an invalid entry; `check-clinical-ai-bundle.test.mjs` fixtures cover the oversized case. |
@@ -461,7 +603,7 @@ IDs without leaving them falsely open.
 | OPEN-13 | **Migration 757 only partially supersedes the migration-753 JSON-scalar finding.** Migration 757 (`78e077e3a`) correctly normalizes SQL NULL and the JSON `null` scalar to `[]` (`757_pharmacy_clinical_projection_json_null.sql:74-76`), repairing the product order lifecycle without weakening the comparison fence. Other non-array scalars still raise SQLSTATE 22023 by design (`:32-34`). Re-verified through migration 762 on `61e7dcf7a`: nothing further addresses the scalar policy. Migration 758 re-creates only the parent `pharmacy_patient_safety_projection_753` (`758_pharmacy_advance_funding_authority.sql:10048`) and still routes `chronic_medications`/`medications`/`items_list`/`dispensed_medications` through the unchanged child (`:10062,10086,10100-10101`); it does not redefine `pharmacy_erx_clinical_projection_753`, so 757's normalization stands and the residual abort is unchanged. No migration installs a `jsonb_typeof` array fence on those columns, so a malformed scalar can still be written and then block an unrelated update. | Pharmacy/clinical data owner decides whether every non-null scalar is irrecoverably malformed and should keep aborting, or must instead enter a governed recovery/quarantine path (`GO_LIVE_READINESS_GAP_MATRIX.md:68-89` 753-D2, both options still blank; `apps/backend/docs/DB-MIGRATION-PLAN.md:66` disposition still `______`). Any change is a new migration; do not edit 753, 757, or 758. |
 | OPEN-17 | **First-bed ADT emission remains an explicit interface-contract decision.** The capability string was narrowed rather than inventing an A02/A01 semantic. | Integration owner and receiving-vendor contract decide the event semantics before implementation or activation. ROADMAP `:1256-1288`. |
 | OPEN-18 | **Linen ward and CSSD theatre-case pickers remain unavailable to some roles already allowed to open their consoles.** Rechecked at `4c1f5654c`: the linen hook still calls `/wards` (`apps/admin/src/app/(with-auth)/dashboard/linen-laundry/components/useWardOptions.ts:41-42`), and CSSD still calls `/theatre/today` (`apps/admin/src/lib/api/cssd.ts:394-399`), retaining the narrower source-module authorization. | Owner-approved least-privilege lookup contract and role/journey tests; do not broadly grant ward/theatre PHI access. See ROADMAP's “Explicitly parked” section. The separately callerless CSSD warning endpoint is an intentional duplicate, not this finding. Plan 4 is not closure evidence for these existing controls. |
-| OPEN-21 | **Bounded five-locale technical parity is merged; human review is partial and repository-wide coverage is not established.** #970 (`d8930c98c`) closed its Patient/Staff/four-backend-contract technical scope, including the Staff Malayalam exemption (`apps/staff/scripts/i18n-verify.mjs:54`). The former 1,447 Patient / 6,502 Staff key counts describe that merge, not a new current count. #1013 (`212af1e95`) subsequently landed cath Batch 1/1.1 source corrections and recorded review; #1027 (`eb0dfeba1`) shares the six device-status labels between cards and messages. `TRANSLATION_REVIEW_TRACKER.md:14-23,48-54,686-710` still records partial Staff review, pending Patient review, a 4,008 English-source Malayalam placeholder baseline, and 24 new non-English device-status labels awaiting review. These are not blanket translation or activation approvals. | Continue the named human review queues (clinical, dosage/MAR, consent, emergency, controlled-drug, finance and legal wording first), preserving every batch's exact approval boundary. Payment templates still resolve all locales to frozen English/Hindi copy (`apps/backend/src/services/billing/paymentLinkService.js:46-52`); guardianship/consent and Staff Web activation copy retain their legal/linguistic and operator/release stops. The backend gate still imports four named presentation contracts (`apps/backend/src/tests/unit/fiveLocalePresentationContracts.test.js:1-14`), not a discovered repository-wide inventory; dynamic coverage and the Admin-localization scope decision remain open. Do not reopen the delivered #970 parity work or describe these remaining engineering/scope gaps as entirely human review. |
+| OPEN-21 | **Bounded five-locale technical parity and backend presentation-contract discovery are merged; human review is partial and all-string coverage is not established.** #970 (`d8930c98c`) closed its Patient/Staff/four-backend-contract technical scope, including the Staff Malayalam exemption (`apps/staff/scripts/i18n-verify.mjs:54`). The former 1,447 Patient / 6,502 Staff key counts describe that merge, not a new current count. #1013 (`212af1e95`) landed cath Batch 1/1.1 corrections and bounded review; #1027 (`eb0dfeba1`) shares six device-status labels. #1098 (`b727ce31e`) adds discovered exported presentation-contract coverage and five-locale routing for investigation results and patient appointment reminders, confirmations and reschedules, with selector and persisted SMS compatibility tests; see the September 27 receipt. `TRANSLATION_REVIEW_TRACKER.md` retains partial Staff review, pending Patient review, the historical 4,008 English-source Malayalam placeholder baseline, 24 device-status labels and the new notification placeholders awaiting review. These are not blanket translation or activation approvals. | Continue the named human review queues (clinical, dosage/MAR, consent, emergency, controlled-drug, finance and legal wording first), preserving each approval boundary. Payment templates retain frozen English/Hindi copy (`apps/backend/src/services/billing/paymentLinkService.js:46-52`); the staff-facing doctor reminder remains a separate English-only path. Guardianship/consent and Staff Web copy retain legal/linguistic and operator/release stops. The discovered `*_PRESENTATIONS` inventory is not every hardcoded string; the explicit Admin-localization scope decision and remaining engineering coverage stay open. Do not reopen delivered parity or describe these remaining engineering/scope gaps as entirely human review. |
 | OPEN-23 | **Partly remediated: migrations 800–802 / #1079 and #1088 restore eight maternity CHECKs and labor status width; 403 absent declarations remain.** See the separate September 16 receipts above for source, CI and evidence boundaries. The current manifest has 465 declarations, 62 enforced and 403 absent (178 tables, 86 declaring files); declaration identity includes the declaring file, so repeated declarations do not represent distinct physical constraints. **Historical #989 measurement:** 2,194 inline CHECKs; 465 in `IF NOT EXISTS` re-declarations of baseline-owned tables (209 tables, 101 files), 411 absent (182 tables, 86 files) and 54 enforced. Later `CREATE TABLE IF NOT EXISTS` statements cannot add CHECKs to an existing baseline table; generating a new Prisma-derived baseline does not restore them. #989 added the unconditional static census/mutation gate and backend `--verify-db` calibration in both directions; its first CI calibration reported zero discrepancies over 2,108 database CHECKs. #1079 changes three enforced flags and #1088 changes five more, leaving all declarations and census protections intact. Pregnancy domains, labor admission reason/status, partograph descent/intensity and delivery mode now have database guards. When newly added, the delivery CHECK is `NOT VALID` and enforces new writes; an existing same-name CHECK's validation state is preserved. New historical validation is not authorized here. Migration 802 makes the existing 22-character labor status representable; this does not close the whole maternity workflow. | **Risk-based next batch, not MFA-first.** `mfa_devices` belongs to the retired duplicate MFA stack documented at `apps/backend/src/routes/admin/mfaApiClientsRoutes.js:5-12`; retain its five unresolved entries until an approved schema disposition, without claiming a current-login vulnerability or deleting the table. The five `abdm_consent_requests` enums have application guards in the examined create/transition paths (`apps/backend/src/services/abdmFull/abdmHipHiuService.js:48-58,125-135,562-651`), not proof of all writers or consent activation. Compare remaining supported clinical/consent paths for sole-guard loss. Counts alone are not risk: ambulance predicates repeat in migrations 126 and 233; `dialysis_patients` has zero absent and six enforced. Before a new batch, derive a nonempty missing set from a full-chain database, scan allocated migration slots, and obtain explicit disposition for violating data. Add explicitly named, lineage-safe `NOT VALID` constraints; validate only with documented zero-violation evidence and named-constraint/23514 tests under the tenant runtime role. Never silently backfill/quarantine, widen predicates, drop equivalent constraints, or edit applied migrations. No next migration number or external clinical, finance, consent or operator authority is granted here. |
 
 ### Low
@@ -485,7 +627,7 @@ bypass the control, and **not** a defect. Each row names the evidence it awaits.
 | HELD-3 | **Care-team PHI enforcement stays in `shadow`.** | `apps/backend/src/services/security/careTeamEnforcement.js:15-28,47-48,72-123`; platform-owner default recorded 2026-06-14. | Owner-reviewed current tenant evidence, complete memberships, and break-glass proof. The older 0/28 QA inventory is historical and was not rerun in the 2026-09-02 reconciliation. **Do not flip this to make the repository look green.** |
 | HELD-4 | **Production database image digest.** `infra/kubernetes/base/cnpg/cluster.yaml` carries `postgresql:17.10-standard-bookworm@sha256:0000…0000` — an intentional fail-closed placeholder. Dev and staging overlays patch in the real PG17 digest (`@sha256:f94c0eea…`); the prod overlay does not. | `infra/kubernetes/base/cnpg/cluster.yaml`. | An operator pinning the real PG17 digest at cutover time. **This is stricter than `github/main`, where the cluster carried a live PG18 digest.** Production therefore needs *more* operator input than at the audited snapshot, by design. |
 | HELD-5 | **Platform-owned application digests, admin allowlists, `CF_R2_URL`, and SealedSecrets.** Fail-closed placeholders remain in the active app and staging Kustomizations. | `infra/kubernetes/apps/kustomization.yaml:48-65,103-118`; `infra/kubernetes/overlays/staging/apps/kustomization.yaml:184-188`. | Reviewed release digests from a real release run, real SealedSecrets, R2 URL, allowlists, and operator sign-off. A green Kustomize render is **not** proof of deployability. |
-| HELD-6 | **Operator lifecycle applications** (CNPG/Barman, MinIO operator, cert-manager), formerly manual/marker-only despite GitOps claims. | `infra/kubernetes/held/operator-lifecycle/applications.yaml`, gated by `scripts/operator-lifecycle-preflight.mjs`. | CRD/controller preflight against a real cluster, then immutable manual-sync Argo Applications. |
+| HELD-6 | **Operator lifecycle applications** (CNPG/Barman, cert-manager and historical MinIO operator), formerly manual/marker-only despite GitOps claims. The MinIO/Harbor local-storage hold from #1099 is separate and remains in force. | `infra/kubernetes/held/operator-lifecycle/applications.yaml`, gated by `scripts/operator-lifecycle-preflight.mjs`; `infra/kubernetes/held/local-object-storage/README.md`. | CRD/controller preflight and explicit owner authority before immutable manual-sync Argo Applications. Do not activate held MinIO/Harbor through this ceremony or infer Rook/Ceph qualification from it. |
 | HELD-7 | **Patient minimum-version policy signing keys and universal/app-link association.** The signed-policy substrate and Ed25519 trust validator are in-tree and tested; the real keys and domain association are not. | `scripts/validate-patient-minimum-version-trust.mjs`; `apps/patient/lib/core/services/minimum_version_policy.dart`. | Owned domain and signing authority. |
 | HELD-8 | **ABDM activation.** ABDM-002 is now environment-configured and production-preflighted (`abdmConfig.js:27-33`; `validateEnv.js:922-956`), and ABDM-003 verifies the captured raw callback bytes (`abdmRoutes.js:37-48,140-171`; `abdmHiuService.js:1224-1234`). ABDM-001 remains fire-and-forget without a transactional ordered outbox (`abdmService.js:1192-1195,1232-1235,1271-1274,1905-1912`). ABDM is disabled in known configuration. | `apps/backend/src/services/abdm/`; `apps/backend/src/config/abdmConfig.js`. | Transactional ordered outbox, NHA credentials/certification, official contract vectors, and explicit operator activation. Technical Malayalam parity from #965 does not satisfy linguistic approval. |
 | HELD-9 | **Staff Web, PACS, Device Gateway, Keycloak SSO, warm standby.** Fail-closed and uncomposed. Staff Web has hosted build evidence, not browser release certification. | `apps/staff/lib/main.dart`; `apps/device-gateway/README.md:3`; `infra/kubernetes/held/c6-2-warm-standby/`; `infra/kubernetes/base/sso-keycloak/keycloak-app.held.yaml`. | Browser session/storage/App Check/CSP E2E certification for Staff Web; enrollment, credential, clock, capacity, network, and replay-soak evidence for Device Gateway; worklist sidecar and machine identity for PACS; capability-specific operator approval. |
@@ -522,7 +664,7 @@ evidence.
 | ID | Claim requiring proof | Why local work cannot settle it | Proof required |
 | --- | --- | --- | --- |
 | ENV-1 | **Redis HA actually survives failover.** Static topology, render, deterministic failover-harness, and the full infra gates passed; `scripts/check-redis-ha-contract.test.mjs` covers the contract. | The Docker daemon was unavailable, so no live three-node cluster ever existed. The deterministic harness proves the *design's* decision table, not the runtime. | A live three-node drill: primary loss, network partition, restart of a demoted primary, and credential rotation — with exactly one writable primary proven at every step. |
-| ENV-2 | **MinIO recovers from whole-node loss at the reconciled topology (recovery-only posture — the topology does NOT tolerate whole-node failure).** The manifest and hardware doc agree on one pool / four servers, and no drill is needed to know tolerance is absent: on the 3-node cluster the preferred-only anti-affinity co-locates two of the four server pods on one node, so losing that node removes 8 of 16 drives — outside EC:4 parity — meaning total object-store unavailability until the node returns, and destruction of that node's local-path disks is permanent data loss (`infra/kubernetes/base/minio/tenant.yaml:15-21` explicitly forbids any whole-node-tolerance claim). What remains environment-unproven is only *recovery*: pods rescheduling and quorum resuming once the node is back. Whole-node tolerance itself is an owner decision at procurement — a fourth storage failure domain, or `EC:8` (halves usable capacity and forces pool re-creation). | Recovery behaviour under real node loss cannot be inferred from a Kustomize render. | Node-loss **recovery** drill against a real cluster (return-of-node → quorum resumes; this drill cannot and will not demonstrate tolerance). |
+| ENV-2 | **Local object-store resilience and restore qualification remain unproven; the legacy MinIO deployment is held, not the current activation target.** #1099 (`38603f9c3`) retains its historical one-pool/four-server declaration under `infra/kubernetes/held/local-object-storage/minio/tenant.yaml`, outside active composition. Its three-node EC:4 layout did not tolerate whole-node loss; retaining it is not a recovery receipt. | The owner attested VH MinIO/Harbor were never deployed. The Rook/Ceph replacement remains **NOT QUALIFIED**, with first-install synthetic qualification and conditional migration only if a real source is discovered. A render, hold or green backend does not prove resilience, retention or recovery. | Named storage/facilities/network/security/clinical/legal/backup/operator decisions and the failure-domain, version/retention and independent off-cluster restore evidence in `docs/OBJECT_STORE_ROOK_CEPH_REPLACEMENT_DESIGN.md`; separate activation authority. Preserve CNPG direct-to-R2 and encrypted archive verification; do not start the held local producer or backup target. |
 | ENV-3 | **Operator lifecycle and Argo bootstrap work on the target cluster.** Hosted Kind Sealed Secrets bootstrap coverage now runs in `.github/workflows/_reusable-kubernetes-manifests.yml:31-70,94-95,111-112`. | An ephemeral hosted cluster proves the bootstrap contract, not the target RKE2 controllers, storage classes, policies, or manual-sync ceremony. | CRD/controller preflight and controlled evidence on the target RKE2/Argo cluster. |
 | ENV-4 | **The four Android release/staging workflows build current main.** The pinned Android setup step exists, but the 2026-09-02 full sweep is not evidence for all four release artifacts; recent release-workflow success was not established in this reconciliation. | These are GitHub-runner/release-workflow properties. | A current green run of each patient/staff staging/release workflow with retained artifact evidence. |
 | ENV-5 | **Repository configuration equals live external tenant settings.** | The audit had no live tenant access; the care-team readiness inventory was SELECT-only and deliberately blocked. | Owner-supplied live tenant inventory. This is the gate HELD-3 waits on. |
