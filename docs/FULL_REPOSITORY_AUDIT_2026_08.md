@@ -144,7 +144,8 @@ The local integration includes the independently verified Admin incident-dialog,
 Staff MAR navigation and audit-documentation lanes. The published head above
 has not changed; its green checks do not verify this expanded local tree.
 
-Three additional repairs are being verified before inclusion:
+Two additional repairs now have independently reviewed focused verification;
+vitals cleanup qualification remains pending:
 
 - **Tenant provisioning atomicity.** The isolated PostgreSQL diagnostic on
   `2255437de` ran 12 cases: three passed and nine failed. Its actual runtime-role,
@@ -154,26 +155,48 @@ Three additional repairs are being verified before inclusion:
   existing transaction-scoped cross-tenant operation for the tenant, existing
   entitlement and three existing configuration copies. No new inherited
   configuration, commercial grant or caller permission is authorized.
+  The subsequent isolated Linux verification at `cd664440d` passed all 91
+  exact cases across the atomicity deep, registry and settings-boundary suites
+  (12/40/39), including restricted runtime-role controls and rollback/retry
+  evidence. Native execution, report integrity, database evidence, owned-resource
+  cleanup and post-run checks passed. This does not repair historical partial
+  tenants or establish durable post-commit route-audit delivery.
 - **Backend presentation inventory.** The source-only diagnostic on
   `770b1148e` ran 105 cases: 104 passed and the exact-accounting case failed.
   Discovery found 806 candidates against 768 registered pending entries.
-  Reconciliation must account for each replacement, new candidate and moved
-  evidence pointer, preserving every applicable human-review hold. This does
-  not establish complete localization or approve wording.
+  The reviewed reconciliation at `93fcc751f` preserves 723 rows byte-for-byte,
+  updates 26 evidence lines, maps 19 former identities to explicit replacements
+  and adds 38 pending entries. All 768 original review objects and the Finance
+  hold are preserved. Subsequent isolated Linux verification passed all 105
+  exact cases; the scan covered 1,372 source files and all 806 entries matched,
+  with no stale identities, missing registrations or moved evidence. Native
+  execution, report integrity, capture and post-run checks passed. All 806
+  entries remain pending; this is neither complete localization nor wording
+  approval.
 - **Vitals fixture cleanup.** Earlier native logs showed foreign-key failures
   during cleanup despite passing test counts. The source-reviewed test-only
   repair at `21f23720a` removes only owned critical-vital fixture children in a
-  transaction and tests that unrelated children still block deletion. Fresh
-  repeated PostgreSQL execution remains required; no clinical workflow or
-  production policy is changed.
+  transaction and tests that unrelated children still block deletion. Its first
+  isolated PostgreSQL attempt passed all 55 Jest cases and residual checks,
+  with owned rows absent and settings restored exactly, but failed report
+  integrity. That attempt is not qualified; a fresh reviewed repeat remains
+  required. No clinical workflow or production policy is changed.
 
 Both diagnostics above remain failed receipts, not green CI. Tenant cleanup's
 initial strict port-release check failed before a later inspection proved
 release; presentation report classification rejected a standard anonymous
 Promise stack frame. These harness limitations do not erase the captured
 application failures, nor do later observations retroactively qualify either
-receipt. The repaired candidates and the final combined head require fresh
-applicable verification before publication and independent merge review.
+receipt. The later tenant and presentation successes are separate focused
+receipts, not retroactive acceptance of those diagnostics. Their local evidence
+summaries are `tenant-cd664440d-focused-verification.md` and
+`presentation-93fcc751f-focused-verification.md` in the September 28 operator
+artifact directory; the first vitals evidence is retained separately in
+`vitals-21f23720a-attempt1-evidence`. No application tests were rerun for this
+documentation update. The final combined head still requires reviewed
+RLS-census regeneration, a fresh presentation rescan and all applicable CI
+before publication and independent merge review. None of these focused
+receipts establishes full-CI, implemented-on-main or release qualification.
 
 Migration 803, booking-alert ownership/recovery decisions, maternity D2/D8,
 clinical configuration inheritance, linguistic sign-off, storage qualification

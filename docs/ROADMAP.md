@@ -179,12 +179,19 @@ or move its audit items to implemented before a reviewed merge receipt.
 
 The September 28 owner-authorized local expansion adds the verified Admin
 incident-dialog, Staff MAR navigation and audit-documentation lanes. Tenant
-provisioning atomicity, presentation-inventory reconciliation and vitals fixture
-cleanup are additional candidates undergoing verification. The canonical
-ledger's September 28 receipt records the reproduced failures and preserves
-their evidence limitations. The published #1102 head and its hosted checks do
-not verify this expanded tree. Migration 803, product/clinical decisions and
-external-authority holds are not silently incorporated or cleared.
+provisioning atomicity at `cd664440d` now has independently reviewed focused
+verification of 91 exact cases; presentation-inventory reconciliation at
+`93fcc751f` has 105 passing exact cases and 806 accounted-for entries, all still
+pending human review. These are isolated Linux focused receipts, not full CI
+or implemented-on-main evidence. Vitals fixture cleanup remains unqualified:
+its first attempt passed 55 Jest cases and residual checks but failed report
+integrity, and a reviewed repeat remains required. The canonical ledger's
+September 28 receipt retains the earlier failed diagnostics and their limits.
+The final combined tree still requires reviewed RLS-census regeneration,
+presentation rediscovery and all applicable CI. The published #1102 head and
+its hosted checks do not verify this expanded tree. Migration 803,
+product/clinical decisions and external-authority holds are not silently
+incorporated or cleared.
 
 ### External and activation stops `[OPERATOR]` `[EXTERNAL]`
 
