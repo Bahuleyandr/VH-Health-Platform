@@ -1,8 +1,8 @@
 # VH Health Platform — Consolidated Roadmap
 
-**Single source of truth for pending work. Latest bounded update: #1098–#1100
+**Single source of truth for pending work. Latest bounded update: #1094–#1095 and #1097–#1100
 merged-scope receipts, 2026-09-27 at authoritative `github/main`
-`b727ce31ed5117df03e57e38d6824b0868edcc6e`, preserving the September 26
+`6543707c78ef01bd3e4894f5f38e162bcf462ee9`, preserving the September 26
 #1023/#1091 receipts. OPEN-23 retains its September 16
 receipt at `d60f1ea2c853a9fa525f4a15e60b9fe7b044fc4e`; the remaining queue
 retains its September 8 evidence at `4c1f5654ca70b4dbc2699c96279e0ea03cc8e43c`.**
@@ -158,6 +158,23 @@ import-race tasks from this immediate queue.
   defect only; it adds no delivery/newborn/postnatal capture forms or
   recorder/performer, clinical, linguistic or activation approval. The
   canonical ledger's September 26 receipt records the exact evidence.
+  #1097 (`7097cd7bc`) additionally hardens research CRF draft capture and
+  submission against concurrent state changes; it adds no research client
+  workflow or product/clinical activation authority.
+
+The former #1097/#1094/#1095 merge train is complete. #1094's Patient document
+URL/redirect boundary and #1095's generic Admin dashboard error/retry behavior
+landed together, with successful full hosted CI on combined final head
+`abdc069985`; this does not relabel #1094's earlier failed hosted run. The
+canonical ledger's September 27 receipt retains exact merge/head/run evidence
+and the qualified local teardown receipt. None of these bounded repairs
+closes the remaining OPEN-19 workflows or grants release authority.
+
+The separately published [draft #1102](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1102)
+at `55a7c0a5f` contains Ward-indent, booking-access, theatre-read and RLS-census
+repairs. It is **not merged**, and its local evidence and pending hosted run
+are not closure evidence on current main. Do not duplicate that owned scope
+or move its audit items to implemented before a reviewed merge receipt.
 
 ### External and activation stops `[OPERATOR]` `[EXTERNAL]`
 

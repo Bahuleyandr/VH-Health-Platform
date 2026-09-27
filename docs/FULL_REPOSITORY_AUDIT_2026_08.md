@@ -1,8 +1,8 @@
 # VH Health Full-Repository Audit — Reconciled Ledger
 
 **Latest bounded reconciliation:** 2026-09-27, authoritative `github/main`
-`b727ce31ed5117df03e57e38d6824b0868edcc6e`. This update records the merged
-scope of #1098–#1100, preserving the September 26 receipts for #1023 and
+`6543707c78ef01bd3e4894f5f38e162bcf462ee9`. This update records the merged
+scope of #1094–#1095 and #1097–#1100, preserving the September 26 receipts for #1023 and
 #1091; it is **not a new whole-repository audit**. OPEN-23 retains its
 September 16 constraint receipt below. Other rows retain their explicitly
 dated evidence, not an implied September 27 verification.
@@ -32,12 +32,52 @@ train. Both are replaced below.
   integrated into this branch.
 - This file — the current finding ledger and the historical PR #867 rating.
 
-### 2026-09-27 bounded merged-scope receipt — backend locale contracts and storage hold
+### 2026-09-27 bounded merged-scope receipt — completed repair train
 
 The following merge commits are ancestors of the main SHA above. This
-documentation pass inspected committed source and retained lane receipts; it
-reran no application, image, database or environment checks and makes no new
-claim about the pending #1097, #1094 or #1095 merge train.
+documentation pass inspected committed source, live GitHub PR state and
+exact-commit check runs, plus retained lane receipts. It reran no application,
+image, database or environment checks. The former #1097/#1094/#1095 pending
+merge-train claim is superseded: all three are merged.
+
+- [PR #1094](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1094)
+  merged as `869bc260c9e7808c64fe472e7472dc8d19e79462` and
+  [PR #1095](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1095)
+  as `abdc069985f51320ad8814c7cfee7a29a69e54aa`, both September 27 UTC.
+  Patient document downloads now separate authenticated same-origin API
+  requests from unauthenticated external HTTPS requests and validate every
+  redirect; authenticated binary redirects are refused
+  (`apps/patient/lib/core/utils/document_download.dart:18-71,90-139`;
+  `packages/vhhealth_core/lib/services/http_client.dart:233`). The corresponding
+  regressions are `apps/patient/test/core/utils/document_download_test.dart:48`
+  and `packages/vhhealth_core/test/http_client_test.dart`. Admin dashboard
+  failure UI and Sentry capture use generic text while retry remains wired
+  (`apps/admin/src/app/(with-auth)/dashboard/error.tsx:14-26`;
+  `apps/admin/src/__tests__/dashboard/error-boundary.test.tsx:16`).
+  **Verification belongs to the combined final head `abdc069985`, not a
+  rewritten claim about #1094's old head:** #1094's individual hosted run
+  `36099257607` still reports failed aggregate gates from its earlier infra
+  failure. The combined head's full hosted run is successful as recorded
+  below. Its retained full-local receipt separately accepts the passing
+  backend corpus plus later same-allocation resource closure after naturally
+  cleared TCP `TIME_WAIT`; the original immediate resource postflight remains
+  failed. Full Flutter retains one pre-existing Staff scaffold-test skip.
+  The retained artifact is
+  `pr1094-1095-batch-abdc06998-full-local-receipt.md` (September 27 coordinator
+  evidence, not a repository-contained or newly rerun test result).
+  These bounded URL/privacy repairs do not certify all client privacy,
+  production telemetry delivery or staging/release distribution.
+- [PR #1097](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1097)
+  merged as `7097cd7bcf4ac3d91c8516557c4e8551ea12d93d`. Research CRF draft
+  upsert is conditioned on still being a draft, and submission locks and
+  validates the current response before status mutation and canonical event
+  recording in the same tenant transaction
+  (`apps/backend/src/services/research/researchRegistryService.js:565-649`).
+  `apps/backend/src/tests/research-registry.deep.test.js:287,320` covers stale
+  draft overwrite and concurrent-save/submission races; tenant authorization
+  coverage remains in `apps/backend/src/tests/unit/researchTenantAuthorization.test.js`.
+  This is state/transaction hardening, not the research client workflow or
+  product/clinical authorization; **OPEN-19 remains open**.
 
 - [PR #1098](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1098)
   merged as `b727ce31ed5117df03e57e38d6824b0868edcc6e`, from final source
@@ -76,6 +116,23 @@ claim about the pending #1097, #1094 or #1095 merge train.
   is wired into the unconditional security stage. This records the bounded
   image/install repair, not a permanent vulnerability-free image claim or
   clearance of storage, notification-delivery or release authority.
+
+Live exact-head hosted evidence read for this bounded receipt:
+
+| Scope | Verified commit | Canonical CI run | Literal aggregate checks |
+| --- | --- | --- | --- |
+| #1094/#1095 combined final tree | `abdc069985f51320ad8814c7cfee7a29a69e54aa` | [36287728363](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/36287728363) | `Merge Gate` and `Full Merge Gate`: success; three backend shards and six `full_*` jobs succeeded. |
+| #1097 final head | `b3fefbd1c71bc6a8faa3bed1f154b45cc03979bb` | [36279703054](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/36279703054) | Both exact aggregate names: success; three backend shards and six `full_*` jobs succeeded. |
+| #1098 final head | `9ba08a41d68769f3400122f1f195ede253155600` | [36259285778](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/36259285778) | Both exact aggregate names: success; three backend shards and six `full_*` jobs succeeded. |
+| #1099 final head | `a7134f4f317dc5b1a6ae718a560a78c23e48452d` | [36233930556](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/36233930556) | Both exact aggregate names: success. |
+| #1100 final head | `fb9d5b6c3851d30e40e0081da1d28762ab27e09a` | [36246946190](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/36246946190) | Both exact aggregate names: success. |
+
+[PR #1102](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1102) was
+queried separately: **OPEN, draft**, head
+`55a7c0a5f39ba7f1e7b8b50936528885e5385c4f`. Its Ward-indent, booking-access,
+theatre-read and RLS-census repairs are not implemented-on-main evidence.
+The local verification packet and pending hosted run do not close any finding
+in this ledger. External authority stops below remain unchanged.
 
 ### 2026-09-26 bounded merged-scope receipt — cath design and maternity refresh
 
