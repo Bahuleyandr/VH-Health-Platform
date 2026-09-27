@@ -236,6 +236,20 @@ buildCathInventoryReconciliationScreenForRoute(Uri uri) {
   );
 }
 
+@visibleForTesting
+Widget buildMarScanScreenForRoute({
+  required String? rawMaId,
+  required String route,
+}) {
+  final maId = rawMaId != null && RegExp(r'^[1-9][0-9]*$').hasMatch(rawMaId)
+      ? int.tryParse(rawMaId)
+      : null;
+  if (maId == null || maId > 2147483647) {
+    return _RouteErrorScreen(route: route);
+  }
+  return MarScanScreen(maId: maId);
+}
+
 final GoRouter appRouter = GoRouter(
   navigatorKey: _rootNavigatorKey,
   initialLocation: '/',
@@ -818,8 +832,12 @@ final GoRouter appRouter = GoRouter(
           path: '/mar/scan/:maId',
           name: 'mar-scan',
           pageBuilder: (context, state) {
-            final maId = int.tryParse(state.pathParameters['maId'] ?? '') ?? 0;
-            return NoTransitionPage(child: MarScanScreen(maId: maId));
+            return NoTransitionPage(
+              child: buildMarScanScreenForRoute(
+                rawMaId: state.pathParameters['maId'],
+                route: state.matchedLocation,
+              ),
+            );
           },
         ),
         GoRoute(
@@ -1523,7 +1541,17 @@ final GoRouter appRouter = GoRouter(
       ],
     ),
   ],
-  errorBuilder: (context, state) => Scaffold(
+  errorBuilder: (context, state) =>
+      _RouteErrorScreen(route: state.matchedLocation),
+);
+
+class _RouteErrorScreen extends StatelessWidget {
+  const _RouteErrorScreen({required this.route});
+
+  final String route;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
     body: Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -1532,7 +1560,7 @@ final GoRouter appRouter = GoRouter(
           const SizedBox(height: 16),
           AppText(
             's4.dynamic.app_router.page_not_found',
-            values: {'route': state.matchedLocation},
+            values: {'route': route},
           ),
           TextButton(
             onPressed: () => context.go('/dashboard'),
@@ -1541,5 +1569,5 @@ final GoRouter appRouter = GoRouter(
         ],
       ),
     ),
-  ),
-);
+  );
+}
