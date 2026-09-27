@@ -965,7 +965,12 @@ export const uploadResult = async (req, res) => {
 // GET /investigations/bookings/:id — get booking detail
 export const getBookingDetail = async (req, res) => {
   try {
-    const id = parseInt(req.params.id, 10);
+    if (!req.tenantId) throw AppError.forbidden('Tenant context required', 'TENANT_CONTEXT_REQUIRED');
+    const tenantId = resolveTenantOrThrow(req);
+    const id = String(req.params.id ?? '');
+    if (!/^[1-9]\d{0,18}$/.test(id) || BigInt(id) > 9223372036854775807n) {
+      return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
+    }
     const booking = await prisma.$queryRawUnsafe(`
       SELECT ib.id, ib.booking_number, ib.investigation_id, ib.appointment_id,
         ib.patient_id, ib.patient_name, ib.patient_phone,
@@ -986,13 +991,20 @@ export const getBookingDetail = async (req, res) => {
         cu.name as confirmed_by_name,
         au.name as collector_name
       FROM investigation_bookings ib
-      LEFT JOIN users cu ON ib.confirmed_by = cu.id
-      LEFT JOIN users au ON ib.assigned_collector = au.id
-      WHERE ib.id = $1
-    `, id);
+      LEFT JOIN users cu ON ib.confirmed_by = cu.id AND cu.tenant_id = $2::uuid
+      LEFT JOIN users au ON ib.assigned_collector = au.id AND au.tenant_id = $2::uuid
+      WHERE ib.id = $1::bigint AND ib.tenant_id = $2::uuid
+    `, id, tenantId);
     if (!booking.length) return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
+    if (String(req.user?.role || '').toUpperCase() === 'PATIENT'
+      && String(booking[0].patient_id) !== String(req.user?.id)) {
+      return error(res, 'Not found', HTTP_STATUS.NOT_FOUND);
+    }
 
-    const history = await prisma.$queryRawUnsafe('SELECT id, booking_id, from_status, to_status, changed_by, changed_by_role, notes, created_at FROM investigation_booking_history WHERE booking_id=$1 ORDER BY created_at', id);
+    const history = await prisma.$queryRawUnsafe(
+      'SELECT id, booking_id, from_status, to_status, changed_by, changed_by_role, notes, created_at FROM investigation_booking_history WHERE booking_id=$1::bigint AND tenant_id=$2::uuid ORDER BY created_at',
+      id, tenantId,
+    );
 
     const baseUrl = `${req.protocol}://${req.get('host')}`;
     const b = booking[0];
@@ -1001,6 +1013,7 @@ export const getBookingDetail = async (req, res) => {
 
     success(res, { booking: b, history: history }, 'Booking detail');
   } catch (e) {
+    if (e?.statusCode) return relayAppError(res, e, 'Failed to fetch booking detail', { safe: true });
     logger.error('getBookingDetail error:', e);
     error(res, 'Failed to fetch booking detail', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }
@@ -1009,6 +1022,8 @@ export const getBookingDetail = async (req, res) => {
 // GET /investigations/bookings/sla — admin SLA overview
 export const getBookingSLADashboard = async (req, res) => {
   try {
+    if (!req.tenantId) throw AppError.forbidden('Tenant context required', 'TENANT_CONTEXT_REQUIRED');
+    const tenantId = resolveTenantOrThrow(req);
     const { from_date, to_date } = req.query;
     const from = from_date || new Date(Date.now() - 7*24*60*60*1000).toISOString().split('T')[0];
     const to = to_date || new Date().toISOString().split('T')[0];
@@ -1024,16 +1039,16 @@ export const getBookingSLADashboard = async (req, res) => {
         COUNT(CASE WHEN collection_type='home' THEN 1 END) as home_collection,
         COUNT(CASE WHEN collection_type='walk_in' THEN 1 END) as walk_in,
         SUM(COALESCE(final_cost, estimated_cost, 0)) as total_revenue
-        FROM investigation_bookings WHERE DATE(created_at) BETWEEN $1::date AND $2::date`, from, to),
-      prisma.$queryRawUnsafe(`SELECT status, COUNT(*) as count FROM investigation_bookings WHERE DATE(created_at) BETWEEN $1::date AND $2::date GROUP BY status`, from, to),
+        FROM investigation_bookings WHERE tenant_id = $3::uuid AND DATE(created_at) BETWEEN $1::date AND $2::date`, from, to, tenantId),
+      prisma.$queryRawUnsafe(`SELECT status, COUNT(*) as count FROM investigation_bookings WHERE tenant_id = $3::uuid AND DATE(created_at) BETWEEN $1::date AND $2::date GROUP BY status`, from, to, tenantId),
       prisma.$queryRawUnsafe(`SELECT COUNT(*) as count FROM investigation_bookings
-        WHERE status='BOOKED' AND NOW() > sla_confirm_target AND DATE(created_at) BETWEEN $1::date AND $2::date`, from, to),
+        WHERE tenant_id = $3::uuid AND status='BOOKED' AND NOW() > sla_confirm_target AND DATE(created_at) BETWEEN $1::date AND $2::date`, from, to, tenantId),
       prisma.$queryRawUnsafe(`SELECT
         AVG(EXTRACT(EPOCH FROM (confirmed_at - created_at))/60) as avg_confirm_mins,
         AVG(EXTRACT(EPOCH FROM (dispatched_at - confirmed_at))/60) as avg_dispatch_mins,
         AVG(EXTRACT(EPOCH FROM (collected_at - dispatched_at))/60) as avg_collect_mins,
         AVG(EXTRACT(EPOCH FROM (result_uploaded_at - collected_at))/3600) as avg_result_hours
-        FROM investigation_bookings WHERE result_uploaded_at IS NOT NULL AND DATE(created_at) BETWEEN $1::date AND $2::date`, from, to),
+        FROM investigation_bookings WHERE tenant_id = $3::uuid AND result_uploaded_at IS NOT NULL AND DATE(created_at) BETWEEN $1::date AND $2::date`, from, to, tenantId),
     ]);
 
     success(res, {
@@ -1044,6 +1059,7 @@ export const getBookingSLADashboard = async (req, res) => {
       date_range: { from, to }
     }, 'Booking SLA dashboard');
   } catch (e) {
+    if (e?.statusCode) return relayAppError(res, e, 'Failed to fetch SLA dashboard', { safe: true });
     logger.error('getBookingSLADashboard error:', e);
     error(res, 'Failed to fetch SLA dashboard', HTTP_STATUS.INTERNAL_SERVER_ERROR);
   }

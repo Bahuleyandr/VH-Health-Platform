@@ -23,6 +23,7 @@ delete process.env.AUTH_TENANT_RLS_TEST_ROLE;
 const { default: prisma, pinSessionTimeZoneToUrl } = await import('../lib/prisma.js');
 const owner = new pg.Client({ connectionString: pinSessionTimeZoneToUrl(ownerDatabaseUrl) });
 const { default: investigationRouter } = await import('../routes/investigation/investigationRoutes.js');
+const { getBookingDetail } = await import('../controllers/investigation/bookingController.js');
 const fixtures = [];
 let catalogId;
 const app = express();
@@ -30,7 +31,9 @@ app.use(express.json());
 app.use((req, res, next) => {
   const fixture = fixtures[Number(req.get('x-test-actor') || 0)];
   const patient = req.get('x-test-patient') === 'true';
-  const actor = patient ? fixture.patient : fixture.actor;
+  const actor = patient
+    ? (req.get('x-test-stranger') === 'true' ? fixture.strangerPatient : fixture.patient)
+    : fixture.actor;
   req.user = { id: actor.id, uid: actor.uid, role: patient ? 'PATIENT' : 'ADMIN', phone: actor.phone };
   if (req.get('x-test-no-tenant') !== 'true') {
     req.tenantId = fixture.tenantId;
@@ -40,10 +43,10 @@ app.use((req, res, next) => {
 });
 app.use('/api/v1/investigations', investigationRouter);
 
-function get(path, actor = 0, { noTenant = false, patient = false } = {}) {
+function get(path, actor = 0, { noTenant = false, patient = false, stranger = false } = {}) {
   return request(app).get(`/api/v1/investigations${path}`)
     .set('x-test-actor', String(actor)).set('x-test-no-tenant', String(noTenant))
-    .set('x-test-patient', String(patient));
+    .set('x-test-patient', String(patient)).set('x-test-stranger', String(stranger));
 }
 
 async function assertPopulation() {
@@ -85,6 +88,11 @@ beforeAll(async () => {
         [randomUUID(), fixture.tenantId, key === 'patient' ? sharedPhone : `+91${randomInt(6000000000, 9999999999)}`, `${fixture.marker}-${key}`, role],
       )).rows[0];
     }
+    fixture.strangerPatient = (await owner.query(
+      `INSERT INTO users (uid, tenant_id, phone, name, role, is_active, updated_at)
+       VALUES ($1::uuid, $2::uuid, $3, $4, 'PATIENT', true, NOW()) RETURNING id, uid, phone, name`,
+      [randomUUID(), fixture.tenantId, `+91${randomInt(6000000000, 9999999999)}`, `${fixture.marker}-stranger`],
+    )).rows[0];
     fixture.doctorId = (await owner.query(
       `INSERT INTO doctors (user_id, department, specialty, tenant_id, updated_at)
        VALUES ($1::int, 'Pathology', 'Pathology', $2::uuid, NOW()) RETURNING id`,
@@ -121,6 +129,7 @@ afterAll(async () => {
         await owner.query(`DELETE FROM ${table} WHERE tenant_id = $1::uuid`, [fixture.tenantId]);
       }
       await owner.query('DELETE FROM audit_logs WHERE tenant_id = $1::uuid', [fixture.tenantId]);
+      await owner.query('DELETE FROM audit_log WHERE tenant_id = $1::uuid', [fixture.tenantId]);
       await owner.query('DELETE FROM tenants WHERE id = $1::uuid', [fixture.tenantId]);
     }
     await owner.query('DELETE FROM investigation_test_catalog WHERE id = $1::bigint', [catalogId]);
@@ -237,7 +246,7 @@ describe.each(['summary', 'by_status', 'by_priority', 'urgent_pending', 'recent_
     }
   }
   it('excludes tenant A rows for tenant B', async () => {
-    const response = await get('/sla-dashboard', 1, { patient: true });
+    const response = await get('/sla-dashboard', 1);
     expect(response.status).toBe(200);
     expectOwn(response.body.data[field], fixtures[1]);
   });
@@ -298,15 +307,197 @@ describe('booking queue', () => {
     expect(response.body.data[0].test_names).toHaveLength(1);
     expect(response.body.data[0].slip_photo_url).toBeNull();
   });
-  it('retains the existing patient-role route and confirmed filter', async () => {
+  it('denies a patient the cross-patient booking queue', async () => {
     const response = await get('/bookings/queue?status=CONFIRMED', 1, { patient: true });
-    expect(response.status).toBe(200);
-    expect(response.body.data).toHaveLength(1);
-    expect(String(response.body.data[0].id)).toBe(String(fixtures[1].bookingId));
+    expect(response.status).toBe(403);
+    expect(JSON.stringify(response.body)).not.toContain(fixtures[1].marker);
   });
   it('refuses missing tenant context', async () => {
     const response = await get('/bookings/queue', 0, { noTenant: true });
     expect(response.status).toBe(403);
     expect(response.body.code).toBe('TENANT_CONTEXT_REQUIRED');
   });
+});
+
+it('preserves patient access to their own booking list', async () => {
+  const response = await get('/bookings/my', 0, { patient: true });
+  expect(response.status).toBe(200);
+  expect(response.body.data.some((booking) => String(booking.id) === String(fixtures[0].bookingId))).toBe(true);
+  expect(JSON.stringify(response.body)).not.toContain(fixtures[1].marker);
+});
+
+it.each(['/sla-dashboard', '/bookings/sla'])(
+  'denies a patient the cross-patient %s dashboard', async (path) => {
+    const response = await get(path, 0, { patient: true });
+    expect(response.status).toBe(403);
+    expect(JSON.stringify(response.body)).not.toContain(fixtures[0].marker);
+  },
+);
+
+describe('booking SLA dashboard', () => {
+  it('scopes every aggregate to the authenticated tenant', async () => {
+    const completedIds = [];
+    const originalTarget = (await owner.query(
+      'SELECT sla_confirm_target FROM investigation_bookings WHERE id = $1::bigint', [fixtures[0].bookingId],
+    )).rows[0].sla_confirm_target;
+    try {
+      await owner.query(
+        "UPDATE investigation_bookings SET sla_confirm_target = NOW() - INTERVAL '1 hour' WHERE id = $1::bigint",
+        [fixtures[0].bookingId],
+      );
+      for (const [index, fixture] of fixtures.entries()) {
+        const rows = (await owner.query(
+          `WITH anchor AS (SELECT NOW() - INTERVAL '1 day' AS at)
+           INSERT INTO investigation_bookings (tenant_id, patient_id, status, created_at,
+             confirmed_at, dispatched_at, collected_at, result_uploaded_at)
+           SELECT $1::uuid, $2::int, 'RESULT_READY', at,
+             at + $3::int * INTERVAL '10 minutes',
+             at + $3::int * INTERVAL '30 minutes',
+             at + $3::int * INTERVAL '60 minutes',
+             at + $3::int * INTERVAL '120 minutes'
+           FROM anchor RETURNING id`,
+          [fixture.tenantId, fixture.patient.id, index + 1],
+        )).rows;
+        expect(rows).toHaveLength(1);
+        completedIds.push(rows[0].id);
+      }
+      const { from, to } = (await owner.query(
+        "SELECT (CURRENT_DATE - 7)::text AS from, (CURRENT_DATE + 1)::text AS to",
+      )).rows[0];
+      for (const actor of [0, 1]) {
+        const response = await get(`/bookings/sla?from_date=${from}&to_date=${to}`, actor);
+        expect(response.status).toBe(200);
+        expect(Number(response.body.data.summary.total)).toBe(2);
+        expect(Object.fromEntries(response.body.data.by_status.map(row => [row.status, Number(row.count)])))
+          .toEqual({ [actor ? 'CONFIRMED' : 'BOOKED']: 1, RESULT_READY: 1 });
+        expect(response.body.data.sla_breaches).toBe(actor ? 0 : 1);
+        expect(Object.fromEntries(Object.entries(response.body.data.avg_times).map(([key, value]) => [key, Number(value)])))
+          .toEqual({
+            avg_confirm_mins: 10 * (actor + 1),
+            avg_dispatch_mins: 20 * (actor + 1),
+            avg_collect_mins: 30 * (actor + 1),
+            avg_result_hours: actor + 1,
+          });
+      }
+    } finally {
+      await owner.query('DELETE FROM investigation_bookings WHERE id = ANY($1::bigint[])', [completedIds]);
+      await owner.query('UPDATE investigation_bookings SET sla_confirm_target = $2::timestamptz WHERE id = $1::bigint',
+        [fixtures[0].bookingId, originalTarget]);
+    }
+  });
+
+  it('refuses missing tenant context', async () => {
+    const response = await get('/bookings/sla', 0, { noTenant: true });
+    expect(response.status).toBe(403);
+    expect(response.body.code).toBe('TENANT_CONTEXT_REQUIRED');
+  });
+});
+
+describe('booking detail', () => {
+  let previousMode;
+  beforeAll(() => {
+    previousMode = process.env.CARE_TEAM_ENFORCEMENT_MODE;
+    process.env.CARE_TEAM_ENFORCEMENT_MODE = 'shadow';
+  });
+  afterAll(() => {
+    if (previousMode === undefined) delete process.env.CARE_TEAM_ENFORCEMENT_MODE;
+    else process.env.CARE_TEAM_ENFORCEMENT_MODE = previousMode;
+  });
+
+  it('preserves the owning patient detail read', async () => {
+    const response = await get(`/bookings/${fixtures[0].bookingId}`, 0, { patient: true });
+    expect(response.status).toBe(200);
+    expect(String(response.body.data.booking.id)).toBe(String(fixtures[0].bookingId));
+  });
+
+  it('preserves same-tenant staff detail access', async () => {
+    const response = await get(`/bookings/${fixtures[0].bookingId}`);
+    expect(response.status).toBe(200);
+    expect(String(response.body.data.booking.id)).toBe(String(fixtures[0].bookingId));
+  });
+
+  it('refuses controller detail without tenant context before querying', async () => {
+    const res = { status: jest.fn().mockReturnThis(), json: jest.fn() };
+    const queries = jest.spyOn(pg.Client.prototype, 'query');
+    try {
+      await getBookingDetail({ params: { id: fixtures[0].bookingId }, user: fixtures[0].actor }, res);
+      expect(res.status).toHaveBeenCalledWith(403);
+      expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ code: 'TENANT_CONTEXT_REQUIRED' }));
+      expect(queries).not.toHaveBeenCalled();
+    } finally { queries.mockRestore(); }
+  });
+
+  it('keeps own history and names while excluding foreign history and joined staff names', async () => {
+    const [own, foreign] = fixtures;
+    const historyIds = [];
+    try {
+      for (const fixture of fixtures) {
+        const rows = (await owner.query(
+          `INSERT INTO investigation_booking_history (booking_id, tenant_id, to_status, changed_by, changed_by_role, notes)
+           VALUES ($1::bigint, $2::uuid, 'BOOKED', $3::int, 'ADMIN', $4) RETURNING id`,
+          [own.bookingId, fixture.tenantId, fixture.actor.id, fixture.marker],
+        )).rows;
+        expect(rows).toHaveLength(1);
+        historyIds.push(rows[0].id);
+      }
+      for (const fixture of fixtures) {
+        await owner.query(
+          'UPDATE investigation_bookings SET confirmed_by = $2::int, assigned_collector = $2::int WHERE id = $1::bigint',
+          [own.bookingId, fixture.actor.id],
+        );
+        const response = await get(`/bookings/${own.bookingId}`);
+        expect(response.status).toBe(200);
+        expect(response.body.data.history).toHaveLength(1);
+        expect(String(response.body.data.history[0].id)).toBe(String(historyIds[0]));
+        expect(response.body.data.booking.confirmed_by_name).toBe(fixture === own ? own.actor.name : null);
+        expect(response.body.data.booking.collector_name).toBe(fixture === own ? own.actor.name : null);
+        expect(JSON.stringify(response.body)).not.toContain(foreign.marker);
+      }
+    } finally {
+      await owner.query('DELETE FROM investigation_booking_history WHERE id = ANY($1::bigint[])', [historyIds]);
+      await owner.query('UPDATE investigation_bookings SET confirmed_by = NULL, assigned_collector = NULL WHERE id = $1::bigint',
+        [own.bookingId]);
+    }
+  });
+
+  it('preserves an owning patient read above the JavaScript safe integer limit', async () => {
+    const fixture = fixtures[0];
+    const id = String(9223372036854775807n - BigInt(fixture.bookingId));
+    await owner.query(
+      `INSERT INTO investigation_bookings (id, tenant_id, patient_id, status)
+       VALUES ($1::bigint, $2::uuid, $3::int, 'BOOKED')`,
+      [id, fixture.tenantId, fixture.patient.id],
+    );
+    try {
+      const response = await get(`/bookings/${id}`, 0, { patient: true });
+      expect(response.status).toBe(200);
+      expect(String(response.body.data.booking.id)).toBe(id);
+    } finally {
+      await owner.query('DELETE FROM investigation_bookings WHERE id = $1::bigint', [id]);
+    }
+  });
+
+  it('rejects another patient in the same tenant even in care-team shadow mode', async () => {
+    const response = await get(`/bookings/${fixtures[0].bookingId}`, 0, { patient: true, stranger: true });
+    expect(response.status).toBe(404);
+    expect(JSON.stringify(response.body)).not.toContain(fixtures[0].marker);
+  });
+
+  it('rejects a staff read across tenant boundaries', async () => {
+    const response = await get(`/bookings/${fixtures[0].bookingId}`, 1);
+    expect(response.status).toBe(404);
+    expect(JSON.stringify(response.body)).not.toContain(fixtures[0].marker);
+  });
+
+  it('does not reinterpret a malformed booking id as an existing id', async () => {
+    const response = await get(`/bookings/${fixtures[0].bookingId}junk`);
+    expect(response.status).toBe(404);
+  });
+
+  it.each(['0', '-1', '1.5', '9223372036854775808'])(
+    'rejects invalid bigint booking id %s', async (id) => {
+      const response = await get(`/bookings/${id}`);
+      expect(response.status).toBe(404);
+    },
+  );
 });
