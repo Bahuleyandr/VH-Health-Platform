@@ -5,7 +5,7 @@ FROM ${NODE_IMAGE} AS builder
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-RUN npm ci
+RUN ONNXRUNTIME_NODE_INSTALL=skip npm ci
 
 COPY prisma ./prisma
 RUN NODE_OPTIONS=--max-old-space-size=4096 npx prisma generate
@@ -42,7 +42,7 @@ FROM ${NODE_IMAGE} AS production
 # unpatchable behind a hand-maintained list. The pinned base carries HIGH
 # findings only this upgrade can reach. Do not re-narrow it to a package list;
 # check-infra-security-controls.mjs enforces that for all three images.
-ARG SECURITY_PATCH_EPOCH=2026-09-08.1
+ARG SECURITY_PATCH_EPOCH=2026-09-24.1
 RUN apk upgrade --no-cache && \
     apk add --no-cache curl poppler-utils tesseract-ocr tesseract-ocr-data-eng && \
     echo "security patch epoch: ${SECURITY_PATCH_EPOCH}"
@@ -50,7 +50,7 @@ RUN apk upgrade --no-cache && \
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-RUN npm ci --omit=dev && \
+RUN ONNXRUNTIME_NODE_INSTALL=skip npm ci --omit=dev && \
     rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma

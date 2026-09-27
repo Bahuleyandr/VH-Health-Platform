@@ -8,6 +8,23 @@
 > change window, rollback evidence, and target-environment receipt. Missing
 > input is a stop.
 >
+> **Local object-storage hold (2026-09-26) supersedes older MinIO/Harbor
+> installation and restore wording in this guide and the backend DR runbook.**
+> The owner attests VH Health MinIO and Harbor were never deployed elsewhere;
+> bounded root Dalek metadata inspection found none (unrelated `khata-minio`
+> excluded). Their manifests are retained as non-composed history in
+> `infra/kubernetes/held/local-object-storage/`. Do **not** execute older
+> MinIO/Harbor bootstrap, bucket-creation, source-archive, or MinIO restore
+> commands as a current activation path. Local storage, Harbor, Longhorn's
+> local S3 backup target, and new local-records archive production remain
+> suspended until a separate
+> [Rook/Ceph qualification](OBJECT_STORE_ROOK_CEPH_REPLACEMENT_DESIGN.md)
+> and named activation approval. The independent encrypted-R2 archive
+> verifier remains present for any existing archive; stale or missing evidence
+> is not a healthy-backup claim. CloudNativePG's direct-R2 backup and restore
+> path is independent and remains subject to its own gates. The absence
+> attestation is bounded evidence, not proof that Rook/Ceph is qualified.
+>
 > End-to-end runbook for bringing up the VH Health backend + admin portal
 > on a **3-node on-prem RKE2 Kubernetes cluster** inside a hospital data
 > centre. Target audience: hospital SRE who's comfortable with Linux +
@@ -47,10 +64,15 @@
 [vhhealth-     [vhhealth-   [vhhealth-pg CNPG cluster]
  backend]       admin]        (3 replicas, sync)
   |                  |
-  +--[Redis Sentinel]--[MinIO]--[Harbor]--[ArgoCD]--[Monitoring]
-                     |
-                  [Cloudflare R2 offsite backup]
+  +--[Redis Sentinel]--[ArgoCD]--[Monitoring]
 ```
+
+The older design also included local MinIO and Harbor. Both are now held and
+absent from active composition; this diagram does not represent a qualified
+Rook/Ceph replacement or a live R2 backup receipt. The separate CNPG Barman
+Cloud Plugin is configured for direct Cloudflare R2 backup, with its own
+operator qualification and restore gate; application R2 paths are likewise
+independent of the held local store.
 
 Key properties:
 
@@ -69,12 +91,12 @@ Namespace layout:
 | Namespace           | Purpose                                              |
 | ------------------- | ---------------------------------------------------- |
 | `vhhealth`          | Application pods: backend, admin, migration Jobs     |
-| `vhhealth-platform` | Stateful platform: CNPG, Redis, MinIO, cloudflared   |
+| `vhhealth-platform` | Stateful platform: CNPG, Redis, cloudflared (local object storage held) |
 | `ingress-nginx`     | Ingress controller DaemonSet                         |
 | `cnpg-system`       | CloudNativePG operator                               |
 | `vhhealth-security` | Sealed-secrets controller and security tooling       |
 | `argocd`            | ArgoCD control plane                                 |
-| `harbor`            | In-cluster container registry (pull-through to ghcr) |
+| `harbor`            | Historical registry namespace; Harbor installation held |
 | `vhhealth-monitoring` | Prometheus + Alertmanager + Grafana + Loki         |
 
 ---
@@ -259,10 +281,11 @@ named by the repository's pre-existing controller configuration.
    guard, CIDRs, interface, prefix, peer ledger, collision state, and distinct
    VRID.
 
-Manage CNPG, the Barman plugin, cert-manager, and the MinIO Operator through the
-held manual-sync lifecycle in [`OPERATOR_LIFECYCLE.md`](OPERATOR_LIFECYCLE.md)
-and the qualified sequence in §4.3. `site.yml` does not install or activate
-those controllers implicitly.
+Manage CNPG, the Barman plugin, and cert-manager through the held manual-sync
+lifecycle in [`OPERATOR_LIFECYCLE.md`](OPERATOR_LIFECYCLE.md) and the qualified
+sequence in §4.3. The historical MinIO Operator path is excluded by the local
+object-storage hold above. `site.yml` does not install or activate these
+controllers implicitly.
 
 Total runtime: **20–40 minutes** on fast hardware.
 
@@ -297,8 +320,9 @@ Ansible role for missing config.
 
 ## 4. Install platform services via Kustomize + ArgoCD
 
-The platform baseline (Redis, MinIO, Harbor, ArgoCD itself,
-monitoring) is committed under `infra/kubernetes/`. Two-step bootstrap:
+The active platform composition retains Redis, ArgoCD, monitoring, and the
+separately gated database/backup substrate under `infra/kubernetes/`.
+Historical MinIO and Harbor definitions are held, not bootstrap steps:
 
 Redis is deliberately not self-activating: its committed first-cluster gate is
 closed, and existing state requires two agreeing authenticated Sentinels on
@@ -339,9 +363,11 @@ require separate rendered image verification before activation.
 
 Install the sealed-secrets controller and ArgoCD itself through their pinned
 bootstrap instructions in `infra/kubernetes/base/sealed-secrets/README.md` and
-`infra/kubernetes/base/argocd/README.md`. The cert-manager, CNPG, Barman, and
-MinIO operator Applications remain held outside active composition; follow
+`infra/kubernetes/base/argocd/README.md`. The cert-manager, CNPG, and Barman
+operator Applications remain held outside active composition; follow
 [`OPERATOR_LIFECYCLE.md`](OPERATOR_LIFECYCLE.md) and §4.3.
+The historical MinIO operator Application is not an activation candidate in
+this sequence; the new-storage path is the separate Rook/Ceph design gate.
 
 The Sealed Secrets helper applies a bootstrap-only Kustomization containing
 the `vhhealth-security` Namespace, the SealedSecret CRD, and the exact
@@ -505,25 +531,27 @@ Backup custom resources or their R2 objects as part of schedule retirement.
    healthy. Run `node scripts/operator-lifecycle-preflight.mjs`; it must verify
    the immutable Application, chart and image pins, controller, and Established
    `objectstores.barmancloud.cnpg.io` CRD.
-3. Seal the bucket-scoped producer, separate bucket-scoped read-only
-   verifier/DR reader, and archive-crypto Secrets from the committed examples.
-   The configured destination prefix is workload routing, not token scope. In
-   particular, seal `cnpg-backup-producer-credentials`,
-   `cnpg-dr-reader-credentials`, `minio-backup-source-reader`,
-   `offsite-backup-producer`, `offsite-backup-reader`, and `backup-crypto` in
-   every namespace declared by those examples. Never put a producer identity
-   in a verifier or restore workload. `backup-crypto` must contain independently
-   generated high-entropy `BACKUP_ENCRYPTION_KEY` and `BACKUP_HMAC_KEY` values;
-   confirm they differ. Encryption provides confidentiality, while the separate
-   HMAC key authenticates archive metadata, identity, and ciphertext.
+3. Seal the bucket-scoped CNPG producer and separate read-only DR reader from
+   their committed examples: `cnpg-backup-producer-credentials` and
+   `cnpg-dr-reader-credentials`. The destination prefix is workload routing,
+   not token scope. The retained encrypted-R2 archive verifier needs its
+   independent `offsite-backup-reader` and `backup-crypto` material only to
+   verify or recover an existing archive; preserve any approved prior key
+   generation while its archives remain required. The two crypto values must
+   be independent and unequal. Do **not** seal a new
+   `minio-backup-source-reader` or `offsite-backup-producer` as a way to start
+   held local archive production. Never give a producer identity to a verifier
+   or restore workload. A future source must receive its own reviewed
+   credentials, archive-format and restore qualification.
 4. Render both production trees locally and confirm that `R2_ENDPOINT` is
    exactly
    `https://dbe488236c64499a3dfc797a750c912d.r2.cloudflarestorage.com`
    in `vhhealth-env`, `vhhealth-backend-config`, the production Barman
    `ObjectStore`, `cnpg-backup-verify`, the suspended
-   `cnpg-scheduled-restore-proof`, and both backend backup jobs. Native
-   Kustomize replacements are the contract; ArgoCD has no `envsubst`, SOPS, or
-   config-management-plugin pass.
+   `cnpg-scheduled-restore-proof`, and the retained backend archive verifier.
+   The local-source producer is suspended; rendering its R2 endpoint does not
+   authorize an unsuspend. Native Kustomize replacements are the contract;
+   ArgoCD has no `envsubst`, SOPS, or config-management-plugin pass.
 
 Skipping the operator ladder can leave the existing `Cluster` rejected or
 unreconciled. The lifecycle preflight fails closed before platform sync when an
@@ -581,7 +609,7 @@ those keys live together in `Secret/vhhealth-backend-env`.
 find infra/kubernetes -name '*.sealed-secret.yaml.example'
 # Relevant output:
 # infra/kubernetes/apps/backend/sealed-secret.yaml.example
-# infra/kubernetes/apps/backend/minio-backup-source-reader.sealed-secret.yaml.example
+# infra/kubernetes/apps/backend/minio-backup-source-reader.sealed-secret.yaml.example (held source producer)
 # infra/kubernetes/apps/backend/offsite-backup-producer.sealed-secret.yaml.example
 # infra/kubernetes/apps/backend/offsite-backup-reader.sealed-secret.yaml.example
 # infra/kubernetes/apps/backend/backup-crypto.sealed-secret.yaml.example
@@ -653,15 +681,15 @@ Minimum required before backend will start:
   ObjectStore prefix is workload routing rather than credential scope)
 - `cnpg-dr-reader-credentials` (separate R2 Object Read-only identity in the
   platform and restore-proof namespaces)
-- `minio-backup-source-reader`, `offsite-backup-producer`,
-  `offsite-backup-reader`, and `backup-crypto` (disjoint backend archive
-  identities; no backup pod imports the broad backend Secret).
-  `backup-crypto` contains independently generated, unequal
-  `BACKUP_ENCRYPTION_KEY` and `BACKUP_HMAC_KEY` values. Rotate them as a
-  reviewed generation used by both producer and verifier, retain the prior pair
-  in the approved secret manager while its archives remain required, and do not
-  retire that pair until a new archive is produced, HMAC-verified, decrypted,
-  and restore-tested.
+- `offsite-backup-reader` and `backup-crypto` remain the separate verification
+  and recovery identity for any existing encrypted R2 archive. No backup pod
+  imports the broad backend Secret. `backup-crypto` contains independently
+  generated, unequal `BACKUP_ENCRYPTION_KEY` and `BACKUP_HMAC_KEY` values.
+  Preserve each approved generation while its archives remain required; a
+  future rotation requires HMAC verification, decryption, and disposable
+  restore proof before retiring it. `minio-backup-source-reader` and
+  `offsite-backup-producer` belong to the **suspended** local-source producer,
+  not the current application bootstrap.
 
 Required before per-tenant field encryption works (the backend boots without
 it and warns):

@@ -23,6 +23,14 @@
 import logger from '../../logging/logger.js';
 import { maskPhoneForLog } from '../logMasking.js';
 import { notificationOutbox } from './notificationOutbox.js';
+import {
+  appointmentConfirmationPresentation,
+  appointmentReminderPresentation,
+  appointmentReschedulePresentation,
+  renderAppointmentConfirmationSms as renderAppointmentConfirmationSmsCopy,
+  renderAppointmentReminderSms as renderAppointmentReminderSmsCopy,
+  renderAppointmentRescheduleSms as renderAppointmentRescheduleSmsCopy,
+} from './templates.js';
 
 /**
  * Queue one patient-facing SMS intent on the notification outbox.
@@ -114,24 +122,19 @@ export async function queuePatientSms({
  * moved behind the outbox.
  */
 export function renderAppointmentConfirmationSms({
-  patientName, doctorName, date, time, tokenNumber, department,
+  patientName, doctorName, date, time, tokenNumber, department, language,
 }) {
-  const formattedDate = new Date(date).toLocaleDateString('en-IN', {
-    day: 'numeric', month: 'long', year: 'numeric',
-  });
-  const deptPart = department ? ` (${department})` : '';
   const hospitalPhone = process.env.HOSPITAL_PHONE || '044-XXXXXXXX';
-  return (
-    `Dear ${patientName}, your appointment at Venkataeswara Hospitals is confirmed.\n`
-    + `Date: ${formattedDate}\nTime: ${time}\nDoctor: Dr. ${doctorName}${deptPart}\n`
-    + `Token: #${tokenNumber}\n\nPlease arrive 15 min early. For queries call: ${hospitalPhone}`
-  );
+  return renderAppointmentConfirmationSmsCopy({
+    patientName, doctorName, date, time, tokenNumber, department, hospitalPhone, language,
+  });
 }
 
 /** Queue the appointment-confirmation SMS intent. */
 export async function queueAppointmentConfirmationSms({
   tenantId = null, recipientId = null, phone, patientName, doctorName,
   date, time, tokenNumber, department = null, appointmentId = null,
+  language = null,
 }) {
   if (!phone) {
     logger.warn('[SMS outbox] appointment-confirmation: no phone on file — no SMS intent recorded');
@@ -141,7 +144,7 @@ export async function queueAppointmentConfirmationSms({
     tenantId,
     recipientId,
     recipientPhone: phone,
-    title: 'Appointment confirmed',
+    title: appointmentConfirmationPresentation(language).smsTitle,
     body: renderAppointmentConfirmationSms({
       patientName: patientName || 'Patient',
       doctorName: doctorName || 'Doctor',
@@ -149,6 +152,7 @@ export async function queueAppointmentConfirmationSms({
       time,
       tokenNumber,
       department,
+      language,
     }),
     data: {
       type: 'appointment_confirmed',
@@ -175,32 +179,20 @@ export async function queueAppointmentConfirmationSms({
  * promise a token the way the confirmation copy does.
  */
 export function renderAppointmentRescheduleSms({
-  patientName, doctorName, date, time, previousDate, previousTime, department,
+  patientName, doctorName, date, time, previousDate, previousTime, department, language,
 }) {
-  const formatDate = (value) => {
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime())
-      ? String(value ?? '')
-      : parsed.toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
-  };
-  const deptPart = department ? ` (${department})` : '';
   const hospitalPhone = process.env.HOSPITAL_PHONE || '044-XXXXXXXX';
-  const previousPart = previousDate || previousTime
-    ? `Previously: ${formatDate(previousDate)}${previousTime ? ` at ${previousTime}` : ''}\n`
-    : '';
-  return (
-    `Dear ${patientName}, your appointment at Venkataeswara Hospitals has been RESCHEDULED.\n`
-    + `New date: ${formatDate(date)}\nNew time: ${time}\nDoctor: Dr. ${doctorName}${deptPart}\n`
-    + previousPart
-    + `\nPlease do not attend at the earlier time. For queries call: ${hospitalPhone}`
-  );
+  return renderAppointmentRescheduleSmsCopy({
+    patientName, doctorName, date, time, previousDate, previousTime,
+    department, hospitalPhone, language,
+  });
 }
 
 /** Queue the appointment-reschedule SMS intent. */
 export async function queueAppointmentRescheduleSms({
   tenantId = null, recipientId = null, phone, patientName, doctorName,
   date, time, previousDate = null, previousTime = null, department = null,
-  appointmentId = null,
+  appointmentId = null, language = null,
 }) {
   if (!phone) {
     logger.warn('[SMS outbox] appointment-reschedule: no phone on file — no SMS intent recorded');
@@ -210,7 +202,7 @@ export async function queueAppointmentRescheduleSms({
     tenantId,
     recipientId,
     recipientPhone: phone,
-    title: 'Appointment rescheduled',
+    title: appointmentReschedulePresentation(language).smsTitle,
     body: renderAppointmentRescheduleSms({
       patientName: patientName || 'Patient',
       doctorName: doctorName || 'Doctor',
@@ -219,6 +211,7 @@ export async function queueAppointmentRescheduleSms({
       previousDate,
       previousTime,
       department,
+      language,
     }),
     data: {
       type: 'appointment_rescheduled',
@@ -237,19 +230,17 @@ export async function queueAppointmentRescheduleSms({
  * `smsService.sendAppointmentReminderSMS` used to compose.
  */
 export function renderAppointmentReminderSms({
-  patientName, doctorName, time, hoursAhead, tokenNumber,
+  patientName, doctorName, time, hoursAhead, tokenNumber, language,
 }) {
-  const hoursLabel = hoursAhead > 1 ? `${hoursAhead} hours` : '1 hour';
-  return (
-    `Reminder: Dear ${patientName}, you have an appointment at Venkataeswara Hospitals in ${hoursLabel}.\n`
-    + `Time: ${time} | Dr. ${doctorName} | Token #${tokenNumber}`
-  );
+  return renderAppointmentReminderSmsCopy({
+    patientName, doctorName, time, hoursAhead, tokenNumber, language,
+  });
 }
 
 /** Queue the appointment-reminder SMS intent. */
 export async function queueAppointmentReminderSms({
   tenantId = null, recipientId = null, phone, patientName, doctorName,
-  time, hoursAhead, tokenNumber, appointmentId = null,
+  time, hoursAhead, tokenNumber, appointmentId = null, language = null,
 }) {
   if (!phone) {
     logger.warn('[SMS outbox] appointment-reminder: no phone on file — no SMS intent recorded');
@@ -259,13 +250,14 @@ export async function queueAppointmentReminderSms({
     tenantId,
     recipientId,
     recipientPhone: phone,
-    title: 'Appointment reminder',
+    title: appointmentReminderPresentation(language).smsTitle,
     body: renderAppointmentReminderSms({
       patientName: patientName || 'Patient',
       doctorName: doctorName || 'Doctor',
       time,
       hoursAhead,
       tokenNumber,
+      language,
     }),
     data: {
       type: `appointment_reminder_${hoursAhead}h`,

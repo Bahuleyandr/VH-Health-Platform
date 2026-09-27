@@ -3,6 +3,7 @@ import { getCurrentTenantId, runInTenantContext } from '../../lib/tenantContext.
 import logger from '../../logging/logger.js';
 import { queueAppointmentReminderSms } from './smsOutbox.js';
 import { notificationOutbox } from './notificationOutbox.js';
+import { renderAppointmentReminderPush } from './templates.js';
 import {
   outboxDrainWillWriteFeedRow,
   recordPatientFeedNotification,
@@ -117,7 +118,9 @@ async function loadDueAppointmentsWithClient(tx, {
        SELECT appointment.id, appointment.tenant_id, appointment.appointment_date,
               appointment.appointment_time, appointment.token_number,
               patient.id AS patient_user_id, patient.name AS patient_name,
-              patient.phone AS patient_phone, doctor.id AS doctor_user_id,
+              patient.phone AS patient_phone,
+              patient.preferred_language AS patient_language,
+              doctor.id AS doctor_user_id,
               doctor.uid AS doctor_uid, doctor.name AS doctor_name,
               doctor_profile.department, tenant_clock.timezone AS tenant_timezone,
               (
@@ -142,7 +145,8 @@ async function loadDueAppointmentsWithClient(tx, {
           AND appointment.appointment_time ~ '^(0?[0-9]|1[0-9]|2[0-3]):[0-5][0-9]$'
      )
      SELECT id, tenant_id, appointment_time, token_number, patient_user_id,
-            patient_name, patient_phone, doctor_user_id, doctor_uid, doctor_name,
+            patient_name, patient_phone, patient_language,
+            doctor_user_id, doctor_uid, doctor_name,
             department, tenant_timezone
        FROM candidates
       WHERE appointment_at >= $3::timestamptz
@@ -164,21 +168,14 @@ async function loadDueAppointments({ tenantId, from, until, reminderKind }) {
   }), { readOnly: true });
 }
 
-function reminderCopy(appointment, hoursAhead) {
-  if (hoursAhead === 24) {
-    return {
-      title: 'Appointment Tomorrow 📅',
-      body: `Reminder: Your appointment is tomorrow at ${appointment.appointment_time} with Dr. ${appointment.doctor_name}. Token #${appointment.token_number}`,
-    };
-  }
-  return {
-    title: 'Appointment in 1 Hour ⏰',
-    body: `Your appointment at ${appointment.appointment_time} with Dr. ${appointment.doctor_name} is in ~1 hour. Token #${appointment.token_number}`,
-  };
-}
-
 async function queueAppointmentReminderPush(appointment, hoursAhead) {
-  const copy = reminderCopy(appointment, hoursAhead);
+  const copy = renderAppointmentReminderPush({
+    time: appointment.appointment_time,
+    doctorName: appointment.doctor_name,
+    tokenNumber: appointment.token_number,
+    hoursAhead,
+    language: appointment.patient_language,
+  });
   const type = `appointment_reminder_${hoursAhead}h`;
   const data = {
     type,
@@ -241,6 +238,7 @@ async function queuePatientReminder(appointment, hoursAhead) {
       hoursAhead,
       tokenNumber: appointment.token_number,
       appointmentId: appointment.id,
+      language: appointment.patient_language,
     }),
     queueAppointmentReminderPush(appointment, hoursAhead),
   ]);
