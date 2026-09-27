@@ -31,6 +31,7 @@ jest.unstable_mockModule('../../services/ai/workflowGraphRunner.js', () => ({
 
 const mockPrismaQueryRaw = jest.fn();
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  setTenantTx: jest.fn(() => { throw new Error('Unexpected tenant provisioning transaction'); }),
   default: { $queryRawUnsafe: mockPrismaQueryRaw },
 }));
 

@@ -21,7 +21,10 @@ const __prismaDefaultMock = {
   $executeRawUnsafe: executeUnsafeMock,
   downtime_snapshots: { create: snapshotCreateMock },
 };
-jest.unstable_mockModule('../../lib/prisma.js', () => ({ default: __prismaDefaultMock }));
+jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  setTenantTx: jest.fn(() => { throw new Error('Unexpected tenant provisioning transaction'); }),
+  default: __prismaDefaultMock,
+}));
 jest.unstable_mockModule('../../logging/logger.js', () => ({
   default: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }));

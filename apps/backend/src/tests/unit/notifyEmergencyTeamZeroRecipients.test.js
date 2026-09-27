@@ -27,6 +27,7 @@ const sendSecurityWebhookMock = jest.fn();
 const sendStaffNotificationsMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  setTenantTx: jest.fn(() => { throw new Error('Unexpected tenant provisioning transaction'); }),
   default: {
     $queryRawUnsafe: queryRawUnsafeMock,
     $executeRawUnsafe: jest.fn(),

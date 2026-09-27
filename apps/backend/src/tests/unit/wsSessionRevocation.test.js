@@ -181,6 +181,7 @@ jest.unstable_mockModule('../../utils/tokenBlacklist.js', () => ({
   withAuthRevocationLocks: withAuthRevocationLocksMock,
 }));
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  setTenantTx: jest.fn(() => { throw new Error('Unexpected tenant provisioning transaction'); }),
   default: {
     $executeRawUnsafe: executeRawUnsafeMock,
     $queryRawUnsafe: queryRawUnsafeMock,
