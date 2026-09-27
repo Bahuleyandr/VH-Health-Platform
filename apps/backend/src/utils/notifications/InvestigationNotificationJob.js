@@ -5,7 +5,7 @@ import logger from '../../logging/logger.js';
 import { maskPhoneForLog } from '../../utils/logMasking.js';
 import { queuePatientSms } from './smsOutbox.js';
 import { sendPushNotification } from './sendPushNotification.js';
-import { NotificationTemplates } from './templates.js';
+import { NotificationTemplates, investigationReadyPresentation } from './templates.js';
 
 export async function sendInvestigationNotifications() {
   logger.info('🔬 Sending investigation report notifications...');
@@ -14,7 +14,7 @@ export async function sendInvestigationNotifications() {
     // Query completed investigations not yet notified, join users by patient_id for device_token
     const result = await prisma.$queryRawUnsafe(
       `SELECT i.id, i.test_name, i.patient_id,
-              u.name, u.phone, u.device_token, u.id as user_id,
+              u.name, u.phone, u.device_token, u.preferred_language, u.id as user_id,
               i.tenant_id::text AS tenant_id
        FROM investigations i
        JOIN users u ON i.patient_id = u.id AND i.tenant_id = u.tenant_id
@@ -25,9 +25,11 @@ export async function sendInvestigationNotifications() {
     );
 
     for (const row of result) {
+      const presentation = investigationReadyPresentation(row.preferred_language);
       const message = NotificationTemplates.investigationReady({
         name: row.name || 'Patient',
-        testName: row.test_name
+        testName: row.test_name,
+        language: row.preferred_language,
       });
 
       try {
@@ -36,7 +38,7 @@ export async function sendInvestigationNotifications() {
           try {
             await sendPushNotification({
               tokens: row.device_token,
-              title: 'Investigation Report Ready',
+              title: presentation.pushTitle,
               body: message,
               data: { type: 'investigation_result', investigation_id: String(row.id) },
               userId: row.user_id ? String(row.user_id) : null
@@ -56,7 +58,7 @@ export async function sendInvestigationNotifications() {
               tenantId: row.tenant_id || null,
               recipientId: row.user_id || null,
               recipientPhone: row.phone,
-              title: 'Investigation report ready',
+              title: presentation.smsTitle,
               body: message,
               data: {
                 type: 'investigation_result',
@@ -83,7 +85,7 @@ export async function sendInvestigationNotifications() {
              VALUES ($1::uuid, $2, $3, $4, $5, $6, NOW(), NOW(), false)`,
             row.tenant_id,
             row.phone || 'unknown',
-            'Investigation Report Ready',
+            presentation.pushTitle,
             message,
             // Must match the push payload's data.type AND a case in the
             // patient inbox's tap handler. The row was previously typed

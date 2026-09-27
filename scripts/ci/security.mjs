@@ -277,6 +277,7 @@ export async function runSecurityStage() {
   run(process.execPath, ['scripts/scan-secrets.mjs']);
   run(process.execPath, ['scripts/gitleaks-scan.mjs', 'worktree'], { env: gitleaksEnv });
   run(process.execPath, ['scripts/gitleaks-scan.mjs', 'range'], { env: gitleaksEnv });
+  run(process.execPath, ['--test', 'scripts/security/docker-install-stage-guard.test.mjs']);
   run(process.execPath, ['scripts/security/check-infra-security-controls.mjs']);
 
   // WS3 B3.4 (2026-06-13): SAST scan with focused VH Health ruleset.

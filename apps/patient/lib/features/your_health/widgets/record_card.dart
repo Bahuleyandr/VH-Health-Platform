@@ -1,7 +1,6 @@
 // Shared record card widget and helpers used by Hospital Documents and My Uploads tabs
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
-import 'package:vhhealth/core/utils/safe_url_launcher.dart';
+import 'package:vhhealth/core/utils/document_opener.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
 import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 
@@ -55,15 +54,7 @@ Future<void> openDocument(
     );
     return;
   }
-  final launched = await SafeUrlLauncher.launch(
-    url,
-    mode: LaunchMode.externalApplication,
-  );
-  if (!launched && context.mounted) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(LiveRegionSnackBar.build(message: l.documentCouldNotOpen));
-  }
+  await DocumentOpener.openFromUrl(context, url);
 }
 
 class RecordCard extends StatelessWidget {

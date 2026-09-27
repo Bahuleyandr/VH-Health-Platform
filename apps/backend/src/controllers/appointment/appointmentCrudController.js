@@ -9,6 +9,7 @@ import { checkAppointmentPermission } from '../../utils/appointment/appointmentH
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { logAudit } from '../../utils/logAudit.js';
 import { recordPatientFeedNotification } from '../../utils/notifications/patientNotificationFeed.js';
+import { renderAppointmentReschedulePush } from '../../utils/notifications/templates.js';
 import { isValidPhone, normalizePhone } from '../../utils/phoneUtils.js';
 import { success, error, relayAppError } from '../../utils/responseHelper.js';
 import { emitAppointmentEvent } from '../../utils/websocket/realtimeEmitter.js';
@@ -498,20 +499,6 @@ function notifyPatientOfReschedule({
   if (!patientId && !patientUid) return;
   setImmediate(async () => {
     try {
-      const formatDate = (value) => {
-        const parsed = new Date(value);
-        return Number.isNaN(parsed.getTime())
-          ? String(value ?? '')
-          : parsed.toLocaleDateString('en-IN');
-      };
-      const title = 'Appointment Rescheduled';
-      const body =
-        `Your appointment has been moved to ${formatDate(newDate)} at ${newTime}`
-        + `${doctorName ? ` with Dr. ${doctorName}` : ''}.`
-        + `${previousDate || previousTime
-          ? ` It was previously ${formatDate(previousDate)}${previousTime ? ` at ${previousTime}` : ''}.`
-          : ''}`
-        + ' Please do not attend at the earlier time.';
       // Every value a string, and absent rather than null: this object is
       // also the FCM `data` map, where non-string values are rejected.
       const data = {
@@ -523,7 +510,7 @@ function notifyPatientOfReschedule({
 
       const identifier = patientId ?? patientUid;
       const rows = await prisma.$queryRawUnsafe(
-        `SELECT id, uid::text AS uid, phone, device_token
+        `SELECT id, uid::text AS uid, phone, device_token, preferred_language
            FROM users
           WHERE tenant_id = $1::uuid
             AND (id::text = $2 OR uid::text = $2)
@@ -533,6 +520,14 @@ function notifyPatientOfReschedule({
       );
       const patient = rows[0] || null;
       const phone = patient?.phone || fallbackPhone || null;
+      const { title, body } = renderAppointmentReschedulePush({
+        newDate,
+        newTime,
+        doctorName,
+        previousDate,
+        previousTime,
+        language: patient?.preferred_language,
+      });
 
       // 1. In-app row — the durable, readable copy. First, and unconditional:
       //    it is the only surface a patient with no registered device sees.
@@ -580,6 +575,7 @@ function notifyPatientOfReschedule({
           previousTime,
           department,
           appointmentId,
+          language: patient?.preferred_language,
         });
       }
     } catch (e) {

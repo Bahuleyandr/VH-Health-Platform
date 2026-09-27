@@ -152,7 +152,10 @@ beforeEach(() => {
   queryRawUnsafeMock.mockImplementation(async (sql) => (
     /INSERT\s+INTO\s+notifications/i.test(String(sql))
       ? [{ id: 501 }]
-      : [{ id: 41, uid: PATIENT_UID, phone: '+919876500041', device_token: 'fcm-token' }]
+      : [{
+        id: 41, uid: PATIENT_UID, phone: '+919876500041',
+        device_token: 'fcm-token', preferred_language: 'ml',
+      }]
   ));
 });
 
@@ -214,7 +217,12 @@ describe('staff-initiated reschedule notifies the patient durably', () => {
       previousDate: '2026-08-14',
       previousTime: '10:00',
       appointmentId: 77,
+      language: 'ml',
     }));
+    const patientLookup = queryRawUnsafeMock.mock.calls.find(
+      ([sql]) => String(sql).includes('FROM users'),
+    );
+    expect(String(patientLookup?.[0])).toContain('preferred_language');
   });
 
   it('still emits the realtime event for an app that happens to be open', async () => {

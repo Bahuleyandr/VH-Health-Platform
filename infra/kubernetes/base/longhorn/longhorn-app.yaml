@@ -60,12 +60,10 @@ spec:
           # Qualify observed disks, headroom, and over-provisioning against
           # docs/C1_2_STORAGE_PLACEMENT_GATE.md before placing any workload.
           storageOverProvisioningPercentage: 150
-          # Backups to MinIO bucket `longhorn-backups` via S3-compatible API.
-          # The secret `longhorn-s3-secret` (in longhorn-system) must be
-          # created by the operator before the first volume backup.
-          # Format: s3://longhorn-backups@apsouth1/
-          backupTarget: "s3://longhorn-backups@apsouth1/"
-          backupTargetCredentialSecret: longhorn-s3-secret
+          # Local object storage is held; backup activation needs a separately
+          # qualified target, credentials and restore proof before any workload.
+          backupTarget: ""
+          backupTargetCredentialSecret: ""
           # Allow node drain even when replicas are on that node — Longhorn
           # evicts replicas gracefully.
           nodeDrainPolicy: always-allow
@@ -133,20 +131,13 @@ spec:
 # [ ] On each node: `modprobe iscsi_tcp && apt-get install -y open-iscsi`
 #     Ansible playbook: infra/ansible/playbooks/longhorn-prereqs.yml (created)
 # [ ] Verify: `lsmod | grep iscsi_tcp` shows the module on all 3 nodes.
-# [ ] Create the longhorn-s3-secret in longhorn-system:
-#       kubectl create secret generic longhorn-s3-secret \
-#         -n longhorn-system \
-#         --from-literal=AWS_ACCESS_KEY_ID=<minio-access-key> \
-#         --from-literal=AWS_SECRET_ACCESS_KEY=<minio-secret-key> \
-#         --from-literal=AWS_ENDPOINTS=https://minio-api.vhhealth-platform.svc.cluster.local \
-#         --from-literal=AWS_CERT=<base64-ca-cert>
+# [ ] Qualify a separate backup target, credential ownership and restore proof.
+#     Local MinIO is held under infra/kubernetes/held/local-object-storage/.
+#     Empty backup settings mean backups are unavailable, not healthy.
 # [ ] Create the longhorn-basic-auth secret for UI:
 #       htpasswd -nb opsadmin <password> | kubectl create secret generic \
 #         longhorn-basic-auth -n longhorn-system \
 #         --from-file=auth=/dev/stdin
-# [ ] Create the longhorn-backups MinIO bucket (no objectLock — Longhorn uses
-#     its own snapshot model; objectLock conflicts with backup cleanup):
-#       mc mb local/longhorn-backups
 # [ ] Complete docs/C1_2_STORAGE_PLACEMENT_GATE.md before selecting any
 #     workload placement. This Application and all placement changes stay
 #     manual and independently operator-gated.
