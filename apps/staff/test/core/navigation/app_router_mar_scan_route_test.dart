@@ -5,6 +5,8 @@ import 'package:vhhealth_staff/core/navigation/app_router.dart';
 import 'package:vhhealth_staff/features/nursing/screens/mar_scan_screen.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   final route = appRouter.configuration.routes
       .whereType<ShellRoute>()
       .expand((shell) => shell.routes)
