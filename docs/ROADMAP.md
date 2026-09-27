@@ -177,6 +177,15 @@ merge gates, all three backend shards and all six `full_*` jobs; that result
 and its local evidence are not closure evidence on current main. Do not duplicate that owned scope
 or move its audit items to implemented before a reviewed merge receipt.
 
+The September 28 owner-authorized local expansion adds the verified Admin
+incident-dialog, Staff MAR navigation and audit-documentation lanes. Tenant
+provisioning atomicity, presentation-inventory reconciliation and vitals fixture
+cleanup are additional candidates undergoing verification. The canonical
+ledger's September 28 receipt records the reproduced failures and preserves
+their evidence limitations. The published #1102 head and its hosted checks do
+not verify this expanded tree. Migration 803, product/clinical decisions and
+external-authority holds are not silently incorporated or cleared.
+
 ### External and activation stops `[OPERATOR]` `[EXTERNAL]`
 
 - Care-team enforcement stays `shadow` until current tenant memberships and

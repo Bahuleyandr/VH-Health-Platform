@@ -137,6 +137,49 @@ three backend shards and six `full_*` jobs all succeeded. That result and the
 local verification packet do not close any finding in this ledger before a
 reviewed merge. External authority stops below remain unchanged.
 
+### 2026-09-28 local expansion of draft #1102
+
+The owner requested consolidation of further technical remediation into #1102.
+The local integration includes the independently verified Admin incident-dialog,
+Staff MAR navigation and audit-documentation lanes. The published head above
+has not changed; its green checks do not verify this expanded local tree.
+
+Three additional repairs are being verified before inclusion:
+
+- **Tenant provisioning atomicity.** The isolated PostgreSQL diagnostic on
+  `2255437de` ran 12 cases: three passed and nine failed. Its actual runtime-role,
+  policy and nonempty-source control passed. Ordinary tenant context failed
+  entitlement insertion with 42501 after committing the tenant; injected late
+  failures also preserved earlier writes. The repair at `cd664440d` uses one
+  existing transaction-scoped cross-tenant operation for the tenant, existing
+  entitlement and three existing configuration copies. No new inherited
+  configuration, commercial grant or caller permission is authorized.
+- **Backend presentation inventory.** The source-only diagnostic on
+  `770b1148e` ran 105 cases: 104 passed and the exact-accounting case failed.
+  Discovery found 806 candidates against 768 registered pending entries.
+  Reconciliation must account for each replacement, new candidate and moved
+  evidence pointer, preserving every applicable human-review hold. This does
+  not establish complete localization or approve wording.
+- **Vitals fixture cleanup.** Earlier native logs showed foreign-key failures
+  during cleanup despite passing test counts. The source-reviewed test-only
+  repair at `21f23720a` removes only owned critical-vital fixture children in a
+  transaction and tests that unrelated children still block deletion. Fresh
+  repeated PostgreSQL execution remains required; no clinical workflow or
+  production policy is changed.
+
+Both diagnostics above remain failed receipts, not green CI. Tenant cleanup's
+initial strict port-release check failed before a later inspection proved
+release; presentation report classification rejected a standard anonymous
+Promise stack frame. These harness limitations do not erase the captured
+application failures, nor do later observations retroactively qualify either
+receipt. The repaired candidates and the final combined head require fresh
+applicable verification before publication and independent merge review.
+
+Migration 803, booking-alert ownership/recovery decisions, maternity D2/D8,
+clinical configuration inheritance, linguistic sign-off, storage qualification
+and external release/activation ceremonies remain separate stop lines. None is
+closed or implicitly approved by this consolidation request.
+
 ### 2026-09-26 bounded merged-scope receipt — cath design and maternity refresh
 
 GitHub was queried directly for both PRs against main
