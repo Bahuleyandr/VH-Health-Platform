@@ -144,8 +144,7 @@ The local integration includes the independently verified Admin incident-dialog,
 Staff MAR navigation and audit-documentation lanes. The published head above
 has not changed; its green checks do not verify this expanded local tree.
 
-Two additional repairs now have independently reviewed focused verification;
-vitals cleanup qualification remains pending:
+Three additional repairs now have independently reviewed focused verification:
 
 - **Tenant provisioning atomicity.** The isolated PostgreSQL diagnostic on
   `2255437de` ran 12 cases: three passed and nine failed. Its actual runtime-role,
@@ -179,8 +178,13 @@ vitals cleanup qualification remains pending:
   transaction and tests that unrelated children still block deletion. Its first
   isolated PostgreSQL attempt passed all 55 Jest cases and residual checks,
   with owned rows absent and settings restored exactly, but failed report
-  integrity. That attempt is not qualified; a fresh reviewed repeat remains
-  required. No clinical workflow or production policy is changed.
+  integrity. That attempt remains unqualified. A separately reviewed retry
+  subsequently passed all 55 exact cases twice against distinct fresh databases,
+  with zero owned residuals, exact settings restoration and completed cleanup.
+  All native, evidence-integrity, capture and post-run checks passed; the three
+  foreign-child controls still reject deletion with SQLSTATE 23503. Independent
+  review accepted all 70 evidence hashes. No clinical workflow or production
+  policy is changed.
 
 Both diagnostics above remain failed receipts, not green CI. Tenant cleanup's
 initial strict port-release check failed before a later inspection proved
@@ -192,7 +196,8 @@ receipts, not retroactive acceptance of those diagnostics. Their local evidence
 summaries are `tenant-cd664440d-focused-verification.md` and
 `presentation-93fcc751f-focused-verification.md` in the September 28 operator
 artifact directory; the first vitals evidence is retained separately in
-`vitals-21f23720a-attempt1-evidence`. No application tests were rerun for this
+`vitals-21f23720a-attempt1-evidence`, and the later two-pass receipt is
+`vitals-21f23720a-focused-verification.md`. No application tests were rerun for this
 documentation update. The final combined head still requires reviewed
 RLS-census regeneration, a fresh presentation rescan and all applicable CI
 before publication and independent merge review. None of these focused

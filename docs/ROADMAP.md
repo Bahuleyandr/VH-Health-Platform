@@ -183,9 +183,10 @@ provisioning atomicity at `cd664440d` now has independently reviewed focused
 verification of 91 exact cases; presentation-inventory reconciliation at
 `93fcc751f` has 105 passing exact cases and 806 accounted-for entries, all still
 pending human review. These are isolated Linux focused receipts, not full CI
-or implemented-on-main evidence. Vitals fixture cleanup remains unqualified:
-its first attempt passed 55 Jest cases and residual checks but failed report
-integrity, and a reviewed repeat remains required. The canonical ledger's
+or implemented-on-main evidence. Vitals fixture cleanup at `21f23720a` now has
+two independently reviewed fresh-database passes of all 55 exact cases, with
+no owned residuals, settings drift or cleanup failures. Its earlier attempt
+remains unqualified because report integrity failed. The canonical ledger's
 September 28 receipt retains the earlier failed diagnostics and their limits.
 The final combined tree still requires reviewed RLS-census regeneration,
 presentation rediscovery and all applicable CI. The published #1102 head and
