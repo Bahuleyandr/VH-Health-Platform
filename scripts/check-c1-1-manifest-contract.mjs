@@ -1,11 +1,14 @@
 #!/usr/bin/env node
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import process from 'node:process';
 import { delimiter, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { assertNoIngressClassParameters } from './validate-kubernetes-manifests.mjs';
+import { VERIFIED_ROOTS } from './check-prod-digests-pinned.mjs';
+import { parseRenderedManifests } from './lib/rendered-manifest-refs.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -121,7 +124,6 @@ export const ALLOWED_ZERO_DIGEST_IMAGES = new Set([
 
 const expectedRenderedPins = [
   EXPECTED_ACTIVE_PG_IMAGE,
-  'quay.io/minio/minio:RELEASE.2024-11-07T00-52-20Z@sha256:ac591851803a79aee64bc37f66d77c56b0a4b6e12d9e5356380f4105510f2332',
   EXPECTED_CURL_IMAGE,
   EXPECTED_AWS_CLI_IMAGE,
   EXPECTED_ALPINE_OPENSSL_IMAGE,
@@ -155,6 +157,98 @@ const pgImageSourceFiles = [
 const backendProducerName = 'vhhealth-backend-r2-sync';
 const backendVerifierName = 'backup-verification';
 const cnpgVerifierName = 'cnpg-backup-verify';
+
+export const LOCAL_STORAGE_HELD_ROOT = 'infra/kubernetes/held/local-object-storage';
+export const LOCAL_STORAGE_HELD_SOURCE_HASHES = Object.freeze({
+  'minio/kustomization.yaml': 'sha256:20226687148b89cac17c37a4fec65699cc3d21bb257030c02caf99548d2bcc61',
+  'minio/minio-root-credentials.sealed-secret.yaml.example': 'sha256:840e5bb4d42898c72a5a7e0fbb358c967760bed0c608d0dd4c72b64fbe7952ed',
+  'minio/operator.yaml': 'sha256:97a8b8855aeafdf3c893b922fa5c584d0ab6c0a9d8ae78028ab5d38e42440c44',
+  'minio/tenant.yaml': 'sha256:5c5a5bb1c1e312686728d0cfec32ab554f50bed89fe23bf2685f81c67d12692f',
+  'harbor/chart-tracker.yaml': 'sha256:3066841519c8bc0c30e0cbdc6e2e9994beb718f07f351d819b84af5494ce497a',
+  'harbor/harbor-credentials.sealed-secret.yaml.example': 'sha256:8a0d7da7c95e2f72100a06df244a1032d93933a4eb333a98e8fdc5870eb422ff',
+  'harbor/harbor-values.yaml': 'sha256:ea5b0bffd60ffecc11f362e275823b16a67030c3158fe8988c24329873011928',
+  'harbor/kustomization.yaml': 'sha256:75088bf41df6a751634a77671e783186d7b84ad662d92fd33a16efdf460a4909',
+});
+
+export function assertLocalStorageHeldSources(readSource = read) {
+  for (const [path, expected] of Object.entries(LOCAL_STORAGE_HELD_SOURCE_HASHES)) {
+    const source = readSource(`${LOCAL_STORAGE_HELD_ROOT}/${path}`).replace(/\r\n/g, '\n');
+    requireCondition(
+      `sha256:${createHash('sha256').update(source).digest('hex')}` === expected,
+      `${LOCAL_STORAGE_HELD_ROOT}/${path} changed from the retained pre-hold source`,
+    );
+  }
+}
+
+export function assertLocalStorageHold(renderedByRoot) {
+  for (const root of VERIFIED_ROOTS) {
+    const rendered = renderedByRoot.get(root);
+    requireCondition(typeof rendered === 'string' && rendered.trim(), `${root} is missing from local-storage hold proof`);
+    const documents = parseRenderedManifests(rendered);
+    requireCondition(documents.some((document) => document.kind && document.apiVersion && document.metadata?.name), `${root} has no resources for local-storage hold proof`);
+    if (root === PLATFORM_TARGET || root === 'infra/kubernetes/overlays/staging') {
+      requireCondition(
+        documents.filter(({ kind, metadata }) => kind === 'Application' && metadata?.name === 'longhorn').length === 1,
+        `${root} must retain exactly one manual Longhorn Application for backup hold proof`,
+      );
+    }
+    for (const document of documents) {
+      const name = document.metadata?.name || '';
+      const label = `${root}: ${document.kind}/${name}`;
+      requireCondition(
+        !/(?:^|[.-])minio(?:[.-]|$)/i.test(document.apiVersion || '') &&
+          !/(?:^|-)(?:minio|harbor)(?:-|$)/i.test(name) &&
+          !/^(?:minio|harbor)(?:-|$)/i.test(document.metadata?.labels?.['app.kubernetes.io/name'] || ''),
+        `${label} activates HELD local object storage or Harbor`,
+      );
+    }
+    for (const image of extractImageRefs(rendered)) {
+      requireCondition(
+        !/(?:^|\/)(?:minio|goharbor)\//i.test(image.ref),
+        `${root}:${image.line} activates a HELD MinIO/Harbor image through ${image.key}`,
+      );
+    }
+    for (const document of parseRenderedDocuments(rendered, root).filter(({ kind }) => kind === 'Application')) {
+      rejectText(
+        document.raw,
+        /(?:held\/local-object-storage|base\/(?:minio|harbor)|operator\.min\.io|helm\.goharbor\.io)|^\s*(?:-\s*)?chart:\s*["']?(?:minio|harbor)["']?\s*$/m,
+        `${root}: Application/${document.name} activates a HELD storage source`,
+      );
+      if (document.name === 'longhorn') {
+        for (const field of ['backupTarget', 'backupTargetCredentialSecret']) {
+          const values = [...document.raw.matchAll(new RegExp(`^\\s+${field}:\\s*(.*?)\\s*$`, 'gm'))];
+          requireCondition(values.length === 1 && unquote(values[0][1]) === '', `${root} Longhorn ${field} must remain empty while local storage is held`);
+        }
+        const application = documents.find(({ kind, metadata }) => kind === 'Application' && metadata?.name === 'longhorn');
+        requireCondition(
+          !application.spec?.sources &&
+            application.spec?.source?.chart === 'longhorn' &&
+            Object.keys(application.spec?.source?.helm || {}).join(',') === 'values',
+          `${root} Longhorn must keep one inline-values source without backup overrides`,
+        );
+        requireCondition(!application.spec?.syncPolicy?.automated, `${root} Longhorn must remain manual-sync`);
+      }
+    }
+
+    if (root === APPS_TARGET || root === 'infra/kubernetes/overlays/staging/apps') {
+      const jobs = documents.filter(({ kind }) => kind === 'CronJob');
+      const producers = jobs.filter(({ metadata }) => metadata?.name === backendProducerName);
+      requireCondition(producers.length === 1, `${root} must retain exactly one held archive producer`);
+      requireCondition(producers[0].spec?.suspend === true, `${root} must suspend the local-record archive producer`);
+      requireCondition(
+        producers[0].metadata?.annotations?.['vhhealth.app/deploy-state'] === 'held-local-object-storage',
+        `${root} archive producer lacks the explicit local-storage hold`,
+      );
+      const verifiers = jobs.filter(({ metadata }) => metadata?.name === backendVerifierName);
+      requireCondition(verifiers.length === 1, `${root} must retain exactly one independent R2 archive verifier`);
+      requireCondition(verifiers[0].spec?.suspend !== true, `${root} must keep independent R2 archive verification active`);
+    } else {
+      const verifiers = documents.filter(({ kind, metadata }) => kind === 'CronJob' && metadata?.name === cnpgVerifierName);
+      requireCondition(verifiers.length === 1, `${root} must retain exactly one CNPG direct-R2 verifier`);
+      requireCondition(verifiers[0].spec?.suspend !== true, `${root} must keep CNPG direct-R2 verification active`);
+    }
+  }
+}
 
 function fail(message) {
   throw new Error(`[c1.1-contract] ${message}`);
@@ -1636,6 +1730,16 @@ export function runManifestContract({ kustomize } = {}) {
     docsByRoot.set(root, parseRenderedDocuments(run(kustomizeBin, ['build', root]), root));
   }
 
+  const renderedByRoot = new Map([
+    ...[...docsByRoot].map(([root, docs]) => [root, docs.map(({ raw }) => raw).join('\n---\n')]),
+    [APPS_TARGET, appsRender],
+  ]);
+  for (const root of VERIFIED_ROOTS) {
+    if (!renderedByRoot.has(root)) renderedByRoot.set(root, run(kustomizeBin, ['build', root]));
+  }
+  assertLocalStorageHeldSources();
+  assertLocalStorageHold(renderedByRoot);
+
   assertNoIngressClassParameters(platformRender, PLATFORM_TARGET);
   assertNoIngressClassParameters(appsRender, APPS_TARGET);
   const imageRefs = assertLiteralAndImageContract(platformRender, appsRender);
@@ -1655,7 +1759,7 @@ export function runManifestContract({ kustomize } = {}) {
       'CNPG/plugin/images/endpoints/backups/proofs are internally consistent; ' +
       `database image/archive-identity pairs verified per overlay (${environmentSummary}).`,
   );
-  return { platformRender, appsRender, platformDocs, appsDocs, imageRefs, docsByRoot };
+  return { platformRender, appsRender, platformDocs, appsDocs, imageRefs, docsByRoot, renderedByRoot };
 }
 
 const thisFile = fileURLToPath(import.meta.url);

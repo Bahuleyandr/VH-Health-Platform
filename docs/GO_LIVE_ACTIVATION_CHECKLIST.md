@@ -41,6 +41,19 @@ this is app-specific; it's the GitOps + data foundation.
 - [ ] **A3.** Sealed-secrets controller installed; you can `kubeseal` against this cluster's public cert. (date / initials): ______
 - [ ] **A4.** CloudNativePG operator installed; the `vhhealth-pg` Cluster CR is present (PG17, 3 replicas). (date / initials): ______
 - [ ] **A5.** Cloudflare Tunnel → ingress-nginx path provisioned (zero inbound firewall ports). (date / initials): ______
+- [ ] **A6. Local object storage and Harbor are held.** On 2026-09-26 the
+  owner attested that VH Health MinIO and Harbor have never been deployed
+  elsewhere; a bounded inspection of root Dalek Kubernetes metadata found no
+  VH MinIO/Harbor resources (the unrelated `khata-minio` is out of scope).
+  The historical manifests are retained, but excluded from active composition
+  at `infra/kubernetes/held/local-object-storage/`. Do not sync, install,
+  create a local bucket/credential, or start new local-records archive
+  production from those manifests. First-install Rook/Ceph qualification is
+  still **NOT QUALIFIED** and requires the named storage, facilities, network,
+  security, clinical, legal, backup, and operator decisions in
+  [`OBJECT_STORE_ROOK_CEPH_REPLACEMENT_DESIGN.md`](OBJECT_STORE_ROOK_CEPH_REPLACEMENT_DESIGN.md).
+  The absence attestation does not close those gates. Exact future evidence
+  and separate activation authority: ______. (date / initials): ______
 
 ---
 
@@ -93,6 +106,14 @@ Keep every production Application manual-sync. After review of the exact target
 revision, the authorized operator sequences CNPG/platform reconciliation and
 then the `vhhealth-apps` sync. The `vhhealth-apps` PreSync hooks gate the
 Deployment; no auto-sync is resumed.
+
+The A6 hold is independent of these database/app steps: neither a successful
+platform sync nor a green backend starts or qualifies local MinIO, Harbor, a
+Longhorn local backup target, or a Rook/Ceph replacement. The local archive
+source producer stays suspended. Preserve the independent R2 encrypted-archive
+verifier so any existing archive can still be checked; a stale/missing-archive
+result is an unresolved signal, not proof of healthy backups. CloudNativePG's
+direct-to-R2 base-backup/WAL and reader-only restore gates remain separate.
 
 - [ ] **D1.** CNPG Cluster reconciles: `vhhealth_runtime` role created (from B1), `enableSuperuserAccess: false` applied, **and the owner `vhhealth` carries `bypassrls`** (granted via `managed.roles` so the migration can apply through FORCE RLS). ⚠️ `managed.roles` is reconciled on the **CNPG operator's own loop**, NOT as an ArgoCD sync-wave — so on a fresh cluster the `bypassrls` attribute can lag behind the PreSync migration Job. **Manual fallback check before letting D2 proceed:** `kubectl cnpg psql vhhealth-pg -- -c "SELECT rolbypassrls FROM pg_roles WHERE rolname='vhhealth'"` **must return `t`**. If it's `f`, wait for the CNPG operator to reconcile `managed.roles` (check operator logs) — do NOT force the migration through. (date / initials): ______
 - [ ] **D2.** Before the `vhhealth-apps` sync, capture the exact release SHA,
