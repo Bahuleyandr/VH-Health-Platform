@@ -131,8 +131,11 @@ Live exact-head hosted evidence read for this bounded receipt:
 queried separately: **OPEN, draft**, head
 `55a7c0a5f39ba7f1e7b8b50936528885e5385c4f`. Its Ward-indent, booking-access,
 theatre-read and RLS-census repairs are not implemented-on-main evidence.
-The local verification packet and pending hosted run do not close any finding
-in this ledger. External authority stops below remain unchanged.
+Hosted run [36333311625](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/36333311625)
+completed successfully on that exact head: `Merge Gate`, `Full Merge Gate`,
+three backend shards and six `full_*` jobs all succeeded. That result and the
+local verification packet do not close any finding in this ledger before a
+reviewed merge. External authority stops below remain unchanged.
 
 ### 2026-09-26 bounded merged-scope receipt — cath design and maternity refresh
 

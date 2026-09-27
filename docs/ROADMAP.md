@@ -172,8 +172,9 @@ closes the remaining OPEN-19 workflows or grants release authority.
 
 The separately published [draft #1102](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1102)
 at `55a7c0a5f` contains Ward-indent, booking-access, theatre-read and RLS-census
-repairs. It is **not merged**, and its local evidence and pending hosted run
-are not closure evidence on current main. Do not duplicate that owned scope
+repairs. It is **not merged**. Exact-head hosted run `36333311625` passed both
+merge gates, all three backend shards and all six `full_*` jobs; that result
+and its local evidence are not closure evidence on current main. Do not duplicate that owned scope
 or move its audit items to implemented before a reviewed merge receipt.
 
 ### External and activation stops `[OPERATOR]` `[EXTERNAL]`
