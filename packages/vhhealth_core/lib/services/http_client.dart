@@ -217,6 +217,8 @@ class VHHttpClient {
   /// Authenticated GET for binary payloads such as PDFs. Uses the same
   /// headers, retry, and 401 refresh path as [get], but returns the raw
   /// [http.Response] so callers can consume [http.Response.bodyBytes].
+  /// Redirects remain visible to callers before credentials or PHI can reach
+  /// an unreviewed destination.
   static Future<http.Response> getBytes(
     String path, {
     Map<String, String>? queryParameters,
@@ -225,14 +227,19 @@ class VHHttpClient {
     Duration? timeout,
   }) async {
     final uri = _buildUri(path, queryParameters);
+    Future<http.Response> send(Map<String, String> headers) async {
+      final request = http.Request('GET', uri)
+        ..headers.addAll(headers)
+        ..followRedirects = false;
+      return http.Response.fromStream(await _client.send(request));
+    }
+
     final headers = _withAdditionalHeaders(
       await _headers(path: path, auth: auth),
       additionalHeaders,
     );
     final response = await _sendWithRetry(
-      () => _client
-          .get(uri, headers: headers)
-          .timeout(timeout ?? _defaultTimeout),
+      () => send(headers).timeout(timeout ?? _defaultTimeout),
     );
     if (auth && response.statusCode == 401) {
       final parsed = ApiResponse.fromHttp(response);
@@ -245,9 +252,7 @@ class VHHttpClient {
         additionalHeaders,
       );
       final retry = await _sendWithRetry(
-        () => _client
-            .get(uri, headers: retryHeaders)
-            .timeout(timeout ?? _defaultTimeout),
+        () => send(retryHeaders).timeout(timeout ?? _defaultTimeout),
       );
       if (retry.statusCode == 401) {
         _checkUnauthorized(ApiResponse.fromHttp(retry));
