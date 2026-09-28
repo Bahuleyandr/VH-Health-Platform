@@ -1,15 +1,21 @@
 import { jest } from '@jest/globals';
 
 const queryRawMock = jest.fn();
-// createTenant's post-insert provisioning (entitlement seed, TAT threshold
-// copies — once-over trains A/B) runs through $executeRawUnsafe.
 const executeRawMock = jest.fn().mockResolvedValue(1);
+const txQueryRawMock = jest.fn();
+const txExecuteRawMock = jest.fn();
+const transactionClient = {
+  $queryRawUnsafe: txQueryRawMock,
+  $executeRawUnsafe: txExecuteRawMock,
+};
+const setTenantTxMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {
     $queryRawUnsafe: queryRawMock,
     $executeRawUnsafe: executeRawMock,
   },
+  setTenantTx: setTenantTxMock,
 }));
 
 const {
@@ -49,6 +55,9 @@ describe('tenant care-pathway settings mutation boundary', () => {
     queryRawMock.mockReset();
     executeRawMock.mockReset();
     executeRawMock.mockResolvedValue(1);
+    txQueryRawMock.mockReset();
+    txExecuteRawMock.mockReset().mockResolvedValue(1);
+    setTenantTxMock.mockReset().mockImplementation(async (_tenantId, callback) => callback(transactionClient));
   });
 
   it.each(RESERVED_SETTINGS)(
@@ -64,6 +73,10 @@ describe('tenant care-pathway settings mutation boundary', () => {
       });
 
       expect(queryRawMock).not.toHaveBeenCalled();
+      expect(executeRawMock).not.toHaveBeenCalled();
+      expect(setTenantTxMock).not.toHaveBeenCalled();
+      expect(txQueryRawMock).not.toHaveBeenCalled();
+      expect(txExecuteRawMock).not.toHaveBeenCalled();
     },
   );
 
@@ -124,6 +137,10 @@ describe('tenant care-pathway settings mutation boundary', () => {
         code: 'TENANT_SETTINGS_INVALID',
       });
       expect(queryRawMock).not.toHaveBeenCalled();
+      expect(executeRawMock).not.toHaveBeenCalled();
+      expect(setTenantTxMock).not.toHaveBeenCalled();
+      expect(txQueryRawMock).not.toHaveBeenCalled();
+      expect(txExecuteRawMock).not.toHaveBeenCalled();
     },
   );
 
@@ -153,7 +170,7 @@ describe('tenant care-pathway settings mutation boundary', () => {
   });
 
   it('creates every new tenant with an explicit shadow posture', async () => {
-    queryRawMock.mockResolvedValueOnce([{
+    txQueryRawMock.mockResolvedValueOnce([{
       id: TENANT_ID,
       settings: {
         branding: { name: 'Hospital' },
@@ -167,7 +184,13 @@ describe('tenant care-pathway settings mutation boundary', () => {
       settings: { branding: { name: 'Hospital' } },
     });
 
-    const [, , , , , serializedSettings] = queryRawMock.mock.calls[0];
+    expect(setTenantTxMock).toHaveBeenCalledTimes(1);
+    expect(setTenantTxMock).toHaveBeenCalledWith(null, expect.any(Function), { superAdmin: true });
+    expect(queryRawMock).not.toHaveBeenCalled();
+    expect(executeRawMock).not.toHaveBeenCalled();
+    expect(txQueryRawMock).toHaveBeenCalledTimes(1);
+    expect(txExecuteRawMock).toHaveBeenCalledTimes(4);
+    const [, , , , , serializedSettings] = txQueryRawMock.mock.calls[0];
     expect(JSON.parse(serializedSettings)).toEqual({
       branding: { name: 'Hospital' },
       care_team_enforcement_mode: 'shadow',
@@ -188,6 +211,9 @@ describe('tenant care-pathway settings mutation boundary', () => {
     });
 
     expect(queryRawMock).toHaveBeenCalledTimes(1);
+    expect(setTenantTxMock).not.toHaveBeenCalled();
+    expect(txQueryRawMock).not.toHaveBeenCalled();
+    expect(txExecuteRawMock).not.toHaveBeenCalled();
     const [sql, serializedSettings, tenantId] = queryRawMock.mock.calls[0];
     expect(sql).toContain("jsonb_typeof(settings) = 'object'");
     expect(sql).toContain("settings ? 'care_pathways'");

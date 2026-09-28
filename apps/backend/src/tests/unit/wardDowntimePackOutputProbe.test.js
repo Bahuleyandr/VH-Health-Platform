@@ -21,6 +21,7 @@ const queryUnsafeMock = jest.fn();
 const loggerMock = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  setTenantTx: jest.fn(() => { throw new Error('Unexpected tenant provisioning transaction'); }),
   default: { $queryRawUnsafe: queryUnsafeMock },
 }));
 jest.unstable_mockModule('../../logging/logger.js', () => ({ default: loggerMock }));

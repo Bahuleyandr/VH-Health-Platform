@@ -4,6 +4,7 @@
 
 import { generateTestToken } from './testClient.js';
 import prisma from '../lib/prisma.js';
+import { cleanupCriticalVitalFixtures } from './helpers/criticalVitalFixtureCleanup.js';
 import request from 'supertest';
 import app from '../app.js';
 import { istDateString } from '../utils/dateUtils.js';
@@ -27,8 +28,8 @@ function doctorAs(uid = RECORDER_UID, id = 990201) {
 }
 
 async function clearCareTeam(patientUid) {
-  await prisma.$executeRawUnsafe(`DELETE FROM care_team_members WHERE patient_uid = $1::uuid`, patientUid).catch(() => {});
-  await prisma.$executeRawUnsafe(`DELETE FROM care_teams WHERE patient_uid = $1::uuid`, patientUid).catch(() => {});
+  await prisma.$executeRawUnsafe(`DELETE FROM care_team_members WHERE patient_uid = $1::uuid`, patientUid);
+  await prisma.$executeRawUnsafe(`DELETE FROM care_teams WHERE patient_uid = $1::uuid`, patientUid);
 }
 
 async function grantDoctorCareTeam(patientUid, displayName) {
@@ -68,6 +69,31 @@ async function purgeCorrectVitalsAudit(recorderUid) {
   });
 }
 
+async function cleanup() {
+  await cleanupCriticalVitalFixtures(prisma, TENANT_ID, [PATIENT_UID, ANC_UID]);
+  await prisma.$executeRawUnsafe(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, PATIENT_UID);
+  await prisma.$executeRawUnsafe(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, ANC_UID);
+  await prisma.$executeRawUnsafe(`DELETE FROM news2_scores WHERE patient_uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, ANC_UID);
+  await prisma.$executeRawUnsafe(`DELETE FROM intake_output WHERE patient_uid = $1::uuid`, PATIENT_UID);
+  await purgeCorrectVitalsAudit(RECORDER_UID);
+  // clinical_alerts uses the integer patient ID rather than the fixture UUID.
+  const existing = await prisma.$queryRawUnsafe(`SELECT id FROM users WHERE uid = $1::uuid`, PATIENT_UID);
+  if (existing.length) {
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_alerts WHERE patient_id = $1`, existing[0].id);
+  }
+  const existingAnc = await prisma.$queryRawUnsafe(`SELECT id FROM users WHERE uid = $1::uuid`, ANC_UID);
+  if (existingAnc.length) {
+    await prisma.$executeRawUnsafe(`DELETE FROM clinical_alerts WHERE patient_id = $1`, existingAnc[0].id);
+  }
+  await prisma.$executeRawUnsafe(`DELETE FROM appointments WHERE visit_no LIKE 'EMER-VITALS-%'`);
+  await prisma.$executeRawUnsafe(`DELETE FROM appointments WHERE visit_no LIKE 'ANC-VITALS-%'`);
+  await prisma.$executeRawUnsafe(`DELETE FROM emergency_visits WHERE visit_number LIKE 'EMER-VITALS-%'`);
+  await prisma.$executeRawUnsafe(`DELETE FROM maternity_pregnancies WHERE patient_uid = $1::uuid`, ANC_UID);
+  await clearCareTeam(PATIENT_UID);
+  await clearCareTeam(ANC_UID);
+  await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`, PATIENT_UID, RECORDER_UID, ANC_UID);
+}
+
 describe('EMR vitals + anomaly alerts — deep integration', () => {
   const doctor = doctorAs();
   let patientIntId;
@@ -75,28 +101,7 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
   let ancPatientIntId;
 
   beforeAll(async () => {
-    // Cleanup — delete alerts + vitals tied to our fixtures
-    await prisma.$executeRawUnsafe(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, PATIENT_UID);
-    await prisma.$executeRawUnsafe(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, ANC_UID);
-    await prisma.$executeRawUnsafe(`DELETE FROM news2_scores WHERE patient_uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, ANC_UID);
-    await prisma.$executeRawUnsafe(`DELETE FROM intake_output WHERE patient_uid = $1::uuid`, PATIENT_UID);
-    await purgeCorrectVitalsAudit(RECORDER_UID);
-    // clinical_alerts keyed by int patient_id — look it up first, then delete
-    const existing = await prisma.$queryRawUnsafe(`SELECT id FROM users WHERE uid = $1::uuid`, PATIENT_UID);
-    if (existing.length) {
-      await prisma.$executeRawUnsafe(`DELETE FROM clinical_alerts WHERE patient_id = $1`, existing[0].id);
-    }
-    const existingAnc = await prisma.$queryRawUnsafe(`SELECT id FROM users WHERE uid = $1::uuid`, ANC_UID);
-    if (existingAnc.length) {
-      await prisma.$executeRawUnsafe(`DELETE FROM clinical_alerts WHERE patient_id = $1`, existingAnc[0].id);
-    }
-    await prisma.$executeRawUnsafe(`DELETE FROM appointments WHERE visit_no LIKE 'EMER-VITALS-%'`);
-    await prisma.$executeRawUnsafe(`DELETE FROM appointments WHERE visit_no LIKE 'ANC-VITALS-%'`);
-    await prisma.$executeRawUnsafe(`DELETE FROM emergency_visits WHERE visit_number LIKE 'EMER-VITALS-%'`);
-    await prisma.$executeRawUnsafe(`DELETE FROM maternity_pregnancies WHERE patient_uid = $1::uuid`, ANC_UID);
-    await clearCareTeam(PATIENT_UID);
-    await clearCareTeam(ANC_UID);
-    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`, PATIENT_UID, RECORDER_UID, ANC_UID);
+    await cleanup();
 
     const p = await prisma.$queryRawUnsafe(
       `INSERT INTO users (uid, phone, name, role, is_active, updated_at)
@@ -132,26 +137,11 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
   });
 
   afterAll(async () => {
-    await prisma.$executeRawUnsafe(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, ANC_UID).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM news2_scores WHERE patient_uid IN ($1::uuid, $2::uuid)`, PATIENT_UID, ANC_UID).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM intake_output WHERE patient_uid = $1::uuid`, PATIENT_UID).catch(() => {});
-    await purgeCorrectVitalsAudit(RECORDER_UID).catch(() => {});
-    if (patientIntId) {
-      await prisma.$executeRawUnsafe(`DELETE FROM clinical_alerts WHERE patient_id = $1`, patientIntId).catch(() => {});
+    try {
+      await cleanup();
+    } finally {
+      await prisma.$disconnect();
     }
-    await prisma.$executeRawUnsafe(`DELETE FROM appointments WHERE visit_no LIKE 'EMER-VITALS-%'`).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM appointments WHERE visit_no LIKE 'ANC-VITALS-%'`).catch(() => {});
-    await prisma.$executeRawUnsafe(`DELETE FROM emergency_visits WHERE visit_number LIKE 'EMER-VITALS-%'`).catch(() => {});
-    const existingAnc = await prisma.$queryRawUnsafe(`SELECT id FROM users WHERE uid = $1::uuid`, ANC_UID).catch(() => []);
-    if (existingAnc.length) {
-      await prisma.$executeRawUnsafe(`DELETE FROM clinical_alerts WHERE patient_id = $1`, existingAnc[0].id).catch(() => {});
-    }
-    await prisma.$executeRawUnsafe(`DELETE FROM maternity_pregnancies WHERE patient_uid = $1::uuid`, ANC_UID).catch(() => {});
-    await clearCareTeam(PATIENT_UID);
-    await clearCareTeam(ANC_UID);
-    await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid IN ($1::uuid, $2::uuid, $3::uuid)`, PATIENT_UID, RECORDER_UID, ANC_UID).catch(() => {});
-    await prisma.$disconnect().catch(() => {});
   });
 
   describe('validation', () => {
@@ -622,10 +612,10 @@ describe('EMR vitals + anomaly alerts — deep integration', () => {
     });
 
     afterAll(async () => {
-      await prisma.$executeRawUnsafe(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, PAEDS_UID).catch(() => {});
-      await prisma.$executeRawUnsafe(`DELETE FROM news2_scores WHERE patient_uid = $1::uuid`, PAEDS_UID).catch(() => {});
+      await prisma.$executeRawUnsafe(`DELETE FROM vitals_chart WHERE patient_uid = $1::uuid`, PAEDS_UID);
+      await prisma.$executeRawUnsafe(`DELETE FROM news2_scores WHERE patient_uid = $1::uuid`, PAEDS_UID);
       await clearCareTeam(PAEDS_UID);
-      await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PAEDS_UID).catch(() => {});
+      await prisma.$executeRawUnsafe(`DELETE FROM users WHERE uid = $1::uuid`, PAEDS_UID);
     });
 
     it('auto-computes WHO weight + height percentiles in the vitals response', async () => {

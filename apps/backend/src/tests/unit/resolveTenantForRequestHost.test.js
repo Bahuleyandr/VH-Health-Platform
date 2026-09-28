@@ -3,6 +3,7 @@ import { jest } from '@jest/globals';
 
 const APOLLO_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaa01';
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  setTenantTx: jest.fn(() => { throw new Error('Unexpected tenant provisioning transaction'); }),
   default: {
     $queryRawUnsafe: async (sql, ...params) => {
       if (sql.includes('FROM tenants') && sql.includes('slug')) {

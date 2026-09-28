@@ -5,6 +5,7 @@ const prismaMock = {
 };
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  setTenantTx: jest.fn(() => { throw new Error('Unexpected tenant provisioning transaction'); }),
   default: prismaMock,
 }));
 

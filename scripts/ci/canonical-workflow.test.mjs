@@ -127,6 +127,57 @@ test('both backend tiers run the migration-number collision guard', () => {
   assert.match(pkg.scripts.ci, /npm run check:migration-numbers/);
 });
 
+function assertRlsCensusStep(workflow, jobId) {
+  const job = jobBlock(workflow, jobId);
+  const lines = job.split(/\r?\n/);
+  const installIndex = lines.findIndex(line => line === '      - run: npm ci');
+  const stepStarts = lines.flatMap((line, index) =>
+    line === '      - name: RLS bypass-reacher census pin check' ? [index] : []);
+  assert.equal(stepStarts.length, 1, 'the census gate must be an executable step exactly once');
+  const start = stepStarts[0];
+  const next = lines.findIndex((line, index) => index > start && line.startsWith('      - '));
+  const stepLines = lines.slice(start, next < 0 ? undefined : next);
+  assert.ok(installIndex >= 0 && start > installIndex);
+  assert.ok(stepLines.includes('        run: npm run check:rls-bypass-reacher'));
+  assert.ok(!stepLines.some(line => /^\s+if:/.test(line)), 'the census step must not be conditional');
+  assert.ok(!stepLines.some(line => /^\s+continue-on-error:/.test(line)), 'the census step must fail its job');
+}
+
+test('both backend tiers execute the RLS census after installing dependencies', () => {
+  const quick = read('.github/workflows/_reusable-backend-quick.yml');
+  const full = read('.github/workflows/_reusable-backend-lint-test.yml');
+  assertRlsCensusStep(quick, 'affected');
+  assertRlsCensusStep(full, 'static-checks');
+
+  const pkg = JSON.parse(read('apps/backend/package.json'));
+  assert.equal(
+    pkg.scripts['check:rls-bypass-reacher'],
+    'node --max-old-space-size=4096 scripts/rls-bypass-reacher-census.mjs --check',
+  );
+  assert.match(pkg.scripts.ci, /npm run check:rls-bypass-reacher/);
+
+  const commentOnly = quick.replace(
+    '      - name: RLS bypass-reacher census pin check',
+    '      # - name: RLS bypass-reacher census pin check',
+  );
+  assert.throws(() => assertRlsCensusStep(commentOnly, 'affected'));
+  const conditionallySkipped = quick.replace(
+    '      - name: RLS bypass-reacher census pin check\n',
+    '      - name: RLS bypass-reacher census pin check\n        if: false\n',
+  );
+  assert.throws(() => assertRlsCensusStep(conditionallySkipped, 'affected'));
+  const afterRunSkip = quick.replace(
+    '        run: npm run check:rls-bypass-reacher\n',
+    '        run: npm run check:rls-bypass-reacher\n        if: false\n',
+  );
+  assert.throws(() => assertRlsCensusStep(afterRunSkip, 'affected'));
+  const ignoredFailure = quick.replace(
+    '        run: npm run check:rls-bypass-reacher\n',
+    '        run: npm run check:rls-bypass-reacher\n        continue-on-error: true\n',
+  );
+  assert.throws(() => assertRlsCensusStep(ignoredFailure, 'affected'));
+});
+
 test('the unconditional security job validates the pinned Alertmanager route contract', () => {
   const workflow = read('.github/workflows/ci.yml');
   const security = jobBlock(workflow, 'security');

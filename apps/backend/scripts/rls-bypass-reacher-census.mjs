@@ -93,6 +93,43 @@ export function collectPin(repoRoot, revision) {
   });
 }
 
+export function assertCensusPin(actual, expected) {
+  for (const pin of [actual, expected]) {
+    for (const key of [
+      'tables',
+      'registrations',
+      'entryPoints',
+      'residualEntryPoints',
+      'statements',
+      'sourceManifest',
+      'directPgImports',
+      'migrationManifest'
+    ]) {
+      if (!Array.isArray(pin?.[key]) || pin[key].length === 0)
+        throw new Error(`Census requires a nonempty ${key} population`);
+    }
+    for (const key of ['sources', 'registrations', 'roots', 'sql', 'targetSql']) {
+      if (!Number.isInteger(pin.counts?.[key]) || pin.counts[key] <= 0)
+        throw new Error(`Census requires a positive counts.${key}`);
+    }
+    if (!Number.isInteger(pin.migrationStatementPopulation) || pin.migrationStatementPopulation <= 0)
+      throw new Error('Census requires a positive migration statement population');
+    if (pin.kind !== 'CENSUS_ONLY') throw new Error('Census pin must remain CENSUS_ONLY');
+  }
+  if (actual.tables.length !== expected.tables.length) throw new Error('Table population changed');
+  for (const table of actual.tables)
+    assertTablePin(table, expected.tables.find(row => row.table === table.table));
+  for (const key of new Set([...Object.keys(actual), ...Object.keys(expected)])) {
+    if (JSON.stringify(actual[key]) !== JSON.stringify(expected[key]))
+      throw new Error(`${key} changed: regenerate and review census`);
+  }
+}
+
+export function assertCensusReport(pin, expectedReport) {
+  if (renderPin(pin) !== expectedReport.replaceAll('\r\n', '\n'))
+    throw new Error('Companion census report changed: regenerate and review census');
+}
+
 const invoked = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (invoked) {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -113,16 +150,8 @@ if (invoked) {
   } else if (args.includes('--json')) {
     process.stdout.write(JSON.stringify(pin));
   } else if (args.includes('--check')) {
-    if (pin.tables.length !== expected.tables.length) throw new Error('Table population changed');
-    for (const table of pin.tables)
-      assertTablePin(
-        table,
-        expected.tables.find(row => row.table === table.table)
-      );
-    for (const key of ['registrations', 'entryPoints', 'statements']) {
-      if (JSON.stringify(pin[key]) !== JSON.stringify(expected[key]))
-        throw new Error(`${key} changed: regenerate and review census`);
-    }
+    assertCensusPin(pin, expected);
+    assertCensusReport(pin, readFileSync(path.join(repoRoot, REPORT_PATH), 'utf8'));
     console.log(
       `Census matches: ${pin.tables.length} tables; ${pin.registrations.length} jobs; ${pin.statements.length} unique statements; all dispositions PENDING.`
     );

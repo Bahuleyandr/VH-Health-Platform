@@ -61,6 +61,7 @@ const queryRawUnsafeMock = jest.fn(async (sql) => {
 });
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  setTenantTx: jest.fn(() => { throw new Error('Unexpected tenant provisioning transaction'); }),
   default: { $queryRawUnsafe: queryRawUnsafeMock },
 }));
 jest.unstable_mockModule('../../services/ai/clinicalAiModuleService.js', () => ({

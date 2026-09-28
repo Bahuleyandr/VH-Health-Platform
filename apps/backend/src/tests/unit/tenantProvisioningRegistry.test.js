@@ -114,12 +114,20 @@ import { fileURLToPath } from 'node:url';
 
 const queryRawMock = jest.fn();
 const executeRawMock = jest.fn().mockResolvedValue(1);
+const txQueryRawMock = jest.fn();
+const txExecuteRawMock = jest.fn();
+const transactionClient = {
+  $queryRawUnsafe: txQueryRawMock,
+  $executeRawUnsafe: txExecuteRawMock,
+};
+const setTenantTxMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: {
     $queryRawUnsafe: queryRawMock,
     $executeRawUnsafe: executeRawMock,
   },
+  setTenantTx: setTenantTxMock,
 }));
 
 const {
@@ -1044,28 +1052,93 @@ describe('createTenant consumes the registry', () => {
 
   beforeEach(() => {
     queryRawMock.mockReset();
-    executeRawMock.mockReset().mockResolvedValue(1);
-    queryRawMock.mockResolvedValueOnce([{ id: NEW_TENANT_ID, slug: 'new', settings: {} }]);
+    executeRawMock.mockReset();
+    txQueryRawMock.mockReset().mockResolvedValue([{ id: NEW_TENANT_ID, slug: 'new', settings: {} }]);
+    txExecuteRawMock.mockReset().mockResolvedValue(1);
+    setTenantTxMock.mockReset().mockImplementation(async (_tenantId, callback) => callback(transactionClient));
+  });
+
+  afterEach(() => {
+    expect(queryRawMock).not.toHaveBeenCalled();
+    expect(executeRawMock).not.toHaveBeenCalled();
   });
 
   it('runs exactly one generated copy per registry entry for the new tenant', async () => {
-    await createTenant({ slug: 'new', name: 'New Hospital' });
+    await expect(createTenant({ slug: 'new', name: 'New Hospital' }))
+      .resolves.toEqual({ id: NEW_TENANT_ID, slug: 'new', settings: {} });
+
+    expect(setTenantTxMock).toHaveBeenCalledTimes(1);
+    expect(setTenantTxMock).toHaveBeenCalledWith(null, expect.any(Function), { superAdmin: true });
+    expect(txQueryRawMock).toHaveBeenCalledTimes(1);
+    expect(txQueryRawMock.mock.calls[0][0]).toContain('INSERT INTO tenants');
+    expect(txExecuteRawMock).toHaveBeenCalledTimes(4);
+    expect(txExecuteRawMock).toHaveBeenNthCalledWith(1, expect.stringContaining('INSERT INTO tenant_entitlements'), NEW_TENANT_ID);
+    expect(txQueryRawMock.mock.invocationCallOrder[0]).toBeLessThan(txExecuteRawMock.mock.invocationCallOrder[0]);
 
     // First $executeRawUnsafe is the entitlement seed (not registry-driven).
-    const copies = executeRawMock.mock.calls.slice(1);
+    const copies = txExecuteRawMock.mock.calls.slice(1);
     expect(copies).toHaveLength(TENANT_PROVISIONING_REGISTRY.length);
     TENANT_PROVISIONING_REGISTRY.forEach((entry, index) => {
       expect(copies[index]).toEqual([buildTenantCopySql(entry), NEW_TENANT_ID]);
     });
   });
 
-  it('propagates a failed copy rather than returning a half-provisioned tenant', async () => {
-    executeRawMock.mockReset();
-    executeRawMock.mockResolvedValueOnce(1); // entitlement seed
-    executeRawMock.mockRejectedValueOnce(new Error('relation does not exist'));
+  it.each(TENANT_PROVISIONING_REGISTRY.map((entry, index) => [entry.table, index]))(
+    'propagates a failed copy in %s rather than returning a half-provisioned tenant',
+    async (_table, failedIndex) => {
+      const failure = new Error('relation does not exist');
+      txExecuteRawMock.mockReset().mockResolvedValue(1);
+      for (let index = 0; index <= failedIndex; index += 1) {
+        txExecuteRawMock.mockResolvedValueOnce(1);
+      }
+      txExecuteRawMock.mockRejectedValueOnce(failure);
+
+      const creation = createTenant({ slug: 'new', name: 'New Hospital' });
+      await expect(creation).rejects.toThrow('relation does not exist');
+      await expect(creation).rejects.toBe(failure);
+      expect(setTenantTxMock).toHaveBeenCalledTimes(1);
+      expect(setTenantTxMock).toHaveBeenCalledWith(null, expect.any(Function), { superAdmin: true });
+      expect(txQueryRawMock).toHaveBeenCalledTimes(1);
+      expect(txExecuteRawMock).toHaveBeenCalledTimes(failedIndex + 2);
+      expect(txExecuteRawMock.mock.calls.slice(1)).toEqual(
+        TENANT_PROVISIONING_REGISTRY.slice(0, failedIndex + 1).map(entry => [buildTenantCopySql(entry), NEW_TENANT_ID]),
+      );
+    },
+  );
+
+  it('propagates an entitlement failure without starting any registry copy', async () => {
+    const failure = new Error('entitlement insertion failed');
+    txExecuteRawMock.mockRejectedValueOnce(failure);
+
+    await expect(createTenant({ slug: 'new', name: 'New Hospital' })).rejects.toBe(failure);
+    expect(setTenantTxMock).toHaveBeenCalledTimes(1);
+    expect(setTenantTxMock).toHaveBeenCalledWith(null, expect.any(Function), { superAdmin: true });
+    expect(txQueryRawMock).toHaveBeenCalledTimes(1);
+    expect(txExecuteRawMock).toHaveBeenCalledTimes(1);
+    expect(txExecuteRawMock).toHaveBeenCalledWith(expect.stringContaining('INSERT INTO tenant_entitlements'), NEW_TENANT_ID);
+  });
+
+  it('rejects a duplicate slug without seeding an entitlement or copying configuration', async () => {
+    txQueryRawMock.mockResolvedValueOnce([]);
 
     await expect(createTenant({ slug: 'new', name: 'New Hospital' }))
-      .rejects.toThrow('relation does not exist');
+      .rejects.toMatchObject({ statusCode: 409, code: 'CONFLICT' });
+    expect(setTenantTxMock).toHaveBeenCalledTimes(1);
+    expect(setTenantTxMock).toHaveBeenCalledWith(null, expect.any(Function), { superAdmin: true });
+    expect(txQueryRawMock).toHaveBeenCalledTimes(1);
+    expect(txExecuteRawMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['missing slug', { slug: '', name: 'New Hospital' }],
+    ['missing name', { slug: 'new', name: '' }],
+    ['invalid region', { slug: 'new', name: 'New Hospital', region: 'INVALID' }],
+    ['invalid compliance profile', { slug: 'new', name: 'New Hospital', compliance_profile: 'INVALID' }],
+  ])('rejects %s before starting a provisioning transaction', async (_label, input) => {
+    await expect(createTenant(input)).rejects.toMatchObject({ statusCode: 400, code: 'BAD_REQUEST' });
+    expect(setTenantTxMock).not.toHaveBeenCalled();
+    expect(txQueryRawMock).not.toHaveBeenCalled();
+    expect(txExecuteRawMock).not.toHaveBeenCalled();
   });
 
   it('keeps no hand-written copy of a registry table in the service', async () => {

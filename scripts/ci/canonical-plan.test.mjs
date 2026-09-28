@@ -15,6 +15,18 @@ test('ordinary backend pushes select the quick backend gate only', () => {
   assert.equal(plan.selected.flutter, false);
 });
 
+test('an RLS reacher source or its pin alone still selects the backend guard', () => {
+  for (const file of [
+    'apps/backend/src/utils/scheduler.js',
+    'docs/security/rls-bypass-reacher-pin-2026-09-08.json',
+    'docs/security/rls-bypass-reacher-census-2026-09-08.md',
+  ]) {
+    const plan = buildCanonicalPlan({ eventName: 'push', files: [file] });
+    assert.equal(plan.tier, 'quick');
+    assert.equal(plan.selected.backend, true, file);
+  }
+});
+
 test('client changes add contracts while retaining their owning stack', () => {
   const plan = buildCanonicalPlan({
     eventName: 'push',

@@ -3,6 +3,10 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { assertTablePin } from '../../../scripts/lib/rlsBypassReacherPin.mjs';
+import {
+  assertCensusPin,
+  assertCensusReport
+} from '../../../scripts/rls-bypass-reacher-census.mjs';
 
 const backend = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const expected = JSON.parse(
@@ -53,6 +57,43 @@ it('measures a nonempty entry/job population and pins every registration', () =>
   ).toHaveLength(4);
   expect(actual.counts.sql).toBeGreaterThan(0);
   expect(actual.migrationStatementPopulation).toBeGreaterThan(0);
+});
+
+it('checks the entire pinned census, not only statement and table rows', () => {
+  expect(() => assertCensusPin(actual, expected)).not.toThrow();
+  const changed = [
+    ['sourceManifest', { ...actual.sourceManifest[0], sha256: 'metadata-drift' }],
+    ['residualEntryPoints', { ...actual.residualEntryPoints[0], line: -1 }],
+    ['directPgImports', { ...actual.directPgImports[0], line: -1 }]
+  ];
+  for (const [key, row] of changed) {
+    expect(() => assertCensusPin(actual, {
+      ...expected,
+      [key]: [row, ...expected[key].slice(1)]
+    })).toThrow(`${key} changed`);
+  }
+  expect(() => assertCensusPin(actual, {
+    ...expected,
+    counts: { ...expected.counts, sources: expected.counts.sources - 1 }
+  })).toThrow('counts changed');
+});
+
+it('rejects a vacuous census population even when both sides agree', () => {
+  for (const key of ['sourceManifest', 'residualEntryPoints', 'directPgImports']) {
+    const empty = { ...expected, [key]: [] };
+    expect(() => assertCensusPin(empty, empty)).toThrow(`nonempty ${key}`);
+  }
+});
+
+it('pins the generated companion report and rejects report-only drift', () => {
+  const report = readFileSync(
+    path.join(backend, '../../docs/security/rls-bypass-reacher-census-2026-09-08.md'),
+    'utf8'
+  );
+  expect(() => assertCensusReport(actual, report)).not.toThrow();
+  expect(() => assertCensusReport(actual, `${report}unreviewed change`)).toThrow(
+    'Companion census report changed'
+  );
 });
 
 it('keeps census status distinct from completed runtime dispositions', () => {

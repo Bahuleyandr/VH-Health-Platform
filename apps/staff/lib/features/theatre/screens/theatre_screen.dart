@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -853,7 +854,19 @@ class _TheatreScreenState extends State<TheatreScreen>
   }
 
   void _showChecklistSheet(int id, Map<String, dynamic> surgery) {
-    final existing = surgery['checklist'] as Map<String, dynamic>? ?? {};
+    final existing = Map<String, dynamic>.of(
+      surgery['pre_op_checklist'] as Map<String, dynamic>? ?? {},
+    );
+    const editableKeys = {
+      'consent_obtained',
+      'blood_arranged',
+      'equipment_checked',
+      'patient_identified',
+    };
+    final readOnly = existing.entries.any(
+      (entry) => !editableKeys.contains(entry.key) || entry.value is! bool,
+    );
+    final storedDetails = const JsonEncoder.withIndent('  ').convert(existing);
     bool consentObtained = existing['consent_obtained'] == true;
     bool bloodArranged = existing['blood_arranged'] == true;
     bool equipmentChecked = existing['equipment_checked'] == true;
@@ -868,91 +881,113 @@ class _TheatreScreenState extends State<TheatreScreen>
       builder: (ctx) {
         return StatefulBuilder(
           builder: (_, setSheetState) {
-            return Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Center(
-                    child: Container(
-                      width: 40,
-                      height: 4,
-                      decoration: BoxDecoration(
-                        color: Colors.grey[300],
-                        borderRadius: BorderRadius.circular(2),
+            return SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 40,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: Colors.grey[300],
+                          borderRadius: BorderRadius.circular(2),
+                        ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    str.theatrePreOpChecklist,
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: AppTheme.textPrimary,
+                    const SizedBox(height: 16),
+                    Text(
+                      str.theatrePreOpChecklist,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.textPrimary,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  SwitchListTile(
-                    title: Text(str.theatreChecklistConsent),
-                    value: consentObtained,
-                    onChanged: (v) => setSheetState(() => consentObtained = v),
-                  ),
-                  SwitchListTile(
-                    title: Text(str.theatreChecklistBlood),
-                    value: bloodArranged,
-                    onChanged: (v) => setSheetState(() => bloodArranged = v),
-                  ),
-                  SwitchListTile(
-                    title: Text(str.theatreChecklistEquipment),
-                    value: equipmentChecked,
-                    onChanged: (v) => setSheetState(() => equipmentChecked = v),
-                  ),
-                  SwitchListTile(
-                    title: Text(str.theatreChecklistPatientId),
-                    value: patientIdentified,
-                    onChanged: (v) =>
-                        setSheetState(() => patientIdentified = v),
-                  ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        Navigator.pop(ctx);
-                        try {
-                          await TheatreApiService.updateChecklist(id, {
-                            'consent_obtained': consentObtained,
-                            'blood_arranged': bloodArranged,
-                            'equipment_checked': equipmentChecked,
-                            'patient_identified': patientIdentified,
-                          });
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(str.theatreChecklistUpdated),
-                              ),
-                            );
-                          }
-                          unawaited(_fetchSchedule());
-                        } catch (e) {
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  '${str.theatreChecklistUpdated}: $e',
-                                ),
-                                backgroundColor: AppTheme.errorRed,
-                              ),
-                            );
-                          }
-                        }
-                      },
-                      child: Text(str.theatreSubmitChecklist),
+                    const SizedBox(height: 12),
+                    if (readOnly) ...[
+                      Text(str.theatreChecklistReadOnly),
+                      const SizedBox(height: 12),
+                    ],
+                    SwitchListTile(
+                      title: Text(str.theatreChecklistConsent),
+                      value: consentObtained,
+                      onChanged: readOnly
+                          ? null
+                          : (v) => setSheetState(() => consentObtained = v),
                     ),
-                  ),
-                ],
+                    SwitchListTile(
+                      title: Text(str.theatreChecklistBlood),
+                      value: bloodArranged,
+                      onChanged: readOnly
+                          ? null
+                          : (v) => setSheetState(() => bloodArranged = v),
+                    ),
+                    SwitchListTile(
+                      title: Text(str.theatreChecklistEquipment),
+                      value: equipmentChecked,
+                      onChanged: readOnly
+                          ? null
+                          : (v) => setSheetState(() => equipmentChecked = v),
+                    ),
+                    SwitchListTile(
+                      title: Text(str.theatreChecklistPatientId),
+                      value: patientIdentified,
+                      onChanged: readOnly
+                          ? null
+                          : (v) => setSheetState(() => patientIdentified = v),
+                    ),
+                    const SizedBox(height: 16),
+                    if (readOnly) ...[
+                      Text(str.timelineDetails),
+                      const SizedBox(height: 8),
+                      SelectableText(storedDetails),
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx),
+                        child: Text(str.actionClose),
+                      ),
+                    ] else
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () async {
+                            Navigator.pop(ctx);
+                            try {
+                              await TheatreApiService.updateChecklist(id, {
+                                'consent_obtained': consentObtained,
+                                'blood_arranged': bloodArranged,
+                                'equipment_checked': equipmentChecked,
+                                'patient_identified': patientIdentified,
+                              });
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(str.theatreChecklistUpdated),
+                                  ),
+                                );
+                              }
+                              unawaited(_fetchSchedule());
+                            } catch (e) {
+                              if (mounted) {
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  SnackBar(
+                                    content: Text(
+                                      '${str.theatreChecklistUpdated}: $e',
+                                    ),
+                                    backgroundColor: AppTheme.errorRed,
+                                  ),
+                                );
+                              }
+                            }
+                          },
+                          child: Text(str.theatreSubmitChecklist),
+                        ),
+                      ),
+                  ],
+                ),
               ),
             );
           },
@@ -993,9 +1028,7 @@ class _TheatreScreenState extends State<TheatreScreen>
               itemCount: _availability.length,
               itemBuilder: (context, i) {
                 final room = _availability[i] as Map<String, dynamic>;
-                final available =
-                    room['available'] == true ||
-                    room['status']?.toString().toLowerCase() == 'available';
+                final available = room['available'] == true;
                 final name =
                     room['name']?.toString() ??
                     AppStrings.of(context)

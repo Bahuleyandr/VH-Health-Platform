@@ -5,6 +5,7 @@ import { jest } from '@jest/globals';
 const linkPendingResultOwnerActionsForGenerationTxMock = jest.fn();
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  setTenantTx: jest.fn(() => { throw new Error('Unexpected tenant provisioning transaction'); }),
   default: {},
   isTenantTransactionClient: () => true,
 }));

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useEffect, useRef } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { X, AlertTriangle, RefreshCw } from "lucide-react";
 import {
@@ -160,6 +160,38 @@ function IncidentPanel({
   const [publicUpdate, setPublicUpdate] = useState("");
   const [internalNote, setInternalNote] = useState("");
   const [saving, setSaving] = useState(false);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      } else if (event.key === "Tab") {
+        const focusable = Array.from(
+          dialogRef.current?.querySelectorAll<HTMLElement>(
+            "button:not(:disabled), select:not(:disabled), textarea:not(:disabled)",
+          ) ?? [],
+        );
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (!focusable.some((element) => element === document.activeElement)) {
+          event.preventDefault();
+          (event.shiftKey ? last : first)?.focus();
+        } else if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault();
+          last?.focus();
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault();
+          first?.focus();
+        }
+      }
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
 
   const handleSave = useCallback(async () => {
     setSaving(true);
@@ -195,18 +227,30 @@ function IncidentPanel({
   return (
     <div className="fixed inset-0 z-50 flex">
       <div className="flex-1 bg-black/40" onClick={onClose} />
-      <div className="w-full max-w-2xl bg-card shadow-xl flex flex-col overflow-hidden">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="incident-panel-title"
+        className="w-full max-w-2xl bg-card shadow-xl flex flex-col overflow-hidden"
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b bg-gray-50">
           <div>
             <p className="text-xs text-gray-500 font-mono">
               {incident.report_number}
             </p>
-            <h2 className="font-bold text-gray-800 text-lg leading-tight">
+            <h2
+              id="incident-panel-title"
+              className="font-bold text-gray-800 text-lg leading-tight"
+            >
               {incident.title}
             </h2>
           </div>
           <button
+            ref={closeButtonRef}
+            type="button"
+            aria-label="Close incident details"
             onClick={onClose}
             className="p-2 rounded-lg hover:bg-gray-200"
           >
@@ -322,10 +366,14 @@ function IncidentPanel({
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs font-medium text-gray-500 block mb-1">
+                <label
+                  htmlFor="incident-status"
+                  className="text-xs font-medium text-gray-500 block mb-1"
+                >
                   Status
                 </label>
                 <select
+                  id="incident-status"
                   value={status}
                   onChange={(e) => setStatus(e.target.value)}
                   className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -340,10 +388,14 @@ function IncidentPanel({
             </div>
 
             <div>
-              <label className="text-xs font-medium text-gray-500 block mb-1">
+              <label
+                htmlFor="incident-public-update"
+                className="text-xs font-medium text-gray-500 block mb-1"
+              >
                 Public Update (visible to reporter)
               </label>
               <textarea
+                id="incident-public-update"
                 value={publicUpdate}
                 onChange={(e) => setPublicUpdate(e.target.value)}
                 rows={2}
@@ -353,11 +405,15 @@ function IncidentPanel({
             </div>
 
             <div>
-              <label className="text-xs font-medium text-gray-500 block mb-1 flex items-center gap-1">
+              <label
+                htmlFor="incident-internal-note"
+                className="text-xs font-medium text-gray-500 block mb-1 flex items-center gap-1"
+              >
                 <span className="text-orange-600">🔒</span> Internal Note (admin
                 only — not visible to reporter)
               </label>
               <textarea
+                id="incident-internal-note"
                 value={internalNote}
                 onChange={(e) => setInternalNote(e.target.value)}
                 rows={2}
@@ -368,10 +424,14 @@ function IncidentPanel({
 
             {(status === "resolved" || status === "closed") && (
               <div>
-                <label className="text-xs font-medium text-gray-500 block mb-1">
+                <label
+                  htmlFor="incident-resolution"
+                  className="text-xs font-medium text-gray-500 block mb-1"
+                >
                   Resolution (visible to reporter)
                 </label>
                 <textarea
+                  id="incident-resolution"
                   value={resolution}
                   onChange={(e) => setResolution(e.target.value)}
                   rows={2}
@@ -382,10 +442,14 @@ function IncidentPanel({
             )}
 
             <div>
-              <label className="text-xs font-medium text-gray-500 block mb-1">
+              <label
+                htmlFor="incident-admin-notes"
+                className="text-xs font-medium text-gray-500 block mb-1"
+              >
                 Admin Notes (private)
               </label>
               <textarea
+                id="incident-admin-notes"
                 value={adminNotes}
                 onChange={(e) => setAdminNotes(e.target.value)}
                 rows={2}
@@ -414,14 +478,37 @@ export default function IncidentsPage() {
   const [filterStatus, setFilterStatus] = useState("");
   const [filterSeverity, setFilterSeverity] = useState("");
   const [filterType, setFilterType] = useState("");
-  const [selected, setSelected] = useState<Incident | null>(null);
+  const [selected, setSelected] = useState<{
+    incident: Incident;
+    generation: number;
+  } | null>(null);
+  const panelGenerationRef = useRef(0);
+  const detailRequestRef = useRef(0);
+  const openerRef = useRef<HTMLButtonElement | null>(null);
+  const refreshButtonRef = useRef<HTMLButtonElement>(null);
 
-  const { connected, subscribed, lastEventAt } = useRealtimeInvalidation(INCIDENTS_CHANNEL, [
-    ["incidents"],
-    ["incident-stats"],
-  ]);
+  const openPanel = (incident: Incident, opener: HTMLButtonElement | null) => {
+    openerRef.current = opener;
+    setSelected({ incident, generation: ++panelGenerationRef.current });
+  };
 
-  const liveLabel = subscribed ? "● Live" : connected ? "○ Connecting" : "○ Offline";
+  const closePanel = useCallback(() => {
+    panelGenerationRef.current += 1;
+    setSelected(null);
+    const opener = openerRef.current;
+    (opener?.isConnected ? opener : refreshButtonRef.current)?.focus();
+  }, []);
+
+  const { connected, subscribed, lastEventAt } = useRealtimeInvalidation(
+    INCIDENTS_CHANNEL,
+    [["incidents"], ["incident-stats"]],
+  );
+
+  const liveLabel = subscribed
+    ? "● Live"
+    : connected
+      ? "○ Connecting"
+      : "○ Offline";
   const liveTitle = subscribed
     ? lastEventAt
       ? `Real-time via staff:incidents — last update ${new Date(lastEventAt).toLocaleTimeString()}`
@@ -457,15 +544,27 @@ export default function IncidentsPage() {
   const handleUpdated = useCallback(() => {
     qc.invalidateQueries({ queryKey: ["incidents"] });
     qc.invalidateQueries({ queryKey: ["incident-stats"] });
-    if (selected) {
+    if (selected && selected.generation === panelGenerationRef.current) {
+      const request = ++detailRequestRef.current;
+      const isCurrent = () =>
+        selected.generation === panelGenerationRef.current &&
+        request === detailRequestRef.current;
       // Re-fetch full detail for the panel
       getIncidents<IncidentsResponse>({ limit: 100 })
         .then(unwrap<IncidentsResponse>)
         .then((d) => {
-          const fresh = d.incidents.find((i) => i.id === selected.id);
-          if (fresh) setSelected(fresh);
+          if (!isCurrent()) return;
+          const fresh = d.incidents.find((i) => i.id === selected.incident.id);
+          if (fresh) {
+            setSelected((current) =>
+              isCurrent() && current?.generation === selected.generation
+                ? { ...current, incident: fresh }
+                : current,
+            );
+          }
         })
         .catch((err: unknown) => {
+          if (!isCurrent()) return;
           // The list/stats invalidation above still refreshes the board, but
           // the open detail panel would silently keep showing stale data.
           console.error("Failed to refresh incident detail", err);
@@ -497,7 +596,9 @@ export default function IncidentsPage() {
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold text-gray-900">Incident Reports</h1>
+            <h1 className="text-2xl font-bold text-gray-900">
+              Incident Reports
+            </h1>
             <span
               data-testid="incidents-realtime-indicator"
               role="status"
@@ -507,7 +608,11 @@ export default function IncidentsPage() {
                   : "Offline — real-time updates unavailable"
               }
               title={liveTitle}
-              className={subscribed ? "text-xs font-medium text-green-600" : "text-xs font-medium text-gray-400"}
+              className={
+                subscribed
+                  ? "text-xs font-medium text-green-600"
+                  : "text-xs font-medium text-gray-400"
+              }
             >
               {liveLabel}
             </span>
@@ -517,6 +622,7 @@ export default function IncidentsPage() {
           </p>
         </div>
         <button
+          ref={refreshButtonRef}
           onClick={() => {
             qc.invalidateQueries({ queryKey: ["incidents"] });
             qc.invalidateQueries({ queryKey: ["incident-stats"] });
@@ -582,6 +688,7 @@ export default function IncidentsPage() {
       {/* Filters */}
       <div className="flex flex-wrap gap-3">
         <select
+          aria-label="Filter by status"
           value={filterStatus}
           onChange={(e) => setFilterStatus(e.target.value)}
           className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -594,6 +701,7 @@ export default function IncidentsPage() {
           ))}
         </select>
         <select
+          aria-label="Filter by severity"
           value={filterSeverity}
           onChange={(e) => setFilterSeverity(e.target.value)}
           className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -606,6 +714,7 @@ export default function IncidentsPage() {
           ))}
         </select>
         <select
+          aria-label="Filter by type"
           value={filterType}
           onChange={(e) => setFilterType(e.target.value)}
           className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -675,13 +784,16 @@ export default function IncidentsPage() {
                   </tr>
                 )}
                 {incidents.map((inc) => (
-                  <tr
-                    key={inc.id}
-                    onClick={() => setSelected(inc)}
-                    className="hover:bg-blue-50 cursor-pointer transition-colors"
-                  >
+                  <tr key={inc.id}>
                     <td className="px-4 py-3 font-mono text-xs text-blue-600 font-bold whitespace-nowrap">
-                      {inc.report_number}
+                      <button
+                        type="button"
+                        aria-label={`Review incident ${inc.report_number}: ${inc.title}`}
+                        onClick={(event) => openPanel(inc, event.currentTarget)}
+                        className="rounded text-left hover:underline focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        {inc.report_number}
+                      </button>
                     </td>
                     <td className="px-4 py-3 max-w-xs">
                       <p className="font-medium text-gray-800 truncate">
@@ -725,8 +837,9 @@ export default function IncidentsPage() {
       {/* Side panel */}
       {selected && (
         <IncidentPanel
-          incident={selected}
-          onClose={() => setSelected(null)}
+          key={selected.generation}
+          incident={selected.incident}
+          onClose={closePanel}
           onUpdated={handleUpdated}
         />
       )}

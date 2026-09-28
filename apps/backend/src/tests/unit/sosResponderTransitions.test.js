@@ -13,6 +13,7 @@ const completeSlaMock = jest.fn().mockResolvedValue({ id: 'sla-1', status: 'comp
 const notifyEmergencyTeamMock = jest.fn().mockResolvedValue({ notified_count: 1 });
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
+  setTenantTx: jest.fn(() => { throw new Error('Unexpected tenant provisioning transaction'); }),
   default: { $queryRawUnsafe: queryRawUnsafeMock, $queryRaw: queryRawMock },
 }));
 

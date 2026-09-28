@@ -1,6 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import { wrapAutoRBAC } from '../../config/routeWrapper.js';
+import { INVESTIGATION_STAFF_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 import * as bookingController from '../../controllers/investigation/bookingController.js';
 import * as bulkController from '../../controllers/investigation/bulkController.js';
 import * as investigationController from '../../controllers/investigation/investigationController.js';
@@ -11,6 +12,7 @@ import { AppError } from '../../utils/AppError.js';
 import { relayAppError } from '../../utils/responseHelper.js';
 import { sanitizeInvestigationFields } from '../../middleware/sanitizeMiddleware.js';
 import { patientAccessGuard, patientAccessGuardForResource } from '../../middleware/phiAccessMiddleware.js';
+import { requireRole } from '../../middleware/rbacMiddleware.js';
 import { rejectMobileClinicalWrite } from '../../middleware/rejectMobileClinicalWriteMiddleware.js';
 import { validateFileContent, validateGenericDocumentUpload, validatePatientUpload } from '../../middleware/uploadMiddleware.js';
 import { 
@@ -30,6 +32,7 @@ const upload = multer({
 });
 
 const router = express.Router();
+const requireInvestigationStaff = requireRole(...INVESTIGATION_STAFF_ROUTE_ROLES);
 
 // CAN-017: booking-by-id workflow handlers address the patient through the
 // booking id (a path param the parent INVESTIGATION guard can't resolve), so
@@ -215,7 +218,7 @@ wrapAutoRBAC(router, 'investigationRoutes', {
     // cross-patient lists or non-patient data — no single subject, so they
     // stay on the role gate and are NOT patient-context-forced.
     ['/catalog', investigationController.getTestCatalog],
-    ['/sla-dashboard', investigationController.getInvestigationSLADashboard],
+    ['/sla-dashboard', requireInvestigationStaff, investigationController.getInvestigationSLADashboard],
     // /list decides only when the caller narrows to one patient
     // (query.patient_uid / query.patient_id); unfiltered lists pass through.
     ['/list', listInvestigationsValidator, guardListFilter, investigationController.listInvestigations],
@@ -223,8 +226,8 @@ wrapAutoRBAC(router, 'investigationRoutes', {
 
     // Booking routes (static before parameterized)
     ['/bookings/my', bookingController.getMyBookings],
-    ['/bookings/queue', bookingController.getBookingQueue],
-    ['/bookings/sla', bookingController.getBookingSLADashboard],
+    ['/bookings/queue', requireInvestigationStaff, bookingController.getBookingQueue],
+    ['/bookings/sla', requireInvestigationStaff, bookingController.getBookingSLADashboard],
     ['/bookings/:id', bookingPatientGuard, bookingController.getBookingDetail],
 
     // Self-service: caller's own investigations, patient derived from the JWT.
