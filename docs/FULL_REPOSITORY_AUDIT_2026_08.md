@@ -1,11 +1,11 @@
 # VH Health Full-Repository Audit — Reconciled Ledger
 
-**Latest bounded reconciliation:** 2026-09-27, authoritative `github/main`
-`6543707c78ef01bd3e4894f5f38e162bcf462ee9`. This update records the merged
-scope of #1094–#1095 and #1097–#1100, preserving the September 26 receipts for #1023 and
+**Latest bounded reconciliation:** 2026-09-29, authoritative `github/main`
+`a38055b8d2f3e2215ccc17338f6e199d0a063685`. This update records #1102's merged
+scope, preserving the #1094–#1095/#1097–#1100 and September 26 receipts for #1023 and
 #1091; it is **not a new whole-repository audit**. OPEN-23 retains its
 September 16 constraint receipt below. Other rows retain their explicitly
-dated evidence, not an implied September 27 verification.
+dated evidence, not an implied September 29 verification.
 
 The original remediation snapshot was branch `fix/full-repository-audit-2026-08`,
 head `b3807dccbc9281e94182041dd440542e6e77f14d`, draft PR
@@ -127,22 +127,24 @@ Live exact-head hosted evidence read for this bounded receipt:
 | #1099 final head | `a7134f4f317dc5b1a6ae718a560a78c23e48452d` | [36233930556](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/36233930556) | Both exact aggregate names: success. |
 | #1100 final head | `fb9d5b6c3851d30e40e0081da1d28762ab27e09a` | [36246946190](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/36246946190) | Both exact aggregate names: success. |
 
+At the September 27 checkpoint,
 [PR #1102](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1102) was
 queried separately: **OPEN, draft**, head
 `55a7c0a5f39ba7f1e7b8b50936528885e5385c4f`. Its Ward-indent, booking-access,
-theatre-read and RLS-census repairs are not implemented-on-main evidence.
+theatre-read and RLS-census repairs were not yet implemented-on-main evidence.
 Hosted run [36333311625](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/36333311625)
 completed successfully on that exact head: `Merge Gate`, `Full Merge Gate`,
 three backend shards and six `full_*` jobs all succeeded. That result and the
-local verification packet do not close any finding in this ledger before a
-reviewed merge. External authority stops below remain unchanged.
+local verification packet did not close findings before a reviewed merge.
+The final merge receipt below supersedes that draft status, not those results.
 
-### 2026-09-28 local expansion of draft #1102
+### 2026-09-28 local expansion of draft #1102 — historical focused receipts
 
 The owner requested consolidation of further technical remediation into #1102.
-The local integration includes the independently verified Admin incident-dialog,
-Staff MAR navigation and audit-documentation lanes. The published head above
-has not changed; its green checks do not verify this expanded local tree.
+The local integration included the independently verified Admin incident-dialog,
+Staff MAR navigation and audit-documentation lanes. At this intermediate
+checkpoint, the published head above had not changed; its green checks did not
+verify the expanded local tree.
 
 Three additional repairs now have independently reviewed focused verification:
 
@@ -198,10 +200,51 @@ summaries are `tenant-cd664440d-focused-verification.md` and
 artifact directory; the first vitals evidence is retained separately in
 `vitals-21f23720a-attempt1-evidence`, and the later two-pass receipt is
 `vitals-21f23720a-focused-verification.md`. No application tests were rerun for this
-documentation update. The final combined head still requires reviewed
-RLS-census regeneration, a fresh presentation rescan and all applicable CI
-before publication and independent merge review. None of these focused
-receipts establishes full-CI, implemented-on-main or release qualification.
+documentation update. At that checkpoint, the combined head still required
+reviewed RLS-census regeneration, a fresh presentation rescan and all applicable
+CI before publication and independent merge review. None of these focused
+receipts alone establishes full-CI, implemented-on-main or release qualification.
+
+### 2026-09-29 bounded merged-scope receipt — #1102
+
+GitHub confirms #1102 merged on September 28 at 02:04:59 UTC as
+`a38055b8d2f3e2215ccc17338f6e199d0a063685`, still the authoritative main tip
+when rechecked on September 29. Its parents are reviewed base
+`6543707c78ef01bd3e4894f5f38e162bcf462ee9` and final source
+`0b69f9a95a6bfa0fe08c901a26d5a12a9e2f6b64`. The merge tree matches the tested
+source tree exactly: `661aa918b20f463f1063302a69c5884a5548c8c2`.
+
+The 59-path merged scope includes Ward-indent concurrency guards,
+patient/tenant-scoped booking access, theatre read contracts and the fail-closed
+checklist editor, Admin incident-dialog races, Staff MAR navigation, tenant
+provisioning atomicity, presentation-inventory reconciliation, test-fixture/mock
+repairs and reviewed RLS-census generation/CI assurance. It adds no migration,
+dependency lockfile or Dockerfile change. The census dispositions and all 806
+presentation review entries remain pending; the complete theatre write contract
+is not approved by the read-only restriction.
+
+Final-source [Canonical CI run 36364104026](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/36364104026)
+completed successfully: literal `Merge Gate` and `Full Merge Gate`, three backend
+shards and all six `full_*` jobs succeeded. Seven QUICK jobs were intentionally
+skipped, not passed. Independent review accepted the exact source before the
+normal protected merge; no administrator bypass was used.
+
+The independently reviewed isolated-Linux local evidence is a composite, not a
+single successful driver run. The original driver completed 18 green phases,
+including all 341 backend chunks, then exited 1 when Flutter's first-run
+analytics notice followed its version JSON. That failed receipt is preserved.
+A separately reviewed same-source continuation passed Flutter formatting,
+generation, analysis, tests and Staff web build without weakening the version
+parser. Core/Patient/Staff tests passed 468/773/1,834 cases respectively; one
+pre-existing Staff scaffold smoke test remained skipped. No application tests
+were rerun for this documentation closeout.
+
+Automatic non-production [Dalek deployment run 36368429296](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/36368429296)
+also completed successfully at the merge SHA. The September 28 read-only target
+receipt recorded one ready and available backend replica and one Admin replica.
+That is bounded rollout evidence, not production or clinical certification.
+Forgejo remediation is outside the September 29 resumption scope; this receipt
+does not claim its publication or distribution checks passed.
 
 Migration 803, booking-alert ownership/recovery decisions, maternity D2/D8,
 clinical configuration inheritance, linguistic sign-off, storage qualification

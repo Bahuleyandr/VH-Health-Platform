@@ -1,8 +1,8 @@
 # VH Health Platform — Consolidated Roadmap
 
-**Single source of truth for pending work. Latest bounded update: #1094–#1095 and #1097–#1100
-merged-scope receipts, 2026-09-27 at authoritative `github/main`
-`6543707c78ef01bd3e4894f5f38e162bcf462ee9`, preserving the September 26
+**Single source of truth for pending work. Latest bounded update: #1102
+merged-scope receipt, 2026-09-29 at authoritative `github/main`
+`a38055b8d2f3e2215ccc17338f6e199d0a063685`, preserving the #1094–#1095/#1097–#1100 and September 26
 #1023/#1091 receipts. OPEN-23 retains its September 16
 receipt at `d60f1ea2c853a9fa525f4a15e60b9fe7b044fc4e`; the remaining queue
 retains its September 8 evidence at `4c1f5654ca70b4dbc2699c96279e0ea03cc8e43c`.**
@@ -170,14 +170,14 @@ canonical ledger's September 27 receipt retains exact merge/head/run evidence
 and the qualified local teardown receipt. None of these bounded repairs
 closes the remaining OPEN-19 workflows or grants release authority.
 
-The separately published [draft #1102](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1102)
-at `55a7c0a5f` contains Ward-indent, booking-access, theatre-read and RLS-census
-repairs. It is **not merged**. Exact-head hosted run `36333311625` passed both
+At the September 27 checkpoint, [draft #1102](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1102)
+at `55a7c0a5f` contained Ward-indent, booking-access, theatre-read and RLS-census
+repairs and was **not merged**. Exact-head hosted run `36333311625` passed both
 merge gates, all three backend shards and all six `full_*` jobs; that result
-and its local evidence are not closure evidence on current main. Do not duplicate that owned scope
-or move its audit items to implemented before a reviewed merge receipt.
+and its local evidence were not closure evidence on main at that checkpoint.
+The final merge receipt below supersedes that draft status.
 
-The September 28 owner-authorized local expansion adds the verified Admin
+The September 28 owner-authorized local expansion added the verified Admin
 incident-dialog, Staff MAR navigation and audit-documentation lanes. Tenant
 provisioning atomicity at `cd664440d` now has independently reviewed focused
 verification of 91 exact cases; presentation-inventory reconciliation at
@@ -188,11 +188,32 @@ two independently reviewed fresh-database passes of all 55 exact cases, with
 no owned residuals, settings drift or cleanup failures. Its earlier attempt
 remains unqualified because report integrity failed. The canonical ledger's
 September 28 receipt retains the earlier failed diagnostics and their limits.
-The final combined tree still requires reviewed RLS-census regeneration,
-presentation rediscovery and all applicable CI. The published #1102 head and
-its hosted checks do not verify this expanded tree. Migration 803,
+At that intermediate checkpoint, the combined tree still required reviewed
+RLS-census regeneration, presentation rediscovery and all applicable CI; the
+earlier published head's checks did not verify the expanded tree. Migration 803,
 product/clinical decisions and external-authority holds are not silently
 incorporated or cleared.
+
+**September 29 merged receipt:** #1102 merged as
+`a38055b8d2f3e2215ccc17338f6e199d0a063685`, from final source
+`0b69f9a95a6bfa0fe08c901a26d5a12a9e2f6b64`. Merge and tested source share tree
+`661aa918b20f463f1063302a69c5884a5548c8c2`. The repairs above, including
+reviewed RLS-census generation/CI assurance and test-fixture/mock repairs, are
+now on main. Do not duplicate those completed slices.
+
+Final-source [Canonical CI run 36364104026](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/36364104026)
+passed both named gates, all three backend shards and all six `full_*` jobs.
+Independent review accepted the isolated-Linux local composite and exact source
+before the protected merge. The original local driver remains failed after a
+Flutter version-output parsing error; its separately reviewed same-source
+continuation passed, with one pre-existing Staff scaffold test still skipped.
+The canonical ledger retains the focused failures and final composite limits.
+
+Automatic non-production [Dalek deployment run 36368429296](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/36368429296)
+succeeded. No production qualification or new clinical authority follows from
+that result. RLS dispositions, all 806 presentation review entries, the full
+theatre write contract and the other holds above remain open. Forgejo remediation
+is outside the current owner-requested scope, not a completed audit finding.
 
 ### External and activation stops `[OPERATOR]` `[EXTERNAL]`
 
