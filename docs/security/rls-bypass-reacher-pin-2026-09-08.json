@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "kind": "CENSUS_ONLY",
-  "revision": "3944975ab3e8632850b4af487865f4892fe918fc",
+  "revision": "913b1f0a84731209826cd9380908628391a42a1d",
   "method": "Static conservative enumeration. PENDING includes paths whose context, activation, historical ledger or dynamic dispatch still needs disposition proof. No job was invoked and no disposition is accepted here.",
   "closureRule": "K = 0 for the table, exact list and count, disposition tests in the same closure PR; each test explicitly enables AUTH_ENFORCE_TENANT_RLS=true and AUTH_TENANT_RLS_RUNTIME_ROLE=vhhealth_app and asserts current_user/rolsuper/rolbypassrls, population first and nonzero job work.",
   "lexical": {"runWithSuperAdminLines":29,"runWithSuperAdminFiles":6,"runWithSuperAdminLocations":["apps/backend/src/lib/tenantContext.js:20","apps/backend/src/lib/tenantContext.js:44","apps/backend/src/middleware/tenantRlsMiddleware.js:14","apps/backend/src/middleware/tenantRlsMiddleware.js:21","apps/backend/src/services/appointment/appointmentReaperService.js:55","apps/backend/src/services/compliance/breachService.js:228","apps/backend/src/services/compliance/breachService.js:269","apps/backend/src/utils/canaryHealthCheck.js:17","apps/backend/src/utils/scheduler.js:186","apps/backend/src/utils/scheduler.js:217","apps/backend/src/utils/scheduler.js:1546","apps/backend/src/utils/scheduler.js:1549","apps/backend/src/utils/scheduler.js:1552","apps/backend/src/utils/scheduler.js:1623","apps/backend/src/utils/scheduler.js:1660","apps/backend/src/utils/scheduler.js:1663","apps/backend/src/utils/scheduler.js:1672","apps/backend/src/utils/scheduler.js:1685","apps/backend/src/utils/scheduler.js:1698","apps/backend/src/utils/scheduler.js:1718","apps/backend/src/utils/scheduler.js:1731","apps/backend/src/utils/scheduler.js:1744","apps/backend/src/utils/scheduler.js:1757","apps/backend/src/utils/scheduler.js:1761","apps/backend/src/utils/scheduler.js:1765","apps/backend/src/utils/scheduler.js:1770","apps/backend/src/utils/scheduler.js:1774","apps/backend/src/utils/scheduler.js:1778","apps/backend/src/utils/scheduler.js:1784"],"withJobLockLines":84},
@@ -2337,9 +2337,10 @@
     {"file":"apps/backend/src/migrations/800_restore_maternity_pregnancy_checks.sql","sha256":"5b8de5a4d6dad50a150b599a12dd533473b9740d49cca0c2a2a71c1df7917dbe"},
     {"file":"apps/backend/src/migrations/801_restore_maternity_labor_delivery_checks.sql","sha256":"21540da6de9d9ad09787e5f11a8fc829a14a46403687d75f7ffc6460cfcd7bb2"},
     {"file":"apps/backend/src/migrations/802_widen_maternity_labor_status.sql","sha256":"b934a219e2dc9400b4baf7e9829cee4d2cd699b8824191652dcd65e99d5ab62b"},
+    {"file":"apps/backend/src/migrations/803_restore_tenant_domain_checks.sql","sha256":"22d6c8907c0ca670486155ee403c4e0af9380d9b53e7d34dee09420ffd7f14bb"},
     {"file":"apps/backend/src/migrations/804_prune_scheduled_job_run_evidence_index_cond.sql","sha256":"bee9dd9093715b889bdce948478a2127e6865d35b3402633c993950c145968b0"}
   ],
-  "migrationStatementPopulation": 14594,
+  "migrationStatementPopulation": 14597,
   "registrations": [
     {"file":"apps/backend/src/utils/scheduler.js","line":646,"job":"purge-logs","schedule":"'0 0 * * *'","guard":"withJobLock","conditions":["process.env.NODE_ENV !== 'test'"],"callbacks":["apps/backend/src/utils/scheduler.js:646:55"]},
     {"file":"apps/backend/src/utils/scheduler.js","line":656,"job":"canary-checks","schedule":"'*/5 * * * *'","guard":"withJobLock","conditions":["process.env.NODE_ENV !== 'test'"],"callbacks":["apps/backend/src/utils/scheduler.js:656:60"]},
