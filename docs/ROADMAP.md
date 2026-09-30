@@ -1509,6 +1509,15 @@ complete workflow has been implemented or verified.
 - **Both selectors:** paginate results and clear stale selections when the
   actor or tenant scope changes.
 
+The owner additionally approved session-bound staff selector state, with
+server-enforced tenant isolation; SUPER_ADMIN remains tied to confirmed
+acting-tenant context. The question's missing-tenant premise was corrected:
+the portal's password-login staff profile already carries `tenantId`. Include
+that known tenant ID in the client scope, together with the actor/session and
+CSSD date. The separate session-readiness repair remains an implementation
+dependency. This is not evidence of detecting invisible cross-tab credential
+changes or every server-side reassignment, and does not authorize writes.
+
 The approved Linen directory audience is exactly `ADMIN`, `SUPER_ADMIN`,
 `ADMISSION_OFFICER`, `CONSULTANT`, `DOCTOR`, `DUTY_DOCTOR`, `JUNIOR_DOCTOR`,
 `RESIDENT`, `SENIOR_DOCTOR`, `HOUSEKEEPING_INCHARGE`, `HOUSEKEEPING_STAFF`,
