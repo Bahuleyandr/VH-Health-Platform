@@ -46,6 +46,7 @@ const PHONE = `98${String(Date.now()).slice(-8)}`;
 
 const realFetch = global.fetch;
 let callbackToken = null;
+let bookingId = null;
 
 function intent(sourceEventKey, { templateVersion = TEMPLATE_KEY } = {}) {
   return {
@@ -58,7 +59,10 @@ function intent(sourceEventKey, { templateVersion = TEMPLATE_KEY } = {}) {
     recipientPhone: PHONE,
     title: 'Booking confirmed',
     body: 'Your investigation INV-9 is confirmed.',
-    data: { tenant_id: TENANT_ID, event: sourceEventKey },
+    data: {
+      tenant_id: TENANT_ID, event: sourceEventKey,
+      type: 'investigation_confirmed', booking_id: bookingId,
+    },
   };
 }
 
@@ -102,6 +106,15 @@ describeIfDb('SMS gateway wave (699/700) — drain, DLT gate, DLR', () => {
        VALUES ($1::uuid, $2::uuid, $3::text, $4::text, 'SMS deep patient', 'PATIENT', true, NOW())`,
       PATIENT_UID, TENANT_ID, PHONE, `sms-deep-${SUFFIX}@example.test`,
     );
+    const [booking] = await prisma.$queryRawUnsafe(
+      `INSERT INTO investigation_bookings (tenant_id, patient_id, booking_number, status)
+       SELECT $1::uuid, id, $3::text, 'CONFIRMED' FROM users
+        WHERE tenant_id = $1::uuid AND uid = $2::uuid
+       RETURNING id::text`,
+      TENANT_ID, PATIENT_UID, `SMS-${SUFFIX}`,
+    );
+    expect(booking).toBeDefined();
+    bookingId = booking.id;
 
     const view = await upsertSmsProviderConfig({
       tenantId: TENANT_ID,

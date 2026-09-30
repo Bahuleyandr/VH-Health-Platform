@@ -2,6 +2,7 @@ import prisma, { setTenant } from '../../lib/prisma.js';
 import { runInTenantContext } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
 import { sendSMS } from '../../services/smsService.js';
+import { normalizeIndianSmsPhone } from '../phoneUtils.js';
 import {
   applyProviderReceiptToCursor,
   beginProviderAttempts,
@@ -227,6 +228,70 @@ function uncertain(providerCode, err) {
 }
 
 const SMS_OUTCOMES = new Set(['acknowledged', 'rejected', 'uncertain']);
+const BOOKING_SMS_TYPES = new Set(['investigation_confirmed', 'investigation_result_ready']);
+const BOOKING_SMS_SOURCE = /^investigation-(?:booking-confirmed|result-ready):/;
+const RECIPIENT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isBookingSms(row) {
+  const payload = payloadObject(row);
+  return [row.type, payload.type].some(value => BOOKING_SMS_TYPES.has(String(value || '').trim().toLowerCase()))
+    || /^sms\.investigation_(?:booking_confirmed|result_ready)\./.test(row.template_version || '')
+    || BOOKING_SMS_SOURCE.test(row.source_event_key || '');
+}
+
+function positiveInt8Text(value) {
+  if (typeof value === 'number' && !Number.isSafeInteger(value)) return null;
+  if (!['string', 'number', 'bigint'].includes(typeof value)) return null;
+  const text = String(value).trim();
+  if (!/^\d+$/.test(text) || text.length > 19) return null;
+  const integer = BigInt(text);
+  return integer > 0n && integer <= 9223372036854775807n ? integer.toString() : null;
+}
+
+async function bookingSmsRecipientRejection(row, tenantId) {
+  const bookingId = positiveInt8Text(payloadObject(row).booking_id);
+  const recipientId = positiveInt8Text(row.recipient_id);
+  const recipientUid = typeof row.recipient_id === 'string'
+    && RECIPIENT_UUID_RE.test(row.recipient_id.trim()) ? row.recipient_id.trim().toLowerCase() : null;
+  const phone = typeof row.recipient_phone === 'string'
+    ? normalizeIndianSmsPhone(row.recipient_phone) : null;
+  if (!bookingId || (!recipientId && !recipientUid) || !phone) {
+    return rejected('booking_sms_recipient_mismatch');
+  }
+  if (BOOKING_SMS_SOURCE.test(row.source_event_key || '')) {
+    const sourceId = row.source_event_key.match(/^[^:]+:(\d+)(?:[:~]|$)/)?.[1];
+    if (positiveInt8Text(sourceId) !== bookingId) {
+      return rejected('booking_sms_recipient_mismatch');
+    }
+  }
+  let patients;
+  try {
+    // This is a primary-database snapshot at drain, not a lock across the
+    // network send. Never route authorization reads to a lagging replica.
+    patients = await setTenant(tenantId, tx => tx.$queryRawUnsafe(
+      `SELECT b.patient_id::text AS patient_id, p.uid::text AS patient_uid, p.phone
+         FROM investigation_bookings b
+         JOIN users p ON p.id = b.patient_id AND p.tenant_id = b.tenant_id
+        WHERE b.tenant_id = $1::uuid AND b.id = $2::bigint
+          AND p.role = 'PATIENT' AND p.is_active = true AND p.status = 'active'
+          AND p.is_deleted = false AND p.deleted_at IS NULL
+          AND p.merged_into_uid IS NULL AND p.merged_at IS NULL`,
+      tenantId, bookingId,
+    ));
+  } catch {
+    return {
+      outcome: 'uncertain', providerReference: null,
+      providerCode: 'booking_sms_recipient_lookup_failed', evidence: {},
+    };
+  }
+  const patient = patients[0];
+  if (patients.length !== 1 || !patient
+    || (recipientId !== patient.patient_id && recipientUid !== patient.patient_uid)
+    || normalizeIndianSmsPhone(patient.phone) !== phone) {
+    return rejected('booking_sms_recipient_mismatch');
+  }
+  return null;
+}
 
 /** Defensive pass-through: sendSMS already returns the receipt shape; a
  * malformed/absent result must classify as uncertain, never acknowledged. */
@@ -339,7 +404,17 @@ export async function deliverNotificationOutboxRow(row) {
     }
   }
 
-  if (pendingAttempts.length > 0 && decision.source === 'tenant') {
+  let routedAttempts = pendingAttempts;
+  if (pendingAttempts.some(attempt => attempt.channel === 'sms') && isBookingSms(row)) {
+    const rejection = await bookingSmsRecipientRejection(row, decision.tenantId);
+    if (rejection) providerResults.sms = rejection;
+    else Object.assign(providerResults, await deliverLegacyWithProviderReceipt(row, ['sms'], decision.tenantId));
+    // Tenant dispatch resolves the current phone again. A booking's rendered
+    // intent must instead retain its captured, now-checked recipient address.
+    routedAttempts = pendingAttempts.filter(attempt => attempt.channel !== 'sms');
+  }
+
+  if (routedAttempts.length > 0 && decision.source === 'tenant') {
     const userId = row.recipient_id !== null && row.recipient_id !== undefined && row.recipient_id !== ''
       ? String(row.recipient_id)
       : String(row.recipient_phone || '').trim();
@@ -349,7 +424,7 @@ export async function deliverNotificationOutboxRow(row) {
     // throwing here left the row leased until lease-expiry marked it
     // RECONCILIATION_REQUIRED and paused the whole channel).
 
-    const pendingChannels = pendingAttempts.map(attempt => attempt.channel);
+    const pendingChannels = routedAttempts.map(attempt => attempt.channel);
     const dryRun = forceDryRunProviders(pendingChannels);
     if (dryRun.dryRunChannels.length > 0) {
       logger.info('notification-outbox-drain: provider unavailable for durable delivery', {
@@ -378,10 +453,10 @@ export async function deliverNotificationOutboxRow(row) {
     } finally {
       dryRun.restore();
     }
-  } else if (pendingAttempts.length > 0) {
+  } else if (routedAttempts.length > 0) {
     Object.assign(providerResults, await deliverLegacyWithProviderReceipt(
       row,
-      pendingAttempts.map(attempt => attempt.channel),
+      routedAttempts.map(attempt => attempt.channel),
       decision.tenantId,
     ));
   }

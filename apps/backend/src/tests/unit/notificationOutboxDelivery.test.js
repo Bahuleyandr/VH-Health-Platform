@@ -12,21 +12,23 @@ const queryRawUnsafeMock = jest.fn();
 const beginProviderAttemptsMock = jest.fn();
 const recordProviderReceiptMock = jest.fn();
 const applyProviderReceiptToCursorMock = jest.fn();
+const setTenantMock = jest.fn(async (_tenantId, callback) => callback({
+  $queryRawUnsafe: queryRawUnsafeMock,
+}));
 const loggerMock = {
   info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn(),
 };
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
   default: { $queryRawUnsafe: queryRawUnsafeMock },
-  setTenant: jest.fn(async (_tenantId, callback) => callback({
-    $queryRawUnsafe: queryRawUnsafeMock,
-  })),
+  setTenant: setTenantMock,
   // notificationOutbox.js (imported below for its intent builder) needs this
   // export to link, even though the builder itself never touches the DB.
   setTenantTx: jest.fn(async (_tenantId, callback) => callback({
     $queryRawUnsafe: queryRawUnsafeMock,
   })),
 }));
+jest.unstable_mockModule('../../lib/redis.js', () => ({ disconnectRedis: jest.fn() }));
 jest.unstable_mockModule('../../lib/tenantContext.js', () => ({
   runInTenantContext: (_tenantId, callback) => callback(),
   getCurrentTenantId: () => TENANT_ID,
@@ -98,6 +100,7 @@ describe('notification outbox durable provider delivery', () => {
       evidence: { dry_run: true, reason: 'not_configured' },
     });
     queryRawUnsafeMock.mockReset();
+    setTenantMock.mockClear();
     beginProviderAttemptsMock.mockReset();
     recordProviderReceiptMock.mockReset();
     applyProviderReceiptToCursorMock.mockReset();
@@ -331,6 +334,9 @@ describe('notification outbox durable provider delivery', () => {
 
     getTenantSettingsMock.mockResolvedValue({});
     beginProviderAttemptsMock.mockResolvedValue([attempt('sms')]);
+    queryRawUnsafeMock.mockResolvedValue([{
+      patient_id: '77', patient_uid: CLAIM_TOKEN, phone: '+919000000004',
+    }]);
 
     const result = await deliverNotificationOutboxRow(row({
       id: 1002,
@@ -363,6 +369,250 @@ describe('notification outbox durable provider delivery', () => {
       outcome: 'rejected',
       providerCode: 'sms_gateway_not_configured',
     }));
+  });
+
+  describe('investigation booking SMS recipient binding at drain', () => {
+    const patientUid = 'abcde123-1234-4123-8123-123456789abc';
+    const currentPatient = { patient_id: '42', patient_uid: patientUid, phone: '+919000000001' };
+    const bookingRow = (overrides = {}) => row({
+      type: 'sms',
+      template_version: 'sms.investigation_booking_confirmed.v1',
+      source_event_key: 'investigation-booking-confirmed:17',
+      payload: { type: 'investigation_confirmed', booking_id: '17' },
+      ...overrides,
+    });
+
+    beforeEach(() => {
+      getTenantSettingsMock.mockResolvedValue({});
+      beginProviderAttemptsMock.mockResolvedValue([attempt('sms')]);
+      queryRawUnsafeMock.mockResolvedValue([currentPatient]);
+      sendSmsMock.mockResolvedValue({
+        outcome: 'acknowledged', providerReference: 'test-provider-receipt',
+        providerCode: 'accepted', evidence: {},
+      });
+    });
+
+    test('rejects a queued phone that no longer belongs to the booking patient without retargeting', async () => {
+      queryRawUnsafeMock.mockResolvedValue([{ ...currentPatient, phone: '+919000000002' }]);
+      const result = await deliverNotificationOutboxRow(bookingRow());
+      expect(result).toMatchObject({ outcome: 'rejected', terminal: true });
+      expect(sendSmsMock).not.toHaveBeenCalled();
+      expect(dispatchMock).not.toHaveBeenCalled();
+      expect(recordProviderReceiptMock).toHaveBeenCalledWith(expect.objectContaining({
+        channel: 'sms', outcome: 'rejected', providerCode: 'booking_sms_recipient_mismatch',
+        evidence: {},
+      }));
+      expect(applyProviderReceiptToCursorMock).toHaveBeenCalledWith({
+        tenantId: TENANT_ID, receiptId: 'receipt-sms',
+      });
+    });
+
+    test.each(['42', 42, 42n, '00042', patientUid, patientUid.toUpperCase()])(
+      'accepts the current patient represented by %s', async recipientId => {
+        const result = await deliverNotificationOutboxRow(bookingRow({ recipient_id: recipientId }));
+        expect(result.outcome).toBe('acknowledged');
+        expect(sendSmsMock).toHaveBeenCalledTimes(1);
+        expect(setTenantMock).toHaveBeenCalledWith(TENANT_ID, expect.any(Function));
+        const [sql, tenant, bookingId] = queryRawUnsafeMock.mock.calls[0];
+        expect(tenant).toBe(TENANT_ID);
+        expect(bookingId).toBe('17');
+        expect(sql).toMatch(/b\.tenant_id = \$1::uuid/);
+        expect(sql).toMatch(/p\.tenant_id = b\.tenant_id/);
+        expect(sql).toMatch(/p\.role = 'PATIENT'/);
+        expect(sql).toMatch(/p\.is_active = true/);
+        expect(sql).toMatch(/p\.is_deleted = false/);
+        expect(sql).toMatch(/p\.deleted_at IS NULL/);
+        expect(sql).toMatch(/p\.merged_into_uid IS NULL/);
+        expect(sql).toMatch(/p\.merged_at IS NULL/);
+        expect(sql).toMatch(/p\.status = 'active'/);
+      },
+    );
+
+    test.each(['9000000001', '919000000001', '+91 90000 00001', '09000000001', '(+91)-9000000001'])(
+      'accepts equivalent provider-normalized phone %s without rewriting the immutable intent', async phone => {
+        const result = await deliverNotificationOutboxRow(bookingRow({ recipient_phone: phone }));
+        expect(result.outcome).toBe('acknowledged');
+        expect(sendSmsMock.mock.calls[0][0]).toBe(phone);
+      },
+    );
+
+    test('accepts a stored version-seven UUID without changing tenant UUID validation', async () => {
+      const uid = '01234567-89ab-7cde-8123-0123456789ab';
+      queryRawUnsafeMock.mockResolvedValue([{ ...currentPatient, patient_uid: uid }]);
+      const result = await deliverNotificationOutboxRow(bookingRow({ recipient_id: uid.toUpperCase() }));
+      expect(result.outcome).toBe('acknowledged');
+      expect(sendSmsMock).toHaveBeenCalledTimes(1);
+    });
+
+    test.each([null, '', [], {}, '17suffix', '-17', '0', 1.5, Number.MAX_SAFE_INTEGER + 1, '9223372036854775808'])(
+      'rejects malformed booking identity %s before lookup or send', async bookingId => {
+        const result = await deliverNotificationOutboxRow(bookingRow({
+          payload: { type: 'investigation_confirmed', booking_id: bookingId },
+        }));
+        expect(result).toMatchObject({ outcome: 'rejected', terminal: true });
+        expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+        expect(sendSmsMock).not.toHaveBeenCalled();
+      },
+    );
+
+    test('preserves PostgreSQL int8 booking identities beyond JavaScript safe integers', async () => {
+      const result = await deliverNotificationOutboxRow(bookingRow({
+        source_event_key: 'investigation-booking-confirmed:9223372036854775807:operator-replay:21',
+        payload: { type: 'investigation_confirmed', booking_id: '9223372036854775807' },
+      }));
+      expect(result.outcome).toBe('acknowledged');
+      expect(queryRawUnsafeMock.mock.calls[0][2]).toBe('9223372036854775807');
+    });
+
+    test.each(['investigation-booking-confirmed:18', 'investigation-result-ready:17suffix'])('rejects a conflicting source identity %s', async sourceEventKey => {
+      const result = await deliverNotificationOutboxRow(bookingRow({ source_event_key: sourceEventKey }));
+      expect(result).toMatchObject({ outcome: 'rejected', terminal: true });
+      expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+      expect(sendSmsMock).not.toHaveBeenCalled();
+    });
+
+    test('does not revalidate unrelated SMS or alter its provider gate', async () => {
+      const result = await deliverNotificationOutboxRow(bookingRow({
+        template_version: 'sms.appointment_reminder.v1',
+        source_event_key: 'appointment-reminder:17',
+        payload: { type: 'appointment_reminder', appointment_id: '17' },
+      }));
+      expect(result.outcome).toBe('acknowledged');
+      expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+      expect(sendSmsMock).toHaveBeenCalledTimes(1);
+    });
+
+    test.each([null, '', [], {}, '43', '42suffix', '0', Number.MAX_SAFE_INTEGER + 1,
+      '01234567-89ab-7cde-8123-0123456789az', '01234567-89ab-7cde-8123-0123456789ab-extra'])(
+      'rejects a missing, malformed or different recipient identity %s', async recipientId => {
+        const result = await deliverNotificationOutboxRow(bookingRow({ recipient_id: recipientId }));
+        expect(result).toMatchObject({ outcome: 'rejected', terminal: true });
+        expect(sendSmsMock).not.toHaveBeenCalled();
+      },
+    );
+
+    test.each([null, '', 'phone:9000000001', '+449000000001', [], {}])(
+      'rejects malformed captured phones %s', async phone => {
+        const result = await deliverNotificationOutboxRow(bookingRow({ recipient_phone: phone }));
+        expect(result).toMatchObject({ outcome: 'rejected', terminal: true });
+        expect(sendSmsMock).not.toHaveBeenCalled();
+      },
+    );
+
+    test('keeps recipient lookup errors uncertain without persisting their potentially private text', async () => {
+      queryRawUnsafeMock.mockRejectedValue(new Error('private phone +919000000001 database failure'));
+      const result = await deliverNotificationOutboxRow(bookingRow());
+      expect(result).toMatchObject({ outcome: 'uncertain', terminal: false });
+      expect(sendSmsMock).not.toHaveBeenCalled();
+      expect(recordProviderReceiptMock).toHaveBeenCalledWith(expect.objectContaining({
+        outcome: 'uncertain', providerCode: 'booking_sms_recipient_lookup_failed',
+        receiptSource: 'transport_failure', evidence: {},
+      }));
+    });
+
+    test('rejects a missing or no-longer-active tenant patient binding', async () => {
+      queryRawUnsafeMock.mockResolvedValue([]);
+      const result = await deliverNotificationOutboxRow(bookingRow());
+      expect(result).toMatchObject({ outcome: 'rejected', terminal: true });
+      expect(sendSmsMock).not.toHaveBeenCalled();
+    });
+
+    test.each([
+      { template_version: null, source_event_key: null },
+      { payload: { booking_id: '17' }, source_event_key: null },
+      { payload: { booking_id: '17' }, template_version: null },
+      { payload: { booking_id: '17' }, template_version: null, source_event_key: 'investigation-result-ready:17:auto-replay:22:hash' },
+      { payload: { type: 'investigation_result_ready', booking_id: '17' }, template_version: null, source_event_key: null },
+    ])('recognizes each durable booking signal independently %#', async overrides => {
+      queryRawUnsafeMock.mockResolvedValue([{ ...currentPatient, phone: '+919000000002' }]);
+      const result = await deliverNotificationOutboxRow(bookingRow(overrides));
+      expect(result).toMatchObject({ outcome: 'rejected', terminal: true });
+      expect(sendSmsMock).not.toHaveBeenCalled();
+    });
+
+    describe.each([
+      ['row uppercase', 'INVESTIGATION_RESULT_READY', null],
+      ['row padded', ' INVESTIGATION_RESULT_READY ', null],
+      ['payload uppercase', 'sms', 'INVESTIGATION_CONFIRMED'],
+      ['payload padded', 'sms', ' INVESTIGATION_RESULT_READY '],
+    ])('normalized booking type: %s', (_label, type, payloadType) => {
+      const normalizedTypeRow = (bookingId = '17') => bookingRow({
+        type,
+        template_version: 'sms.v1', source_event_key: 'direct:synthetic-generic',
+        payload: { booking_id: bookingId, ...(payloadType ? { type: payloadType } : {}) },
+      });
+
+      beforeEach(() => {
+        getTenantSettingsMock.mockResolvedValue({ notificationChannels: { results_ready: ['sms'] } });
+        dispatchMock.mockResolvedValue({ sms: {
+          outcome: 'acknowledged', providerReference: 'dispatcher-provider-receipt',
+          providerCode: 'accepted', evidence: {},
+        } });
+      });
+
+      test('validates and sends the unchanged authorized intent', async () => {
+        const result = await deliverNotificationOutboxRow(normalizedTypeRow());
+        expect(result.outcome).toBe('acknowledged');
+        expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
+        expect(sendSmsMock).toHaveBeenCalledWith('+919000000001', expect.any(String), expect.objectContaining({ templateVersion: 'sms.v1' }));
+        expect(dispatchMock).not.toHaveBeenCalled();
+      });
+
+      test('rejects a stale phone rather than bypassing into either provider route', async () => {
+        queryRawUnsafeMock.mockResolvedValue([{ ...currentPatient, phone: '+919000000002' }]);
+        const result = await deliverNotificationOutboxRow(normalizedTypeRow());
+        expect(result).toMatchObject({ outcome: 'rejected', terminal: true });
+        expect(queryRawUnsafeMock).toHaveBeenCalledTimes(1);
+        expect(sendSmsMock).not.toHaveBeenCalled();
+        expect(dispatchMock).not.toHaveBeenCalled();
+      });
+
+      test('rejects missing booking authority despite generic template and source metadata', async () => {
+        const result = await deliverNotificationOutboxRow(normalizedTypeRow(null));
+        expect(result).toMatchObject({ outcome: 'rejected', terminal: true });
+        expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+        expect(sendSmsMock).not.toHaveBeenCalled();
+        expect(dispatchMock).not.toHaveBeenCalled();
+      });
+    });
+
+    test('does not let tenant dispatch retarget a valid booking SMS while other channels remain unchanged', async () => {
+      getTenantSettingsMock.mockResolvedValue({ notificationChannels: { results_ready: ['sms', 'push'] } });
+      beginProviderAttemptsMock.mockResolvedValue([attempt('sms'), attempt('push')]);
+      dispatchMock.mockResolvedValue({ push: {
+        outcome: 'acknowledged', providerReference: 'push-receipt', providerCode: 'accepted', evidence: {},
+      } });
+      const result = await deliverNotificationOutboxRow(bookingRow({ type: 'lab_result_ready' }));
+      expect(result).toMatchObject({ mode: 'dispatcher', outcome: 'acknowledged' });
+      expect(sendSmsMock).toHaveBeenCalledWith('+919000000001', expect.any(String), expect.any(Object));
+      expect(dispatchMock).toHaveBeenCalledWith(expect.objectContaining({ channels: ['push'] }));
+      expect(recordProviderReceiptMock).toHaveBeenCalledTimes(2);
+    });
+
+    test('rejects only the stale SMS when a tenant-dispatched replay also carries push', async () => {
+      getTenantSettingsMock.mockResolvedValue({ notificationChannels: { results_ready: ['sms', 'push'] } });
+      beginProviderAttemptsMock.mockResolvedValue([attempt('sms'), attempt('push')]);
+      queryRawUnsafeMock.mockResolvedValue([{ ...currentPatient, phone: '+919000000002' }]);
+      dispatchMock.mockResolvedValue({ push: {
+        outcome: 'acknowledged', providerReference: 'push-receipt', providerCode: 'accepted', evidence: {},
+      } });
+      const result = await deliverNotificationOutboxRow(bookingRow({
+        type: 'lab_result_ready', payload: {
+          booking_id: '17', __delivery_channels: ['sms', 'push'],
+        },
+      }));
+      expect(result).toMatchObject({ outcome: 'rejected', terminal: true });
+      expect(sendSmsMock).not.toHaveBeenCalled();
+      expect(dispatchMock).toHaveBeenCalledWith(expect.objectContaining({ channels: ['push'] }));
+    });
+
+    test.each(['blocked', 'acknowledged'])('does not revalidate or resend an already %s attempt', async state => {
+      beginProviderAttemptsMock.mockResolvedValue([attempt('sms', state)]);
+      await deliverNotificationOutboxRow(bookingRow());
+      expect(queryRawUnsafeMock).not.toHaveBeenCalled();
+      expect(sendSmsMock).not.toHaveBeenCalled();
+      expect(recordProviderReceiptMock).not.toHaveBeenCalled();
+    });
   });
 
   test('does not call a provider when the tenant/channel cursor is paused', async () => {
