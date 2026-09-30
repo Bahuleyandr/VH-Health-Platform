@@ -10,6 +10,38 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get abdmAddressInvalidError =>
+      'That does not look like an ABHA address. It should look like name@abdm.';
+
+  @override
+  String get abdmAlreadyLinkedError =>
+      'This ABHA is already linked to another patient. Please check the number, or ask the hospital front desk for help.';
+
+  @override
+  String get abdmVerificationFailedError =>
+      'We could not verify this ABHA with ABDM just now, so it has not been linked. Please try again in a few minutes.';
+
+  @override
+  String get abdmPatientNotFoundError =>
+      'We could not find your patient record. Please ask the hospital front desk to check your registration.';
+
+  @override
+  String get abdmConsentLoadFailed =>
+      'Could not load consent requests. Please try again.';
+
+  @override
+  String get abdmConsentGrantFailed =>
+      'Could not grant consent. Please try again.';
+
+  @override
+  String get abdmConsentDenyFailed =>
+      'Could not deny consent. Please try again.';
+
+  @override
+  String get abdmConsentRevokeFailed =>
+      'Could not revoke consent. Please try again.';
+
+  @override
   String get authLoginTitle => 'Login to your account';
 
   @override

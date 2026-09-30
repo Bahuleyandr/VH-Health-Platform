@@ -36,8 +36,9 @@ void main() {
             as Map<String, dynamic>;
 
     final englishKeys = readArb('en').keys
-        .where((key) => key.startsWith('abdm') && !key.startsWith('@'))
+        .where((key) => key.startsWith('abdm') || key.startsWith('abha'))
         .toSet();
+    expect(englishKeys, isNotEmpty);
 
     for (final locale in const ['hi', 'ta', 'te', 'ml']) {
       final localeKeys = readArb(locale).keys.toSet();
@@ -205,6 +206,20 @@ void main() {
       ),
       untranslated('abdmLinkSuccess', (l) => l.abdmLinkSuccess),
       untranslated('abdmLinkFailed', (l) => l.abdmLinkFailed),
+      untranslated('abdmAddressInvalidError', (l) => l.abdmAddressInvalidError),
+      untranslated('abdmAlreadyLinkedError', (l) => l.abdmAlreadyLinkedError),
+      untranslated(
+        'abdmVerificationFailedError',
+        (l) => l.abdmVerificationFailedError,
+      ),
+      untranslated(
+        'abdmPatientNotFoundError',
+        (l) => l.abdmPatientNotFoundError,
+      ),
+      untranslated('abdmConsentLoadFailed', (l) => l.abdmConsentLoadFailed),
+      untranslated('abdmConsentGrantFailed', (l) => l.abdmConsentGrantFailed),
+      untranslated('abdmConsentDenyFailed', (l) => l.abdmConsentDenyFailed),
+      untranslated('abdmConsentRevokeFailed', (l) => l.abdmConsentRevokeFailed),
       untranslated(
         'abdmStatusCheckFailedTitle',
         (l) => l.abdmStatusCheckFailedTitle,

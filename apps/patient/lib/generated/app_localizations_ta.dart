@@ -10,6 +10,38 @@ class AppLocalizationsTa extends AppLocalizations {
   AppLocalizationsTa([String locale = 'ta']) : super(locale);
 
   @override
+  String get abdmAddressInvalidError =>
+      'இது சரியான ABHA முகவரியாகத் தெரியவில்லை. இது name@abdm போல இருக்க வேண்டும்.';
+
+  @override
+  String get abdmAlreadyLinkedError =>
+      'இந்த ABHA ஏற்கெனவே மற்றொரு நோயாளியுடன் இணைக்கப்பட்டுள்ளது. எண்ணைச் சரிபார்க்கவும் அல்லது மருத்துவமனை வரவேற்பு மேசையில் உதவி கேட்கவும்.';
+
+  @override
+  String get abdmVerificationFailedError =>
+      'இப்போது ABDM மூலம் இந்த ABHA-வைச் சரிபார்க்க முடியவில்லை; எனவே இது இணைக்கப்படவில்லை. சில நிமிடங்களில் மீண்டும் முயற்சிக்கவும்.';
+
+  @override
+  String get abdmPatientNotFoundError =>
+      'உங்கள் நோயாளிப் பதிவைக் கண்டறிய முடியவில்லை. உங்கள் பதிவைச் சரிபார்க்க மருத்துவமனை வரவேற்பு மேசையில் கேட்கவும்.';
+
+  @override
+  String get abdmConsentLoadFailed =>
+      'ஒப்புதல் கோரிக்கைகளை ஏற்ற முடியவில்லை. மீண்டும் முயற்சிக்கவும்.';
+
+  @override
+  String get abdmConsentGrantFailed =>
+      'ஒப்புதல் வழங்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.';
+
+  @override
+  String get abdmConsentDenyFailed =>
+      'ஒப்புதல் கோரிக்கையை மறுக்க முடியவில்லை. மீண்டும் முயற்சிக்கவும்.';
+
+  @override
+  String get abdmConsentRevokeFailed =>
+      'ஒப்புதலைத் திரும்பப் பெற முடியவில்லை. மீண்டும் முயற்சிக்கவும்.';
+
+  @override
   String get authLoginTitle => 'உங்கள் கணக்கில் உள்நுழையவும்';
 
   @override

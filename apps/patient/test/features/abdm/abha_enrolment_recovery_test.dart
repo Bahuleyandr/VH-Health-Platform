@@ -44,7 +44,8 @@ const _blockingSessionId = 77;
 /// The session THIS flow starts, from the digits in the form.
 const _ownSessionId = 99;
 
-Widget _harness() => MaterialApp(
+Widget _harness({Locale? locale}) => MaterialApp(
+  locale: locale,
   localizationsDelegates: AppLocalizations.localizationsDelegates,
   supportedLocales: AppLocalizations.supportedLocales,
   home: Scaffold(
@@ -322,6 +323,34 @@ void main() {
     expect(startCalls, 3); // press 1, its recovery restart, press 2
     final en = await AppLocalizations.delegate.load(const Locale('en'));
     expect(find.textContaining(en.abhaEnrolStartFailed), findsOneWidget);
+  });
+
+  testWidgets('Malayalam failed status probe never cancels or restarts', (
+    tester,
+  ) async {
+    final calls = <String>[];
+    VHHttpClient.setClientForTesting(
+      MockClient((request) async {
+        calls.add(request.url.path);
+        if (request.url.path.endsWith('/enrolment/start')) {
+          return _inProgress();
+        }
+        expect(request.url.path, endsWith('/enrolment/status'));
+        return _json({'message': 'Untranslated synthetic failure'}, 403);
+      }),
+    );
+    await tester.pumpWidget(_harness(locale: const Locale('ml')));
+    await tester.pumpAndSettle();
+    await _sendOtp(tester);
+    final ml = await AppLocalizations.delegate.load(const Locale('ml'));
+    expect(find.text(ml.abhaEnrolStartFailed), findsOneWidget);
+    expect(find.textContaining('Untranslated synthetic failure'), findsNothing);
+    expect(calls, [
+      '/api/v1/portal/abdm/enrolment/start',
+      '/api/v1/portal/abdm/enrolment/status',
+    ]);
+    expect(find.byKey(const ValueKey('enrolment_aadhaar')), findsOneWidget);
+    expect(find.byKey(const ValueKey('enrolment_otp')), findsNothing);
   });
 }
 

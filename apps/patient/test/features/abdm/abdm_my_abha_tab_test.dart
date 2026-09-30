@@ -199,7 +199,7 @@ void main() {
       expect(find.byKey(const ValueKey('abha_link_form')), findsOneWidget);
     });
 
-    testWidgets('a rejected link surfaces the backend message and stays put', (
+    testWidgets('a rejected link localizes its machine code and stays put', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -207,9 +207,7 @@ void main() {
           child: MyAbhaTab(
             loadLinkage: () async => const AbhaLinkage(linked: false),
             linkAbha: ({required abhaNumber, abhaAddress}) async =>
-                throw const AbdmException(
-                  'This ABHA number is already linked to another patient',
-                ),
+                throw const AbdmException(code: 'ABHA_ALREADY_LINKED'),
           ),
         ),
       );
@@ -224,10 +222,8 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('abha_link_submit')));
       await tester.pumpAndSettle();
 
-      expect(
-        find.text('This ABHA number is already linked to another patient'),
-        findsOneWidget,
-      );
+      final l = await AppLocalizations.delegate.load(const Locale('en'));
+      expect(find.text(l.abdmAlreadyLinkedError), findsOneWidget);
       // Still on the form with the input intact, not silently "linked".
       expect(find.byKey(const ValueKey('abha_link_form')), findsOneWidget);
       expect(find.byKey(const ValueKey('abha_card')), findsNothing);
@@ -262,15 +258,15 @@ void main() {
     await tester.pumpWidget(
       _LocalizedHarness(
         child: MyAbhaTab(
-          loadLinkage: () async =>
-              throw const AbdmException('Could not check your ABHA status'),
+          loadLinkage: () async => throw const AbdmException(statusCode: 503),
         ),
       ),
     );
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('abha_error')), findsOneWidget);
-    expect(find.text('Could not check your ABHA status'), findsWidgets);
+    final l = await AppLocalizations.delegate.load(const Locale('en'));
+    expect(find.text(l.abdmStatusCheckFailedDetail), findsOneWidget);
     expect(find.byKey(const ValueKey('abha_retry')), findsOneWidget);
     // Must not fall back to the registration prompt — that is the F12 bug.
     expect(find.byKey(const ValueKey('abha_info')), findsNothing);
@@ -284,7 +280,7 @@ void main() {
     Future<AbhaLinkage> load() async {
       attempts++;
       if (attempts == 1) {
-        throw const AbdmException('Network unreachable');
+        throw const AbdmException(statusCode: 503);
       }
       return const AbhaLinkage(linked: true, abhaNumber: '99998888777766');
     }

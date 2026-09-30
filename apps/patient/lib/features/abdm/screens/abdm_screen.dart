@@ -11,6 +11,7 @@ import 'package:vhhealth/core/services/abdm_api_service.dart';
 import 'package:vhhealth/core/widgets/feature_screen_scaffold.dart';
 import 'package:vhhealth/core/widgets/live_region_snack_bar.dart';
 import 'package:vhhealth/features/abdm/widgets/abha_enrolment_flow.dart';
+import 'package:vhhealth/features/abdm/abdm_error_message.dart';
 
 /// Links an EXISTING ABHA to the signed-in patient's account.
 typedef LinkAbha = Future<void> Function({
@@ -110,7 +111,7 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
   // Starts true: the first frame is the spinner, never a momentary flash of the
   // "not registered" prompt before the status is known.
   bool _loading = true;
-  String? _loadError;
+  bool _loadFailed = false;
   bool? _linked;
   String? _abhaNumber;
   String? _abhaAddress;
@@ -131,7 +132,7 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
   Future<void> _checkAbha() async {
     setState(() {
       _loading = true;
-      _loadError = null;
+      _loadFailed = false;
     });
     try {
       final linkage = await (widget.loadLinkage ?? AbdmApiService.getMyAbha)();
@@ -141,18 +142,10 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
         _abhaNumber = linkage.abhaNumber;
         _abhaAddress = linkage.abhaAddress;
       });
-    } on AbdmException catch (e) {
-      // Surface the failure. Swallowing it would render the registration form,
-      // which tells an already-linked patient to register a second ABHA.
-      if (mounted) setState(() => _loadError = e.message);
     } catch (e) {
-      if (kDebugMode) debugPrint('ABDM check error: $e');
+      if (kDebugMode) debugPrint('ABDM check failed: ${e.runtimeType}');
       if (mounted) {
-        setState(
-          () =>
-              _loadError = AppLocalizations.of(context)!
-                  .abdmStatusCheckFailedDetail,
-        );
+        setState(() => _loadFailed = true);
       }
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -184,9 +177,14 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
       // here lands in the error+retry state; the link itself already succeeded.
       await _checkAbha();
     } on AbdmException catch (e) {
-      if (mounted) _showSnackBar(e.message, isError: true);
+      if (mounted) {
+        _showSnackBar(
+          abdmLinkFailureMessage(AppLocalizations.of(context)!, e.code),
+          isError: true,
+        );
+      }
     } catch (e) {
-      if (kDebugMode) debugPrint('ABDM link error: $e');
+      if (kDebugMode) debugPrint('ABDM link failed: ${e.runtimeType}');
       if (mounted) {
         _showSnackBar(
           AppLocalizations.of(context)!.abdmLinkFailed,
@@ -231,7 +229,7 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
     }
 
     // Status unknown — say so and offer a retry, rather than guessing "unlinked"
-    if (_loadError != null) {
+    if (_loadFailed) {
       return _buildErrorState(theme);
     }
 
@@ -279,7 +277,7 @@ class _MyAbhaTabState extends State<MyAbhaTab> {
           ),
           const SizedBox(height: 8),
           Text(
-            _loadError!,
+            l.abdmStatusCheckFailedDetail,
             style: theme.textTheme.bodyMedium?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
@@ -534,6 +532,7 @@ class _ConsentRequestsTab extends StatefulWidget {
 
 class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
   bool _loading = true;
+  bool _loadFailed = false;
   List<dynamic> _consents = [];
 
   @override
@@ -543,11 +542,16 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
   }
 
   Future<void> _loadConsents() async {
-    setState(() => _loading = true);
+    setState(() {
+      _loading = true;
+      _loadFailed = false;
+    });
     try {
-      _consents = await AbdmApiService.getConsents();
+      final consents = await AbdmApiService.getConsents();
+      if (mounted) setState(() => _consents = consents);
     } catch (e) {
-      if (kDebugMode) debugPrint('ABDM loadConsents error: $e');
+      if (kDebugMode) debugPrint('ABDM loadConsents failed: ${e.runtimeType}');
+      if (mounted) setState(() => _loadFailed = true);
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -558,6 +562,7 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
     required String body,
     required String confirmLabel,
     required String successMessage,
+    required String failureMessage,
     required String consentId,
     required Future<void> Function(String) apiCall,
   }) async {
@@ -592,11 +597,14 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
         );
         unawaited(_loadConsents());
       }
-    } on AbdmException catch (e) {
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('ABDM consent action failed: ${e.runtimeType}');
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           LiveRegionSnackBar.build(
-            message: e.message,
+            message: failureMessage,
             backgroundColor: Theme.of(context).colorScheme.error,
             behavior: SnackBarBehavior.floating,
           ),
@@ -629,6 +637,28 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
 
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_loadFailed) {
+      return Center(
+        key: const ValueKey('abdm_consents_error'),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Semantics(liveRegion: true, child: Text(l.abdmConsentLoadFailed)),
+              const SizedBox(height: 8),
+              FilledButton.icon(
+                key: const ValueKey('abdm_consents_retry'),
+                onPressed: _loadConsents,
+                icon: const Icon(Icons.refresh),
+                label: Text(l.commonRetry),
+              ),
+            ],
+          ),
+        ),
+      );
     }
 
     if (_consents.isEmpty) {
@@ -670,11 +700,12 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
           final purpose =
               (consent['purpose'] as String?) ?? l.abdmConsentPurposeFallback;
           final requester =
-              (consent['requester'] as String?) ??
+              (consent['requester_name'] as String?) ??
               l.abdmConsentRequesterUnknown;
-          final dateFrom = consent['dateFrom'] as String?;
-          final dateTo = consent['dateTo'] as String?;
-          final id = consent['id']?.toString() ?? '';
+          final dateFrom = consent['date_range_from'] as String?;
+          final dateTo = consent['date_range_to'] as String?;
+          final id = consent['consent_id'] as String?;
+          final canAct = id != null && id.trim().isNotEmpty;
 
           return Card(
             margin: const EdgeInsets.symmetric(vertical: 4),
@@ -735,14 +766,17 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
                         OutlinedButton(
-                          onPressed: () => _confirmAction(
-                            title: l.abdmConsentDenyConfirmTitle,
-                            body: l.abdmConsentDenyConfirmBody,
-                            confirmLabel: l.abdmConsentDenyAction,
-                            successMessage: l.abdmConsentDenySuccess,
-                            consentId: id,
-                            apiCall: AbdmApiService.denyConsent,
-                          ),
+                          onPressed: !canAct
+                              ? null
+                              : () => _confirmAction(
+                                  title: l.abdmConsentDenyConfirmTitle,
+                                  body: l.abdmConsentDenyConfirmBody,
+                                  confirmLabel: l.abdmConsentDenyAction,
+                                  successMessage: l.abdmConsentDenySuccess,
+                                  failureMessage: l.abdmConsentDenyFailed,
+                                  consentId: id,
+                                  apiCall: AbdmApiService.denyConsent,
+                                ),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: colors.error,
                           ),
@@ -750,14 +784,17 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
                         ),
                         const SizedBox(width: 8),
                         FilledButton(
-                          onPressed: () => _confirmAction(
-                            title: l.abdmConsentGrantConfirmTitle,
-                            body: l.abdmConsentGrantConfirmBody,
-                            confirmLabel: l.abdmConsentGrantAction,
-                            successMessage: l.abdmConsentGrantSuccess,
-                            consentId: id,
-                            apiCall: AbdmApiService.grantConsent,
-                          ),
+                          onPressed: !canAct
+                              ? null
+                              : () => _confirmAction(
+                                  title: l.abdmConsentGrantConfirmTitle,
+                                  body: l.abdmConsentGrantConfirmBody,
+                                  confirmLabel: l.abdmConsentGrantAction,
+                                  successMessage: l.abdmConsentGrantSuccess,
+                                  failureMessage: l.abdmConsentGrantFailed,
+                                  consentId: id,
+                                  apiCall: AbdmApiService.grantConsent,
+                                ),
                           child: Text(l.abdmConsentGrantAction),
                         ),
                       ],
@@ -768,14 +805,17 @@ class _ConsentRequestsTabState extends State<_ConsentRequestsTab> {
                     Align(
                       alignment: Alignment.centerRight,
                       child: OutlinedButton(
-                        onPressed: () => _confirmAction(
-                          title: l.abdmConsentRevokeConfirmTitle,
-                          body: l.abdmConsentRevokeConfirmBody,
-                          confirmLabel: l.abdmConsentRevokeAction,
-                          successMessage: l.abdmConsentRevokeSuccess,
-                          consentId: id,
-                          apiCall: AbdmApiService.revokeConsent,
-                        ),
+                        onPressed: !canAct
+                            ? null
+                            : () => _confirmAction(
+                                title: l.abdmConsentRevokeConfirmTitle,
+                                body: l.abdmConsentRevokeConfirmBody,
+                                confirmLabel: l.abdmConsentRevokeAction,
+                                successMessage: l.abdmConsentRevokeSuccess,
+                                failureMessage: l.abdmConsentRevokeFailed,
+                                consentId: id,
+                                apiCall: AbdmApiService.revokeConsent,
+                              ),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: colors.error,
                         ),

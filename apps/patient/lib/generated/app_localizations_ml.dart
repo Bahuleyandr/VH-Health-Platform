@@ -10,6 +10,38 @@ class AppLocalizationsMl extends AppLocalizations {
   AppLocalizationsMl([String locale = 'ml']) : super(locale);
 
   @override
+  String get abdmAddressInvalidError =>
+      'ഇത് ശരിയായ ABHA വിലാസമായി തോന്നുന്നില്ല. ഇത് name@abdm പോലെ ആയിരിക്കണം.';
+
+  @override
+  String get abdmAlreadyLinkedError =>
+      'ഈ ABHA ഇതിനകം മറ്റൊരു രോഗിയുമായി ബന്ധിപ്പിച്ചിട്ടുണ്ട്. നമ്പർ പരിശോധിക്കുക അല്ലെങ്കിൽ ആശുപത്രി സ്വീകരണ കൗണ്ടറിൽ സഹായം തേടുക.';
+
+  @override
+  String get abdmVerificationFailedError =>
+      'ഇപ്പോൾ ABDM വഴി ഈ ABHA സ്ഥിരീകരിക്കാൻ കഴിഞ്ഞില്ല, അതിനാൽ ഇത് ബന്ധിപ്പിച്ചിട്ടില്ല. കുറച്ച് മിനിറ്റിന് ശേഷം വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
+  String get abdmPatientNotFoundError =>
+      'നിങ്ങളുടെ രോഗി രേഖ കണ്ടെത്താനായില്ല. നിങ്ങളുടെ രജിസ്ട്രേഷൻ പരിശോധിക്കാൻ ആശുപത്രി സ്വീകരണ കൗണ്ടറിൽ ആവശ്യപ്പെടുക.';
+
+  @override
+  String get abdmConsentLoadFailed =>
+      'സമ്മത അഭ്യർത്ഥനകൾ ലോഡ് ചെയ്യാനായില്ല. വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
+  String get abdmConsentGrantFailed =>
+      'സമ്മതം നൽകാനായില്ല. വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
+  String get abdmConsentDenyFailed =>
+      'സമ്മത അഭ്യർത്ഥന നിരസിക്കാനായില്ല. വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
+  String get abdmConsentRevokeFailed =>
+      'സമ്മതം പിൻവലിക്കാനായില്ല. വീണ്ടും ശ്രമിക്കുക.';
+
+  @override
   String get authLoginTitle => 'നിങ്ങളുടെ അക്കൗണ്ടിലേക്ക് ലോഗിൻ ചെയ്യുക';
 
   @override

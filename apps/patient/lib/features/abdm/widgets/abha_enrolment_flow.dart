@@ -18,11 +18,6 @@
 // the Aadhaar term are deliberately kept in their standard forms rather than
 // translated as common nouns.
 //
-// STILL ENGLISH-ONLY: the rest of abdm_screen.dart (existing-ABHA link form,
-// consent grant/deny/revoke dialogs). Those are consent-bearing strings whose
-// verbs are grammatically English-specific, so they are parked in
-// docs/ROADMAP.md rather than guessed at here.
-//
 // RECOVERING FROM ABHA_ENROLMENT_IN_PROGRESS (re-audit lane L, 2026-08-25).
 // The backend allows exactly ONE live enrolment session per patient (unique
 // index ux_abha_enrolment_patient_live, over the four statuses migration 707
@@ -66,6 +61,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 import 'package:vhhealth/generated/app_localizations.dart';
+import 'package:vhhealth/features/abdm/abdm_error_message.dart';
 
 class AbhaEnrolmentFlow extends StatefulWidget {
   const AbhaEnrolmentFlow({
@@ -289,11 +285,15 @@ class _AbhaEnrolmentFlowState extends State<AbhaEnrolmentFlow> {
         }
       }
       setState(
-        () => _error = response.failureMessage(l10n.abhaEnrolStartFailed),
+        () => _error = abhaEnrolmentFailureMessage(
+          l10n,
+          response.code,
+          l10n.abhaEnrolStartFailed,
+        ),
       );
     } catch (e) {
       if (mounted) {
-        setState(() => _error = l10n.abhaEnrolServerUnreachable('$e'));
+        setState(() => _error = l10n.networkError);
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -339,12 +339,16 @@ class _AbhaEnrolmentFlowState extends State<AbhaEnrolmentFlow> {
         _startCooldown();
       } else {
         setState(
-          () => _error = response.failureMessage(l10n.abhaEnrolOtpFailed),
+          () => _error = abhaEnrolmentFailureMessage(
+            l10n,
+            response.code,
+            l10n.abhaEnrolOtpFailed,
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _error = l10n.abhaEnrolServerUnreachable('$e'));
+        setState(() => _error = l10n.networkError);
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -381,12 +385,16 @@ class _AbhaEnrolmentFlowState extends State<AbhaEnrolmentFlow> {
         _startCooldown();
       } else {
         setState(
-          () => _error = response.failureMessage(l10n.abhaEnrolResendFailed),
+          () => _error = abhaEnrolmentFailureMessage(
+            l10n,
+            response.code,
+            l10n.abhaEnrolResendFailed,
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _error = l10n.abhaEnrolServerUnreachable('$e'));
+        setState(() => _error = l10n.networkError);
       }
     } finally {
       if (mounted) setState(() => _busy = false);
