@@ -1,5 +1,6 @@
 "use client";
 
+import { useActiveTenantScope } from "@/components/ActingTenantBanner";
 import {
   upsertPaymentGatewayConfig,
   type PaymentGatewayConfigView,
@@ -13,9 +14,12 @@ const inputClass =
 
 export function PaymentGatewayConfigForm({
   existing,
+  scopeKey,
 }: {
   existing?: PaymentGatewayConfigView | null;
+  scopeKey: string;
 }) {
+  const activeScope = useActiveTenantScope(scopeKey);
   const queryClient = useQueryClient();
   const [provider, setProvider] = useState(existing?.provider ?? "razorpay");
   const [environment, setEnvironment] = useState<"sandbox" | "production">(
@@ -30,8 +34,9 @@ export function PaymentGatewayConfigForm({
   const [webhookSecret, setWebhookSecret] = useState("");
 
   const save = useMutation({
-    mutationFn: () =>
-      upsertPaymentGatewayConfig({
+    mutationFn: () => {
+      activeScope.assertCurrent();
+      return upsertPaymentGatewayConfig({
         provider,
         environment,
         enabled,
@@ -39,8 +44,10 @@ export function PaymentGatewayConfigForm({
         key_id: keyId || undefined,
         key_secret: keySecret || undefined,
         webhook_secret: webhookSecret || undefined,
-      }),
+      });
+    },
     onSuccess: (config) => {
+      if (!activeScope.current) return;
       setKeySecret("");
       setWebhookSecret("");
       toast.success(
@@ -48,12 +55,16 @@ export function PaymentGatewayConfigForm({
           ? `Gateway config saved. Webhook path: ${config.webhook_path}`
           : "Gateway config saved",
       );
-      void queryClient.invalidateQueries({ queryKey: ["integration-gates"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["integration-gates", scopeKey],
+      });
     },
-    onError: (e) =>
+    onError: (e) => {
+      if (!activeScope.current) return;
       toast.error(
         e instanceof Error ? e.message : "Failed to save gateway config",
-      ),
+      );
+    },
   });
 
   return (

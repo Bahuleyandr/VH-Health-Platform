@@ -3,10 +3,32 @@
 // secret inputs (never prefilled from stored config).
 
 import IntegrationGatesPage from "@/app/(with-auth)/dashboard/integration-gates/page";
+import {
+  getIntegrationGates,
+  listSmsTemplates,
+  upsertPaymentGatewayConfig,
+} from "@/lib/api/integrationGates";
+import { listTenants, updateTenant } from "@/lib/api/tenants";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
+
+jest.mock("@/lib/api/tenants", () => ({
+  listTenants: jest.fn(),
+  updateTenant: jest.fn(),
+}));
 
 let allowed = true;
+let scopeReady = true;
+let scopeKey = "session-a:tenant-a";
+let scopeError: Error | null = null;
+const retryScope = jest.fn().mockResolvedValue(undefined);
 
 jest.mock("@/hooks/usePermissions", () => ({
   usePermissions: () => ({ allowed }),
@@ -22,6 +44,11 @@ jest.mock("@/contexts/ActingTenantContext", () => ({
     setActAs: jest.fn(),
     clear: jest.fn(),
     isPending: false,
+    isReady: scopeReady,
+    scopeKey: scopeReady ? scopeKey : null,
+    isScopeCurrent: (captured: string) => scopeReady && captured === scopeKey,
+    error: scopeError,
+    retry: retryScope,
   }),
 }));
 
@@ -140,6 +167,7 @@ jest.mock("@/lib/api/integrationGates", () => {
     ...actual,
     getIntegrationGates: jest.fn(() => Promise.resolve(REPORT)),
     listSmsTemplates: jest.fn(() => Promise.resolve({ templates: [] })),
+    upsertPaymentGatewayConfig: jest.fn(),
   };
 });
 
@@ -155,10 +183,35 @@ function renderPage() {
 }
 
 beforeEach(() => {
+  jest.clearAllMocks();
   allowed = true;
+  scopeReady = true;
+  scopeKey = "session-a:tenant-a";
+  scopeError = null;
 });
 
 describe("access gate", () => {
+  it.each(["loading", "error"])(
+    "does not fetch or show provider forms while scope is %s",
+    (state) => {
+      scopeReady = false;
+      scopeError = state === "error" ? new Error("scope unavailable") : null;
+      renderPage();
+      expect(getIntegrationGates).not.toHaveBeenCalled();
+      expect(listSmsTemplates).not.toHaveBeenCalled();
+      expect(screen.queryByText("Provider configuration")).toBeNull();
+      if (scopeError) {
+        fireEvent.click(
+          screen.getByRole("button", { name: "Retry tenant scope" }),
+        );
+        expect(retryScope).toHaveBeenCalledTimes(1);
+      } else {
+        expect(
+          screen.getByText("Confirming tenant scope…"),
+        ).toBeInTheDocument();
+      }
+    },
+  );
   it("shows the SUPER_ADMIN-only notice to a non-super role", () => {
     allowed = false;
     renderPage();
@@ -168,6 +221,165 @@ describe("access gate", () => {
 });
 
 describe("gate table", () => {
+  it("does not PATCH a gate after the scope changes during its settings read", async () => {
+    let finish!: (value: unknown) => void;
+    (listTenants as jest.Mock).mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    const page = () => (
+      <QueryClientProvider client={client}>
+        <IntegrationGatesPage />
+      </QueryClientProvider>
+    );
+    const view = render(page());
+    const gate = (await screen.findByText("Facility asset register")).closest(
+      "tr",
+    )!;
+    fireEvent.click(within(gate).getByRole("button"));
+    await waitFor(() => expect(listTenants).toHaveBeenCalledTimes(1));
+    scopeReady = false;
+    view.rerender(page());
+    await act(async () => {
+      finish({
+        tenants: [{ ...REPORT.tenants[0].tenant, settings: {} }],
+        count: 1,
+      });
+    });
+    expect(updateTenant).not.toHaveBeenCalled();
+  });
+
+  it("does not cache a late report under a scope that is no longer current", async () => {
+    let finish!: (value: unknown) => void;
+    (getIntegrationGates as jest.Mock).mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const page = () => (
+      <QueryClientProvider client={client}>
+        <IntegrationGatesPage />
+      </QueryClientProvider>
+    );
+    const view = render(page());
+    await waitFor(() => expect(getIntegrationGates).toHaveBeenCalledTimes(1));
+    scopeReady = false;
+    view.rerender(page());
+    await act(async () => {
+      finish(REPORT);
+    });
+    expect(
+      client.getQueryData(["integration-gates", "session-a:tenant-a"]),
+    ).toBeUndefined();
+  });
+
+  it("does not cache late SMS templates under a scope that is no longer current", async () => {
+    let finish!: (value: unknown) => void;
+    (listSmsTemplates as jest.Mock).mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const page = () => (
+      <QueryClientProvider client={client}>
+        <IntegrationGatesPage />
+      </QueryClientProvider>
+    );
+    const view = render(page());
+    await waitFor(() => expect(listSmsTemplates).toHaveBeenCalledTimes(1));
+    scopeReady = false;
+    view.rerender(page());
+    await act(async () => {
+      finish({ templates: [{ id: "wrong-scope" }] });
+    });
+    expect(
+      client.getQueryData([
+        "integration-gates",
+        "session-a:tenant-a",
+        "sms-templates",
+      ]),
+    ).toBeUndefined();
+  });
+
+  it("resets secret drafts and isolates report/template caches on scope changes", async () => {
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const page = () => (
+      <QueryClientProvider client={client}>
+        <IntegrationGatesPage />
+      </QueryClientProvider>
+    );
+    const view = render(page());
+    await screen.findByLabelText("Key secret");
+    fireEvent.change(screen.getByLabelText("Key secret"), {
+      target: { value: "synthetic-old-scope-secret" },
+    });
+    scopeReady = false;
+    view.rerender(page());
+    expect(screen.queryByLabelText("Key secret")).toBeNull();
+    scopeKey = "session-b:tenant-a";
+    scopeReady = true;
+    view.rerender(page());
+    expect(await screen.findByLabelText("Key secret")).toHaveValue("");
+    await waitFor(() => expect(listSmsTemplates).toHaveBeenCalledTimes(2));
+    expect(
+      client.getQueryData(["integration-gates", "session-b:tenant-a"]),
+    ).toEqual(REPORT);
+    expect(
+      client.getQueryData([
+        "integration-gates",
+        "session-b:tenant-a",
+        "sms-templates",
+      ]),
+    ).toEqual({ templates: [] });
+  });
+
+  it("ignores a gateway completion after its scope was unmounted", async () => {
+    let finish!: (value: unknown) => void;
+    (upsertPaymentGatewayConfig as jest.Mock).mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+    );
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const invalidate = jest.spyOn(client, "invalidateQueries");
+    const page = () => (
+      <QueryClientProvider client={client}>
+        <IntegrationGatesPage />
+      </QueryClientProvider>
+    );
+    const view = render(page());
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Save gateway config" }),
+    );
+    await waitFor(() =>
+      expect(upsertPaymentGatewayConfig).toHaveBeenCalledTimes(1),
+    );
+    scopeReady = false;
+    view.rerender(page());
+    await act(async () => {
+      finish({ webhook_path: null });
+    });
+    expect(invalidate).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText("Key secret")).toBeNull();
+  });
+
   it("renders env facts, per-tenant gates with effective state and blocking layer", async () => {
     renderPage();
     await waitFor(() =>

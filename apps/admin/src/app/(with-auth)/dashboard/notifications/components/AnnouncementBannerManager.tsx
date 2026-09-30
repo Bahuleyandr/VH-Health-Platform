@@ -7,6 +7,11 @@
 // same banner. Only the per-user dismissal state stays in localStorage.
 "use client";
 
+import {
+  ActingTenantReadinessNotice,
+  useActiveTenantScope,
+} from "@/components/ActingTenantBanner";
+import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { useActingTenant } from "@/contexts/ActingTenantContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTenant } from "@/contexts/TenantContext";
@@ -39,36 +44,36 @@ function fetchBanner() {
   return fetchAdminAPI<BannerPayload>(BANNER_ENDPOINT);
 }
 
-function bannerQueryKey(tenantId: string | null | undefined) {
-  return ["announcement-banner", tenantId ?? "default"] as const;
+function bannerQueryKey(scopeKey: string) {
+  return ["announcement-banner", scopeKey] as const;
 }
 
 export function AnnouncementBannerManager() {
+  const { isReady, scopeKey, error, retry } = useActingTenant();
+  if (!isReady || !scopeKey)
+    return <ActingTenantReadinessNotice error={error} retry={retry} />;
+  return <ScopedAnnouncementBannerManager key={scopeKey} scopeKey={scopeKey} />;
+}
+
+function ScopedAnnouncementBannerManager({ scopeKey }: { scopeKey: string }) {
+  const activeScope = useActiveTenantScope(scopeKey);
   const queryClient = useQueryClient();
-  const { actingTenant } = useActingTenant();
-  const { tenant } = useTenant();
-  const tenantScope = actingTenant?.id ?? tenant?.id ?? "default";
-  const queryKey = bannerQueryKey(tenantScope);
+  const queryKey = bannerQueryKey(scopeKey);
   const [text, setText] = useState("");
   const [type, setType] = useState<BannerData["type"]>("info");
   const [enabled, setEnabled] = useState(false);
   const [saved, setSaved] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
-  const { data } = useQuery({
+  const { data, isError, refetch } = useQuery({
     queryKey,
-    queryFn: fetchBanner,
+    queryFn: async () => {
+      activeScope.assertCurrent();
+      const data = await fetchBanner();
+      activeScope.assertCurrent();
+      return data;
+    },
   });
-
-  // Acting-tenant changes can happen without unmounting this editor. Clear
-  // the previous tenant's draft before hydrating the newly scoped query so it
-  // cannot be copied into the next tenant by a subsequent Save.
-  useEffect(() => {
-    setHydrated(false);
-    setText("");
-    setType("info");
-    setEnabled(false);
-  }, [tenantScope]);
 
   // Hydrate the form once from the server copy.
   useEffect(() => {
@@ -83,19 +88,29 @@ export function AnnouncementBannerManager() {
   }, [data, hydrated]);
 
   const saveMutation = useMutation({
-    mutationFn: (banner: { text: string; type: BannerData["type"]; enabled: boolean }) =>
-      fetchAdminAPI<BannerPayload>(BANNER_ENDPOINT, {
+    mutationFn: (banner: {
+      text: string;
+      type: BannerData["type"];
+      enabled: boolean;
+    }) => {
+      activeScope.assertCurrent();
+      return fetchAdminAPI<BannerPayload>(BANNER_ENDPOINT, {
         method: "PUT",
         body: banner,
-      }),
+      });
+    },
     onSuccess: (payload) => {
+      if (!activeScope.current) return;
       queryClient.setQueryData(queryKey, payload);
       setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      setTimeout(() => {
+        if (activeScope.current) setSaved(false);
+      }, 2000);
     },
   });
 
   function handleSave() {
+    if (!activeScope.current || !hydrated || saveMutation.isPending) return;
     saveMutation.mutate({
       text: text.trim(),
       type,
@@ -104,6 +119,7 @@ export function AnnouncementBannerManager() {
   }
 
   function handleClear() {
+    if (!activeScope.current || !hydrated || saveMutation.isPending) return;
     setText("");
     setType("info");
     setEnabled(false);
@@ -111,6 +127,17 @@ export function AnnouncementBannerManager() {
   }
 
   const colors = typeColors[type];
+
+  if (isError)
+    return (
+      <div role="alert">
+        Could not load the announcement banner.
+        <button type="button" onClick={() => void refetch()}>
+          Retry banner
+        </button>
+      </div>
+    );
+  if (!hydrated) return <LoadingSpinner />;
 
   return (
     <div className="space-y-6">
@@ -236,30 +263,50 @@ export function AnnouncementBannerManager() {
  * (localStorage, keyed by the banner's updated_at).
  */
 export function AnnouncementBanner() {
-  const [dismissed, setDismissed] = useState(false);
-  const [dismissedAt, setDismissedAt] = useState<string | null>(null);
   const { user } = useAuth();
-  const { actingTenant } = useActingTenant();
+  const { actingTenant, isReady, scopeKey } = useActingTenant();
   const { tenant } = useTenant();
-  const tenantScope = actingTenant?.id ?? tenant?.id ?? "default";
-  const queryKey = bannerQueryKey(tenantScope);
-  const dismissalKey = `${DISMISS_KEY}:${tenantScope}:${user?.uid ?? "unknown"}`;
+  const tenantScope = actingTenant?.id ?? tenant?.id ?? `own:${scopeKey}`;
+  if (!isReady || !scopeKey || !user?.uid) return null;
+  const dismissalKey = `${DISMISS_KEY}:${tenantScope}:${user.uid}`;
+  return (
+    <ScopedAnnouncementBanner
+      key={`${scopeKey}:${dismissalKey}`}
+      scopeKey={scopeKey}
+      dismissalKey={dismissalKey}
+    />
+  );
+}
+
+function ScopedAnnouncementBanner({
+  scopeKey,
+  dismissalKey,
+}: {
+  scopeKey: string;
+  dismissalKey: string;
+}) {
+  const activeScope = useActiveTenantScope(scopeKey);
+  const [dismissed, setDismissed] = useState(false);
+  const [dismissedAt] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(dismissalKey);
+    } catch {
+      return null;
+    }
+  });
+  const queryKey = bannerQueryKey(scopeKey);
 
   const { data } = useQuery({
     queryKey,
-    queryFn: fetchBanner,
+    queryFn: async () => {
+      activeScope.assertCurrent();
+      const data = await fetchBanner();
+      activeScope.assertCurrent();
+      return data;
+    },
     staleTime: 5 * 60 * 1000,
     refetchOnWindowFocus: false,
   });
-
-  useEffect(() => {
-    setDismissed(false);
-    try {
-      setDismissedAt(localStorage.getItem(dismissalKey));
-    } catch {
-      setDismissedAt(null);
-    }
-  }, [dismissalKey]);
 
   const banner = data?.banner ?? null;
   if (!banner || !banner.enabled || !banner.text || dismissed) return null;
