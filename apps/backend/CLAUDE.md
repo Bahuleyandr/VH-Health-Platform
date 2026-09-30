@@ -8,9 +8,11 @@ Node.js/Express REST API backend for the VHHealth hospital management system. Se
 Production runs on a **3-node on-prem RKE2 Kubernetes cluster** inside the
 hospital. Container images are built + signed + pushed by the `release-images.yml`
 workflow under `.github/workflows/`. GitHub is the sole delivery authority;
-the owner retired Forgejo, including mirroring, on 2026-09-30. Its remaining
-workflow files and credentials require containment and retirement, not
-activation (see `docs/RELEASE_READINESS.md`). ArgoCD watches this repo, but **prod sync is
+the owner permanently retired Forgejo, including mirroring, on 2026-09-30.
+GitHub retains the useful checks; external automation and credential containment
+still require evidence, and INF-006 / PR #872 remains held (see
+`docs/RELEASE_READINESS.md`). Hosted smoke workflows are manual and input-gated;
+their presence does not authorize execution. ArgoCD watches this repo, but **prod sync is
 manual** — no Application sets `syncPolicy.automated`, so a merge to `main`
 stays inert until an operator syncs.
 Postgres is a CloudNativePG cluster (PG17, 3 replicas); ingress is Cloudflare

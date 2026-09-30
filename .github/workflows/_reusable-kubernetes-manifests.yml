@@ -85,13 +85,17 @@ jobs:
           scripts/operator-lifecycle-preflight.test.mjs
           scripts/infra-truthfulness.test.mjs
           scripts/backend-image-command-contract.test.mjs
-          scripts/ci/forgejo-deploy-preflight.test.mjs
+          scripts/check-redis-ha-contract.test.mjs
+          scripts/ci/manual-smoke-preflight.test.mjs
+          scripts/ci/post-deploy-smoke.test.mjs
           scripts/ci/infra.test.mjs
           scripts/ci/canonical-workflow.test.mjs
           scripts/ci/merge-gate-policy.test.mjs
           scripts/ci/security.test.mjs
           scripts/ci/stage-selection.test.mjs
-          scripts/check-forgejo-supply-chain-pins.test.mjs
+          scripts/check-workflow-supply-chain-pins.test.mjs
+          scripts/check-forgejo-retirement.test.mjs
+          scripts/check-kyverno-enforce-readiness.test.mjs
 
       - name: Prove Sealed Secrets bootstrap on a fresh cluster
         run: node scripts/sealed-secrets-bootstrap-smoke.mjs --require-cluster
@@ -102,8 +106,6 @@ jobs:
       - name: Validate rendered Kubernetes manifests
         run: node scripts/validate-kubernetes-manifests.mjs
 
-      # Mirror of the canonical CI infra stage (scripts/ci/infra.mjs) so these
-      # guards also run GitHub-natively on PRs, not only on the Forgejo side.
       - name: Check zero-trust network pack
         run: node scripts/check-zero-trust-network-pack.mjs
 

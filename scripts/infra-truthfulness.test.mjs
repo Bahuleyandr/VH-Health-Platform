@@ -318,7 +318,7 @@ test('held device-gateway tree is wired to the real backend Service and validate
 });
 
 test('Dalek deploy workflow is strict and verifies the deployed commit', () => {
-  const workflow = readRepo('.forgejo/workflows/deploy-dalekdefender.yml');
+  const workflow = readRepo('.github/workflows/deploy-dalekdefender.yml');
   const deployJob = workflow.slice(workflow.indexOf('\n  deploy:'));
 
   assert.doesNotMatch(deployJob, /--allow-skip/);

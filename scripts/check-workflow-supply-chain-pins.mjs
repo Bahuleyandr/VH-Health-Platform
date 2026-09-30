@@ -3,7 +3,6 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const actionCommitPattern = /@[0-9a-f]{40}$/i;
-const imageDigestPattern = /@sha256:[0-9a-f]{64}$/i;
 const literalImageDigestPattern = /^[a-z0-9][a-z0-9._:/-]*@sha256:[0-9a-f]{64}$/i;
 
 function lineNumberAt(content, offset) {
@@ -22,7 +21,7 @@ function parseYamlScalar(rawValue) {
 
 function scalarPairs(content) {
   const key = `(?:"(?:\\\\.|[^"\\\\])*"|'(?:''|[^'])*'|[A-Za-z_][A-Za-z0-9_.-]*)`;
-  const value = `(?:"(?:\\\\.|[^"\\\\])*"|'(?:''|[^'])*'|[^,}\\]\\r\\n#]*)`;
+  const value = `(?:"(?:\\\\.|[^"\\\\])*"|'(?:''|[^'])*'|(?:\\$\\{\\{[^}]*\\}\\}|[^,}\\]\\r\\n#])*)`;
   const pattern = new RegExp(
     `(?=(?:^|[ \\t,{\\[])(?<key>${key})[ \\t]*:[ \\t]*(?<value>${value}))`,
     'gim',
@@ -103,6 +102,7 @@ function workflowRunScalars(content, file) {
     const lineNumber = index + 1;
     handledLines.add(lineNumber);
     const rawValue = mapping.groups.value.trim();
+    if (!rawValue && lines[index - 1]?.trim() === 'defaults:') continue;
     const unanchoredValue = rawValue.replace(/^&[A-Za-z0-9_.-]+\s+/, '');
     const header = unanchoredValue.match(blockHeader);
     const parentIndent = line.indexOf(mapping.groups.key);
@@ -205,17 +205,7 @@ function workflowRunScalars(content, file) {
   return { scripts, violations };
 }
 
-const buildkitHelperPath = 'scripts/ci/forgejo-buildkit-builder.mjs';
-const approvedBuildkitHelperCommands = new Set([
-  `node ${buildkitHelperPath} prepare dalek`,
-  `node ${buildkitHelperPath} build dalek`,
-  `node ${buildkitHelperPath} prepare release`,
-  `node ${buildkitHelperPath} build release`,
-  `trap 'node ${buildkitHelperPath} cleanup dalek || exit 1' EXIT`,
-  `trap 'node ${buildkitHelperPath} cleanup release || exit 1' EXIT`,
-]);
-
-const reviewedDockerSubcommands = new Set(['build', 'login', 'push', 'save', 'tag']);
+const reviewedDockerSubcommands = new Set(['build', 'login', 'push', 'run', 'save', 'tag']);
 const shellControlPrefixes = new Set(['!', 'do', 'elif', 'else', 'if', 'then', 'until', 'while']);
 const lifecycleWords = new Set(['bootstrap', 'create', 'inspect', 'prune', 'rm', 'use']);
 const shellPayloadCommands = new Set(['bash', 'sh']);
@@ -578,39 +568,39 @@ function hasUnreviewedDockerCommand(script, depth = 0) {
 
 function workflowBuildkitLifecycleViolations(content, file) {
   const { scripts, violations } = workflowRunScalars(content, file);
-
   for (const run of scripts) {
-    const runLines = run.script.split(/\r?\n/);
-    const helperLines = runLines
-      .map((line, index) => ({ index, line: line.trim() }))
-      .filter(({ line }) => line.includes(buildkitHelperPath));
-    const invalidHelperCall = helperLines.some(
-      ({ index, line }) => !approvedBuildkitHelperCommands.has(line) ||
-        (index > 0 && /\\\s*$/.test(runLines[index - 1])),
-    );
-    if (invalidHelperCall) {
+    if (hasUnreviewedDockerCommand(run.script) || /(?:buildx_buildkit_|BUILDX_BUILDER)/i.test(run.script)) {
       violations.push({
         file,
         line: run.line,
-        message: 'BuildKit lifecycle helper must use an exact approved command',
-      });
-    }
-
-    const checkedScript = runLines
-      .filter((line) => !approvedBuildkitHelperCommands.has(line.trim()))
-      .join('\n');
-    const mutationDetected = hasUnreviewedDockerCommand(checkedScript) ||
-      /(?:buildx_buildkit_|BUILDX_BUILDER)/i.test(checkedScript);
-    if (mutationDetected && !invalidHelperCall) {
-      violations.push({
-        file,
-        line: run.line,
-        message: 'Workflow Docker commands must use reviewed literal forms; BuildKit lifecycle mutation must be delegated to the approved helper',
+        message: 'Workflow Docker commands must use reviewed literal forms; BuildKit lifecycle belongs to the digest-pinned setup action',
       });
     }
   }
-
   return violations;
+}
+
+function pinnedPostgresInput(content) {
+  return /^      postgres_image:\s*\n(?:(?:        [^\n]*|\s*)\n)*?        default: pgvector\/pgvector:[^\s]+@sha256:[a-f0-9]{64}\s*$/m.test(content);
+}
+
+function approvedCanaryImage(content, file) {
+  return file === '.github/workflows/pg18-canary.yml' &&
+    /if \[\[ ! "\$POSTGRES_IMAGE" =~ \^pgvector\/pgvector:pg18@sha256:\[a-f0-9\]\{64\}\$ \]\]; then\s+echo '[^'\n]+'\s+exit 1\s+fi\s+printf 'image=%s\\n' "\$POSTGRES_IMAGE" >> "\$GITHUB_OUTPUT"/.test(content) &&
+    /needs:\s*validate-image/.test(content) &&
+    /POSTGRES_IMAGE:\s*\$\{\{ inputs\.postgres_image \}\}/.test(content) &&
+    content.includes("printf 'image=%s\\n'") &&
+    /validate-image:[\s\S]*?outputs:[\s\S]*?image:/.test(content);
+}
+
+function buildkitStep(content, offset) {
+  const lineStart = content.lastIndexOf('\n', offset) + 1;
+  const lines = content.slice(lineStart).split('\n');
+  const match = lines[0].match(/^( *)(?:- )?uses:/);
+  if (!match) return '';
+  const indent = lines[0].indexOf('uses:');
+  const end = lines.findIndex((line, index) => index > 0 && line.trim() && line.search(/\S/) < indent);
+  return lines.slice(0, end < 0 ? undefined : end).join('\n');
 }
 
 function scanWorkflow(filePath, rootDir) {
@@ -643,13 +633,23 @@ function scanWorkflow(filePath, rootDir) {
     }
 
     if (key.toLowerCase() === 'uses' && value) {
-      if (!value.startsWith('./') && !/^https?:\/\//i.test(value)) {
+      if (value.startsWith('docker/setup-buildx-action@')) {
+        const step = buildkitStep(content, match.index);
+        if (!/^\s+driver:\s*docker-container\s*$/m.test(step) ||
+            (step.match(/^\s+driver:/gm) || []).length !== 1 ||
+            (step.match(/\bimage=/g) || []).length !== 1 ||
+            !/^\s+(?:driver-opts:\s*image=|image=)moby\/buildkit@sha256:[a-f0-9]{64}\s*$/m.test(step)) {
+          violations.push({ file, line: lineNumberAt(content, match.index),
+            message: 'BuildKit setup must use a direct mapping, docker-container and a literal digest-pinned image driver option' });
+        }
+      }
+      if (!value.startsWith('./') && !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_./-]+@[0-9a-f]{40}$/i.test(value)) {
         violations.push({
           file,
           line: lineNumberAt(content, match.index),
-          message: `remote action must use a literal HTTPS URL and full commit SHA: ${value}`,
+          message: `remote action must use a literal GitHub action and full 40-character commit SHA: ${value}`,
         });
-      } else if (/^https?:\/\//i.test(value) && !actionCommitPattern.test(value)) {
+      } else if (!value.startsWith('./') && !actionCommitPattern.test(value)) {
         violations.push({
           file,
           line: lineNumberAt(content, match.index),
@@ -658,12 +658,26 @@ function scanWorkflow(filePath, rootDir) {
       }
     }
 
-    if (key.toLowerCase() === 'image' && value && !imageDigestPattern.test(value)) {
+    const serviceInput = value === '${{ inputs.postgres_image }}' &&
+      file === '.github/workflows/_reusable-backend-lint-test.yml' && pinnedPostgresInput(content);
+    const builtImage = /^\$\{\{ steps\.images\.outputs\.(?:backend|admin|staff_web) \}\}@\$\{\{ steps\.build\.outputs\.digest \}\}$/.test(value) &&
+      file === '.github/workflows/release-images.yml' &&
+      /uses: docker\/build-push-action@[a-f0-9]{40}/.test(content);
+    const canaryOutput = value === '${{ steps.validate.outputs.image }}' && approvedCanaryImage(content, file);
+    if (key === 'image' && value && !literalImageDigestPattern.test(value) &&
+        !serviceInput && !builtImage && !canaryOutput) {
       violations.push({
         file,
         line: lineNumberAt(content, match.index),
         message: `workflow container image must use a sha256 digest: ${value}`,
       });
+    }
+
+    if (key === 'postgres_image' && value &&
+        !literalImageDigestPattern.test(value) &&
+        !(value === '${{ needs.validate-image.outputs.image }}' && approvedCanaryImage(content, file))) {
+      violations.push({ file, line: lineNumberAt(content, match.index),
+        message: 'Postgres workflow input must be digest-pinned or emitted by the fail-closed PG18 validation job' });
     }
 
     if (key.toLowerCase() === 'version' && /^(?:latest|stable|main|master)$/i.test(value)) {
@@ -699,82 +713,42 @@ function workflowFiles(workflowDir) {
   return files;
 }
 
-function scanDockerfile(filePath, rootDir) {
-  if (!existsSync(filePath)) return [];
-  const content = readFileSync(filePath, 'utf8');
-  const violations = [];
-  const fromPattern = /^\s*FROM\s+(?:--platform=\S+\s+)?([^\s]+)(?:\s+AS\s+\S+)?\s*$/gim;
-
-  for (const match of content.matchAll(fromPattern)) {
-    const image = match[1];
-    if (!imageDigestPattern.test(image)) {
-      violations.push({
-        file: relative(rootDir, filePath).replaceAll('\\', '/'),
-        line: lineNumberAt(content, match.index),
-        message: `Forgejo runner base image must use a sha256 digest: ${image}`,
-      });
-    }
-  }
-
-  return violations;
-}
-
-function scanBuildkitHelper(filePath, rootDir) {
-  const file = relative(rootDir, filePath).replaceAll('\\', '/');
-  if (!existsSync(filePath)) {
-    return [{ file, line: 1, message: 'Forgejo BuildKit lifecycle helper is missing' }];
-  }
-  const content = readFileSync(filePath, 'utf8');
-  const pins = [...content.matchAll(/export const BUILDKIT_IMAGE\s*=\s*(['"])([^'"]+)\1/g)];
-  if (pins.length !== 1 || !literalImageDigestPattern.test(pins[0]?.[2] || '')) {
-    return [{
-      file,
-      line: pins[0] ? lineNumberAt(content, pins[0].index) : 1,
-      message: 'Forgejo BuildKit helper image must be one literal sha256 digest',
-    }];
-  }
-  return [];
-}
-
-export function findForgejoSupplyChainViolations(rootDir) {
-  const workflowDir = join(rootDir, '.forgejo', 'workflows');
+export function findWorkflowSupplyChainViolations(rootDir) {
+  const workflowDir = join(rootDir, '.github', 'workflows');
   const violations = [];
 
   if (!existsSync(workflowDir)) {
     return [{
-      file: '.forgejo/workflows',
+      file: '.github/workflows',
       line: 1,
-      message: 'Forgejo workflow directory is missing',
+      message: 'Workflow directory is missing',
     }];
   }
 
-  for (const filePath of workflowFiles(workflowDir)) {
+  const files = workflowFiles(workflowDir);
+  if (files.length === 0) {
+    return [{ file: '.github/workflows', line: 1, message: 'No workflow files found' }];
+  }
+  for (const filePath of files) {
     violations.push(...scanWorkflow(filePath, rootDir));
   }
 
-  violations.push(
-    ...scanDockerfile(join(rootDir, 'infra', 'forgejo', 'ci-image', 'Dockerfile'), rootDir),
-    ...scanBuildkitHelper(
-      join(rootDir, 'scripts', 'ci', 'forgejo-buildkit-builder.mjs'),
-      rootDir,
-    ),
-  );
   return violations;
 }
 
-export function assertForgejoSupplyChainPins(rootDir) {
-  const violations = findForgejoSupplyChainViolations(rootDir);
+export function assertWorkflowSupplyChainPins(rootDir) {
+  const violations = findWorkflowSupplyChainViolations(rootDir);
   if (violations.length === 0) return;
 
   const details = violations
     .map(({ file, line, message }) => `- ${file}:${line}: ${message}`)
     .join('\n');
-  throw new Error(`Forgejo supply-chain pin validation failed:\n${details}`);
+  throw new Error(`Workflow supply-chain pin validation failed:\n${details}`);
 }
 
 const scriptPath = fileURLToPath(import.meta.url);
 if (process.argv[1] && resolve(process.argv[1]) === resolve(scriptPath)) {
   const repoRoot = resolve(dirname(scriptPath), '..');
-  assertForgejoSupplyChainPins(repoRoot);
-  console.log('Forgejo supply-chain pins are immutable.');
+  assertWorkflowSupplyChainPins(repoRoot);
+  console.log('Workflow supply-chain pins are immutable.');
 }

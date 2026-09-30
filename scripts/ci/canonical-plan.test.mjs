@@ -116,7 +116,7 @@ test('prose the infra gates assert against selects infra, not security alone', (
     'CLAUDE.md',
     'docs/HARDWARE_REQUIREMENTS.md',
     'apps/device-gateway/README.md',
-    'infra/forgejo/SUPPLY_CHAIN_PINS.md',
+    'docs/WORKFLOW_SUPPLY_CHAIN_PINS.md',
   ]) {
     assert.equal(
       buildCanonicalPlan({ eventName: 'push', files: [file] }).selected.infra,

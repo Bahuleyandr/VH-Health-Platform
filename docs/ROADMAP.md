@@ -10,6 +10,16 @@ retains its September 8 evidence at `4c1f5654ca70b4dbc2699c96279e0ea03cc8e43c`.*
 The update below reconciles named audit queue items and merged slices only. It
 is not a fresh audit of every historical section in this roadmap.
 
+**Delivery authority update (2026-09-30):** GitHub is the sole repository and
+CI/release authority. Forgejo delivery and mirroring are permanently retired;
+historical Forgejo references below describe evidence at their original dates,
+not current parity or activation requirements. Useful checks are retained in
+GitHub; hosted smoke workflows remain manual and input-gated. INF-006 / PR #872
+still requires external automation/credential containment and rollback-trust
+receipts. This source change neither closes that hold nor authorizes deployment.
+See [`FORGEJO_RETIREMENT.md`](FORGEJO_RETIREMENT.md) and
+[`RELEASE_READINESS.md`](RELEASE_READINESS.md).
+
 This file consolidates every open item from the planning docs that previously
 lived scattered across `docs/` (EPIC roadmap, S-tier roadmap, AI feature-gap
 backlog, the 2026-06-16 goal, the clinical-AI rollout/enablement plans, the
@@ -224,9 +234,11 @@ is outside the current owner-requested scope, not a completed audit finding.
   historical, not current inventory.
 - Patient HTTPS deep links and signed minimum-version policy await an owned
   domain, App Links/AASA publication, and production signing authority.
-- PR #872 / INF-006 stays held until legacy workflow identities are disabled,
-  tags protected, old secrets removed, the Forgejo cosign key rotated, and the
-  interlock rebased and reverified. Do not merge it as a code-only change.
+- PR #872 / INF-006 stays held until retired automation is disabled, running
+  jobs reconciled, tag protections evidenced, old credentials revoked or
+  restricted without disrupting shared users, and rollback-image trust reviewed.
+  Do not restore Forgejo, provision a replacement signing key, or merge its
+  proposed activation interlock as a substitute for external containment.
 - ABDM awaits a transactional ordered outbox, NHA credentials/certification,
   official contract evidence, and operator activation.
 - HL7v2/FHIR adapters await conformance evidence against real receiving
@@ -312,7 +324,7 @@ Owned by the live checklist: **[`GO_LIVE_ACTIVATION_CHECKLIST.md`](GO_LIVE_ACTIV
 
 - **Seal the least-privilege DB role.** Seal `vhhealth-pg-runtime` to a `NOSUPERUSER`/`NOBYPASSRLS` role, re-seal the backend `DATABASE_URL` to it, then flip RLS enforcement live and confirm `GET /health/metrics` returns `tenant_rls.ok=true`. (Code + guard shipped — `logTenantRlsRolePosture()`; this is the runtime verification, GO-LIVE Phase B/E.)
 - **Migration Job (Phase D2).** Confirm the PreSync migration Job applies `309`/`310`/`311` under the superuser URL and reports `Complete`, not `Error`.
-- **Supply-chain enforce.** Install Kyverno, create the cosign public-key Secret, flip the `verifyImages` policy **Audit → Enforce** after a clean cycle.
+- **Supply-chain enforce.** Complete the GitHub OIDC admission and rollback-trust evidence in `KYVERNO_ENFORCE_READINESS.md` before any explicitly authorized live policy sync. The retired Forgejo public key is historical evidence only; do not provision it as an admission key.
 - **DR drill.** Run the timed PITR restore drill, record RPO/RTO (`DR_RESTORE_DRILL.md`).
 - **Monitoring activation.** Bring the alerting stack up end-to-end with a deadman proof; add per-route-family RED dashboards + on-call rota.
 - **Backups.** Verify the first AES256-encrypted R2 backup succeeds; add off-site WAL archiving / PITR.
@@ -325,7 +337,7 @@ Owned by the live checklist: **[`SECURITY_HARDENING_CHECKLIST.md`](SECURITY_HARD
 - Rotate every provider secret on the live cluster: `JWT_SECRET`, API keys (+ per-client), DB passwords (`vhhealth`/`vhhealth_readonly`/`qa_writer`), Cloudflare R2, Firebase SA / Twilio / SMTP / Sentry, and the signed-integration secrets (`HL7_INBOUND_SHARED_SECRET`, `ABDM_CALLBACK_SECRET`).
 - Run `npm run security:audit-secret-encryption` and rotate/backfill every reported legacy secret-bearing DB row.
 - Purge local secret-bearing artifacts (`.env` backups, logs, `pg.log`) + run the `gitleaks` range scan on the operator machine.
-- Re-enter Forgejo Actions secrets after rotation; set the 180/365-day rotation calendar + a monthly dependency-PR triage slot.
+- Update only approved GitHub/deployment identities after rotation and retain external receipts for retired Forgejo credential containment; set the 180/365-day rotation calendar and a monthly dependency-PR triage slot.
 
 ## 3. External engagements `[EXTERNAL]`
 

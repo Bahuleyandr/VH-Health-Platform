@@ -114,10 +114,13 @@ following invariants:
 - Backend Kubernetes Deployment sets `CLUSTER_WORKERS=2`; increasing it needs a
   capacity review so pods do not oversubscribe host CPUs.
 - CI database setup reads SQL from `apps/backend/src/migrations`.
-- A future owner-authorized Forgejo release path would require `VH_BASE_URL`,
-  `VH_API_KEY`, and patient/staff Android signing material. The current
-  audit-program release gate is GitHub Actions; see
+- GitHub is the sole repository and CI/release authority. Forgejo delivery and
+  mirroring are permanently retired; do not restore its jobs or credentials.
+  INF-006 external containment and release authority remain held; see
   [`RELEASE_READINESS.md`](RELEASE_READINESS.md).
+- Hosted post-deploy and staff-role smoke workflows are manual and input-gated.
+  Approved targets, identities, permitted writes and Sentry submissions must be
+  recorded before execution; a source change or main push is not deploy evidence.
 - Admin CI runs lint, type-check, Jest, production build, and the Clinical AI
   bundle guard.
 - Smoke journey commands are documented in
@@ -937,7 +940,9 @@ signature with cosign, and writes an immutable `@sha256` pin to
 image:
 
 ```bash
-COSIGN_PUBLIC_KEY=<public-key> node scripts/update-prod-digests.mjs \
+COSIGN_CERTIFICATE_IDENTITY_REGEXP='^https://github.com/Bahuleyandr/VH-Health-Platform/\.github/workflows/release-images\.yml@.*$' \
+COSIGN_CERTIFICATE_OIDC_ISSUER=https://token.actions.githubusercontent.com \
+node scripts/update-prod-digests.mjs \
   --tag backend-v1.5.2 \
   --expected-digest-file <release-artifact-directory>/image-ref.txt
 git diff -- infra/kubernetes/apps/kustomization.yaml

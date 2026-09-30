@@ -157,9 +157,12 @@ kubectl -n vhhealth get deploy/vhhealth-backend \
 
 ## Digest-pinned CI deploy helper
 
-GitHub Actions and Forgejo both deploy by sending verified GHCR image digests
-to a root-owned host helper. Install the repo version on the host whenever this
-file changes:
+GitHub Actions is the sole hosted deploy path and sends verified GHCR image
+digests to a root-owned host helper. Forgejo delivery and mirroring are
+permanently retired. Its source removal does not prove remote credentials or
+jobs are disabled; INF-006 / PR #872 remains held for external containment.
+Install the repo version on the host only within an authorized deployment or
+host-maintenance window:
 
 ```bash
 ssh dalekdefender 'cd ~/VH-Health-Platform && git pull --ff-only'
@@ -181,6 +184,12 @@ Kubernetes diagnostics before restoring the previous digest-pinned images. Do
 not use this test rig for real PHI; failed-startup diagnostics include pod
 events and backend log tails. CI compares the host helper SHA256 with this repo
 file and skips the cluster mutation step while the host copy is stale.
+
+Hosted post-deploy and staff-role smoke workflows are manual and require
+approved target inputs and the exact expected commit. Sentry submissions and
+create probes are disabled by default and require explicit effect authority.
+Neither a smoke workflow definition nor a passing isolated CI run authorizes
+this host mutation or proves that the intended revision is deployed.
 
 ## Updating
 

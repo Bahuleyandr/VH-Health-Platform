@@ -3,16 +3,19 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
 import process from 'node:process';
+import { runManualSmokePreflight } from './manual-smoke-preflight.mjs';
+
+const config = await runManualSmokePreflight('post-deploy');
 
 const outputDir = resolve('output/post-deploy-smoke');
 mkdirSync(outputDir, { recursive: true });
 
-const apiOrigin = trimSlash(process.env.VH_TRIAL_API_ORIGIN || 'https://api.vhhealth.app');
+const apiOrigin = config.apiOrigin;
 const healthOrigin = trimSlash(apiOrigin.replace(/\/api\/v\d+$/i, ''));
-const adminOrigin = trimSlash(process.env.VH_TRIAL_ADMIN_ORIGIN || 'https://admin.vhhealth.app');
-const expectedCommit = process.env.GITHUB_SHA || process.env.FORGEJO_SHA || '';
-const requireVersionMatch = truthy(process.env.VH_REQUIRE_VERSION_MATCH);
-const sentryRequired = truthy(process.env.SENTRY_SMOKE_REQUIRED);
+const adminOrigin = config.adminOrigin;
+const expectedCommit = config.expectedCommit;
+const requireVersionMatch = true;
+const sentryRequired = config.includeSentry;
 const versionMatchTimeoutMs = Number(process.env.VH_VERSION_MATCH_TIMEOUT_MS || 10 * 60 * 1000);
 const versionMatchPollMs = Number(process.env.VH_VERSION_MATCH_POLL_MS || 15 * 1000);
 const monitoringToken = firstNonEmpty(
@@ -28,17 +31,13 @@ function trimSlash(value) {
   return String(value || '').replace(/\/+$/, '');
 }
 
-function truthy(value) {
-  return ['1', 'true', 'yes', 'on'].includes(String(value || '').toLowerCase());
-}
-
 function firstNonEmpty(...values) {
   return values.find((value) => String(value || '').trim())?.trim() || '';
 }
 
 function baseHeaders(extra = {}) {
   return {
-    'User-Agent': 'vh-health-forgejo-post-deploy-smoke/1.0',
+    'User-Agent': 'vh-health-post-deploy-smoke/1.0',
     ...extra,
   };
 }
@@ -61,6 +60,8 @@ async function probeJson(label, url, { required = true, expectStatus = 200, head
     const startedAt = Date.now();
     const response = await fetch(url, {
       headers: headers || baseHeaders(),
+      signal: AbortSignal.timeout(30_000),
+      redirect: 'error',
     });
     const text = await response.text();
     let json = null;
@@ -105,17 +106,17 @@ function getDeployedCommit(versionBody) {
 
 function commitsMatch(deployed, expected) {
   if (!deployed || deployed === 'unknown' || !expected) return false;
-  return deployed === expected || expected.startsWith(deployed) || deployed.startsWith(expected);
+  return deployed === expected;
 }
 
 async function sendSentrySmoke({ name, dsn }) {
   if (!dsn) {
     appendResult({
       label: `sentry:${name}`,
-      ok: true,
-      required: false,
-      status: 'SKIP',
-      message: 'DSN not configured; Sentry event smoke skipped.',
+      ok: false,
+      required: true,
+      status: 'CONFIG_ERROR',
+      message: 'Selected Sentry event smoke requires its DSN.',
     });
     return;
   }
@@ -149,13 +150,13 @@ async function sendSentrySmoke({ name, dsn }) {
       timestamp: now,
       platform: 'javascript',
       level: 'info',
-      message: `Forgejo post-deploy Sentry smoke: ${name}`,
-      environment: process.env.SENTRY_SMOKE_ENVIRONMENT || 'forgejo-post-deploy',
+      message: `Post-deploy Sentry smoke: ${name}`,
+      environment: process.env.SENTRY_SMOKE_ENVIRONMENT || 'post-deploy',
       release: expectedCommit || undefined,
       tags: {
         smoke: 'post_deploy',
         component: name,
-        repository: process.env.GITHUB_REPOSITORY || process.env.FORGEJO_REPOSITORY || 'unknown',
+        repository: process.env.GITHUB_REPOSITORY || 'unknown',
       },
       extra: {
         source: 'scripts/ci/post-deploy-smoke.mjs',
@@ -169,9 +170,11 @@ async function sendSentrySmoke({ name, dsn }) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-sentry-envelope',
-        'User-Agent': 'vh-health-forgejo-post-deploy-smoke/1.0',
+        'User-Agent': 'vh-health-post-deploy-smoke/1.0',
       },
       body: envelope,
+      signal: AbortSignal.timeout(30_000),
+      redirect: 'error',
     });
     appendResult({
       label: `sentry:${name}`,
@@ -227,9 +230,15 @@ if (!live.ok) {
   await probeJson('backend:legacy-api-v1-health', legacyHealthUrl, { required: false });
 }
 
-await sendSentrySmoke({ name: 'backend', dsn: process.env.SENTRY_DSN_BACKEND });
-await sendSentrySmoke({ name: 'admin', dsn: process.env.SENTRY_DSN_ADMIN || process.env.NEXT_PUBLIC_SENTRY_DSN });
-await sendSentrySmoke({ name: 'staff', dsn: process.env.SENTRY_DSN_STAFF || process.env.STAFF_WEB_SENTRY_DSN });
+if (config.includeSentry && results.some((result) => result.required && !result.ok)) {
+  appendResult({ label: 'sentry', ok: false, required: true, status: 'HELD_TARGET_CHECK_FAILED' });
+} else if (config.includeSentry) {
+  await sendSentrySmoke({ name: 'backend', dsn: process.env.SENTRY_DSN_BACKEND });
+  await sendSentrySmoke({ name: 'admin', dsn: process.env.SENTRY_DSN_ADMIN });
+  await sendSentrySmoke({ name: 'staff', dsn: process.env.SENTRY_DSN_STAFF });
+} else {
+  appendResult({ label: 'sentry', ok: true, required: false, status: 'NOT_SELECTED' });
+}
 
 const report = {
   generated_at: new Date().toISOString(),
@@ -239,6 +248,8 @@ const report = {
   expected_commit: expectedCommit || null,
   require_version_match: requireVersionMatch,
   sentry_required: sentryRequired,
+  authorized_by: config.authorizedBy,
+  authority_ref: config.authorityRef,
   results,
 };
 

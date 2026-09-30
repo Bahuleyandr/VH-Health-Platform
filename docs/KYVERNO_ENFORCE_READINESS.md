@@ -35,7 +35,8 @@ The live gate proves all of these at once:
 
 - the checked-in ClusterPolicy still renders in Audit mode with fail-closed
   admission semantics;
-- `kyverno/vhhealth-cosign-public-key` exists and contains `cosign.pub`;
+- the live policy accepts only the named GitHub keyless identities and requires
+  verified image digests;
 - the live `ClusterPolicy/verify-vhhealth-image-signatures` is still in the
   expected `Audit` state before the flip;
 - PolicyReport or ClusterPolicyReport has fresh pass results for the policy;
@@ -50,11 +51,13 @@ timestamp and attaches that evidence to the change record.
 1. Kyverno 1.12 or newer is installed and healthy.
 2. ArgoCD has completed at least one full sync with
    `verify-vhhealth-image-signatures` in Audit mode.
-3. The Forgejo cosign public key has been sealed or created as
-   `kyverno/vhhealth-cosign-public-key` with key `cosign.pub`.
-4. The currently deployed backend, admin, and staff-web images are signed by
-   either the GitHub keyless workflow identity or the Forgejo key pair named in
-   the policy.
+3. The live policy has been separately synchronized and verified against the
+   GitHub-only source policy. Source retirement does not change a live cluster.
+4. The currently deployed backend, admin, and staff-web image digests verify
+   against the GitHub keyless workflow identities named in the policy. Old
+   Forgejo-only signatures are insufficient; replacing or re-signing deployed
+   artifacts requires separate operator/release authority. The historical public
+   key is retained in the repository without an active admission reference.
 5. No application rollout, migration, or node maintenance is in progress.
 
 ## Enforce Ceremony
@@ -136,7 +139,7 @@ admission outage.
 - live gate output before the flip;
 - `policyreport` and `clusterpolicyreport` JSON captured after the clean Audit
   cycle;
-- public-key Secret metadata, not the key body;
+- GitHub signing-identity and deployed-digest verification evidence;
 - dry-run pod admission output after Enforce;
 - live gate output after Enforce, if the operator completes the flip;
 - rollback output if the ceremony is aborted.

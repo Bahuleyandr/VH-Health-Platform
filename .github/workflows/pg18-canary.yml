@@ -14,6 +14,11 @@ name: PG18 Qualification Canary
 
 on:
   workflow_dispatch:
+    inputs:
+      postgres_image:
+        description: 'Approved pgvector/pgvector:pg18 image with its sha256 digest'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -23,9 +28,28 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  validate-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      image: ${{ steps.validate.outputs.image }}
+    steps:
+      - name: Require an approved immutable PostgreSQL 18 image
+        id: validate
+        env:
+          POSTGRES_IMAGE: ${{ inputs.postgres_image }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$POSTGRES_IMAGE" =~ ^pgvector/pgvector:pg18@sha256:[a-f0-9]{64}$ ]]; then
+            echo '::error::An approved PostgreSQL 18 image digest is required'
+            exit 1
+          fi
+          printf 'image=%s\n' "$POSTGRES_IMAGE" >> "$GITHUB_OUTPUT"
+
   backend-on-pg18:
     name: Backend lint + tests on PostgreSQL 18 (canary)
+    needs: validate-image
     uses: ./.github/workflows/_reusable-backend-lint-test.yml
     with:
-      postgres_image: pgvector/pgvector:pg18
+      postgres_image: ${{ needs.validate-image.outputs.image }}
       notification_label: PG18 canary

@@ -20,7 +20,9 @@ holds are recorded in
 
 ## Required Evidence
 
-- Forgejo CI green on `main`.
+- Successful GitHub `Merge Gate` and `Full Merge Gate` on the exact proposed
+  trial commit after its final `[full-ci]` marker. Forgejo delivery and mirroring
+  are permanently retired.
 - Backend health checks: `GET https://api.vhhealth.app/api/v1/health/live`
   and `GET https://api.vhhealth.app/api/v1/health/version`.
 - Admin portal load check: `GET https://admin.vhhealth.app/login`.
@@ -28,14 +30,17 @@ holds are recorded in
 - Staff role workflow sweep:
   `scripts/smoke-staff-role-workflows.ps1` with report saved under
   `output/trial-readiness/staff-role-workflow-sweep.md`.
+- Hosted `trial-readiness-smoke.yml` and `post-deploy-smoke.yml` run only by
+  manual GitHub dispatch with approved target inputs. Record authority for test
+  identities, create probes and Sentry submissions before enabling those effects.
 - Manual pilot checklist:
   `docs/PILOT_STAFF_WORKFLOW_SCENARIOS.md`.
 
 ## Known Non-Blocking Issues
 
-- Local DB-backed backend tests require PostgreSQL at `127.0.0.1:55432`; when it
-  is unavailable, use Forgejo CI and live Dalekdefender smoke evidence for
-  end-to-end proof.
+- Isolated GitHub CI database tests and owner-authorized Dalekdefender smoke
+  evidence answer different questions. Hosted probes do not replace the full
+  GitHub gate, and passing CI does not prove the deployed revision is healthy.
 - Full observability stack setup is intentionally deferred until the OP/IP/Admin
   trial workflows are clear of blocking bugs.
 - Receptionist can handle routine front-office admission and bed-selection
@@ -46,6 +51,10 @@ holds are recorded in
 
 OWNER-INPUT — named engineering-trial owner: ______; approved sanitized-data
 boundary: ______; environment and exact SHA: ______.
+
+INF-006 / PR #872 external credential and automation containment remains held;
+repository retirement does not close it or authorize deployment. See
+[`RELEASE_READINESS.md`](RELEASE_READINESS.md) for the outstanding receipts.
 
 The non-production engineering trial can proceed only when there are no P0/P1
 blockers in the live staff role sweep, Admin login works, Staff login works, and

@@ -1,37 +1,25 @@
 name: Security Sweep
 
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
+  workflow_call:
+  workflow_dispatch:
   schedule:
     - cron: '15 2 * * 2'
-      timezone: Asia/Kolkata
-  workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: security-sweep-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
   security:
-    name: Secrets, dependencies, Semgrep, Trivy
-    runs-on: docker-builder
+    name: Repository security sweep
+    runs-on: ubuntu-latest
     timeout-minutes: 45
-    env:
-      VH_CI_CACHE_DIR: /cache/vh-health-platform
-      GITLEAKS_CACHE_DIR: /cache/vh-health-platform/gitleaks
-      npm_config_cache: /cache/vh-health-platform/npm
     steps:
-      - uses: https://data.forgejo.org/actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
           fetch-depth: 0
 
-      - uses: https://data.forgejo.org/actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '26.5.0'
           cache: npm
@@ -39,19 +27,17 @@ jobs:
             apps/backend/package-lock.json
             apps/admin/package-lock.json
 
-      - name: Run blocking repo-owned secret checks
-        run: node scripts/ci/run.mjs --install --only=security
-
-      - name: npm audit backend/admin
-        run: |
-          npm --prefix apps/backend audit --audit-level=high
-          npm --prefix apps/admin audit --audit-level=high
-
       - name: Prepare security output
         run: mkdir -p output/security
 
-      # OSV remains advisory pending triage of the existing backlog; npm audit
-      # above is the blocking dependency gate.
+      - name: npm audit backend
+        run: npm --prefix apps/backend audit --audit-level=high
+
+      - name: npm audit admin
+        if: ${{ !cancelled() }}
+        run: npm --prefix apps/admin audit --audit-level=high
+
+      # OSV reports remain advisory; canonical npm audits and Trivy block.
       - name: OSV lockfile scan
         continue-on-error: true
         run: |
@@ -76,15 +62,7 @@ jobs:
             --format=json \
             --output=output/security/osv-lockfiles.json
 
-      # Semgrep stays advisory here; WS3 B3.4 flips it to blocking after
-      # the initial finding backlog is triaged (target: 2026-06-24).
-      # See docs/archive/audits/SECURITY_CONTROLS_SELFASSESSMENT.md §8 for the gate criteria.
-      # Two passes are run:
-      #   1. Focused VH Health ruleset (.semgrep.yml) — tightly scoped,
-      #      high signal-to-noise, covers injection/secrets/SSRF/path-traversal/
-      #      crypto/PHI patterns specific to this codebase.
-      #   2. Broad OWASP/community baselines — wider coverage, more noise,
-      #      useful for discovery but advisory only.
+      # Canonical Semgrep blocks ERROR findings; this report includes all severities.
       - name: Semgrep focused VH Health ruleset
         continue-on-error: true
         run: |
@@ -127,9 +105,6 @@ jobs:
             --exclude output \
             --exclude build
 
-      # Audit finding M15: BLOCKING on the merge path for CRITICAL/HIGH vulns
-      # and leaked secrets. Misconfiguration reporting stays advisory below
-      # while the existing config backlog is triaged.
       - name: Trivy filesystem scan (blocking on CRITICAL/HIGH + secrets)
         run: |
           set -euo pipefail
@@ -159,6 +134,7 @@ jobs:
             .
 
       - name: Trivy misconfiguration scan (advisory)
+        if: ${{ !cancelled() }}
         continue-on-error: true
         run: |
           set -euo pipefail
@@ -186,7 +162,7 @@ jobs:
 
       - name: Upload security reports
         if: always()
-        uses: https://data.forgejo.org/actions/upload-artifact@ff15f0306b3f739f7b6fd43fb5d26cd321bd4de5 # v3
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: security-sweep
           path: output/security

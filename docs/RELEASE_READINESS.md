@@ -4,13 +4,14 @@ This checklist is the release gate for patient and staff app tags. It is meant
 to answer one question before a tag is pushed: can we prove the app builds,
 talks to the backend, and has the required operational guardrails?
 
-**Current status (2026-09-02): HELD / not tag-ready.** PR #872 (`INF-006`)
-remains open and draft with an explicit external-containment prerequisite. This
+**Current status (2026-09-30): HELD / not tag-ready.** PR #872 (`INF-006`)
+remains held by its external-containment prerequisite. Repository retirement
+does not establish that external containment has completed. This
 file describes evidence requirements; it does not authorize a tag, workflow
 dispatch, publication, deployment, secret change, or ArgoCD sync. OWNER-INPUT —
 release authority receipt: ______.
 
-## GitHub-only decision and pending Forgejo retirement
+## GitHub-only delivery and external containment
 
 The owner retired Forgejo from VH Health's delivery model on 2026-09-30.
 GitHub is the sole repository and hosted CI/release authority; there is no
@@ -18,11 +19,11 @@ continuing Forgejo mirror requirement. Do not push branches or tags to Forgejo,
 retry its CI, or require its parity/health as a condition of GitHub delivery.
 Dalekdefender staging and isolated synthetic-data CI remain separate systems.
 
-This decision is not evidence that the existing remote automation or credentials
-have been disabled. Source retirement must preserve the useful security,
-dependency-update and smoke-check coverage in GitHub before removing Forgejo
-workflows and their coupled checks. The source retirement is still pending.
-The following external stop lines remain open:
+Repository retirement removes Forgejo workflows, mirror-health requirements and
+their active signer references, with useful security, dependency-update and
+smoke-check coverage retained on GitHub. This is not evidence that existing
+remote automation or credentials have been disabled. The following external
+stop lines remain open:
 
 - OPERATOR-INPUT: VH repository automation disabled on Forgejo and running jobs
   reconciled; evidence: ______. Do not stop shared runners or other projects.
@@ -36,6 +37,40 @@ The following external stop lines remain open:
 PR #872 remains held; do not merge its proposed Forgejo activation interlock as
 a substitute for retirement or declare INF-006 closed from this decision alone.
 Clinical, linguistic, finance, privacy and production release gates are unchanged.
+
+`infra/forgejo/signing/cosign.pub` is retained as historical verification evidence.
+It is not an active signing or admission authority. Current release images use
+the GitHub workflow's OIDC identity; do not provision a replacement Forgejo key
+or restore its mirror to satisfy this checklist.
+
+## Retained GitHub coverage
+
+- Canonical backend/admin jobs retain npm audits, schema and OpenAPI checks,
+  PHI tenant guards and role-policy tests; the backend gate also retains the
+  static SQL-to-Prisma column drift check.
+- `secret-scan.yml` retains service-account, Gitleaks and optional GitGuardian
+  checks. `security-sweep.yml` retains both unconditional blocking backend/Admin
+  npm audits, repository-wide blocking Trivy
+  vulnerability/secret checks and advisory OSV, Semgrep and misconfiguration
+  reports. Advisory reports are not additional blocking gates.
+- `container-supply-chain.yml` builds backend/admin/staff-web images locally,
+  blocks on fixable HIGH/CRITICAL vulnerabilities and secrets, and emits advisory
+  SBOM/misconfiguration reports. It does not push or sign images; release
+  publication remains in the separately authorized GitHub release workflows.
+- Dependency updates use [the GitHub updater configuration](qa/dependency-updates.md).
+  The local `smoke-e2e.yml`, warehouse gate and Staff release builds retain their
+  existing GitHub coverage.
+- `trial-readiness-smoke.yml` and `post-deploy-smoke.yml` are manual, input-gated
+  hosted checks. Their existence, missing credentials or an unexecuted workflow
+  is not evidence that a deployment or smoke check succeeded.
+
+Both hosted workflows require `authorized_by`, `authority_ref`, `api_origin` and
+a full 40-character `expected_commit`; post-deploy also requires `admin_origin`.
+`include_sentry` and `include_creates` default to false. Create probes require a
+separate `writes_authority_ref`. Input validation and deployed-version matching
+precede credential-bearing probes; selected Sentry events stay held if any
+required target check fails. The approval reference must represent actual owner
+authority; filling an input does not grant it.
 
 Authorized local CI may run before publication but does not substitute for the
 protected GitHub gates below or authorize a release. The following old Forgejo
@@ -52,7 +87,7 @@ configuration names are a containment inventory, not setup instructions:
 - `STAFF_ANDROID_KEY_PASSWORD`
 - `STAFF_ANDROID_STORE_PASSWORD`
 
-Legacy container and deploy workflows also reference Forgejo secrets for GHCR
+Retired container and deploy workflows referenced Forgejo secrets for GHCR
 pushes (`GHCR_USERNAME`/`GHCR_TOKEN` or
 `CONTAINER_REGISTRY_USERNAME`/`CONTAINER_REGISTRY_PASSWORD`), cosign signing
 (`COSIGN_PRIVATE_KEY`, `COSIGN_PASSWORD`, `COSIGN_PUBLIC_KEY`), and the
@@ -97,14 +132,14 @@ $env:VH_API_KEY='<release-smoke-api-key>'
 .\scripts\smoke-staff-desktop.ps1
 ```
 
-For role-by-role API workflow verification against the deployed backend, run:
-
-```powershell
-$env:VH_BASE_URL='https://<host>/api/v1'
-$env:VH_API_KEY='<release-smoke-api-key>'
-$env:VH_STAFF_TEST_PASSWORD='<seeded staff password>'
-.\scripts\smoke-staff-role-workflows.ps1 -IncludeCreates
-```
+For role-by-role API verification, use the manual GitHub
+`trial-readiness-smoke.yml` only after the hosted-smoke owner receipt above is
+complete. Supply the approved non-production target and seeded test identities;
+enable create probes only when appointment, investigation and prescription
+writes are explicitly authorized. The manual `post-deploy-smoke.yml` requires
+the approved deployed origins and expected commit. Sentry envelope submission
+requires separate approval and proves submission, not application SDK
+instrumentation or downstream ingestion.
 
 Attach a freshly generated staff role workflow sweep for the target commit,
 backup evidence, and one restore drill record before approving a real

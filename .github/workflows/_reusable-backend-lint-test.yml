@@ -37,7 +37,7 @@ on:
         description: Postgres service container image for DB-backed jobs.
         required: false
         type: string
-        default: pgvector/pgvector:pg17
+        default: pgvector/pgvector:pg17@sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f
     secrets:
       DISCORD_WEBHOOK_URL:
         required: false
@@ -110,6 +110,9 @@ jobs:
           done
           node --input-type=module -e "const ort = await import('onnxruntime-node'); if (typeof ort.InferenceSession?.create !== 'function') throw new Error('onnxruntime-node imported but InferenceSession.create is missing');"
           echo "onnxruntime-node: CUDA provider download skipped; bundled CPU runtime present and importable"
+
+      - name: Prisma relation budget
+        run: npm run check:prisma-relations
 
       - name: Restore generated Prisma client
         id: prisma-client
@@ -320,6 +323,9 @@ jobs:
       - name: Generate Prisma client
         if: steps.prisma-client.outputs.cache-hit != 'true'
         run: npx prisma generate
+
+      - name: SQL column references match the Prisma schema
+        run: node scripts/scan-code-drift.mjs
 
       - name: OpenAPI drift check (regenerate live-router spec + diff)
         run: node scripts/check-openapi-drift.mjs

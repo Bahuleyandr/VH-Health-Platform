@@ -105,11 +105,13 @@ path. Their presence does not authorize execution, publication or production
 activation. Follow each workflow's actual input/secret contract and the release
 readiness gates rather than copying retired Forgejo credentials.
 
-Forgejo source/runtime retirement is not yet complete. Its existing workflows,
-mirror alerts and coupled guards still need removal with equivalent useful
-checks retained on GitHub. Credential containment and hosted smoke execution
-remain named owner actions in the release readiness checklist; this documentation
-change does not disable remote jobs or retire shared infrastructure.
+Repository retirement removes Forgejo workflows and mirror-health requirements
+while retaining useful checks in GitHub. Container validation builds and scans
+local images without publishing; hosted post-deploy and staff-role smokes are
+manual and require explicit approved inputs. Credential containment and hosted
+smoke execution remain named owner actions in the release readiness checklist.
+Source changes do not disable remote jobs or retire shared infrastructure, and
+INF-006 / PR #872 remains held until external containment is evidenced.
 
 Never commit real API keys, passwords, tokens, keystores, DSNs, or live test
 credentials. Store them in the deployment secret store or in local ignored env

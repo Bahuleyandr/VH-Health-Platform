@@ -7,8 +7,10 @@ the pre-pilot security actions now consolidated in [`ROADMAP.md`](ROADMAP.md) §
 
 ## A7 — Secret rotation (do once, then on a calendar)
 
-Rotation order matters: rotate at the provider, update the sealed secret /
-GitHub secret, roll the deployment, THEN revoke the old credential.
+For credentials that remain in service, rotation order matters: rotate at the
+provider, update the sealed secret / GitHub secret, roll the authorized
+deployment, THEN revoke the old credential. Retired Forgejo identities instead
+require containment and revocation evidence; do not re-provision them.
 
 - [ ] `JWT_SECRET` — generate new 64-byte value; deploy; old tokens expire
       naturally (patient 7d / staff 8h / admin 4h). Coordinate a low-traffic
@@ -33,8 +35,11 @@ GitHub secret, roll the deployment, THEN revoke the old credential.
       `apps/backend`. Rotate or backfill every reported row before pilot
       sign-off; the current app encrypts new writes but cannot safely rotate
       existing partner/TOTP/SMART/HL7 credentials without operator approval.
-- [ ] Forgejo Actions secrets re-entered after rotation
-      (`VH_API_KEY`, Android signing secrets).
+- [ ] Approved GitHub/deployment identities updated after rotation; retired
+      Forgejo bot, registry, SSH, signing and mobile-release credentials
+      inventoried and revoked or restricted without disrupting shared users.
+      INF-006 / PR #872 remains held until named external receipts are attached
+      to [`RELEASE_READINESS.md`](RELEASE_READINESS.md).
 - [ ] Purge local artifacts: `.env*` backups, `output/logs/*`,
       `backend-ci-*.log` at repo root (contains workflow run output),
       old `pg.log` files. `node scripts/gitleaks-scan.mjs range` after.
@@ -47,12 +52,13 @@ Already in place (verify, don't rebuild): image build+SBOM+scan+sign in
 `release-images.yml`, CodeQL, gitleaks, npm audit gates, ArgoCD pinned
 digests in `infra/kubernetes/apps/kustomization.yaml`.
 
-- [ ] **Signature verification at admission** (2026-06-11: option CHOSEN and
-      policy WRITTEN — Kyverno `verifyImages` keyed to the release workflows'
-      GitHub OIDC identity, at
-      `infra/kubernetes/base/image-policy/kyverno-verify-images.yaml`.
-      Remaining: install Kyverno, enable the resource, flip Audit→Enforce —
-      steps in `docs/PHASE0_OPERATOR_ACTIONS_2026-06-10.md` §6).
+- [ ] **Signature verification at admission**: review the GitHub OIDC policy
+      at `infra/kubernetes/base/image-policy/kyverno-verify-images.yaml` and the
+      current [`KYVERNO_ENFORCE_READINESS.md`](KYVERNO_ENFORCE_READINESS.md)
+      evidence requirements before any operator-authorized sync. The retired
+      Forgejo public key remains historical evidence only; do not create an
+      active admission Secret from it. Source retirement does not prove live
+      admission or rollback-image trust and does not authorize activation.
 - [ ] **Pen test**: commission an external test before pilot go-live.
       Scope: public surface (api.vhhealth.app via Cloudflare Tunnel),
       auth flows (OTP, staff login, refresh rotation, MFA), IDOR sweep on
@@ -62,8 +68,9 @@ digests in `infra/kubernetes/apps/kustomization.yaml`.
 - [ ] **DPDP Act review**: data-inventory walk (what PHI lives where),
       consent records coverage, breach-notification dry run using the
       existing `data_breaches` + `breach_log` tables.
-- [ ] **Dependency watch**: Renovate/dependabot already configured —
-      add a monthly 30-minute triage slot so PRs don't rot.
+- [ ] **Dependency watch**: review GitHub Dependabot updates monthly using
+      [`qa/dependency-updates.md`](qa/dependency-updates.md). Kubernetes
+      manifest-image updater coverage remains held for an owner decision.
 
 ## Standing rules (already enforced in code/CI — keep them green)
 
@@ -84,7 +91,7 @@ digests in `infra/kubernetes/apps/kustomization.yaml`.
   every environment; do not set `SMART_FHIR_ADMIN_AUTHORIZE_ENABLED=true`
   outside a local integration test harness.
 - Patient and staff Android release jobs must define
-  `PATIENT_CERT_PIN_HASHES` / `STAFF_CERT_PIN_HASHES` Forgejo variables with
+  `PATIENT_CERT_PIN_HASHES` / `STAFF_CERT_PIN_HASHES` GitHub variables with
   current + next-rotation `sha256/<SPKI base64>` hashes. Release workflows pass
   `PRODUCTION=true` and `CERT_PIN_HASHES`; missing pin variables must block the
   signed APK/AAB build.
