@@ -1,9 +1,10 @@
 // src/app/(with-auth)/dashboard/reporting/components/DataExporter.tsx
 "use client";
 
-import { useState, useMemo } from "react";
 import { DownloadIcon, RefreshIcon } from "@/components/icons";
 import { API_ENDPOINTS, buildProxyUrl } from "@/lib/api-config";
+import { parseCsvPreview, type CsvPreview } from "@/lib/csvPreview";
+import { useState, useMemo } from "react";
 
 /* ─── Date preset helpers ─── */
 function today() {
@@ -115,13 +116,10 @@ const EXPORTS: ExportDef[] = [
 ];
 
 /* ─── Preview state ─── */
-interface PreviewData {
+type PreviewData = CsvPreview & {
   exportId: string;
-  rows: number;
-  columns: string[];
   dateRange: { from: string; to: string };
-  sampleRows: Record<string, string>[];
-}
+};
 
 export function DataExporter() {
   const [dateRange, setDateRange] = useState({
@@ -165,31 +163,17 @@ export function DataExporter() {
       if (exp.previewAsCsv) {
         try {
           const text = await blob.text();
-          const lines = text.split("\n").filter(Boolean);
-          if (lines.length > 0) {
-            const columns = lines[0]
-              .split(",")
-              .map((c) => c.replace(/"/g, "").trim());
-            const sampleRows = lines.slice(1, 6).map((line) => {
-              const vals = line
-                .split(",")
-                .map((v) => v.replace(/"/g, "").trim());
-              const row: Record<string, string> = {};
-              columns.forEach((col, i) => {
-                row[col] = vals[i] ?? "";
-              });
-              return row;
-            });
-            setPreview({
-              exportId: exp.id,
-              rows: lines.length - 1,
-              columns,
-              dateRange: { ...dateRange },
-              sampleRows,
-            });
-          }
+          setPreview({
+            ...parseCsvPreview(text),
+            exportId: exp.id,
+            dateRange: { ...dateRange },
+          });
         } catch {
-          /* ignore parse errors, still download */
+          setPreview({
+            status: "unavailable",
+            exportId: exp.id,
+            dateRange: { ...dateRange },
+          });
         }
       }
 
@@ -310,7 +294,12 @@ export function DataExporter() {
       </div>
 
       {/* Preview Table */}
-      {preview && (
+      {preview?.status === "unavailable" && (
+        <p role="status" className="text-sm text-muted-foreground">
+          CSV preview unavailable. The original file is unchanged.
+        </p>
+      )}
+      {preview?.status === "available" && (
         <div className="bg-card rounded-lg shadow p-5">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-lg font-semibold">Export Preview</h3>
@@ -337,9 +326,9 @@ export function DataExporter() {
             <table className="min-w-full divide-y divide-border text-sm">
               <thead className="bg-muted">
                 <tr>
-                  {preview.columns.map((col) => (
+                  {preview.columns.map((col, index) => (
                     <th
-                      key={col}
+                      key={index}
                       className="px-3 py-2 text-left text-xs font-medium text-muted-foreground uppercase"
                     >
                       {col}
@@ -350,12 +339,12 @@ export function DataExporter() {
               <tbody className="divide-y divide-border">
                 {preview.sampleRows.map((row, i) => (
                   <tr key={i} className="hover:bg-muted">
-                    {preview.columns.map((col) => (
+                    {row.map((value, index) => (
                       <td
-                        key={col}
-                        className="px-3 py-2 text-foreground whitespace-nowrap max-w-[200px] truncate"
+                        key={index}
+                        className="px-3 py-2 text-foreground whitespace-pre-wrap max-w-[200px] break-words"
                       >
-                        {row[col]}
+                        {value}
                       </td>
                     ))}
                   </tr>
