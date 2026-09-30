@@ -55,7 +55,7 @@ describe('migration 803 tenant domain CHECK restoration', () => {
     return rows;
   }
 
-  async function runtimeCase(action) {
+  async function runtimeCase(action, relation = 'public.tenants') {
     await client.query('SAVEPOINT tenant_domain_case');
     try {
       await client.query('SET LOCAL ROLE vhhealth_app');
@@ -65,7 +65,8 @@ describe('migration 803 tenant domain CHECK restoration', () => {
                 r.rolsuper, r.rolbypassrls, c.relowner = r.oid AS owns_table,
                 c.relrowsecurity, c.relforcerowsecurity
            FROM pg_roles r CROSS JOIN pg_class c
-          WHERE r.rolname = current_user AND c.oid = 'public.tenants'::regclass`,
+          WHERE r.rolname = current_user AND c.oid = $1::regclass`,
+        [relation],
       );
       expect(rows).toEqual([{
         runtime_role: 'vhhealth_app', row_security: 'on',
@@ -257,7 +258,7 @@ describe('migration 803 tenant domain CHECK restoration', () => {
       label: `${existing ? 'existing' : 'missing'} CHECK with historical ${invalid.column}`,
       invalid, existing,
     }))),
-  ])('$label preserves historical rows and enforces new writes', async ({ invalid, existing }) => {
+  ])('$label preserves historical rows and enforces inserts and unrelated updates', async ({ invalid, existing }) => {
     const schema = `tenant_803_${randomUUID().replaceAll('-', '')}`;
     expect(schema).toMatch(/^tenant_803_[a-f0-9]{32}$/);
     const publicBefore = await catalog();
@@ -268,6 +269,7 @@ describe('migration 803 tenant domain CHECK restoration', () => {
       await client.query(`CREATE SCHEMA ${schema}`);
       await client.query(
         `CREATE TABLE ${schema}.tenants (
+          name text NOT NULL DEFAULT 'Synthetic historical tenant',
           region varchar(10) NOT NULL DEFAULT 'IN',
           compliance_profile varchar(20) NOT NULL DEFAULT 'DPDP',
           status varchar(20) NOT NULL DEFAULT 'active'
@@ -281,7 +283,7 @@ describe('migration 803 tenant domain CHECK restoration', () => {
           invalid?.column === 'status' ? invalid.invalid : 'active'],
       );
       const readRows = async () => (await client.query(
-        `SELECT region, compliance_profile, status FROM ${schema}.tenants`,
+        `SELECT name, region, compliance_profile, status FROM ${schema}.tenants`,
       )).rows;
       const beforeRows = await readRows();
       expect(beforeRows).toHaveLength(1);
@@ -327,6 +329,26 @@ describe('migration 803 tenant domain CHECK restoration', () => {
       } else {
         expect(notices).toHaveLength(0);
       }
+      await client.query(`GRANT USAGE ON SCHEMA ${schema} TO vhhealth_app`);
+      await client.query(`GRANT SELECT, UPDATE ON ${schema}.tenants TO vhhealth_app`);
+      await runtimeCase(async () => {
+        const update = client.query(
+          `UPDATE ${schema}.tenants SET name = $1::text
+           RETURNING name, region, compliance_profile, status`,
+          ['Synthetic renamed tenant'],
+        );
+        if (invalid) {
+          await expect(update).rejects.toMatchObject({
+            code: '23514', constraint: constraintName(invalid), table: 'tenants', schema,
+          });
+        } else {
+          const result = await update;
+          expect(result.rowCount).toBe(1);
+          expect(result.rows).toEqual([{ ...beforeRows[0], name: 'Synthetic renamed tenant' }]);
+        }
+      }, `${schema}.tenants`);
+      expect(await readRows()).toEqual(beforeRows);
+      expect(await catalog(`${schema}.tenants`)).toEqual(after);
       for (const domain of domains) {
         await client.query('SAVEPOINT tenant_lineage_invalid');
         await expect(client.query(
