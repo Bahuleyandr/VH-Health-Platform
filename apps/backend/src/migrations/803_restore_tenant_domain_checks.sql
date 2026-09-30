@@ -1,8 +1,8 @@
 -- Restore the three tenant domains declared by 013 but absent because the
 -- baseline already created public.tenants before CREATE TABLE IF NOT EXISTS.
--- Fresh PG17 catalog at 95baac6b5: these three CHECKs are absent; the
+-- Fresh PG17 catalog at a38055b8d: these three CHECKs are absent; the
 -- migration-155 pregnancy CHECKs are present as the census positive control.
--- Comprehensive-seed pre-check (2026-09-25, two tenant rows; each result zero):
+-- Comprehensive-seed pre-check (2026-09-29, two tenant rows; each result zero):
 -- SELECT count(*) FILTER (WHERE (region IN ('IN','EU','US','AP','OTHER')) IS FALSE),
 --        count(*) FILTER (WHERE (compliance_profile IN ('DPDP','HIPAA','GDPR','NONE')) IS FALSE),
 --        count(*) FILTER (WHERE (status IN ('active','suspended','offboarding')) IS FALSE)
