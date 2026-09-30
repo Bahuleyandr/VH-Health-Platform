@@ -82,7 +82,9 @@ class AbdmApiService {
 
   /// Grant a consent request.
   static Future<void> grantConsent(String id) async {
-    final response = await ApiClient.post(_consentPath(id, 'grant'));
+    final response = await ApiClient.post(
+      '/abdm/consents/${_encodedConsentId(id)}/grant',
+    );
     if (!response.isSuccess) {
       throw AbdmException.fromResponse(response);
     }
@@ -90,7 +92,9 @@ class AbdmApiService {
 
   /// Deny a consent request.
   static Future<void> denyConsent(String id) async {
-    final response = await ApiClient.post(_consentPath(id, 'deny'));
+    final response = await ApiClient.post(
+      '/abdm/consents/${_encodedConsentId(id)}/deny',
+    );
     if (!response.isSuccess) {
       throw AbdmException.fromResponse(response);
     }
@@ -98,17 +102,19 @@ class AbdmApiService {
 
   /// Revoke a previously granted consent.
   static Future<void> revokeConsent(String id) async {
-    final response = await ApiClient.post(_consentPath(id, 'revoke'));
+    final response = await ApiClient.post(
+      '/abdm/consents/${_encodedConsentId(id)}/revoke',
+    );
     if (!response.isSuccess) {
       throw AbdmException.fromResponse(response);
     }
   }
 
-  static String _consentPath(String id, String action) {
+  static String _encodedConsentId(String id) {
     if (id.trim().isEmpty) {
       throw ArgumentError('A consent identity is required');
     }
-    return '/abdm/consents/${Uri.encodeComponent(id)}/$action';
+    return Uri.encodeComponent(id);
   }
 }
 
