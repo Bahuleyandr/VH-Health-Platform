@@ -10,15 +10,36 @@ file describes evidence requirements; it does not authorize a tag, workflow
 dispatch, publication, deployment, secret change, or ArgoCD sync. OWNER-INPUT —
 release authority receipt: ______.
 
-## Held Forgejo configuration inventory
+## GitHub-only decision and pending Forgejo retirement
 
-The values below are an inventory for a possible future authorized Forgejo
-release path. Do not create, rotate, or rely on them while `INF-006` remains
-held. Authorized local CI may be run before branch publication. It is
-permitted, not required, and running it neither authorizes publication nor
-substitutes for the protected GitHub gates below. GitHub remains the
-authoritative remote for hosted CI and release evidence, and this local-CI
-permission does not activate the held Forgejo release path.
+The owner retired Forgejo from VH Health's delivery model on 2026-09-30.
+GitHub is the sole repository and hosted CI/release authority; there is no
+continuing Forgejo mirror requirement. Do not push branches or tags to Forgejo,
+retry its CI, or require its parity/health as a condition of GitHub delivery.
+Dalekdefender staging and isolated synthetic-data CI remain separate systems.
+
+This decision is not evidence that the existing remote automation or credentials
+have been disabled. Source retirement must preserve the useful security,
+dependency-update and smoke-check coverage in GitHub before removing Forgejo
+workflows and their coupled checks. The source retirement is still pending.
+The following external stop lines remain open:
+
+- OPERATOR-INPUT: VH repository automation disabled on Forgejo and running jobs
+  reconciled; evidence: ______. Do not stop shared runners or other projects.
+- SECURITY-INPUT: VH bot, registry, SSH and signing authority inventoried and
+  revoked or restricted without breaking shared credentials; evidence: ______.
+- RELEASE-INPUT: retained artifact provenance and rollback-image trust reviewed
+  before retiring the obsolete signer; evidence: ______. No live policy sync.
+- OWNER-INPUT: hosted smoke targets, test identities, permitted writes and Sentry
+  submissions approved before execution; evidence: ______.
+
+PR #872 remains held; do not merge its proposed Forgejo activation interlock as
+a substitute for retirement or declare INF-006 closed from this decision alone.
+Clinical, linguistic, finance, privacy and production release gates are unchanged.
+
+Authorized local CI may run before publication but does not substitute for the
+protected GitHub gates below or authorize a release. The following old Forgejo
+configuration names are a containment inventory, not setup instructions:
 
 - `VH_BASE_URL` as a Forgejo Actions variable.
 - `VH_API_KEY` as a Forgejo Actions secret.
@@ -31,10 +52,7 @@ permission does not activate the held Forgejo release path.
 - `STAFF_ANDROID_KEY_PASSWORD`
 - `STAFF_ANDROID_STORE_PASSWORD`
 
-An authorized future release path must validate these before artifact creation
-and fail closed when any required value is missing.
-
-Container and deploy workflows additionally require Forgejo secrets for GHCR
+Legacy container and deploy workflows also reference Forgejo secrets for GHCR
 pushes (`GHCR_USERNAME`/`GHCR_TOKEN` or
 `CONTAINER_REGISTRY_USERNAME`/`CONTAINER_REGISTRY_PASSWORD`), cosign signing
 (`COSIGN_PRIVATE_KEY`, `COSIGN_PASSWORD`, `COSIGN_PUBLIC_KEY`), and the

@@ -132,10 +132,14 @@ Provider wrappers:
 - `.github/workflows/ci.yml`
 
 Those wrappers should stay thin: prepare the runner, then call this orchestrator
-or the same first-party scripts used locally. GitHub remains an optional mirror;
-Forgejo is the canonical CI/CD target.
+or the same first-party scripts used locally. GitHub is the sole hosted CI/CD
+authority. The owner retired Forgejo, including its mirror requirement, on
+2026-09-30. Existing Forgejo files listed here remain pending source retirement;
+their presence is not permission to dispatch, publish, deploy or require mirror
+parity. Preserve their unique useful checks on GitHub when removing them. See
+`docs/RELEASE_READINESS.md` for the external containment stop lines.
 
-Forgejo specialty gates:
+Legacy Forgejo specialty-check inventory (pending retirement):
 
 - `secret-scan.yml`: standalone service-account scan, gitleaks, and optional
   GitGuardian parity for the GitHub secret-scan workflow.
@@ -147,7 +151,7 @@ Forgejo specialty gates:
 - `ci-warehouse.yml`: migration-built analytics warehouse dbt build and
   optional-module kustomize render.
 
-Forgejo CD surfaces:
+Legacy Forgejo delivery inventory (not authorized for use):
 
 - `deploy-patient-staging.yml` / `deploy-staff-staging.yml`: build debug APKs,
   upload Forgejo artifacts, and distribute through Firebase CLI when Firebase
@@ -172,9 +176,9 @@ configured. Missing transport credentials make that pin step a warning-backed
 clean skip; they never bypass image build, scan, signing, or verification.
 The corresponding non-secret Forgejo verification key is retained at
 `infra/forgejo/signing/cosign.pub` for the Kyverno admission-key ceremony.
-Post-deploy smoke can also be configured as a soft-skip gate with
-`--allow-skip`, but a first-class Forgejo deployment should set
-`VH_TRIAL_API_ORIGIN` and `VH_TRIAL_ADMIN_ORIGIN`.
+These configuration names are retained for containment review, not instructions
+to configure a replacement Forgejo deployment. Hosted smoke execution requires
+separate approved targets, test identities and external-side-effect authority.
 
 Branch-push optimization:
 
@@ -185,14 +189,13 @@ Branch-push optimization:
 - CI/workflow changes, unknown risky paths, or an empty diff fall back to the
   full default gate.
 
-Forgejo cache optimization:
+Local CI caches:
 
 - If `VH_CI_CACHE_DIR` is set, the orchestrator uses it for npm, pub, gitleaks,
   FHIR validator, and Kubernetes validator caches.
-- The Forgejo runner should mount that directory into job containers as
-  `/cache/vh-health-platform` so routine branch runs avoid repeated downloads.
-- The Forgejo `ubuntu-latest` runner image is expected to preinstall Java 17
-  from `infra/forgejo/ci-image/Dockerfile`; `scripts/ci/fhir.mjs` keeps a Linux
-  install fallback for runner rebuilds or fresh hosts.
+- Use an isolated, owned cache directory for the authorized runner; do not
+  depend on a Forgejo runner or modify a shared runner's mounts.
+- FHIR validation requires Java 17; `scripts/ci/fhir.mjs` keeps a Linux
+  install fallback for fresh hosts.
 - FHIR validation runs with local terminology mode (`-tx n/a`) so branch CI does
   not block on `tx.fhir.org` latency or outages.
