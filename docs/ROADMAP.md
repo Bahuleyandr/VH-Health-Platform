@@ -82,9 +82,11 @@ import-race tasks from this immediate queue.
   inspected in this documentation pass.
 - **OPEN-18 — linen/CSSD picker authorization** `[CODE]` `[OPERATOR]`.
   Existing controls still depend on narrower `/wards` and `/theatre/today`
-  permissions. Obtain the least-privilege lookup decision and close the
-  authorized role journeys without widening unrelated PHI access. The
-  reprocessing kernel does not close these pickers.
+  permissions. The owner approved the tenant-wide minimal lookup contract,
+  exact role audiences and selector eligibility on 2026-09-30; see the
+  decision record in the cross-module pick-list section below. Implementation,
+  independent write checks and verified role journeys remain open. Do not
+  widen unrelated PHI access; the reprocessing kernel does not close these pickers.
 - **OPEN-21 — bounded technical coverage and partial human review**
   `[CODE]` `[EXTERNAL]`. #970 is merged, not draft/red. #1013 adds cath
   Batch 1/1.1 review and source corrections; #1027 closes the shared
@@ -1486,6 +1488,53 @@ own refusal rather than an empty picker that would read as "nothing exists".
 Closing the remaining gap is an authorization decision, so it was not taken
 here.
 
+### Owner decision, 2026-09-30 — lookup contract approved; implementation remains open
+
+The owner separately approved the directory boundary, response fields and
+labels, both exact role audiences, and the following selector eligibility.
+These approvals do not establish that an endpoint, authorization test or
+complete workflow has been implemented or verified.
+
+- **Boundary:** one authenticated effective tenant, across that tenant's
+  facilities. Missing facility mapping is not a directory-read prerequisite.
+  Cross-tenant reads remain forbidden, including for an acting SUPER_ADMIN.
+- **Linen projection:** exactly ward `id` and `name`. Include every real ward
+  in that tenant, including first-use wards and wards without facility mapping.
+- **CSSD projection:** exactly case `id`, `scheduled_date` and `scheduled_time`.
+  Label choices by case number and time, with the requested date visible.
+  Exclude patient identifiers, procedure text, room free text and occupancy.
+  These remain restricted operational metadata, not a claim of anonymity.
+- **CSSD eligibility:** `scheduled`, `pre_op` or `in_progress`, on one requested
+  date, with no new age cutoff. Clear the selected case when that date changes.
+- **Both selectors:** paginate results and clear stale selections when the
+  actor or tenant scope changes.
+
+The approved Linen directory audience is exactly `ADMIN`, `SUPER_ADMIN`,
+`ADMISSION_OFFICER`, `CONSULTANT`, `DOCTOR`, `DUTY_DOCTOR`, `JUNIOR_DOCTOR`,
+`RESIDENT`, `SENIOR_DOCTOR`, `HOUSEKEEPING_INCHARGE`, `HOUSEKEEPING_STAFF`,
+`ICU_INCHARGE`, `ICU_NURSE`, `ICU_STAFF`, `IPD_COUNSELLOR`, `IP_INCHARGE`,
+`IP_STAFF_NURSE`, `NURSING_INCHARGE`, `NURSING_STAFF`, `PHARMACY_INCHARGE`
+and `STORES_PURCHASE_INCHARGE`. This includes the minimal lookup for a scoped
+ADMIN without `departmentManagement`; the unrelated `/wards` gate stays intact.
+
+The approved CSSD directory audience is exactly `ADMIN`, `SUPER_ADMIN`,
+`ANAESTHETIST`, `ANESTHETIST`, `CONSULTANT`, `DOCTOR`, `DUTY_DOCTOR`,
+`JUNIOR_DOCTOR`, `RESIDENT`, `NURSING_STAFF`, `OT_INCHARGE`, `OT_NURSE`,
+`OT_STAFF`, `INFECTION_CONTROL_OFFICER` and `QUALITY_OFFICER`.
+`COMPLIANCE_OFFICER`, `DATA_PROTECTION_OFFICER`, `HR_STAFF`,
+`PHARMACY_INCHARGE` and `STORES_PURCHASE_INCHARGE` are denied this new case
+directory. Their existing write permissions are unchanged; a directory denial
+must not be described as removing issuance authority.
+
+The intended new reads are `/api/v1/linen-laundry/wards` and
+`/api/v1/cssd/theatre-options`, not wider access to the rich source endpoints.
+Implementation file ownership must be checked before release. The reserved
+older Linen worktree is not abandoned or available for adoption by this
+decision. Tenant-binding, resource/lifecycle revalidation and reschedule
+handling at the write boundary remain separate work with separately assigned
+ownership. Listing a resource never authorizes a write to it. No new facility
+grant, clinical field, migration, publication or deployment is approved here.
+
 ### Linen cycle + par level need a ward list — `STORES_PURCHASE_INCHARGE` cannot read one `[CODE]`
 
 *What is wrong.* `linen_ward_par_levels.ward_id` and
@@ -1503,20 +1552,19 @@ the board and configure item types, but "New cycle" and "Set par level" show
 applies to an ADMIN whose permissions were scoped down without
 `departmentManagement`.
 
-*The decision needed.* Either (a) add `STORES_PURCHASE_INCHARGE` to
-`BED_PARENT_ROUTE_ROLES` — which widens a mount that also carries
-`patientAccessGuard('WARD_BOARD')` and `phiAccessLogger`, so it is a PHI-scope
-decision, not a convenience one; or (b) add a minimal, non-PHI
-`GET /api/v1/linen-laundry/wards` (id + name for wards that have linen activity)
-behind the linen gate the console already holds. (b) is the smaller blast
-radius; both are owner calls.
+*Approved direction, not completion.* The 2026-09-30 decision selects the
+minimal Linen directory above. Do not add `STORES_PURCHASE_INCHARGE` to the
+broader `BED_PARENT_ROUTE_ROLES`. Unlike the historical activity-only proposal,
+the approved directory includes first-use wards; existing Linen activity is
+not an eligibility requirement.
 
 ### CSSD "Issue set" needs an OT case — seven CSSD roles cannot read the theatre schedule `[CODE]`
 
 *What is wrong.* `set_issue_log.ot_schedule_id` is an FK to `ot_schedules` and
 `cssdService.assertOtSchedule()` 404s an unknown id, so the case must be chosen.
-The list is `GET /api/v1/theatre/today`, gated by `THEATRE_ROUTE_ROLES` plus
-`patientAccessGuard('OPERATING_THEATRE')` and `phiAccessLogger`.
+The list is `GET /api/v1/theatre/today`, gated by `THEATRE_ROUTE_ROLES` and
+`phiAccessLogger`. The current list route deliberately has no per-patient
+guard; patient-specific theatre routes retain their own scope checks.
 `THEATRE_ROUTE_ROLES` is a strict subset of `CSSD_ROUTE_ROLES`; the seven roles
 in the CSSD gate and not the theatre gate are `COMPLIANCE_OFFICER`,
 `DATA_PROTECTION_OFFICER`, `HR_STAFF`, `INFECTION_CONTROL_OFFICER`,
@@ -1530,12 +1578,13 @@ cannot start a new issue. The roles who actually issue instruments at the
 theatre door (`OT_INCHARGE`, `OT_NURSE`, `OT_STAFF`, anaesthetists, the doctor
 tiers, `NURSING_STAFF`, `ADMIN`) hold both gates and are unaffected.
 
-*The decision needed.* Whether infection-control and quality roles should see
-the OT schedule at all. If yes, the honest fix is a non-PHI case list
-(`id`, `procedure_name`, `ot_room`, `scheduled_date`, `scheduled_time` — no
-`patient_uid`) exposed under the CSSD gate, not widening `THEATRE_ROUTE_ROLES`,
-because `/theatre/today` returns `patient_uid` and `encounter_id` and is
-PHI-logged for that reason.
+*Approved direction, not completion.* The 2026-09-30 decision permits the
+minimal case directory for the exact 15 roles above, including infection
+control and quality, and explicitly denies its other five named roles.
+Do not widen `THEATRE_ROUTE_ROLES`. The historical suggestion to classify a
+projection containing `procedure_name` and raw `ot_room` as non-PHI is
+withdrawn: those strings may contain clinical/free text and are excluded.
+The existing rich `/theatre/today` response and its PHI logging are unchanged.
 
 *Deliberately NOT done here.* The console does not hide the "Issue set" control
 for those roles. Duplicating the backend's access rules in the browser would
