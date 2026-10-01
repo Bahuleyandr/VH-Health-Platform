@@ -1,7 +1,7 @@
 // N6-13 CSSD instrument tracking routes.
 
 import { Router } from 'express';
-import { CSSD_DEVICE_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
+import { CSSD_DEVICE_ROUTE_ROLES, CSSD_THEATRE_LOOKUP_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
 import { requireIdempotencyKey } from '../../middleware/idempotencyMiddleware.js';
 import { requireRole } from '../../middleware/rbacMiddleware.js';
 import {
@@ -15,6 +15,7 @@ import {
   releaseDevice,
 } from '../../services/clinical/cathDeviceReuseService.js';
 import * as cssd from '../../services/cssd/cssdService.js';
+import { listCssdTheatreOptions } from '../../services/cssd/cssdTheatreLookupService.js';
 import { renderCathDeviceLabelPdf } from '../../services/documents/cathDeviceLabelPdfService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { success, relayAppError } from '../../utils/responseHelper.js';
@@ -40,6 +41,11 @@ function wrap(handler, { status = 200, message = 'Success' } = {}) {
     }
   };
 }
+
+router.get('/theatre-options', requireRole(...CSSD_THEATRE_LOOKUP_ROUTE_ROLES), wrap((req, res) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  return listCssdTheatreOptions({ tenantId: req.tenantId, query: req.query });
+}));
 
 router.get('/board', wrap((req) =>
   cssd.getCssdBoard({

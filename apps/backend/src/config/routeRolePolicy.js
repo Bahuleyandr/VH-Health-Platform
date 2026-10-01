@@ -400,6 +400,30 @@ export const LINEN_LAUNDRY_ROUTE_ROLES = mergeRoles(
   rolesFrom(['NURSING_STAFF', 'NURSING_INCHARGE', 'STORES_PURCHASE_INCHARGE']),
 );
 
+export const LINEN_WARD_LOOKUP_ROUTE_ROLES = Object.freeze([
+  'ADMIN',
+  'ADMISSION_OFFICER',
+  'CONSULTANT',
+  'DOCTOR',
+  'DUTY_DOCTOR',
+  'HOUSEKEEPING_INCHARGE',
+  'HOUSEKEEPING_STAFF',
+  'ICU_INCHARGE',
+  'ICU_NURSE',
+  'ICU_STAFF',
+  'IPD_COUNSELLOR',
+  'IP_INCHARGE',
+  'IP_STAFF_NURSE',
+  'JUNIOR_DOCTOR',
+  'NURSING_INCHARGE',
+  'NURSING_STAFF',
+  'PHARMACY_INCHARGE',
+  'RESIDENT',
+  'SENIOR_DOCTOR',
+  'STORES_PURCHASE_INCHARGE',
+  'SUPER_ADMIN',
+]);
+
 export const ED_ROUTE_ROLES = mergeRoles(
   getRolesForCapabilityGroups(['ip_flow', 'emergency']),
   rolesFrom(['MEDICAL_RECORDS']),
@@ -531,6 +555,24 @@ export const CSSD_ROUTE_ROLES = mergeRoles(
   getRolesForCapabilityGroups(['supply_chain', 'notifications_audit']),
   rolesFrom(['STORES_PURCHASE_INCHARGE', 'QUALITY_OFFICER', 'INFECTION_CONTROL_OFFICER']),
 );
+
+export const CSSD_THEATRE_LOOKUP_ROUTE_ROLES = Object.freeze([
+  'ADMIN',
+  'ANAESTHETIST',
+  'ANESTHETIST',
+  'CONSULTANT',
+  'DOCTOR',
+  'DUTY_DOCTOR',
+  'INFECTION_CONTROL_OFFICER',
+  'JUNIOR_DOCTOR',
+  'NURSING_STAFF',
+  'OT_INCHARGE',
+  'OT_NURSE',
+  'OT_STAFF',
+  'QUALITY_OFFICER',
+  'RESIDENT',
+  'SUPER_ADMIN',
+]);
 
 // The /devices sub-tree of the CSSD router — the reprocessable cath device
 // register: receive, reprocess, quarantine, release, discard. The CSSD mount

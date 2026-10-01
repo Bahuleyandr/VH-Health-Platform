@@ -10,7 +10,7 @@ import {
   type LinenParLevel,
 } from "@/lib/api/linenLaundry";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "react-hot-toast";
 
 import { DialogError, Field, Modal, errorMessage, inputClass } from "./helpers";
@@ -29,14 +29,18 @@ export function ParLevelDialog({
     wards,
     isLoading: wardsLoading,
     error: wardsError,
-  } = useWardOptions();
+    scopeKey, ready, changed, isFetching, hasNextPage,
+    isFetchingNextPage, fetchNextPage, validateSelection,
+  } = useWardOptions(onClose);
   const itemTypes = useQuery({
-    queryKey: ["linen-laundry", "item-types"],
+    queryKey: ["linen-laundry", "item-types", scopeKey],
     queryFn: () => listLinenItemTypes({ active: true }),
+    enabled: ready,
+    gcTime: 0,
   });
 
   const [form, setForm] = useState({
-    ward_id: row ? String(row.ward_id) : "",
+    ward_id: "",
     item_type_id: row ? String(row.item_type_id) : "",
     par_quantity: String(row?.par_quantity ?? 0),
     actual_quantity: String(row?.actual_quantity ?? 0),
@@ -44,17 +48,36 @@ export function ParLevelDialog({
     notes: "",
   });
   const [failure, setFailure] = useState<string | null>(null);
+  const selectedWardId = row ? String(row.ward_id) : form.ward_id;
+  const wardAvailable = wards.some(ward => ward.id === Number(selectedWardId));
+
+  useEffect(() => {
+    if (!row && !isFetching && form.ward_id && (wardsError
+      || (!hasNextPage && !wardsLoading && !wards.some(ward => ward.id === Number(form.ward_id))))) {
+      setForm(value => ({ ...value, ward_id: "" }));
+    }
+  }, [row, isFetching, hasNextPage, wardsLoading, wardsError, wards, form.ward_id]);
 
   const save = useMutation({
-    mutationFn: () =>
-      upsertLinenParLevel({
-        ward_id: Number(form.ward_id),
+    mutationFn: async () => {
+      try {
+        await validateSelection(Number(selectedWardId));
+      } catch (err) {
+        if (row) {
+          throw new Error("The ward could not be confirmed. Refresh the ward directory before saving.");
+        }
+        setForm(value => ({ ...value, ward_id: "" }));
+        throw err;
+      }
+      return upsertLinenParLevel({
+        ward_id: Number(selectedWardId),
         item_type_id: Number(form.item_type_id),
         par_quantity: Number(form.par_quantity),
         actual_quantity: Number(form.actual_quantity),
         reorder_threshold: Number(form.reorder_threshold),
         notes: form.notes.trim() || undefined,
-      }),
+      });
+    },
     onSuccess: () => {
       toast.success("Par level saved");
       qc.invalidateQueries({ queryKey: ["linen-laundry"] });
@@ -67,13 +90,16 @@ export function ParLevelDialog({
   const nonNegative = (value: string) =>
     /^\d+$/.test(value.trim()) && Number(value) >= 0;
   const canSave =
-    form.ward_id !== "" &&
+    ready && !isFetching && !wardsError &&
+    wardAvailable &&
     form.item_type_id !== "" &&
     nonNegative(form.par_quantity) &&
     nonNegative(form.actual_quantity) &&
     nonNegative(form.reorder_threshold);
 
   const availableItemTypes = itemTypes.data ?? [];
+
+  if (changed) return null;
 
   return (
     <Modal
@@ -105,7 +131,7 @@ export function ParLevelDialog({
       <DialogError message={failure} />
       {wardsError && (
         <DialogError
-          message={`Ward list unavailable — ${wardsError}. Par levels are recorded against a ward, so this needs an account that can read the ward list.`}
+          message={`Ward directory unavailable — ${wardsError}`}
         />
       )}
       {itemTypes.error instanceof Error && (
@@ -121,16 +147,13 @@ export function ParLevelDialog({
         <select
           aria-label="Ward"
           className={inputClass}
-          value={form.ward_id}
-          disabled={Boolean(row) || wardsLoading}
+          value={wardAvailable ? selectedWardId : ""}
+          disabled={Boolean(row) || !ready || wardsLoading || Boolean(wardsError) || save.isPending}
           onChange={(e) => setForm((f) => ({ ...f, ward_id: e.target.value }))}
         >
           <option value="">
             {wardsLoading ? "Loading wards…" : "Select a ward"}
           </option>
-          {row && !wards.some((ward) => ward.id === row.ward_id) && (
-            <option value={String(row.ward_id)}>{row.ward_name}</option>
-          )}
           {wards.map((ward) => (
             <option key={ward.id} value={String(ward.id)}>
               {ward.name}
@@ -138,6 +161,33 @@ export function ParLevelDialog({
           ))}
         </select>
       </Field>
+
+      {row && !wardsLoading && !wardAvailable && (
+        <button type="button" disabled={!ready || isFetching || save.isPending}
+          onClick={async () => {
+            setFailure(null);
+            try {
+              await validateSelection(row.ward_id);
+            } catch {
+              setFailure("The ward could not be confirmed. Refresh the ward directory before saving.");
+            }
+          }} className="text-sm text-primary">
+          {isFetching ? "Refreshing wards…" : "Refresh ward directory"}
+        </button>
+      )}
+      {!wardsLoading && !wardsError && wards.length === 0 && (
+        <p className="text-sm text-muted-foreground">No wards are available.</p>
+      )}
+      {hasNextPage && (
+        <button type="button" disabled={isFetchingNextPage || save.isPending}
+          onClick={() => void fetchNextPage()} className="text-sm text-primary">
+          {isFetchingNextPage ? "Loading wards…" : "Load more wards"}
+        </button>
+      )}
+      {row && !wardsLoading && !hasNextPage && !wardsError
+        && !wards.some(ward => ward.id === row.ward_id) && (
+        <DialogError message="This historical ward is no longer available for selection." />
+      )}
 
       <Field label="Linen item *">
         <select

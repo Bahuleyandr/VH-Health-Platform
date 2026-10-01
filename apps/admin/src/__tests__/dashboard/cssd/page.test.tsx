@@ -8,10 +8,12 @@
 // where ISSUE_TRANSITIONS allows one.
 
 import CssdPage from "@/app/(with-auth)/dashboard/cssd/page";
+import { IssueSetDialog } from "@/app/(with-auth)/dashboard/cssd/components/IssueActions";
 import { fetchAdminAPI } from "@/lib/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   fireEvent,
+  act,
   render,
   screen,
   waitFor,
@@ -19,6 +21,15 @@ import {
 } from "@testing-library/react";
 
 jest.mock("@/lib/api", () => ({ fetchAdminAPI: jest.fn() }));
+jest.mock("@/contexts/AuthContext", () => ({
+  useAuth: () => ({ user: mockUser, loading: false }),
+}));
+jest.mock("@/contexts/TenantContext", () => ({
+  useTenant: () => mockTenant,
+}));
+jest.mock("@/contexts/ActingTenantContext", () => ({
+  useActingTenant: () => mockActing,
+}));
 jest.mock("react-hot-toast", () => ({
   __esModule: true,
   toast: { success: jest.fn(), error: jest.fn() },
@@ -26,6 +37,15 @@ jest.mock("react-hot-toast", () => ({
 }));
 
 const api = jest.mocked(fetchAdminAPI);
+const mockUser = { uid: "actor-a", id: 1, role: "ADMIN", permissions: [] as string[], tenantId: undefined as string | undefined };
+const mockTenant = { tenant: { id: "tenant-a" } as { id: string } | null, isLoading: false };
+const mockActing = {
+  actingTenant: null as { id: string } | null,
+  isPending: false,
+  isReady: true,
+  scopeKey: "confirmed-session-a" as string | null,
+  isScopeCurrent: jest.fn(() => true),
+};
 
 const SET = {
   id: 5,
@@ -114,17 +134,14 @@ function routeReads(endpoint: string): unknown {
   if (endpoint.startsWith("/cssd/sets")) return [SET];
   if (endpoint.startsWith("/cssd/loads")) return [PLANNED_LOAD, FAILED_LOAD];
   if (endpoint.startsWith("/cssd/issues")) return [ISSUED, IN_THEATRE];
-  if (endpoint.startsWith("/theatre/today")) {
-    return [
+  if (endpoint.startsWith("/cssd/theatre-options")) {
+    return { items: [
       {
         id: 12,
-        procedure_name: "Laparotomy",
-        ot_room: "OT-2",
-        scheduled_date: "2026-08-25",
-        scheduled_time: "09:00",
-        status: "SCHEDULED",
+        scheduled_date: new URL(endpoint, "https://example.test").searchParams.get("date"),
+        scheduled_time: "09:00:00",
       },
-    ];
+    ], next_cursor: null };
   }
   return {};
 }
@@ -140,6 +157,16 @@ function renderPage() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockUser.uid = "actor-a";
+  mockUser.role = "ADMIN";
+  mockUser.tenantId = undefined;
+  mockTenant.tenant = { id: "tenant-a" };
+  mockTenant.isLoading = false;
+  mockActing.actingTenant = null;
+  mockActing.isPending = false;
+  mockActing.isReady = true;
+  mockActing.scopeKey = "confirmed-session-a";
+  mockActing.isScopeCurrent.mockReturnValue(true);
   api.mockImplementation(
     async (endpoint: string, init?: { method?: string }) =>
       init?.method ? {} : routeReads(endpoint),
@@ -313,14 +340,14 @@ describe("<CssdPage /> loads and issues", () => {
     );
   });
 
-  it("issues a set against an OT case read from GET /theatre/today", async () => {
+  it("issues a set against a case read from the minimal CSSD directory", async () => {
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: "Issues" }));
     await screen.findByText("CSSDISSUE-1");
 
     fireEvent.click(screen.getByRole("button", { name: "Issue set" }));
     const dialog = await screen.findByRole("dialog");
-    await within(dialog).findByRole("option", { name: /Laparotomy/ });
+    await within(dialog).findByRole("option", { name: "Case #12 · 09:00:00" });
 
     fireEvent.change(within(dialog).getByLabelText("Instrument set"), {
       target: { value: "5" },
@@ -341,5 +368,194 @@ describe("<CssdPage /> loads and issues", () => {
         },
       }),
     );
+  });
+});
+
+describe("CSSD minimal case directory", () => {
+  function renderDialog() {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const close = jest.fn();
+    const ui = () => <QueryClientProvider client={qc}><IssueSetDialog presetSetId={5} onClose={close} /></QueryClientProvider>;
+    const view = render(ui());
+    return { qc, close, rerender: () => view.rerender(ui()) };
+  }
+
+  it("shows case number/time only and loads later pages", async () => {
+    mockUser.role = "QUALITY_OFFICER";
+    api.mockImplementation(async (endpoint: string) => {
+      if (endpoint.startsWith("/cssd/theatre-options")) {
+        const query = new URL(endpoint, "https://example.test").searchParams;
+        return {
+          items: [{ id: query.has("cursor") ? 13 : 12, scheduled_date: query.get("date"), scheduled_time: null }],
+          next_cursor: query.has("cursor") ? null : "next-page",
+        };
+      }
+      return routeReads(endpoint);
+    });
+    renderDialog();
+    await screen.findByRole("option", { name: "Case #12 · Time not scheduled" });
+    fireEvent.click(screen.getByRole("button", { name: "Load more cases" }));
+    await screen.findByRole("option", { name: "Case #13 · Time not scheduled" });
+    expect(api.mock.calls.some(([path]) => path.startsWith("/theatre/today"))).toBe(false);
+    expect(screen.queryByRole("option", { name: /Laparotomy|OT-2/ })).toBeNull();
+  });
+
+  it("clears the case on a date change while preserving the independent set selection", async () => {
+    renderDialog();
+    await screen.findByRole("option", { name: "Case #12 · 09:00:00" });
+    fireEvent.change(screen.getByLabelText("OT case"), { target: { value: "12" } });
+    fireEvent.change(screen.getByLabelText("Theatre date"), { target: { value: "2001-01-02" } });
+    expect(screen.getByLabelText("OT case")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Issue set" })).toBeDisabled();
+    await screen.findByRole("option", { name: "Case #12 · 09:00:00" });
+    expect(screen.getByLabelText("OT case")).toHaveValue("");
+  });
+
+  it.each(["COMPLIANCE_OFFICER", "DATA_PROTECTION_OFFICER", "HR_STAFF", "PHARMACY_INCHARGE", "STORES_PURCHASE_INCHARGE"])(
+    "surfaces the lookup denial for %s without a theatre fallback", async role => {
+      mockUser.role = role;
+      api.mockImplementation(async (endpoint: string) => {
+        if (endpoint.startsWith("/cssd/theatre-options")) throw new Error("Forbidden");
+        return routeReads(endpoint);
+      });
+      renderDialog();
+      await screen.findByText(/Case directory unavailable — Forbidden/);
+      expect(screen.getByRole("button", { name: "Issue set" })).toBeDisabled();
+      expect(api.mock.calls.some(([path]) => path.startsWith("/theatre/"))).toBe(false);
+    },
+  );
+
+  it("rejects extra clinical fields and does not cache the broad record", async () => {
+    api.mockImplementation(async (endpoint: string) => {
+      const result = routeReads(endpoint);
+      if (!endpoint.startsWith("/cssd/theatre-options")) return result;
+      const page = result as { items: object[]; next_cursor: null };
+      return { ...page, items: page.items.map(item => ({ ...item, procedure_name: "sensitive-canary" })) };
+    });
+    const { qc } = renderDialog();
+    await screen.findByText(/Could not read the case directory/);
+    expect(screen.queryByRole("option", { name: /Case #12/ })).toBeNull();
+    expect(JSON.stringify(qc.getQueryCache().getAll().map(query => query.state.data))).not.toContain("sensitive-canary");
+  });
+
+  it("distinguishes an unavailable directory from an authorized empty result", async () => {
+    api.mockImplementation(async (endpoint: string) => {
+      if (endpoint.startsWith("/cssd/theatre-options")) throw new Error("Lookup temporarily unavailable");
+      return routeReads(endpoint);
+    });
+    renderDialog();
+    await screen.findByText(/Lookup temporarily unavailable/);
+    expect(screen.queryByText("No eligible OT case on this date")).toBeNull();
+    expect(screen.getByRole("button", { name: "Issue set" })).toBeDisabled();
+  });
+
+  it("requires a new selection when the case time changes during revalidation", async () => {
+    let reads = 0;
+    api.mockImplementation(async (endpoint: string, init?: { method?: string }) => {
+      const result = routeReads(endpoint);
+      if (endpoint.startsWith("/cssd/theatre-options") && ++reads > 1) {
+        const page = result as { items: object[]; next_cursor: null };
+        return { ...page, items: page.items.map(item => ({ ...item, scheduled_time: "10:00:00" })) };
+      }
+      return init?.method ? {} : result;
+    });
+    renderDialog();
+    await screen.findByRole("option", { name: "Case #12 · 09:00:00" });
+    await screen.findByRole("option", { name: /Major laparotomy set/ });
+    fireEvent.change(screen.getByLabelText("OT case"), { target: { value: "12" } });
+    fireEvent.click(screen.getByRole("button", { name: "Issue set" }));
+    await screen.findByText(/case selection is no longer available/);
+    expect(api.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+  });
+
+  it("refuses an issue when the selected case is absent on revalidation", async () => {
+    let reads = 0;
+    api.mockImplementation(async (endpoint: string, init?: { method?: string }) => {
+      if (endpoint.startsWith("/cssd/theatre-options") && ++reads > 1) return { items: [], next_cursor: null };
+      return init?.method ? {} : routeReads(endpoint);
+    });
+    renderDialog();
+    await screen.findByRole("option", { name: "Case #12 · 09:00:00" });
+    await screen.findByRole("option", { name: /Major laparotomy set/ });
+    fireEvent.change(screen.getByLabelText("OT case"), { target: { value: "12" } });
+    fireEvent.click(screen.getByRole("button", { name: "Issue set" }));
+    await screen.findByText(/case selection is no longer available/);
+    expect(api.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
+    expect(screen.getByLabelText("OT case")).toHaveValue("");
+  });
+
+  it.each(["tenant", "actor"])("discards the case and preset set on a %s change", async changedScope => {
+    const view = renderDialog();
+    await screen.findByRole("option", { name: "Case #12 · 09:00:00" });
+    fireEvent.change(screen.getByLabelText("OT case"), { target: { value: "12" } });
+    if (changedScope === "tenant") mockTenant.tenant = { id: "tenant-b" };
+    else mockUser.uid = "actor-b";
+    view.rerender();
+    expect(screen.queryByLabelText("Instrument set")).toBeNull();
+    expect(screen.queryByRole("option", { name: /Case #12/ })).toBeNull();
+    await waitFor(() => expect(view.close).toHaveBeenCalled());
+  });
+
+  it("ignores a late result from the previous date", async () => {
+    let resolveLookup!: (value: unknown) => void;
+    let oldDate = "";
+    api.mockImplementation(async (endpoint: string) => {
+      if (endpoint.startsWith("/cssd/theatre-options")) {
+        const date = new URL(endpoint, "https://example.test").searchParams.get("date")!;
+        if (date === "2001-01-02") return { items: [], next_cursor: null };
+        oldDate = date;
+        return new Promise(resolve => { resolveLookup = resolve; });
+      }
+      return routeReads(endpoint);
+    });
+    renderDialog();
+    await waitFor(() => expect(resolveLookup).toBeDefined());
+    fireEvent.change(screen.getByLabelText("Theatre date"), { target: { value: "2001-01-02" } });
+    await act(async () => resolveLookup({ items: [{ id: 99, scheduled_date: oldDate, scheduled_time: "09:00:00" }], next_cursor: null }));
+    expect(screen.queryByRole("option", { name: /Case #99/ })).toBeNull();
+  });
+
+  it("includes the staff profile tenant in scope independently of tenant branding", async () => {
+    mockUser.role = "INFECTION_CONTROL_OFFICER";
+    mockUser.tenantId = "tenant-a";
+    mockTenant.tenant = null;
+    const view = renderDialog();
+    await screen.findByRole("option", { name: "Case #12 · 09:00:00" });
+    mockUser.tenantId = "tenant-b";
+    view.rerender();
+    expect(screen.queryByLabelText("OT case")).toBeNull();
+    await waitFor(() => expect(view.close).toHaveBeenCalled());
+  });
+
+  it("discards selections when confirmed scope readiness is lost", async () => {
+    const view = renderDialog();
+    await screen.findByRole("option", { name: "Case #12 · 09:00:00" });
+    mockActing.isReady = false;
+    mockActing.scopeKey = null;
+    mockActing.isScopeCurrent.mockReturnValue(false);
+    view.rerender();
+    expect(screen.queryByLabelText("OT case")).toBeNull();
+    await waitFor(() => expect(view.close).toHaveBeenCalled());
+  });
+
+  it("supports a confirmed staff session without ADMIN-only tenant branding", async () => {
+    mockUser.role = "INFECTION_CONTROL_OFFICER";
+    mockTenant.tenant = null;
+    mockTenant.isLoading = true;
+    const view = renderDialog();
+    await screen.findByRole("option", { name: "Case #12 · 09:00:00" });
+    fireEvent.change(screen.getByLabelText("OT case"), { target: { value: "12" } });
+    mockActing.scopeKey = "confirmed-session-b";
+    view.rerender();
+    expect(screen.queryByLabelText("Instrument set")).toBeNull();
+    await waitFor(() => expect(view.close).toHaveBeenCalled());
+  });
+
+  it("suppresses case requests until the session scope is confirmed", () => {
+    mockActing.isReady = false;
+    mockActing.scopeKey = null;
+    renderDialog();
+    expect(api.mock.calls.some(([path]) => path.startsWith("/cssd/theatre-options"))).toBe(false);
+    expect(screen.getByRole("button", { name: "Issue set" })).toBeDisabled();
   });
 });

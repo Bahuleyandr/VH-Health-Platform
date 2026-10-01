@@ -174,6 +174,10 @@ function calledRoutes(): string[] {
 }
 
 describe("CSSD router coverage", () => {
+  it("uses the operational lookup and does not request the rich source list", () => {
+    expect(calledRoutes()).toContain("GET /cssd/theatre-options");
+    expect(read(API_MODULE)).not.toMatch(/fetchAdminAPI<[^>]*>\(\s*[`"]\/theatre\/today[?`"]/);
+  });
   it("has an admin caller for every route cssdRoutes.js mounts", () => {
     const called = new Set(calledRoutes());
     const uncovered = mountedRoutes().filter(

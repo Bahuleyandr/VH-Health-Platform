@@ -65,6 +65,11 @@ function calledRoutes(): string[] {
 }
 
 describe("linen-laundry router coverage", () => {
+  it("uses the operational lookup and does not request the rich source list", () => {
+    const source = read(API_MODULE);
+    expect(calledRoutes()).toContain("GET /linen-laundry/wards");
+    expect(source).not.toMatch(/fetchAdminAPI<[^>]*>\(\s*[`"]\/wards[?`"]/);
+  });
   it("has an admin caller for every route linenLaundryRoutes.js mounts", () => {
     const called = new Set(calledRoutes());
     const uncovered = mountedRoutes().filter(

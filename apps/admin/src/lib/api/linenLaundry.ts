@@ -1,26 +1,30 @@
-// Linen & laundry admin API.
-//
-// Re-audit lane L (2026-08-25): this module used to expose GET /board only, so
-// the console rendered a board that nothing in the product could populate.
-// linenLaundryRoutes.js mounts ELEVEN routes; ten of them had no hand-written
-// caller in any client — the generated Dart chopper stubs in
-// packages/vhhealth_core are spec codegen, not call sites, and no Flutter
-// screen imports them. Nothing else writes linen_item_types /
-// linen_ward_par_levels / linen_laundry_cycles either: a repo-wide search for
-// those table names returns only linenLaundryService.js, migrations 473-474
-// and tests — no cron, no job, no seed. All ten are wired here and driven from
-// dashboard/linen-laundry; src/__tests__/dashboard/linen-laundry/router-coverage
-// .test.ts fails if a new route is added without one.
-//
-// Authz, checked before each was wired: app.js mounts the whole router behind
-// ONE gate, `requireRole(...LINEN_LAUNDRY_ROUTE_ROLES)`, with no per-route
-// re-gate and no role check inside linenLaundryService.js. The proxy allowlist
-// carries "api/v1/linen-laundry" and no PERMISSION_GATES entry matches it, and
-// routePolicy has `"linen-laundry": { minRank: STAFF }`. So every role that can
-// already load the board can also drive every action below — wiring them adds
-// no reachability question.
+// Ward directory access is independent of the existing linen write authorization.
 
 import { fetchAdminAPI } from "@/lib/api";
+import { z } from "zod";
+
+const wardPageSchema = z.object({
+  items: z.array(z.object({ id: z.number().int().positive(), name: z.string() }).strict()).max(200),
+  next_cursor: z.string().min(1).max(2048).nullable(),
+}).strict();
+
+export type LinenWardPage = z.infer<typeof wardPageSchema>;
+
+export async function listLinenWardOptions(
+  params: { q?: string; cursor?: string } = {},
+  signal?: AbortSignal,
+): Promise<LinenWardPage> {
+  signal?.throwIfAborted();
+  const query = new URLSearchParams();
+  if (params.q) query.set("q", params.q);
+  if (params.cursor) query.set("cursor", params.cursor);
+  const suffix = query.size ? `?${query}` : "";
+  const payload = await fetchAdminAPI<unknown>(`/linen-laundry/wards${suffix}`);
+  signal?.throwIfAborted();
+  const parsed = wardPageSchema.safeParse(payload);
+  if (!parsed.success) throw new Error("Could not read the ward directory");
+  return parsed.data;
+}
 
 /** Mirror of ITEM_CATEGORIES in apps/backend/src/services/linen/linenLaundryService.js. */
 export const LINEN_ITEM_CATEGORIES = [

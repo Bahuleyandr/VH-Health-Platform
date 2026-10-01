@@ -56,6 +56,7 @@ import * as facilityAssets from '../../../scripts/openapi/schemas/facilityAssets
 import * as integrationGates from '../../../scripts/openapi/schemas/integrationGates.mjs';
 import * as terminology from '../../../scripts/openapi/schemas/terminology.mjs';
 import * as uhi from '../../../scripts/openapi/schemas/uhi.mjs';
+import * as operationalLookups from '../../../scripts/openapi/schemas/operationalLookups.mjs';
 import { ajvReadySpec } from '../helpers/openapiToAjv.js';
 
 // Mirror the generator's SCHEMA_MODULES so the gate covers every overlay.
@@ -112,7 +113,8 @@ const MODULES = [
   facilityAssets,
   integrationGates,
   terminology,
-  uhi
+  uhi,
+  operationalLookups
 ];
 
 const __dirname = dirname(fileURLToPath(import.meta.url));

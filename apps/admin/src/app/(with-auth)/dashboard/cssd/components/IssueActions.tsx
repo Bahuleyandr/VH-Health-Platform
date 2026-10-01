@@ -10,6 +10,9 @@
 // mirrors ISSUE_TRANSITIONS in the backend service and is pinned against it by
 // test. Anything not in that map would only ever 409.
 
+import { useActingTenant } from "@/contexts/ActingTenantContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { useTenant } from "@/contexts/TenantContext";
 import {
   CSSD_ISSUE_TRANSITION_ACTIONS,
   CSSD_RETURN_CONDITIONS,
@@ -18,8 +21,8 @@ import {
   listOtSchedulesForDate,
   type CssdIssue,
 } from "@/lib/api/cssd";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { toast } from "react-hot-toast";
 
 import {
@@ -48,6 +51,30 @@ export function IssueSetDialog({
   onClose: () => void;
 }) {
   const qc = useQueryClient();
+  const { user, loading } = useAuth();
+  const { tenant, isLoading: tenantLoading } = useTenant();
+  const { actingTenant, isReady, scopeKey: tenantScopeKey, isScopeCurrent } = useActingTenant();
+  const profileTenant = (user as { tenantId?: unknown } | null)?.tenantId;
+  const admin = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
+  const tenantId = user?.role === "SUPER_ADMIN" && actingTenant
+    ? actingTenant.id : admin ? tenant?.id
+      : typeof profileTenant === "string" ? profileTenant : null;
+  const ready = !loading && !!user && isReady && !!tenantScopeKey
+    && (!admin || (!!tenantId && (!!actingTenant || !tenantLoading)));
+  const scopeKey = JSON.stringify([
+    tenantScopeKey, user?.uid ?? user?.id, user?.role, user?.permissions, tenantId,
+  ]);
+  const [openedScope, setOpenedScope] = useState<string | null>(null);
+  const changed = openedScope !== null && (!ready || scopeKey !== openedScope);
+  useEffect(() => {
+    if (openedScope === null && ready) setOpenedScope(scopeKey);
+    if (changed) onClose();
+  }, [openedScope, ready, scopeKey, changed, onClose]);
+  const active = useRef(false);
+  useLayoutEffect(() => {
+    active.current = ready && !changed;
+    return () => { active.current = false; };
+  }, [ready, changed, scopeKey]);
   const [date, setDate] = useState(todayIso());
   const [setId, setSetId] = useState(presetSetId ? String(presetSetId) : "");
   const [scheduleId, setScheduleId] = useState("");
@@ -59,8 +86,10 @@ export function IssueSetDialog({
   // or already in circulation (CSSD_SET_UNUSABLE / CSSD_SET_NOT_AVAILABLE), so
   // the picker offers exactly the sets it will accept.
   const sets = useQuery({
-    queryKey: ["cssd", "sets", "issuable"],
+    queryKey: ["cssd", "sets", "issuable", scopeKey],
     queryFn: () => listInstrumentSets({ usable: true, limit: 500 }),
+    enabled: ready && !changed,
+    gcTime: 0,
   });
   const issuable = (sets.data ?? []).filter(
     (set) =>
@@ -68,24 +97,53 @@ export function IssueSetDialog({
       !set.requires_reprocessing,
   );
 
-  const schedules = useQuery({
-    queryKey: ["cssd", "ot-schedules", date],
-    queryFn: () => listOtSchedulesForDate(date),
-    enabled: date !== "",
+  const schedules = useInfiniteQuery({
+    queryKey: ["cssd", "theatre-options", scopeKey, date],
+    queryFn: async ({ pageParam, signal }) => {
+      if (!tenantScopeKey || !isScopeCurrent(tenantScopeKey)) throw new Error("Tenant scope changed");
+      const page = await listOtSchedulesForDate(date, pageParam, signal);
+      if (!isScopeCurrent(tenantScopeKey)) throw new Error("Tenant scope changed");
+      return page;
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: page => page.next_cursor ?? undefined,
+    enabled: ready && !changed && date !== "",
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: "always",
     retry: false,
   });
-  const scheduleOptions = schedules.data ?? [];
+  const scheduleOptions = ready && !changed && !schedules.isError
+    ? schedules.data?.pages.flatMap(page => page.items) ?? [] : [];
+  useEffect(() => {
+    if (!schedules.isFetching && scheduleId
+      && !scheduleOptions.some(schedule => schedule.id === Number(scheduleId))) {
+      setScheduleId("");
+    }
+  }, [schedules.isFetching, scheduleOptions, scheduleId]);
 
   const issue = useMutation({
-    mutationFn: () =>
-      issueInstrumentSet({
+    mutationFn: async () => {
+      if (!tenantScopeKey || !isScopeCurrent(tenantScopeKey)) throw new Error("Tenant scope changed");
+      const selected = scheduleOptions.find(schedule => schedule.id === Number(scheduleId));
+      const current = await schedules.refetch();
+      const refreshed = current.data?.pages.flatMap(page => page.items)
+        .find(schedule => schedule.id === Number(scheduleId));
+      if (!active.current || !isScopeCurrent(tenantScopeKey) || current.isError
+        || !selected || !refreshed || selected.scheduled_date !== refreshed.scheduled_date
+        || selected.scheduled_time !== refreshed.scheduled_time) {
+        setScheduleId("");
+        throw new Error("The case selection is no longer available. Select a case again.");
+      }
+      return issueInstrumentSet({
         instrument_set_id: Number(setId),
         ot_schedule_id: Number(scheduleId),
         return_due_at: returnDue
           ? new Date(returnDue).toISOString()
           : undefined,
         notes: notes.trim() || undefined,
-      }),
+      });
+    },
     onSuccess: (created) => {
       const warnings = created.warnings ?? [];
       toast.success(
@@ -100,7 +158,11 @@ export function IssueSetDialog({
       setFailure(errorMessage(err, "Could not issue the instrument set")),
   });
 
-  const canIssue = setId !== "" && scheduleId !== "";
+  const canIssue = ready && !schedules.isFetching && !schedules.isError && !sets.isError
+    && issuable.some(set => set.id === Number(setId))
+    && scheduleOptions.some(schedule => schedule.id === Number(scheduleId));
+
+  if (changed) return null;
 
   return (
     <Modal
@@ -139,7 +201,7 @@ export function IssueSetDialog({
       )}
       {schedules.error instanceof Error && (
         <DialogError
-          message={`OT schedule list unavailable — ${schedules.error.message}. A set is issued against an OT case, so this needs an account that can read the theatre schedule.`}
+          message={`Case directory unavailable — ${schedules.error.message}`}
         />
       )}
 
@@ -148,6 +210,7 @@ export function IssueSetDialog({
           aria-label="Instrument set"
           className={inputClass}
           value={setId}
+          disabled={!ready || issue.isPending}
           onChange={(e) => setSetId(e.target.value)}
         >
           <option value="">Select a set</option>
@@ -165,6 +228,7 @@ export function IssueSetDialog({
           type="date"
           className={inputClass}
           value={date}
+          disabled={issue.isPending}
           onChange={(e) => {
             setDate(e.target.value);
             setScheduleId("");
@@ -177,25 +241,30 @@ export function IssueSetDialog({
           aria-label="OT case"
           className={inputClass}
           value={scheduleId}
-          disabled={schedules.isLoading}
+          disabled={!ready || schedules.isPending || schedules.isError || issue.isPending}
           onChange={(e) => setScheduleId(e.target.value)}
         >
           <option value="">
-            {schedules.isLoading
+            {!ready || schedules.isPending
               ? "Loading OT cases…"
               : scheduleOptions.length === 0
-                ? "No OT case scheduled on this date"
+                ? schedules.isError ? "Case directory unavailable" : "No eligible OT case on this date"
                 : "Select an OT case"}
           </option>
           {scheduleOptions.map((schedule) => (
             <option key={schedule.id} value={String(schedule.id)}>
-              #{schedule.id} · {schedule.procedure_name ?? "Procedure"} ·{" "}
-              {schedule.ot_room ?? "No room"}
-              {schedule.scheduled_time ? ` · ${schedule.scheduled_time}` : ""}
+              Case #{schedule.id} · {schedule.scheduled_time ?? "Time not scheduled"}
             </option>
           ))}
         </select>
       </Field>
+
+      {schedules.hasNextPage && (
+        <button type="button" disabled={schedules.isFetchingNextPage || issue.isPending}
+          onClick={() => void schedules.fetchNextPage()} className="text-sm text-primary">
+          {schedules.isFetchingNextPage ? "Loading cases…" : "Load more cases"}
+        </button>
+      )}
 
       <Field label="Return due">
         <input
