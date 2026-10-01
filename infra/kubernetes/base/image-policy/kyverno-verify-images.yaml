@@ -37,9 +37,8 @@ spec:
   # After a clean audit cycle passes the live gate in
   # docs/KYVERNO_ENFORCE_READINESS.md
   #   (node scripts/check-kyverno-enforce-readiness.mjs --live ...)
-  # AND the Forgejo cosign public key exists as Secret
-  # kyverno/vhhealth-cosign-public-key (key: cosign.pub), change the line
-  # below to:
+  # and every deployed image verifies against the GitHub workflow identities,
+  # change the line below to:
   #   validationFailureAction: Enforce
   # The repo stays in Audit until that ceremony completes — see the runbook's
   # rollback section before flipping.
@@ -66,24 +65,6 @@ spec:
                     subjectRegExp: "^https://github\\.com/Bahuleyandr/VH-Health-Platform/\\.github/workflows/(release-images|deploy-dalekdefender)\\.yml@.*$"
                     rekor:
                       url: https://rekor.sigstore.dev
-                # Audit 2026-06-18 (CRITICAL): GitHub Actions is billing-blocked, so
-                # images are actually built+signed by Forgejo with a PRIVATE KEY
-                # (`cosign sign --key env://COSIGN_PRIVATE_KEY`), which the keyless
-                # entry above can NEVER verify. `count: 1` means EITHER the GitHub
-                # keyless OR this Forgejo key signature satisfies admission, so the
-                # policy now matches the real signer and flipping to Enforce will not
-                # reject the very images in production.
-                # OPERATOR (before Enforce): create the public-key Secret holding the
-                # Forgejo `cosign.pub`, and confirm the transparency-log setting below
-                # matches how Forgejo signs (tlog upload on/off):
-                #   kubectl -n kyverno create secret generic vhhealth-cosign-public-key \
-                #     --from-file=cosign.pub=cosign.pub
-                - keys:
-                    secret:
-                      name: vhhealth-cosign-public-key
-                      namespace: kyverno
-                    ctlog:
-                      ignoreSCT: true
           # Resolve tags to digests at admission so what was verified is
           # exactly what runs (complements the H11 digest pinning).
           mutateDigest: true

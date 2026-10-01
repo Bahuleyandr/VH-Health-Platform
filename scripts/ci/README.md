@@ -1,7 +1,8 @@
-# Provider-neutral CI
+# Repository CI checks
 
-CI behavior lives in this directory so Forgejo, GitHub, and local development all
-run the same checks.
+CI checks live in this directory and the GitHub reusable workflows. GitHub is
+the sole hosted CI authority; authorized local runs reuse first-party scripts
+but do not replace protected GitHub evidence.
 
 Use the orchestrator:
 
@@ -121,60 +122,60 @@ exact, method-scoped operations the backend genuinely serves but the spec omits
 (currently the flag-gated dev-auth route), and every entry must name the mount
 that serves it.
 
-Provider wrappers:
+## GitHub workflow coverage
 
-- `.forgejo/workflows/ci.yml`
-- `.forgejo/workflows/full-stack-sweep.yml`
-- `.forgejo/workflows/secret-scan.yml`
-- `.forgejo/workflows/dependency-review.yml`
-- `.forgejo/workflows/smoke-e2e.yml`
-- `.forgejo/workflows/ci-warehouse.yml`
-- `.github/workflows/ci.yml`
+The owner permanently retired Forgejo delivery and mirroring on 2026-09-30.
+Root `.github/workflows/` contains the only hosted workflows. Wrappers should
+prepare the runner and call reusable jobs or first-party scripts. There is no
+Forgejo retry, mirror-parity or signing-key provisioning prerequisite. See
+[`FORGEJO_RETIREMENT.md`](../../docs/FORGEJO_RETIREMENT.md) for the retained-check
+mapping and external containment boundary.
 
-Those wrappers should stay thin: prepare the runner, then call this orchestrator
-or the same first-party scripts used locally. GitHub remains an optional mirror;
-Forgejo is the canonical CI/CD target.
+- `ci.yml` supplies the tiered canonical gate; `all.yml` is the scheduled/manual
+  full sweep. The backend reusable retains Prisma relation-budget validation
+  and SQL-column/schema drift; the infrastructure reusable retains the Redis HA
+  contract. PostgreSQL service images are digest-pinned. The separate PG18
+  canary requires an approved exact PG18 digest before its service starts.
+- `secret-scan.yml` retains service-account, Gitleaks and optional GitGuardian
+  checks. Backend/admin reusables enforce high-severity npm audits; the separate
+  GitHub Dependency Review action remains advisory.
+- `security-sweep.yml` is reusable/manual and is called by canonical CI and
+  `all.yml`. Both backend and Admin npm audits block in every canonical tier.
+  Repository-wide fixable HIGH/CRITICAL vulnerability/secret findings
+  block in Trivy; OSV, broad and all-severity focused Semgrep, and
+  misconfiguration reports remain advisory. Canonical security separately
+  enforces the focused ERROR-severity Semgrep rules.
+- `container-supply-chain.yml` is reusable/manual and called by the full gate,
+  affected backend/admin/Flutter/infrastructure plans and the full sweep. It
+  builds backend/admin/staff-web locally, blocks on fixable HIGH/CRITICAL image
+  vulnerabilities and secrets, and produces advisory SBOM/misconfiguration
+  reports. It does not publish or sign images.
+- `smoke-e2e.yml` retains isolated backend/admin/API smoke coverage;
+  `ci-warehouse.yml` retains the migration-built dbt and warehouse render gate.
+  Hosted checks below are separate from these isolated CI environments.
+- Release, staging distribution, digest pinning and Dalekdefender deployment
+  remain in their existing GitHub workflows, subject to their actual triggers
+  and separate execution authority. Release image builds require source
+  ancestry on main. Source validation does not authorize those external effects.
+- [Dependency updates](../../docs/qa/dependency-updates.md) use GitHub Dependabot.
+  Kubernetes manifest-image updater parity remains held for owner disposition.
 
-Forgejo specialty gates:
+Hosted `post-deploy-smoke.yml` and `trial-readiness-smoke.yml` are manual only.
+Both require `authorized_by`, `authority_ref`, `api_origin` and an exact
+40-character `expected_commit`; post-deploy additionally requires `admin_origin`.
+The shared `manual-smoke-preflight.mjs` validates the inputs and deployed
+revision before credential-bearing probes. Selected Sentry events stay held
+if any required target check fails. `include_sentry` and `include_creates` default to
+false; create probes additionally require `writes_authority_ref`. Actual target,
+test-identity and effect approval must exist before dispatch. These gates do
+not grant authority or establish successful execution on their own.
 
-- `secret-scan.yml`: standalone service-account scan, gitleaks, and optional
-  GitGuardian parity for the GitHub secret-scan workflow.
-- `dependency-review.yml`: provider-neutral blocking npm audit for high+
-  advisories on dependency PRs; OSV/Semgrep/Trivy reporting stays in
-  `security-sweep.yml`.
-- `smoke-e2e.yml`: local backend/admin/API smoke coverage matching the GitHub
-  Smoke E2E workflow.
-- `ci-warehouse.yml`: migration-built analytics warehouse dbt build and
-  optional-module kustomize render.
-
-Forgejo CD surfaces:
-
-- `deploy-patient-staging.yml` / `deploy-staff-staging.yml`: build debug APKs,
-  upload Forgejo artifacts, and distribute through Firebase CLI when Firebase
-  secrets are configured.
-- `release-patient.yml` / `release-staff.yml`: build signed APK/AAB artifacts
-  for `patient-v*` and `staff-v*` tags, then publish them to Forgejo releases.
-- `release-images.yml`: build, push, SBOM, Trivy-scan, cosign-sign, verify,
-  and GitOps-pin backend/admin/staff-web release images for `backend-v*`,
-  `admin-v*`, and `staff-web-v*` tags.
-- `release-pin-digests.yml`: manual verified digest-pin repair path for
-  operators.
-- `deploy-dalekdefender.yml`: build, scan, sign, verify, and deploy backend/admin
-  images to the Dalekdefender test rig by digest.
-
-Forgejo CD prerequisite checks live in
-`scripts/ci/forgejo-deploy-preflight.mjs` so local operators and workflows use
-the same secret contract. The image path is intentionally strict: image release
-and Dalekdefender deploy require registry auth plus `COSIGN_PRIVATE_KEY`,
-`COSIGN_PASSWORD`, and `COSIGN_PUBLIC_KEY`. The remote pin step runs only when
-`TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`, and `DALEKDEFENDER_SSH_KEY` are all
-configured. Missing transport credentials make that pin step a warning-backed
-clean skip; they never bypass image build, scan, signing, or verification.
-The corresponding non-secret Forgejo verification key is retained at
-`infra/forgejo/signing/cosign.pub` for the Kyverno admission-key ceremony.
-Post-deploy smoke can also be configured as a soft-skip gate with
-`--allow-skip`, but a first-class Forgejo deployment should set
-`VH_TRIAL_API_ORIGIN` and `VH_TRIAL_ADMIN_ORIGIN`.
+The retired public key at `infra/forgejo/signing/cosign.pub` is historical
+verification evidence only, not an active signer or admission key. GitHub
+container releases use their OIDC identity. INF-006 / PR #872 remains held for
+external credential and automation containment receipts in
+[`RELEASE_READINESS.md`](../../docs/RELEASE_READINESS.md); source retirement does
+not disable remote jobs, revoke credentials or authorize a live policy sync.
 
 Branch-push optimization:
 
@@ -185,14 +186,13 @@ Branch-push optimization:
 - CI/workflow changes, unknown risky paths, or an empty diff fall back to the
   full default gate.
 
-Forgejo cache optimization:
+Local CI caches:
 
 - If `VH_CI_CACHE_DIR` is set, the orchestrator uses it for npm, pub, gitleaks,
   FHIR validator, and Kubernetes validator caches.
-- The Forgejo runner should mount that directory into job containers as
-  `/cache/vh-health-platform` so routine branch runs avoid repeated downloads.
-- The Forgejo `ubuntu-latest` runner image is expected to preinstall Java 17
-  from `infra/forgejo/ci-image/Dockerfile`; `scripts/ci/fhir.mjs` keeps a Linux
-  install fallback for runner rebuilds or fresh hosts.
+- Use an isolated, owned cache directory for the authorized runner; do not
+  depend on a Forgejo runner or modify a shared runner's mounts.
+- FHIR validation requires Java 17; `scripts/ci/fhir.mjs` keeps a Linux
+  install fallback for fresh hosts.
 - FHIR validation runs with local terminology mode (`-tx n/a`) so branch CI does
   not block on `tx.fhir.org` latency or outages.

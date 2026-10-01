@@ -6,6 +6,10 @@
 // mutation endpoints. Secrets are write-only end to end.
 "use client";
 
+import {
+  ActingTenantReadinessNotice,
+  useActiveTenantScope,
+} from "@/components/ActingTenantBanner";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { useActingTenant } from "@/contexts/ActingTenantContext";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -26,12 +30,45 @@ export default function IntegrationGatesPage() {
   // Platform control plane — SUPER_ADMIN only (matches routePolicy, nav,
   // proxy sentinel gate, and the backend requireRole).
   const { allowed } = usePermissions({ requiredRole: "SUPER_ADMIN" });
-  const { actingTenant } = useActingTenant();
+  const { actingTenant, isReady, scopeKey, error, retry } = useActingTenant();
 
+  if (!allowed) {
+    return (
+      <div className="p-6">
+        <div className="rounded border bg-warning/10 p-4 text-warning">
+          Integrations &amp; Gates is a SUPER_ADMIN-only console.
+        </div>
+      </div>
+    );
+  }
+  if (!isReady || !scopeKey) {
+    return <ActingTenantReadinessNotice error={error} retry={retry} />;
+  }
+  return (
+    <ScopedIntegrationGates
+      key={scopeKey}
+      scopeKey={scopeKey}
+      actingTenant={actingTenant}
+    />
+  );
+}
+
+function ScopedIntegrationGates({
+  scopeKey,
+  actingTenant,
+}: {
+  scopeKey: string;
+  actingTenant: ReturnType<typeof useActingTenant>["actingTenant"];
+}) {
+  const activeScope = useActiveTenantScope(scopeKey);
   const report = useQuery({
-    queryKey: ["integration-gates"],
-    queryFn: () => getIntegrationGates(),
-    enabled: allowed,
+    queryKey: ["integration-gates", scopeKey],
+    queryFn: async () => {
+      activeScope.assertCurrent();
+      const data = await getIntegrationGates();
+      activeScope.assertCurrent();
+      return data;
+    },
   });
 
   // The provider-config endpoints resolve the tenant server-side (acting
@@ -56,16 +93,6 @@ export default function IntegrationGatesPage() {
       []) as SmsProviderConfigView[];
     return configs.find((c) => c.enabled) ?? configs[0] ?? null;
   }, [configEntry]);
-
-  if (!allowed) {
-    return (
-      <div className="p-6">
-        <div className="rounded border bg-warning/10 p-4 text-warning">
-          Integrations &amp; Gates is a SUPER_ADMIN-only console.
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6 p-6">
@@ -108,7 +135,11 @@ export default function IntegrationGatesPage() {
           <EnvFactsCard env={report.data.env} />
 
           {report.data.tenants.map((entry) => (
-            <TenantGatesCard key={entry.tenant.id} entry={entry} />
+            <TenantGatesCard
+              key={entry.tenant.id}
+              entry={entry}
+              scopeKey={scopeKey}
+            />
           ))}
 
           <div className="rounded-lg bg-card p-6 shadow">
@@ -139,13 +170,19 @@ export default function IntegrationGatesPage() {
                 <h3 className="mb-3 text-base font-medium text-foreground">
                   Payment gateway
                 </h3>
-                <PaymentGatewayConfigForm existing={existingGatewayConfig} />
+                <PaymentGatewayConfigForm
+                  existing={existingGatewayConfig}
+                  scopeKey={scopeKey}
+                />
               </div>
               <div className="border-t pt-6">
                 <h3 className="mb-3 text-base font-medium text-foreground">
                   SMS provider &amp; DLT templates
                 </h3>
-                <SmsConfigForm existing={existingSmsConfig} />
+                <SmsConfigForm
+                  existing={existingSmsConfig}
+                  scopeKey={scopeKey}
+                />
               </div>
             </div>
           </div>

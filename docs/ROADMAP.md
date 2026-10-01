@@ -1,14 +1,24 @@
 # VH Health Platform — Consolidated Roadmap
 
-**Single source of truth for pending work. Latest bounded update: #1094–#1095 and #1097–#1100
-merged-scope receipts, 2026-09-27 at authoritative `github/main`
-`6543707c78ef01bd3e4894f5f38e162bcf462ee9`, preserving the September 26
+**Single source of truth for pending work. Latest bounded update: #1102
+merged-scope receipt, 2026-09-29 at authoritative `github/main`
+`a38055b8d2f3e2215ccc17338f6e199d0a063685`, preserving the #1094–#1095/#1097–#1100 and September 26
 #1023/#1091 receipts. OPEN-23 retains its September 16
 receipt at `d60f1ea2c853a9fa525f4a15e60b9fe7b044fc4e`; the remaining queue
 retains its September 8 evidence at `4c1f5654ca70b4dbc2699c96279e0ea03cc8e43c`.**
 
 The update below reconciles named audit queue items and merged slices only. It
 is not a fresh audit of every historical section in this roadmap.
+
+**Delivery authority update (2026-09-30):** GitHub is the sole repository and
+CI/release authority. Forgejo delivery and mirroring are permanently retired;
+historical Forgejo references below describe evidence at their original dates,
+not current parity or activation requirements. Useful checks are retained in
+GitHub; hosted smoke workflows remain manual and input-gated. INF-006 / PR #872
+still requires external automation/credential containment and rollback-trust
+receipts. This source change neither closes that hold nor authorizes deployment.
+See [`FORGEJO_RETIREMENT.md`](FORGEJO_RETIREMENT.md) and
+[`RELEASE_READINESS.md`](RELEASE_READINESS.md).
 
 This file consolidates every open item from the planning docs that previously
 lived scattered across `docs/` (EPIC roadmap, S-tier roadmap, AI feature-gap
@@ -82,9 +92,11 @@ import-race tasks from this immediate queue.
   inspected in this documentation pass.
 - **OPEN-18 — linen/CSSD picker authorization** `[CODE]` `[OPERATOR]`.
   Existing controls still depend on narrower `/wards` and `/theatre/today`
-  permissions. Obtain the least-privilege lookup decision and close the
-  authorized role journeys without widening unrelated PHI access. The
-  reprocessing kernel does not close these pickers.
+  permissions. The owner approved the tenant-wide minimal lookup contract,
+  exact role audiences and selector eligibility on 2026-09-30; see the
+  decision record in the cross-module pick-list section below. Implementation,
+  independent write checks and verified role journeys remain open. Do not
+  widen unrelated PHI access; the reprocessing kernel does not close these pickers.
 - **OPEN-21 — bounded technical coverage and partial human review**
   `[CODE]` `[EXTERNAL]`. #970 is merged, not draft/red. #1013 adds cath
   Batch 1/1.1 review and source corrections; #1027 closes the shared
@@ -170,14 +182,14 @@ canonical ledger's September 27 receipt retains exact merge/head/run evidence
 and the qualified local teardown receipt. None of these bounded repairs
 closes the remaining OPEN-19 workflows or grants release authority.
 
-The separately published [draft #1102](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1102)
-at `55a7c0a5f` contains Ward-indent, booking-access, theatre-read and RLS-census
-repairs. It is **not merged**. Exact-head hosted run `36333311625` passed both
+At the September 27 checkpoint, [draft #1102](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1102)
+at `55a7c0a5f` contained Ward-indent, booking-access, theatre-read and RLS-census
+repairs and was **not merged**. Exact-head hosted run `36333311625` passed both
 merge gates, all three backend shards and all six `full_*` jobs; that result
-and its local evidence are not closure evidence on current main. Do not duplicate that owned scope
-or move its audit items to implemented before a reviewed merge receipt.
+and its local evidence were not closure evidence on main at that checkpoint.
+The final merge receipt below supersedes that draft status.
 
-The September 28 owner-authorized local expansion adds the verified Admin
+The September 28 owner-authorized local expansion added the verified Admin
 incident-dialog, Staff MAR navigation and audit-documentation lanes. Tenant
 provisioning atomicity at `cd664440d` now has independently reviewed focused
 verification of 91 exact cases; presentation-inventory reconciliation at
@@ -188,11 +200,32 @@ two independently reviewed fresh-database passes of all 55 exact cases, with
 no owned residuals, settings drift or cleanup failures. Its earlier attempt
 remains unqualified because report integrity failed. The canonical ledger's
 September 28 receipt retains the earlier failed diagnostics and their limits.
-The final combined tree still requires reviewed RLS-census regeneration,
-presentation rediscovery and all applicable CI. The published #1102 head and
-its hosted checks do not verify this expanded tree. Migration 803,
+At that intermediate checkpoint, the combined tree still required reviewed
+RLS-census regeneration, presentation rediscovery and all applicable CI; the
+earlier published head's checks did not verify the expanded tree. Migration 803,
 product/clinical decisions and external-authority holds are not silently
 incorporated or cleared.
+
+**September 29 merged receipt:** #1102 merged as
+`a38055b8d2f3e2215ccc17338f6e199d0a063685`, from final source
+`0b69f9a95a6bfa0fe08c901a26d5a12a9e2f6b64`. Merge and tested source share tree
+`661aa918b20f463f1063302a69c5884a5548c8c2`. The repairs above, including
+reviewed RLS-census generation/CI assurance and test-fixture/mock repairs, are
+now on main. Do not duplicate those completed slices.
+
+Final-source [Canonical CI run 36364104026](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/36364104026)
+passed both named gates, all three backend shards and all six `full_*` jobs.
+Independent review accepted the isolated-Linux local composite and exact source
+before the protected merge. The original local driver remains failed after a
+Flutter version-output parsing error; its separately reviewed same-source
+continuation passed, with one pre-existing Staff scaffold test still skipped.
+The canonical ledger retains the focused failures and final composite limits.
+
+Automatic non-production [Dalek deployment run 36368429296](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/36368429296)
+succeeded. No production qualification or new clinical authority follows from
+that result. RLS dispositions, all 806 presentation review entries, the full
+theatre write contract and the other holds above remain open. Forgejo remediation
+is outside the current owner-requested scope, not a completed audit finding.
 
 ### External and activation stops `[OPERATOR]` `[EXTERNAL]`
 
@@ -201,9 +234,11 @@ incorporated or cleared.
   historical, not current inventory.
 - Patient HTTPS deep links and signed minimum-version policy await an owned
   domain, App Links/AASA publication, and production signing authority.
-- PR #872 / INF-006 stays held until legacy workflow identities are disabled,
-  tags protected, old secrets removed, the Forgejo cosign key rotated, and the
-  interlock rebased and reverified. Do not merge it as a code-only change.
+- PR #872 / INF-006 stays held until retired automation is disabled, running
+  jobs reconciled, tag protections evidenced, old credentials revoked or
+  restricted without disrupting shared users, and rollback-image trust reviewed.
+  Do not restore Forgejo, provision a replacement signing key, or merge its
+  proposed activation interlock as a substitute for external containment.
 - ABDM awaits a transactional ordered outbox, NHA credentials/certification,
   official contract evidence, and operator activation.
 - HL7v2/FHIR adapters await conformance evidence against real receiving
@@ -289,7 +324,7 @@ Owned by the live checklist: **[`GO_LIVE_ACTIVATION_CHECKLIST.md`](GO_LIVE_ACTIV
 
 - **Seal the least-privilege DB role.** Seal `vhhealth-pg-runtime` to a `NOSUPERUSER`/`NOBYPASSRLS` role, re-seal the backend `DATABASE_URL` to it, then flip RLS enforcement live and confirm `GET /health/metrics` returns `tenant_rls.ok=true`. (Code + guard shipped — `logTenantRlsRolePosture()`; this is the runtime verification, GO-LIVE Phase B/E.)
 - **Migration Job (Phase D2).** Confirm the PreSync migration Job applies `309`/`310`/`311` under the superuser URL and reports `Complete`, not `Error`.
-- **Supply-chain enforce.** Install Kyverno, create the cosign public-key Secret, flip the `verifyImages` policy **Audit → Enforce** after a clean cycle.
+- **Supply-chain enforce.** Complete the GitHub OIDC admission and rollback-trust evidence in `KYVERNO_ENFORCE_READINESS.md` before any explicitly authorized live policy sync. The retired Forgejo public key is historical evidence only; do not provision it as an admission key.
 - **DR drill.** Run the timed PITR restore drill, record RPO/RTO (`DR_RESTORE_DRILL.md`).
 - **Monitoring activation.** Bring the alerting stack up end-to-end with a deadman proof; add per-route-family RED dashboards + on-call rota.
 - **Backups.** Verify the first AES256-encrypted R2 backup succeeds; add off-site WAL archiving / PITR.
@@ -302,7 +337,7 @@ Owned by the live checklist: **[`SECURITY_HARDENING_CHECKLIST.md`](SECURITY_HARD
 - Rotate every provider secret on the live cluster: `JWT_SECRET`, API keys (+ per-client), DB passwords (`vhhealth`/`vhhealth_readonly`/`qa_writer`), Cloudflare R2, Firebase SA / Twilio / SMTP / Sentry, and the signed-integration secrets (`HL7_INBOUND_SHARED_SECRET`, `ABDM_CALLBACK_SECRET`).
 - Run `npm run security:audit-secret-encryption` and rotate/backfill every reported legacy secret-bearing DB row.
 - Purge local secret-bearing artifacts (`.env` backups, logs, `pg.log`) + run the `gitleaks` range scan on the operator machine.
-- Re-enter Forgejo Actions secrets after rotation; set the 180/365-day rotation calendar + a monthly dependency-PR triage slot.
+- Update only approved GitHub/deployment identities after rotation and retain external receipts for retired Forgejo credential containment; set the 180/365-day rotation calendar and a monthly dependency-PR triage slot.
 
 ## 3. External engagements `[EXTERNAL]`
 
@@ -1465,6 +1500,62 @@ own refusal rather than an empty picker that would read as "nothing exists".
 Closing the remaining gap is an authorization decision, so it was not taken
 here.
 
+### Owner decision, 2026-09-30 — lookup contract approved; implementation remains open
+
+The owner separately approved the directory boundary, response fields and
+labels, both exact role audiences, and the following selector eligibility.
+These approvals do not establish that an endpoint, authorization test or
+complete workflow has been implemented or verified.
+
+- **Boundary:** one authenticated effective tenant, across that tenant's
+  facilities. Missing facility mapping is not a directory-read prerequisite.
+  Cross-tenant reads remain forbidden, including for an acting SUPER_ADMIN.
+- **Linen projection:** exactly ward `id` and `name`. Include every real ward
+  in that tenant, including first-use wards and wards without facility mapping.
+- **CSSD projection:** exactly case `id`, `scheduled_date` and `scheduled_time`.
+  Label choices by case number and time, with the requested date visible.
+  Exclude patient identifiers, procedure text, room free text and occupancy.
+  These remain restricted operational metadata, not a claim of anonymity.
+- **CSSD eligibility:** `scheduled`, `pre_op` or `in_progress`, on one requested
+  date, with no new age cutoff. Clear the selected case when that date changes.
+- **Both selectors:** paginate results and clear stale selections when the
+  actor or tenant scope changes.
+
+The owner additionally approved session-bound staff selector state, with
+server-enforced tenant isolation; SUPER_ADMIN remains tied to confirmed
+acting-tenant context. The question's missing-tenant premise was corrected:
+the portal's password-login staff profile already carries `tenantId`. Include
+that known tenant ID in the client scope, together with the actor/session and
+CSSD date. The separate session-readiness repair remains an implementation
+dependency. This is not evidence of detecting invisible cross-tab credential
+changes or every server-side reassignment, and does not authorize writes.
+
+The approved Linen directory audience is exactly `ADMIN`, `SUPER_ADMIN`,
+`ADMISSION_OFFICER`, `CONSULTANT`, `DOCTOR`, `DUTY_DOCTOR`, `JUNIOR_DOCTOR`,
+`RESIDENT`, `SENIOR_DOCTOR`, `HOUSEKEEPING_INCHARGE`, `HOUSEKEEPING_STAFF`,
+`ICU_INCHARGE`, `ICU_NURSE`, `ICU_STAFF`, `IPD_COUNSELLOR`, `IP_INCHARGE`,
+`IP_STAFF_NURSE`, `NURSING_INCHARGE`, `NURSING_STAFF`, `PHARMACY_INCHARGE`
+and `STORES_PURCHASE_INCHARGE`. This includes the minimal lookup for a scoped
+ADMIN without `departmentManagement`; the unrelated `/wards` gate stays intact.
+
+The approved CSSD directory audience is exactly `ADMIN`, `SUPER_ADMIN`,
+`ANAESTHETIST`, `ANESTHETIST`, `CONSULTANT`, `DOCTOR`, `DUTY_DOCTOR`,
+`JUNIOR_DOCTOR`, `RESIDENT`, `NURSING_STAFF`, `OT_INCHARGE`, `OT_NURSE`,
+`OT_STAFF`, `INFECTION_CONTROL_OFFICER` and `QUALITY_OFFICER`.
+`COMPLIANCE_OFFICER`, `DATA_PROTECTION_OFFICER`, `HR_STAFF`,
+`PHARMACY_INCHARGE` and `STORES_PURCHASE_INCHARGE` are denied this new case
+directory. Their existing write permissions are unchanged; a directory denial
+must not be described as removing issuance authority.
+
+The intended new reads are `/api/v1/linen-laundry/wards` and
+`/api/v1/cssd/theatre-options`, not wider access to the rich source endpoints.
+Implementation file ownership must be checked before release. The reserved
+older Linen worktree is not abandoned or available for adoption by this
+decision. Tenant-binding, resource/lifecycle revalidation and reschedule
+handling at the write boundary remain separate work with separately assigned
+ownership. Listing a resource never authorizes a write to it. No new facility
+grant, clinical field, migration, publication or deployment is approved here.
+
 ### Linen cycle + par level need a ward list — `STORES_PURCHASE_INCHARGE` cannot read one `[CODE]`
 
 *What is wrong.* `linen_ward_par_levels.ward_id` and
@@ -1482,20 +1573,19 @@ the board and configure item types, but "New cycle" and "Set par level" show
 applies to an ADMIN whose permissions were scoped down without
 `departmentManagement`.
 
-*The decision needed.* Either (a) add `STORES_PURCHASE_INCHARGE` to
-`BED_PARENT_ROUTE_ROLES` — which widens a mount that also carries
-`patientAccessGuard('WARD_BOARD')` and `phiAccessLogger`, so it is a PHI-scope
-decision, not a convenience one; or (b) add a minimal, non-PHI
-`GET /api/v1/linen-laundry/wards` (id + name for wards that have linen activity)
-behind the linen gate the console already holds. (b) is the smaller blast
-radius; both are owner calls.
+*Approved direction, not completion.* The 2026-09-30 decision selects the
+minimal Linen directory above. Do not add `STORES_PURCHASE_INCHARGE` to the
+broader `BED_PARENT_ROUTE_ROLES`. Unlike the historical activity-only proposal,
+the approved directory includes first-use wards; existing Linen activity is
+not an eligibility requirement.
 
 ### CSSD "Issue set" needs an OT case — seven CSSD roles cannot read the theatre schedule `[CODE]`
 
 *What is wrong.* `set_issue_log.ot_schedule_id` is an FK to `ot_schedules` and
 `cssdService.assertOtSchedule()` 404s an unknown id, so the case must be chosen.
-The list is `GET /api/v1/theatre/today`, gated by `THEATRE_ROUTE_ROLES` plus
-`patientAccessGuard('OPERATING_THEATRE')` and `phiAccessLogger`.
+The list is `GET /api/v1/theatre/today`, gated by `THEATRE_ROUTE_ROLES` and
+`phiAccessLogger`. The current list route deliberately has no per-patient
+guard; patient-specific theatre routes retain their own scope checks.
 `THEATRE_ROUTE_ROLES` is a strict subset of `CSSD_ROUTE_ROLES`; the seven roles
 in the CSSD gate and not the theatre gate are `COMPLIANCE_OFFICER`,
 `DATA_PROTECTION_OFFICER`, `HR_STAFF`, `INFECTION_CONTROL_OFFICER`,
@@ -1509,12 +1599,13 @@ cannot start a new issue. The roles who actually issue instruments at the
 theatre door (`OT_INCHARGE`, `OT_NURSE`, `OT_STAFF`, anaesthetists, the doctor
 tiers, `NURSING_STAFF`, `ADMIN`) hold both gates and are unaffected.
 
-*The decision needed.* Whether infection-control and quality roles should see
-the OT schedule at all. If yes, the honest fix is a non-PHI case list
-(`id`, `procedure_name`, `ot_room`, `scheduled_date`, `scheduled_time` — no
-`patient_uid`) exposed under the CSSD gate, not widening `THEATRE_ROUTE_ROLES`,
-because `/theatre/today` returns `patient_uid` and `encounter_id` and is
-PHI-logged for that reason.
+*Approved direction, not completion.* The 2026-09-30 decision permits the
+minimal case directory for the exact 15 roles above, including infection
+control and quality, and explicitly denies its other five named roles.
+Do not widen `THEATRE_ROUTE_ROLES`. The historical suggestion to classify a
+projection containing `procedure_name` and raw `ot_room` as non-PHI is
+withdrawn: those strings may contain clinical/free text and are excluded.
+The existing rich `/theatre/today` response and its PHI logging are unchanged.
 
 *Deliberately NOT done here.* The console does not hide the "Issue set" control
 for those roles. Duplicating the backend's access rules in the browser would

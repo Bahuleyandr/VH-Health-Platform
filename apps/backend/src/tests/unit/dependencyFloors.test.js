@@ -25,6 +25,12 @@ const readLock = (relativePath) => JSON.parse(fs.readFileSync(path.join(repoRoot
 
 const GUARDED = ['minimatch', 'brace-expansion', 'js-yaml'];
 
+const BACKEND_ADVISORY_FLOORS = {
+  'brace-expansion': { 1: '1.1.21', 2: '2.1.7', 5: '5.0.12' },
+  undici: { 6: '6.28.1', 8: '8.10.2' },
+  nodemailer: { 10: '10.0.9' },
+};
+
 describe('dependency floors', () => {
   const locks = {
     backend: readLock('apps/backend/package-lock.json'),
@@ -44,6 +50,48 @@ describe('dependency floors', () => {
     )].sort((left, right) => left - right);
     // eslint and friends (3), readdir-glob (5), jest/rimraf (9), the direct dependency (10).
     expect(majors).toEqual([3, 5, 9, 10]);
+  });
+
+  it.each(Object.keys(BACKEND_ADVISORY_FLOORS))('backend resolves every %s copy above the current advisory floors', (name) => {
+    expect(dependencyViolations(locks.backend, name, BACKEND_ADVISORY_FLOORS[name])).toEqual([]);
+  });
+
+  it('backend retains the complete advisory package population on its native major lines', () => {
+    const braces = dependencyEntries(locks.backend, 'brace-expansion');
+    expect(braces).toHaveLength(13);
+    expect([...new Set(braces.map(({ version }) => Number(version.split('.')[0])))].sort((a, b) => a - b))
+      .toEqual([1, 2, 5]);
+    expect(dependencyEntries(locks.backend, 'undici').map(({ packagePath, version }) => ({
+      packagePath, major: Number(version.split('.')[0]),
+    }))).toEqual([
+      { packagePath: 'node_modules/@sentry/cli/node_modules/undici', major: 6 },
+      { packagePath: 'node_modules/undici', major: 8 },
+    ]);
+    expect(dependencyEntries(locks.backend, 'nodemailer').map(({ packagePath }) => packagePath))
+      .toEqual(['node_modules/nodemailer']);
+  });
+
+  it.each(Object.keys(BACKEND_ADVISORY_FLOORS))('rejects a downgrade of each backend %s copy and an absent family', (name) => {
+    const floors = BACKEND_ADVISORY_FLOORS[name];
+    const entries = dependencyEntries(locks.backend, name);
+    expect(entries.length).toBeGreaterThan(0);
+    const patched = structuredClone(locks.backend);
+    for (const { packagePath, version } of entries) {
+      const major = name === 'nodemailer' ? 10 : Number(version.split('.')[0]);
+      patched.packages[packagePath].version = floors[major];
+    }
+    expect(dependencyViolations(patched, name, floors)).toEqual([]);
+    for (const { packagePath } of entries) {
+      const downgraded = structuredClone(patched);
+      const floor = patched.packages[packagePath].version;
+      const [major, minor, patch] = floor.split('.').map(Number);
+      const vulnerable = `${major}.${minor}.${patch - 1}`;
+      downgraded.packages[packagePath].version = vulnerable;
+      expect(dependencyViolations(downgraded, name, floors))
+        .toEqual([`${packagePath} resolved ${vulnerable} (floor ${floor})`]);
+    }
+    expect(dependencyViolations({ packages: {} }, name, floors))
+      .toEqual([`${name} is absent from the lockfile`]);
   });
 
   it('flags a copy below its floor, a major with no patched release, and an absent dependency', () => {

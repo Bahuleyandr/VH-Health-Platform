@@ -14,21 +14,17 @@ const policyName = 'verify-vhhealth-image-signatures';
 const policyPath = resolve(repoRoot, 'infra/kubernetes/base/image-policy/kyverno-verify-images.yaml');
 const imagePolicyKustomizationPath = resolve(repoRoot, 'infra/kubernetes/base/image-policy/kustomization.yaml');
 const baseKustomizationPath = resolve(repoRoot, 'infra/kubernetes/base/kustomization.yaml');
-const defaultNamespace = 'kyverno';
-const defaultPublicKeySecret = 'vhhealth-cosign-public-key';
-const defaultPublicKeyName = 'cosign.pub';
 
 function usage() {
   console.log(`Usage: node scripts/check-kyverno-enforce-readiness.mjs [--live] [options]
 
 Default mode validates the checked-in Kyverno policy contract only. Use --live
-from an operator shell to prove the live cluster has the public-key Secret and
-a clean PolicyReport cycle before flipping Audit to Enforce.
+from an operator shell to prove the live GitHub signing policy and a clean
+PolicyReport cycle before flipping Audit to Enforce.
 
 Options:
   --live                         Run kubectl-backed live checks too
   --context=<name>               Kubernetes context for live checks
-  --namespace=<name>             Namespace holding the public-key Secret (default: kyverno)
   --since-hours=<n>              Freshness window for pass results (default: 24; 0 disables)
   --min-pass-results=<n>         Minimum fresh pass results required in live mode (default: 1)
   --expected-action=<Audit|Enforce>
@@ -42,7 +38,6 @@ function parseArgs(argv) {
     expectedAction: 'Audit',
     live: false,
     minPassResults: 1,
-    namespace: defaultNamespace,
     sinceHours: 24,
   };
 
@@ -57,10 +52,6 @@ function parseArgs(argv) {
     }
     if (arg.startsWith('--context=')) {
       args.context = arg.slice('--context='.length).trim();
-      continue;
-    }
-    if (arg.startsWith('--namespace=')) {
-      args.namespace = arg.slice('--namespace='.length).trim();
       continue;
     }
     if (arg.startsWith('--since-hours=')) {
@@ -88,9 +79,6 @@ function parseArgs(argv) {
   if (!['Audit', 'Enforce'].includes(args.expectedAction)) {
     throw new Error('--expected-action must be Audit or Enforce');
   }
-  if (!args.namespace) {
-    throw new Error('--namespace cannot be empty');
-  }
 
   return args;
 }
@@ -117,8 +105,9 @@ function validateStaticPolicyContract() {
   requirePattern('verifyImages rule exists', policy, /^\s*verifyImages:\s*$/m);
   requirePattern('GitHub keyless attestor issuer', policy, /issuer:\s*"https:\/\/token\.actions\.githubusercontent\.com"/);
   requirePattern('release and dalekdefender GitHub workflow identities', policy, /release-images\|deploy-dalekdefender/);
-  requirePattern('Forgejo cosign public-key Secret name', policy, /name:\s*vhhealth-cosign-public-key/);
-  requirePattern('Forgejo cosign public-key Secret namespace', policy, /namespace:\s*kyverno/);
+  if (/^\s*(?:-\s*)?keys:\s*$/m.test(policy)) {
+    throw new Error('Retired private-key signers must not appear in the GitHub-only image policy');
+  }
   requirePattern('backend image reference', policy, /ghcr\.io\/bahuleyandr\/vh-health-platform-backend\*/);
   requirePattern('admin image reference', policy, /ghcr\.io\/bahuleyandr\/vh-health-platform-adminportal\*/);
   requirePattern('staff-web image reference', policy, /ghcr\.io\/bahuleyandr\/vhhealth-staff-web\*/);
@@ -204,18 +193,19 @@ function collectPolicyReportResults(...lists) {
 }
 
 function validateLiveCluster(args) {
-  const secret = kubectlJson(
-    ['get', 'secret', defaultPublicKeySecret, '-n', args.namespace],
-    args,
-  );
-  if (!secret.data?.[defaultPublicKeyName]) {
-    throw new Error(
-      `Secret ${args.namespace}/${defaultPublicKeySecret} is missing data key ${defaultPublicKeyName}`,
-    );
-  }
-  console.log(`[kyverno-readiness] public-key Secret present: ${args.namespace}/${defaultPublicKeySecret}`);
-
   const policy = kubectlJson(['get', 'clusterpolicy', policyName], args);
+  const imageRules = policy.spec?.rules?.flatMap((rule) => rule.verifyImages || []) || [];
+  const expectedIdentity = '^https://github\\.com/Bahuleyandr/VH-Health-Platform/\\.github/workflows/(release-images|deploy-dalekdefender)\\.yml@.*$';
+  if (imageRules.length !== 1 || imageRules.some((rule) =>
+    rule.required !== true || rule.verifyDigest !== true || rule.mutateDigest !== true ||
+    rule.attestors?.length !== 1 || rule.attestors[0].count !== 1 ||
+    rule.attestors[0].entries?.length !== 1 ||
+    Object.keys(rule.attestors[0].entries[0]).join(',') !== 'keyless' ||
+    rule.attestors[0].entries[0].keyless.issuer !== 'https://token.actions.githubusercontent.com' ||
+    rule.attestors[0].entries[0].keyless.subjectRegExp !== expectedIdentity ||
+    rule.attestors[0].entries[0].keyless.rekor?.url !== 'https://rekor.sigstore.dev')) {
+    throw new Error('Live image policy must require the sole GitHub keyless attestor and verified image digests');
+  }
   const liveAction = policy.spec?.validationFailureAction || '';
   if (liveAction !== args.expectedAction) {
     throw new Error(

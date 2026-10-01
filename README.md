@@ -85,8 +85,9 @@ dart run melos run i18n-health
 
 ## Release And CI
 
-Forgejo Actions are the canonical hosted CI/CD surface. GitHub-hosted Actions
-are kept as mirrors, and the same repo-owned checks can be run locally:
+GitHub is the sole repository and hosted CI/CD authority. The owner retired
+Forgejo from VH Health's delivery model on 2026-09-30, including its mirror
+requirement. The same repo-owned checks can be run locally:
 
 ```bash
 node scripts/local-ci.mjs
@@ -94,34 +95,23 @@ node scripts/local-ci.mjs
 
 The gate runs secret scanning, backend lint/audit/swagger/DB/tests, admin
 lint/type-check/test/build/bundle guard, Flutter format/analyze/test,
-Kubernetes manifest validation, and the Forgejo specialty gates cover smoke
-E2E, dependency-risk review, container supply chain, and warehouse/dbt drift. See
+Kubernetes manifest validation, with separate GitHub smoke E2E and warehouse/dbt
+workflows. Local checks do not replace exact-head protected GitHub evidence. See
 [`docs/RELEASE_READINESS.md`](docs/RELEASE_READINESS.md) for the release gate.
 
-Forgejo also owns staging deploys, signed Android release assets, container
-image releases, production digest pinning, and the Dalekdefender test-rig
-deploy path. Required release configuration:
+GitHub workflows define the authorized staging distributions, signed Android
+releases, container releases, digest pinning and Dalekdefender test-rig deploy
+path. Their presence does not authorize execution, publication or production
+activation. Follow each workflow's actual input/secret contract and the release
+readiness gates rather than copying retired Forgejo credentials.
 
-| Name | Type | Used by |
-| --- | --- | --- |
-| `VH_BASE_URL` | Forgejo variable / `--dart-define` | Patient and staff builds |
-| `VH_API_KEY` | Forgejo secret / `--dart-define` | Patient and staff builds |
-| Patient Android signing secrets | Forgejo secrets | Patient release workflow |
-| Staff Android signing secrets | Forgejo secrets | Staff release workflow |
-| `FIREBASE_APP_ID_PATIENT`, `FIREBASE_APP_ID_STAFF`, `FIREBASE_TOKEN` | Forgejo secrets | Staging Firebase App Distribution |
-| `GHCR_USERNAME`/`GHCR_TOKEN` or `CONTAINER_REGISTRY_USERNAME`/`CONTAINER_REGISTRY_PASSWORD` | Forgejo secrets | Container release and Dalekdefender image pushes |
-| `COSIGN_PRIVATE_KEY`, `COSIGN_PASSWORD`, `COSIGN_PUBLIC_KEY` | Forgejo secrets | Container signing and deploy verification |
-| `TS_OAUTH_CLIENT_ID`, `TS_OAUTH_SECRET`, `DALEKDEFENDER_SSH_KEY` | Forgejo secrets | Dalekdefender deploy |
-| `VH_TRIAL_API_ORIGIN`, `VH_TRIAL_ADMIN_ORIGIN` | Forgejo secrets | Hosted post-deploy smoke |
-
-Forgejo deploy/release prerequisites are enforced by:
-
-```bash
-node scripts/ci/forgejo-deploy-preflight.mjs --mode dalek-images
-node scripts/ci/forgejo-deploy-preflight.mjs --mode dalek-deploy
-node scripts/ci/forgejo-deploy-preflight.mjs --mode release-images
-node scripts/ci/forgejo-deploy-preflight.mjs --mode post-deploy-smoke --allow-skip
-```
+Repository retirement removes Forgejo workflows and mirror-health requirements
+while retaining useful checks in GitHub. Container validation builds and scans
+local images without publishing; hosted post-deploy and staff-role smokes are
+manual and require explicit approved inputs. Credential containment and hosted
+smoke execution remain named owner actions in the release readiness checklist.
+Source changes do not disable remote jobs or retire shared infrastructure, and
+INF-006 / PR #872 remains held until external containment is evidenced.
 
 Never commit real API keys, passwords, tokens, keystores, DSNs, or live test
 credentials. Store them in the deployment secret store or in local ignored env

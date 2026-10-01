@@ -10,6 +10,38 @@ class AppLocalizationsTe extends AppLocalizations {
   AppLocalizationsTe([String locale = 'te']) : super(locale);
 
   @override
+  String get abdmAddressInvalidError =>
+      'ఇది సరైన ABHA చిరునామాలా లేదు. ఇది name@abdm లాగా ఉండాలి.';
+
+  @override
+  String get abdmAlreadyLinkedError =>
+      'ఈ ABHA ఇప్పటికే మరొక రోగితో అనుసంధానించబడింది. దయచేసి సంఖ్యను తనిఖీ చేయండి లేదా ఆసుపత్రి రిసెప్షన్ వద్ద సహాయం అడగండి.';
+
+  @override
+  String get abdmVerificationFailedError =>
+      'ప్రస్తుతం ABDM ద్వారా ఈ ABHAను ధృవీకరించలేకపోయాము, కాబట్టి ఇది అనుసంధానించబడలేదు. దయచేసి కొన్ని నిమిషాల తర్వాత మళ్లీ ప్రయత్నించండి.';
+
+  @override
+  String get abdmPatientNotFoundError =>
+      'మీ రోగి రికార్డు కనుగొనబడలేదు. దయచేసి మీ నమోదును తనిఖీ చేయమని ఆసుపత్రి రిసెప్షన్ వద్ద అడగండి.';
+
+  @override
+  String get abdmConsentLoadFailed =>
+      'సమ్మతి అభ్యర్థనలను లోడ్ చేయలేకపోయాము. దయచేసి మళ్లీ ప్రయత్నించండి.';
+
+  @override
+  String get abdmConsentGrantFailed =>
+      'సమ్మతి ఇవ్వలేకపోయాము. దయచేసి మళ్లీ ప్రయత్నించండి.';
+
+  @override
+  String get abdmConsentDenyFailed =>
+      'సమ్మతి అభ్యర్థనను తిరస్కరించలేకపోయాము. దయచేసి మళ్లీ ప్రయత్నించండి.';
+
+  @override
+  String get abdmConsentRevokeFailed =>
+      'సమ్మతిని ఉపసంహరించలేకపోయాము. దయచేసి మళ్లీ ప్రయత్నించండి.';
+
+  @override
   String get authLoginTitle => 'మీ ఖాతాకు లాగిన్ అవ్వండి';
 
   @override

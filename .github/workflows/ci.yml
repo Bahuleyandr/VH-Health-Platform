@@ -126,6 +126,16 @@ jobs:
 
       - run: node scripts/ci/run.mjs --only=security
 
+  security_sweep:
+    needs: plan
+    if: ${{ always() && needs.plan.result == 'success' }}
+    uses: ./.github/workflows/security-sweep.yml
+
+  container_validation:
+    needs: plan
+    if: ${{ needs.plan.outputs.tier == 'full' || needs.plan.outputs.backend == 'true' || needs.plan.outputs.admin == 'true' || needs.plan.outputs.flutter == 'true' || needs.plan.outputs.infra == 'true' }}
+    uses: ./.github/workflows/container-supply-chain.yml
+
   quick_backend:
     needs: plan
     if: ${{ needs.plan.outputs.tier == 'quick' && needs.plan.outputs.backend == 'true' }}
@@ -258,6 +268,8 @@ jobs:
     needs:
       - plan
       - security
+      - security_sweep
+      - container_validation
       - quick_backend
       - quick_fhir
       - quick_admin
@@ -280,6 +292,19 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version: '26.5.0'
+
+      - name: Require repository and selected container scans
+        env:
+          SECURITY_SWEEP_RESULT: ${{ needs.security_sweep.result }}
+          CONTAINER_RESULT: ${{ needs.container_validation.result }}
+          CONTAINER_REQUIRED: ${{ needs.plan.outputs.tier == 'full' || needs.plan.outputs.backend == 'true' || needs.plan.outputs.admin == 'true' || needs.plan.outputs.flutter == 'true' || needs.plan.outputs.infra == 'true' }}
+        run: |
+          test "$SECURITY_SWEEP_RESULT" = success
+          if [ "$CONTAINER_REQUIRED" = true ]; then
+            test "$CONTAINER_RESULT" = success
+          else
+            test "$CONTAINER_RESULT" = skipped
+          fi
 
       - name: Aggregate selected results
         env:

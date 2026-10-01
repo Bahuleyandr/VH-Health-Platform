@@ -18,6 +18,7 @@
 //   * HTTP 5xx / network fault / malformed response → uncertain (the send
 //     may or may not have been accepted; never claim either way).
 
+import { performance } from 'node:perf_hooks';
 import logger from '../../../logging/logger.js';
 import { normalizeIndianSmsPhone } from '../../phoneUtils.js';
 
@@ -46,12 +47,12 @@ function evidenceFrom(status, body) {
   };
 }
 
-export async function sendViaMsg91({
+export function prepareMsg91Sms({
   authKey, senderId, dltEntityId, dltTemplateId, providerTemplateId, phone, message,
   requestTimeoutMs = MSG91_REQUEST_TIMEOUT_MS,
 }) {
   if (!authKey || !senderId || !dltEntityId || !dltTemplateId) {
-    return {
+    return { result: {
       outcome: 'rejected',
       providerReference: null,
       providerCode: 'sms_config_credentials_unreadable',
@@ -64,16 +65,16 @@ export async function sendViaMsg91({
           !dltTemplateId && 'dlt_template_id',
         ].filter(Boolean),
       },
-    };
+    } };
   }
   const normalizedPhone = normalizeIndianSmsPhone(phone);
   if (!normalizedPhone) {
-    return {
+    return { result: {
       outcome: 'rejected',
       providerReference: null,
       providerCode: 'phone_missing',
       evidence: { provider: 'msg91', invalid_phone: true },
-    };
+    } };
   }
 
   const payload = {
@@ -86,20 +87,28 @@ export async function sendViaMsg91({
     sms: [{ message: String(message), to: [normalizedPhone] }],
   };
 
+  const body = JSON.stringify(payload);
+  return { send: operation => sendPreparedMsg91(authKey, body, requestTimeoutMs, operation) };
+}
+
+async function sendPreparedMsg91(authKey, payload, requestTimeoutMs, operation) {
   let response;
   try {
+    operation?.signal.throwIfAborted();
+    if (operation && performance.now() > operation.startBefore) throw new Error('SMS admission expired');
     response = await fetch(MSG91_SEND_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', authkey: authKey },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(boundedRequestTimeout(requestTimeoutMs)),
+      body: payload,
+      signal: operation?.signal || AbortSignal.timeout(boundedRequestTimeout(requestTimeoutMs)),
     });
   } catch (err) {
     return {
       outcome: 'uncertain',
       providerReference: null,
       providerCode: 'msg91_transport_failure',
-      evidence: { provider: 'msg91', error_name: boundedProviderCode(err?.name) || 'transport_error' },
+      evidence: operation ? { provider: 'msg91' }
+        : { provider: 'msg91', error_name: boundedProviderCode(err?.name) || 'transport_error' },
     };
   }
 
@@ -107,6 +116,10 @@ export async function sendViaMsg91({
   try {
     body = await response.json();
   } catch {
+    if (operation) {
+      return { outcome: 'uncertain', providerReference: null,
+        providerCode: 'msg91_transport_failure', evidence: { provider: 'msg91' } };
+    }
     body = null;
   }
 
@@ -141,6 +154,11 @@ export async function sendViaMsg91({
     providerCode: 'msg91_no_acceptance_unresolved',
     evidence: evidenceFrom(response.status, body),
   };
+}
+
+export async function sendViaMsg91(input) {
+  const prepared = prepareMsg91Sms(input);
+  return prepared.result || prepared.send();
 }
 
 export default { sendViaMsg91 };

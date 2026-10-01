@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { APIError, fetchAdminAPI } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 import {
   MessageSquare,
@@ -12,8 +13,7 @@ import {
   AlertTriangle,
   Gauge,
 } from "lucide-react";
-import { fetchAdminAPI } from "@/lib/api";
-import { Skeleton } from "@/components/ui/skeleton";
+import React, { useRef, useState } from "react";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -134,16 +134,24 @@ function fmtDate(d?: string | null) {
 function StarRating({
   rating,
   size = "sm",
+  decorative = false,
 }: {
   rating: number;
   size?: "sm" | "lg";
+  decorative?: boolean;
 }) {
   const cls = size === "lg" ? "h-5 w-5" : "h-4 w-4";
   return (
-    <div className="flex items-center gap-0.5">
+    <div
+      className="flex items-center gap-0.5"
+      role={decorative ? undefined : "img"}
+      aria-label={decorative ? undefined : `${rating} out of 5 stars`}
+      aria-hidden={decorative || undefined}
+    >
       {[1, 2, 3, 4, 5].map((i) => (
         <Star
           key={i}
+          aria-hidden="true"
           className={`${cls} ${i <= rating ? "fill-yellow-400 text-yellow-400" : "text-gray-300"}`}
         />
       ))}
@@ -161,6 +169,8 @@ export default function FeedbackPage() {
   const [selectedFeedback, setSelectedFeedback] = useState<FeedbackItem | null>(
     null,
   );
+  const selectedFeedbackButtonRef = useRef<HTMLButtonElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Fetch feedback list
   const {
@@ -171,6 +181,8 @@ export default function FeedbackPage() {
     refetch,
   } = useQuery<FeedbackItem[]>({
     queryKey: ["feedback-list"],
+    retry: (failureCount, error) =>
+      !(error instanceof APIError && error.status === 403) && failureCount < 3,
     queryFn: async () => {
       const res = await fetchAdminAPI<unknown>("/feedback/recent?limit=100");
       const data = unwrap<{ feedback?: FeedbackItem[] } | FeedbackItem[]>(res);
@@ -190,6 +202,8 @@ export default function FeedbackPage() {
     refetch: refetchStats,
   } = useQuery<FeedbackStats>({
     queryKey: ["feedback-stats"],
+    retry: (failureCount, error) =>
+      !(error instanceof APIError && error.status === 403) && failureCount < 3,
     queryFn: async () => {
       const res = await fetchAdminAPI<unknown>(
         "/feedback/dashboard?timeframe=30d",
@@ -209,6 +223,8 @@ export default function FeedbackPage() {
     refetch: refetchNps,
   } = useQuery<NpsDashboardPayload>({
     queryKey: ["nps-dashboard"],
+    retry: (failureCount, error) =>
+      !(error instanceof APIError && error.status === 403) && failureCount < 3,
     queryFn: async () => {
       const res = await fetchAdminAPI<unknown>(
         "/quality/nps/dashboard?days=30&minimum_sample_size=5",
@@ -306,6 +322,7 @@ export default function FeedbackPage() {
             <StarRating
               rating={Math.round(Number(overviewStats.avgRating))}
               size="lg"
+              decorative
             />
           </div>
         </div>
@@ -353,7 +370,9 @@ export default function FeedbackPage() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
               <input
+                ref={searchInputRef}
                 type="text"
+                aria-label="Search feedback"
                 placeholder="Search feedback..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -361,6 +380,7 @@ export default function FeedbackPage() {
               />
             </div>
             <select
+              aria-label="Filter by rating"
               value={ratingFilter}
               onChange={(e) => setRatingFilter(e.target.value)}
               className="rounded-md border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
@@ -373,6 +393,7 @@ export default function FeedbackPage() {
               ))}
             </select>
             <select
+              aria-label="Filter by department"
               value={departmentFilter}
               onChange={(e) => setDepartmentFilter(e.target.value)}
               className="rounded-md border border-border bg-card px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
@@ -394,7 +415,14 @@ export default function FeedbackPage() {
           )}
 
           {isError && (
-            <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm">
+            <div
+              role={
+                error instanceof APIError && error.status === 403
+                  ? undefined
+                  : "alert"
+              }
+              className="bg-red-50 border border-red-200 rounded-lg p-4 text-red-700 text-sm"
+            >
               {error instanceof Error
                 ? error.message
                 : "Failed to load feedback"}
@@ -415,7 +443,15 @@ export default function FeedbackPage() {
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-semibold">Feedback Details</h3>
                 <button
-                  onClick={() => setSelectedFeedback(null)}
+                  onClick={() => {
+                    const opener = selectedFeedbackButtonRef.current;
+                    if (opener?.isConnected) {
+                      opener.focus();
+                    } else {
+                      searchInputRef.current?.focus();
+                    }
+                    setSelectedFeedback(null);
+                  }}
                   className="text-muted-foreground hover:text-foreground text-sm"
                 >
                   Close
@@ -526,6 +562,15 @@ export default function FeedbackPage() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <button
+                          ref={
+                            (
+                              selectedFeedback?.id !== undefined
+                                ? item.id === selectedFeedback.id
+                                : item === selectedFeedback
+                            )
+                              ? selectedFeedbackButtonRef
+                              : undefined
+                          }
                           onClick={() => setSelectedFeedback(item)}
                           className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium hover:bg-accent transition-colors"
                         >

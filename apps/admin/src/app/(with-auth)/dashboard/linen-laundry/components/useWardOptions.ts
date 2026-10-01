@@ -1,57 +1,77 @@
 "use client";
 
-// Ward pick-list for the linen dialogs.
-//
-// linen_ward_par_levels.ward_id and linen_laundry_cycles.ward_id are FKs to
-// `wards`, and linenLaundryService.loadWard() 404s an id it cannot find, so a
-// ward has to be CHOSEN, not typed. The only list endpoint is GET /api/v1/wards
-// — which sits behind a different gate from the linen router
-// (BED_PARENT_ROUTE_ROLES, plus the `departmentManagement` per-admin proxy flag
-// for ADMIN accounts). Housekeeping, nursing, IP-flow and pharmacy roles hold
-// both; STORES_PURCHASE_INCHARGE holds the linen gate but not the ward one.
-//
-// So this hook never pretends: it returns the wards it could read AND the
-// error, and the dialogs render the backend's own refusal instead of an empty
-// dropdown that looks like "no wards exist".
+import { useActingTenant } from "@/contexts/ActingTenantContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { useTenant } from "@/contexts/TenantContext";
+import { listLinenWardOptions } from "@/lib/api/linenLaundry";
+import { useInfiniteQuery } from "@tanstack/react-query";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { fetchAdminAPI } from "@/lib/api";
-import { useQuery } from "@tanstack/react-query";
+export function useWardOptions(onScopeChange: () => void) {
+  const { user, loading } = useAuth();
+  const { tenant, isLoading: tenantLoading } = useTenant();
+  const { actingTenant, isReady, scopeKey: tenantScopeKey, isScopeCurrent } = useActingTenant();
+  const profileTenant = (user as { tenantId?: unknown } | null)?.tenantId;
+  const admin = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
+  const tenantId = user?.role === "SUPER_ADMIN" && actingTenant
+    ? actingTenant.id : admin ? tenant?.id
+      : typeof profileTenant === "string" ? profileTenant : null;
+  const ready = !loading && !!user && isReady && !!tenantScopeKey
+    && (!admin || (!!tenantId && (!!actingTenant || !tenantLoading)));
+  const scopeKey = JSON.stringify([
+    tenantScopeKey, user?.uid ?? user?.id, user?.role, user?.permissions, tenantId,
+  ]);
+  const [openedScope, setOpenedScope] = useState<string | null>(null);
+  const changed = openedScope !== null && (!ready || scopeKey !== openedScope);
+  useEffect(() => {
+    if (openedScope === null && ready) setOpenedScope(scopeKey);
+    if (changed) onScopeChange();
+  }, [openedScope, ready, scopeKey, changed, onScopeChange]);
 
-export type WardOption = { id: number; name: string };
+  const active = useRef(false);
+  useLayoutEffect(() => {
+    active.current = ready && !changed;
+    return () => { active.current = false; };
+  }, [ready, changed, scopeKey]);
 
-function unwrapWards(payload: unknown): WardOption[] {
-  const data = (payload as { data?: unknown })?.data ?? payload;
-  const rows = Array.isArray(data)
-    ? data
-    : ((data as { wards?: unknown })?.wards ?? []);
-  if (!Array.isArray(rows)) return [];
-  return rows
-    .map((row) => {
-      const ward = row as { id?: unknown; name?: unknown };
-      const id = Number(ward.id);
-      if (!Number.isSafeInteger(id) || id <= 0) return null;
-      return { id, name: String(ward.name ?? `Ward ${id}`) };
-    })
-    .filter((ward): ward is WardOption => ward !== null)
-    .sort((a, b) => a.name.localeCompare(b.name));
-}
-
-export function useWardOptions() {
-  const query = useQuery<WardOption[]>({
-    queryKey: ["linen-laundry", "wards"],
-    queryFn: async () => unwrapWards(await fetchAdminAPI<unknown>("/wards")),
-    staleTime: 5 * 60_000,
+  const query = useInfiniteQuery({
+    queryKey: ["linen-laundry", "wards", scopeKey],
+    queryFn: async ({ pageParam, signal }) => {
+      if (!tenantScopeKey || !isScopeCurrent(tenantScopeKey)) throw new Error("Tenant scope changed");
+      const page = await listLinenWardOptions({ cursor: pageParam }, signal);
+      if (!isScopeCurrent(tenantScopeKey)) throw new Error("Tenant scope changed");
+      return page;
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: page => page.next_cursor ?? undefined,
+    enabled: ready && !changed,
+    staleTime: 0,
+    gcTime: 0,
+    refetchOnMount: "always",
     retry: false,
   });
+  const wards = ready && !changed && !query.isError
+    ? query.data?.pages.flatMap(page => page.items) ?? [] : [];
 
   return {
-    wards: query.data ?? [],
-    isLoading: query.isLoading,
-    error:
-      query.error instanceof Error
-        ? query.error.message
-        : query.error
-          ? "Could not load the ward list"
-          : null,
+    wards,
+    scopeKey,
+    ready: ready && !changed,
+    changed,
+    isLoading: !ready || query.isPending,
+    isFetching: query.isFetching,
+    hasNextPage: query.hasNextPage,
+    isFetchingNextPage: query.isFetchingNextPage,
+    fetchNextPage: query.fetchNextPage,
+    error: query.error instanceof Error ? query.error.message
+      : query.error ? "Could not load the ward directory" : null,
+    async validateSelection(id: number) {
+      if (!tenantScopeKey || !isScopeCurrent(tenantScopeKey)) throw new Error("Tenant scope changed");
+      const current = await query.refetch();
+      if (!active.current || !isScopeCurrent(tenantScopeKey) || current.isError
+        || !current.data?.pages.some(page => page.items.some(ward => ward.id === id))) {
+        throw new Error("The ward selection is no longer available. Select a ward again.");
+      }
+    },
   };
 }

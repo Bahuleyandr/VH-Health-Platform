@@ -98,24 +98,21 @@ export function runInfraStage({
       // workloads invoke must exist in the image the Dockerfile actually
       // builds (the PreSync migration Job called a stripped `npm` for months).
       'scripts/backend-image-command-contract.test.mjs',
-      'scripts/ci/forgejo-deploy-preflight.test.mjs',
-      'scripts/ci/forgejo-buildkit-builder.test.mjs',
+      'scripts/ci/manual-smoke-preflight.test.mjs',
+      'scripts/ci/post-deploy-smoke.test.mjs',
       'scripts/check-redis-ha-contract.test.mjs',
       'scripts/ci/infra.test.mjs',
       // CI-policy guards: workflow-shape invariants for the canonical gate,
       // fail-closed Semgrep availability, complete branch-delta selection,
-      // and Forgejo action/image supply-chain pins. Enumerated here because
+      // and GitHub action/image supply-chain pins. Enumerated here because
       // nothing else runs them — a guard that never executes guards nothing.
       'scripts/ci/canonical-workflow.test.mjs',
       'scripts/ci/merge-gate-policy.test.mjs',
       'scripts/ci/security.test.mjs',
       'scripts/ci/stage-selection.test.mjs',
-      'scripts/check-forgejo-supply-chain-pins.test.mjs',
-      // Forgejo DR-mirror liveness detector. Enumerated here for the same
-      // reason as the guards above: the detector's own positive control (it
-      // must be shown capable of failing) has to run somewhere, and a
-      // detector nobody exercises detects nothing.
-      'scripts/ci/forgejo-liveness.test.mjs',
+      'scripts/check-workflow-supply-chain-pins.test.mjs',
+      'scripts/check-forgejo-retirement.test.mjs',
+      'scripts/check-kyverno-enforce-readiness.test.mjs',
     ], { env: installedTools?.env });
     runCommand(
       process.execPath,

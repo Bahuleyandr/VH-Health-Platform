@@ -1,5 +1,6 @@
 "use client";
 
+import { useActiveTenantScope } from "@/components/ActingTenantBanner";
 import {
   setTenantGateFlag,
   type GateKey,
@@ -92,9 +93,12 @@ const GATE_ROWS: Array<{
 
 export function TenantGatesCard({
   entry,
+  scopeKey,
 }: {
   entry: IntegrationGateTenantEntry;
+  scopeKey: string;
 }) {
+  const activeScope = useActiveTenantScope(scopeKey);
   const queryClient = useQueryClient();
   const [pendingKey, setPendingKey] = useState<string | null>(null);
 
@@ -105,17 +109,30 @@ export function TenantGatesCard({
     }: {
       settingKey: TenantGateSettingKey;
       enabled: boolean;
-    }) => setTenantGateFlag(entry.tenant.id, settingKey, enabled),
+    }) =>
+      setTenantGateFlag(
+        entry.tenant.id,
+        settingKey,
+        enabled,
+        activeScope.assertCurrent,
+      ),
     onMutate: ({ settingKey }) => setPendingKey(settingKey),
     onSuccess: () => {
+      if (!activeScope.current) return;
       toast.success("Tenant gate flag updated");
-      void queryClient.invalidateQueries({ queryKey: ["integration-gates"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["integration-gates", scopeKey],
+      });
     },
-    onError: (e) =>
+    onError: (e) => {
+      if (!activeScope.current) return;
       toast.error(
         e instanceof Error ? e.message : "Failed to update tenant flag",
-      ),
-    onSettled: () => setPendingKey(null),
+      );
+    },
+    onSettled: () => {
+      if (activeScope.current) setPendingKey(null);
+    },
   });
 
   return (

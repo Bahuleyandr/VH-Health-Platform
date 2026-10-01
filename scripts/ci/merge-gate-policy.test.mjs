@@ -4,7 +4,6 @@ import test from 'node:test';
 
 const canonical = readFileSync(new URL('../../.github/workflows/ci.yml', import.meta.url), 'utf8');
 const backend = readFileSync(new URL('../../.github/workflows/ci-backend.yml', import.meta.url), 'utf8');
-const forgejo = readFileSync(new URL('../../.forgejo/workflows/ci.yml', import.meta.url), 'utf8');
 
 test('the required canonical gate cannot cancel an in-flight complete-delta run', () => {
   assert.doesNotMatch(canonical, /cancel-in-progress:\s*true/);
@@ -38,7 +37,8 @@ test('full backend and FHIR contexts are reserved for the final dispatch', () =>
   assert.match(canonical, /needs\.plan\.outputs\.tier == 'full' && 'Full Merge Gate' \|\| 'Merge Gate'/);
 });
 
-test('Forgejo canonical CI includes the client-to-spec contracts stage', () => {
-  assert.match(forgejo, /\n\s+- contracts\r?\n/);
-  assert.match(forgejo, /python -m pip install --quiet semgrep/);
+test('GitHub canonical CI includes the client-to-spec contracts stage', () => {
+  assert.match(canonical, /full_contracts:/);
+  assert.match(canonical, /_reusable-client-contract\.yml/);
+  assert.match(canonical, /python -m pip install --quiet semgrep/);
 });

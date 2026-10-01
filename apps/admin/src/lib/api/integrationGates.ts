@@ -167,9 +167,11 @@ export async function setTenantGateFlag(
   tenantId: string,
   settingKey: TenantGateSettingKey,
   enabled: boolean,
+  assertScopeCurrent?: () => void,
 ): Promise<Tenant> {
   // Fresh read of the tenant's settings right before the merge, so we never
   // clobber a concurrent settings change with a stale snapshot.
+  assertScopeCurrent?.();
   const { tenants } = await listTenants();
   const tenant = tenants.find((t) => t.id === tenantId);
   if (!tenant) throw new Error("Tenant not found");
@@ -187,6 +189,7 @@ export async function setTenantGateFlag(
     enabled,
   };
 
+  assertScopeCurrent?.();
   return updateTenant(tenantId, { settings });
 }
 

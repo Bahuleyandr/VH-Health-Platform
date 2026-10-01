@@ -273,7 +273,7 @@ export async function runSecurityStage() {
   run(process.execPath, ['--test', 'scripts/ci/check-teardown-census.test.mjs']);
   run(process.execPath, ['scripts/ci/check-teardown-census.mjs', '--integrity']);
 
-  run(process.execPath, ['scripts/check-forgejo-supply-chain-pins.mjs']);
+  run(process.execPath, ['scripts/check-workflow-supply-chain-pins.mjs']);
   run(process.execPath, ['scripts/scan-secrets.mjs']);
   run(process.execPath, ['scripts/gitleaks-scan.mjs', 'worktree'], { env: gitleaksEnv });
   run(process.execPath, ['scripts/gitleaks-scan.mjs', 'range'], { env: gitleaksEnv });

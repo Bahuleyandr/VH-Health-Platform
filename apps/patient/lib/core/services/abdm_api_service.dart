@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:vhhealth/core/services/api_client.dart';
 
 /// Backend API calls for ABDM (Ayushman Bharat Digital Mission) features.
@@ -36,33 +35,7 @@ class AbdmApiService {
     if (response.isSuccess) {
       return response.dataAsMap();
     }
-    throw AbdmException(linkFailureMessage(response));
-  }
-
-  /// Human-readable message for a failed [linkAbha], keyed off the backend
-  /// error code so the wording does not depend on server copy. Visible for
-  /// testing — the mapping is the part worth pinning.
-  @visibleForTesting
-  static String linkFailureMessage(ApiResponse response) {
-    switch (response.code) {
-      case 'INVALID_ABHA_FORMAT':
-        return 'That does not look like an ABHA number. Enter all 14 digits.';
-      case 'INVALID_ABHA_ADDRESS':
-        return 'That does not look like an ABHA address. It should look like name@abdm.';
-      case 'ABHA_ALREADY_LINKED':
-        return 'This ABHA is already linked to another patient. Please check the '
-            'number, or ask the hospital front desk for help.';
-      case 'ABHA_VERIFICATION_FAILED':
-        return 'We could not verify this ABHA with ABDM just now, so it has not '
-            'been linked. Please try again in a few minutes.';
-      case 'PATIENT_NOT_FOUND':
-        return 'We could not find your patient record. Please ask the hospital '
-            'front desk to check your registration.';
-      default:
-        return response.failureMessage(
-          'Could not link your ABHA (${response.statusCode})',
-        );
-    }
+    throw AbdmException.fromResponse(response);
   }
 
   /// Fetch the signed-in patient's own ABHA linkage state.
@@ -77,46 +50,71 @@ class AbdmApiService {
     if (response.isSuccess) {
       return AbhaLinkage.fromMap(response.dataAsMap());
     }
-    throw AbdmException(
-      response.failureMessage('Could not check your ABHA status'),
-    );
+    throw AbdmException.fromResponse(response);
   }
 
   /// Fetch consent requests for the current patient.
   static Future<List<dynamic>> getConsents() async {
-    try {
-      final response = await ApiClient.get('/abdm/consents');
-      if (response.isSuccess) {
-        return response.dataAsList('consents');
-      }
-    } catch (e) {
-      if (kDebugMode) debugPrint('ABDM getConsents error: $e');
+    final response = await ApiClient.get('/abdm/consents');
+    if (!response.isSuccess) {
+      throw AbdmException.fromResponse(response);
     }
-    return [];
+    final data = response.data;
+    final consents = data is Map ? data['consents'] : data;
+    if (consents is! List ||
+        consents.any((consent) => consent is! Map<String, dynamic>)) {
+      throw const FormatException('Invalid ABDM consent list response');
+    }
+    for (final consent in consents.cast<Map<String, dynamic>>()) {
+      if ([
+        'consent_id',
+        'status',
+        'purpose',
+        'requester_name',
+        'date_range_from',
+        'date_range_to',
+      ].any((field) => consent[field] != null && consent[field] is! String)) {
+        throw const FormatException('Invalid ABDM consent list response');
+      }
+    }
+    return consents;
   }
 
   /// Grant a consent request.
   static Future<void> grantConsent(String id) async {
-    final response = await ApiClient.post('/abdm/consents/$id/grant');
+    final response = await ApiClient.post(
+      '/abdm/consents/${_encodedConsentId(id)}/grant',
+    );
     if (!response.isSuccess) {
-      throw AbdmException(response.failureMessage('Failed to grant consent'));
+      throw AbdmException.fromResponse(response);
     }
   }
 
   /// Deny a consent request.
   static Future<void> denyConsent(String id) async {
-    final response = await ApiClient.post('/abdm/consents/$id/deny');
+    final response = await ApiClient.post(
+      '/abdm/consents/${_encodedConsentId(id)}/deny',
+    );
     if (!response.isSuccess) {
-      throw AbdmException(response.failureMessage('Failed to deny consent'));
+      throw AbdmException.fromResponse(response);
     }
   }
 
   /// Revoke a previously granted consent.
   static Future<void> revokeConsent(String id) async {
-    final response = await ApiClient.post('/abdm/consents/$id/revoke');
+    final response = await ApiClient.post(
+      '/abdm/consents/${_encodedConsentId(id)}/revoke',
+    );
     if (!response.isSuccess) {
-      throw AbdmException(response.failureMessage('Failed to revoke consent'));
+      throw AbdmException.fromResponse(response);
     }
+  }
+
+  static String _encodedConsentId(String id) {
+    if (id.trim().isEmpty) {
+      throw ArgumentError('A consent identity is required');
+    }
+    return Uri.encodeComponent(id);
   }
 }
 
@@ -162,8 +160,18 @@ class AbhaLinkage {
 
 /// Exception thrown when an ABDM operation fails.
 class AbdmException implements Exception {
-  final String message;
-  const AbdmException(this.message);
+  const AbdmException({this.code, this.statusCode, this.requestId});
+
+  factory AbdmException.fromResponse(ApiResponse response) => AbdmException(
+    code: response.code,
+    statusCode: response.statusCode,
+    requestId: response.requestId,
+  );
+
+  final String? code;
+  final int? statusCode;
+  final String? requestId;
+
   @override
-  String toString() => message;
+  String toString() => 'ABDM request failed';
 }

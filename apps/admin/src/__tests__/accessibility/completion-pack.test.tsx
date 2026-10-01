@@ -5,14 +5,24 @@ import {
 } from "@/app/(with-auth)/dashboard/notifications/components/AnnouncementBannerManager";
 import { fetchAdminAPI } from "@/lib/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import type { ReactNode, SVGProps } from "react";
 
 const logout = jest.fn();
 let pathname = "/dashboard";
 let authUser = { uid: "admin-a" };
-let tenantContext = { id: "tenant-a", branding: null };
-let actingTenantContext: { id: string; slug: string; reason: string } | null = null;
+let tenantContext: { id: string; branding: null } | null = {
+  id: "tenant-a",
+  branding: null,
+};
+let actingTenantContext: { id: string; slug: string; reason: string } | null =
+  null;
 
 jest.mock("@/lib/api", () => ({
   fetchAdminAPI: jest.fn().mockResolvedValue({ banner: null }),
@@ -45,7 +55,17 @@ jest.mock("@/contexts/TenantContext", () => ({
 }));
 
 jest.mock("@/contexts/ActingTenantContext", () => ({
-  useActingTenant: () => ({ actingTenant: actingTenantContext }),
+  useActingTenant: () => ({
+    actingTenant: actingTenantContext,
+    isReady: true,
+    isPending: false,
+    scopeKey: `session-a:${actingTenantContext?.id ?? "own"}`,
+    isScopeCurrent: (captured: string) =>
+      captured === `session-a:${actingTenantContext?.id ?? "own"}`,
+    status: "ready",
+    error: null,
+    retry: jest.fn().mockResolvedValue(undefined),
+  }),
 }));
 
 jest.mock("@/components/CommandPalette", () => ({
@@ -116,6 +136,47 @@ describe("NL12-S6 admin accessibility completion pack", () => {
     ).toHaveAttribute("aria-expanded", "false");
   });
 
+  it.each([AnnouncementBanner, AnnouncementBannerManager])(
+    "does not cache a late banner response after its tenant scope changes",
+    async (Component) => {
+      let finish!: (value: unknown) => void;
+      fetchAdminAPIMock.mockReturnValueOnce(
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+      );
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+      const page = () => (
+        <QueryClientProvider client={client}>
+          <Component />
+        </QueryClientProvider>
+      );
+      const view = render(page());
+      await waitFor(() => expect(fetchAdminAPIMock).toHaveBeenCalledTimes(1));
+      actingTenantContext = {
+        id: "tenant-b",
+        slug: "tenant-b",
+        reason: "support",
+      };
+      view.rerender(page());
+      await act(async () => {
+        finish({
+          banner: {
+            text: "Other tenant notice",
+            type: "critical",
+            enabled: true,
+          },
+        });
+      });
+      expect(
+        client.getQueryData(["announcement-banner", "session-a:own"]),
+      ).toBeUndefined();
+      expect(screen.queryByText("Other tenant notice")).toBeNull();
+    },
+  );
+
   it("exposes the mobile navigation drawer as a modal dialog", () => {
     renderLayout();
 
@@ -176,6 +237,53 @@ describe("NL12-S6 admin accessibility completion pack", () => {
     ).toBe("2026-08-10T04:00:00.000Z");
   });
 
+  it("still displays a critical announcement when branding lookup is unavailable", async () => {
+    tenantContext = null;
+    fetchAdminAPIMock.mockResolvedValueOnce({
+      banner: {
+        text: "Synthetic critical notice",
+        type: "critical",
+        enabled: true,
+        updated_at: "2026-09-13T04:00:00.000Z",
+      },
+    });
+    render(withQueryClient(<AnnouncementBanner />));
+    expect(
+      await screen.findByRole("alert", { name: "critical announcement" }),
+    ).toHaveTextContent("Synthetic critical notice");
+  });
+
+  it("reloads dismissal evidence when delayed branding supplies the tenant id", async () => {
+    tenantContext = null;
+    fetchAdminAPIMock.mockResolvedValueOnce({
+      banner: {
+        text: "Synthetic delayed branding notice",
+        type: "warning",
+        enabled: true,
+        updated_at: "2026-09-13T04:00:00.000Z",
+      },
+    });
+    localStorage.setItem(
+      "vhhealth-announcement-banner-dismissed:tenant-a:admin-a",
+      "2026-09-13T05:00:00.000Z",
+    );
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const banner = () => (
+      <QueryClientProvider client={client}>
+        <AnnouncementBanner />
+      </QueryClientProvider>
+    );
+    const view = render(banner());
+    await screen.findByRole("status", { name: "warning announcement" });
+    tenantContext = { id: "tenant-a", branding: null };
+    view.rerender(banner());
+    expect(
+      screen.queryByRole("status", { name: "warning announcement" }),
+    ).toBeNull();
+  });
+
   it("discards an unsaved banner draft when the acting tenant changes", async () => {
     fetchAdminAPIMock
       .mockResolvedValueOnce({
@@ -217,7 +325,9 @@ describe("NL12-S6 admin accessibility completion pack", () => {
     view.rerender(manager());
 
     await waitFor(() => {
-      expect(screen.getByDisplayValue("Tenant B fire drill")).toBeInTheDocument();
+      expect(
+        screen.getByDisplayValue("Tenant B fire drill"),
+      ).toBeInTheDocument();
     });
     expect(screen.queryByDisplayValue("Unsaved tenant A draft")).toBeNull();
   });

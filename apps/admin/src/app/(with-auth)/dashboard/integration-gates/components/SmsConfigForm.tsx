@@ -1,5 +1,6 @@
 "use client";
 
+import { useActiveTenantScope } from "@/components/ActingTenantBanner";
 import {
   listSmsTemplates,
   registerSmsTemplate,
@@ -15,9 +16,12 @@ const inputClass =
 
 export function SmsConfigForm({
   existing,
+  scopeKey,
 }: {
   existing?: SmsProviderConfigView | null;
+  scopeKey: string;
 }) {
+  const activeScope = useActiveTenantScope(scopeKey);
   const queryClient = useQueryClient();
   const [provider, setProvider] = useState<"msg91" | "twilio" | "dry_run">(
     existing?.provider === "twilio"
@@ -44,21 +48,29 @@ export function SmsConfigForm({
   const [providerTemplateId, setProviderTemplateId] = useState("");
 
   const templates = useQuery({
-    queryKey: ["integration-gates", "sms-templates"],
-    queryFn: listSmsTemplates,
+    queryKey: ["integration-gates", scopeKey, "sms-templates"],
+    queryFn: async () => {
+      activeScope.assertCurrent();
+      const data = await listSmsTemplates();
+      activeScope.assertCurrent();
+      return data;
+    },
   });
 
   const saveConfig = useMutation({
-    mutationFn: () =>
-      upsertSmsConfig({
+    mutationFn: () => {
+      activeScope.assertCurrent();
+      return upsertSmsConfig({
         provider,
         enabled,
         sender_id: senderId || undefined,
         dlt_entity_id: dltEntityId || undefined,
         auth_key: authKey || undefined,
         account_sid: accountSid || undefined,
-      }),
+      });
+    },
     onSuccess: (view) => {
+      if (!activeScope.current) return;
       setAuthKey("");
       if (view?.callback_token) {
         setMintedToken({
@@ -67,30 +79,41 @@ export function SmsConfigForm({
         });
       }
       toast.success("SMS config saved");
-      void queryClient.invalidateQueries({ queryKey: ["integration-gates"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["integration-gates", scopeKey],
+      });
     },
-    onError: (e) =>
-      toast.error(e instanceof Error ? e.message : "Failed to save SMS config"),
+    onError: (e) => {
+      if (!activeScope.current) return;
+      toast.error(e instanceof Error ? e.message : "Failed to save SMS config");
+    },
   });
 
   const addTemplate = useMutation({
-    mutationFn: () =>
-      registerSmsTemplate({
+    mutationFn: () => {
+      activeScope.assertCurrent();
+      return registerSmsTemplate({
         template_key: templateKey.trim(),
         dlt_template_id: dltTemplateId.trim(),
         provider_template_id: providerTemplateId.trim() || undefined,
-      }),
+      });
+    },
     onSuccess: () => {
+      if (!activeScope.current) return;
       setTemplateKey("");
       setDltTemplateId("");
       setProviderTemplateId("");
       toast.success("DLT template registered");
-      void queryClient.invalidateQueries({ queryKey: ["integration-gates"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["integration-gates", scopeKey],
+      });
     },
-    onError: (e) =>
+    onError: (e) => {
+      if (!activeScope.current) return;
       toast.error(
         e instanceof Error ? e.message : "Failed to register DLT template",
-      ),
+      );
+    },
   });
 
   return (

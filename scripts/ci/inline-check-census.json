@@ -3,9 +3,9 @@
   "evidence": {
     "baseline": "apps/backend/src/migrations/000_baseline.sql",
     "ledger": "docs/FULL_REPOSITORY_AUDIT_2026_08.md",
-    "generatedFromHead": "59a3d4db580823766c37d7da11a3a72544b25b1e"
+    "generatedFromHead": "95baac6b534f611771d2f7a6d8ee9114b45dd086"
   },
-  "expectedAbsentCount": 403,
+  "expectedAbsentCount": 400,
   "entries": [
     {
       "id": "001_create_beds_wards.sql#beds#beds_status_check",
@@ -38,7 +38,7 @@
       "constraintName": "tenants_region_check",
       "clauseSha256": "6158a3e61bfa83c001d5f322141862bea9202f3268a93c98fce95998dce64297",
       "clause": "region IN ('IN', 'EU', 'US', 'AP', 'OTHER')",
-      "enforced": false
+      "enforced": true
     },
     {
       "id": "013_multi_tenant_foundation.sql#tenants#tenants_compliance_profile_check",
@@ -49,7 +49,7 @@
       "constraintName": "tenants_compliance_profile_check",
       "clauseSha256": "4368a2f668e131d1531b68b10c5861dc9d17edf4ad6d6be8f443d9ee1cf9c6d6",
       "clause": "compliance_profile IN ('DPDP', 'HIPAA', 'GDPR', 'NONE')",
-      "enforced": false
+      "enforced": true
     },
     {
       "id": "013_multi_tenant_foundation.sql#tenants#tenants_status_check",
@@ -60,7 +60,7 @@
       "constraintName": "tenants_status_check",
       "clauseSha256": "95550581bcd141cb434205270067414bbbdc2f6edf09010cade93903c33541cf",
       "clause": "status IN ('active', 'suspended', 'offboarding')",
-      "enforced": false
+      "enforced": true
     },
     {
       "id": "014_self_healing_runs.sql#clinical_ai_self_healing_runs#clinical_ai_self_healing_runs_status_check",

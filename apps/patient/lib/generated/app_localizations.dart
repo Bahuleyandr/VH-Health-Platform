@@ -104,6 +104,54 @@ abstract class AppLocalizations {
     Locale('ml'),
   ];
 
+  /// Technical ABDM error presentation. Human linguistic review PENDING; no consent wording or activation approval.
+  ///
+  /// In en, this message translates to:
+  /// **'That does not look like an ABHA address. It should look like name@abdm.'**
+  String get abdmAddressInvalidError;
+
+  /// Technical ABDM error presentation. Human linguistic review PENDING; no consent wording or activation approval.
+  ///
+  /// In en, this message translates to:
+  /// **'This ABHA is already linked to another patient. Please check the number, or ask the hospital front desk for help.'**
+  String get abdmAlreadyLinkedError;
+
+  /// Technical ABDM error presentation. Human linguistic review PENDING; no consent wording or activation approval.
+  ///
+  /// In en, this message translates to:
+  /// **'We could not verify this ABHA with ABDM just now, so it has not been linked. Please try again in a few minutes.'**
+  String get abdmVerificationFailedError;
+
+  /// Technical ABDM error presentation. Human linguistic review PENDING; no consent wording or activation approval.
+  ///
+  /// In en, this message translates to:
+  /// **'We could not find your patient record. Please ask the hospital front desk to check your registration.'**
+  String get abdmPatientNotFoundError;
+
+  /// Technical ABDM error presentation. Human linguistic review PENDING; no consent wording or activation approval.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not load consent requests. Please try again.'**
+  String get abdmConsentLoadFailed;
+
+  /// Technical ABDM error presentation. Human linguistic review PENDING; no consent wording or activation approval.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not grant consent. Please try again.'**
+  String get abdmConsentGrantFailed;
+
+  /// Technical ABDM error presentation. Human linguistic review PENDING; no consent wording or activation approval.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not deny consent. Please try again.'**
+  String get abdmConsentDenyFailed;
+
+  /// Technical ABDM error presentation. Human linguistic review PENDING; no consent wording or activation approval.
+  ///
+  /// In en, this message translates to:
+  /// **'Could not revoke consent. Please try again.'**
+  String get abdmConsentRevokeFailed;
+
   /// Headline on the login screen
   ///
   /// In en, this message translates to:

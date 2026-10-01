@@ -1,0 +1,169 @@
+name: Security Sweep
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  schedule:
+    - cron: '15 2 * * 2'
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    name: Repository security sweep
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '26.5.0'
+          cache: npm
+          cache-dependency-path: |
+            apps/backend/package-lock.json
+            apps/admin/package-lock.json
+
+      - name: Prepare security output
+        run: mkdir -p output/security
+
+      - name: npm audit backend
+        run: npm --prefix apps/backend audit --audit-level=high
+
+      - name: npm audit admin
+        if: ${{ !cancelled() }}
+        run: npm --prefix apps/admin audit --audit-level=high
+
+      # OSV reports remain advisory; canonical npm audits and Trivy block.
+      - name: OSV lockfile scan
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/vh-security-tools output/security
+          curl -sSfL \
+            https://github.com/google/osv-scanner/releases/download/v2.0.2/osv-scanner_linux_amd64 \
+            -o /tmp/vh-security-tools/osv-scanner_linux_amd64
+          curl -sSfL \
+            https://github.com/google/osv-scanner/releases/download/v2.0.2/osv-scanner_SHA256SUMS \
+            -o /tmp/vh-security-tools/osv-scanner_SHA256SUMS
+          (
+            cd /tmp/vh-security-tools
+            grep 'osv-scanner_linux_amd64$' osv-scanner_SHA256SUMS | sha256sum -c -
+          )
+          mv /tmp/vh-security-tools/osv-scanner_linux_amd64 /tmp/vh-security-tools/osv-scanner
+          chmod 0755 /tmp/vh-security-tools/osv-scanner
+          /tmp/vh-security-tools/osv-scanner \
+            --lockfile=apps/backend/package-lock.json \
+            --lockfile=apps/admin/package-lock.json \
+            --lockfile=pubspec.lock \
+            --format=json \
+            --output=output/security/osv-lockfiles.json
+
+      # Canonical Semgrep blocks ERROR findings; this report includes all severities.
+      - name: Semgrep focused VH Health ruleset
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          python3 -m venv /tmp/vh-semgrep-venv
+          /tmp/vh-semgrep-venv/bin/python -m pip install --quiet --upgrade pip
+          /tmp/vh-semgrep-venv/bin/python -m pip install --quiet semgrep
+          /tmp/vh-semgrep-venv/bin/semgrep scan \
+            --config .semgrep.yml \
+            --sarif \
+            --output output/security/semgrep-focused.sarif \
+            --timeout 300 \
+            --jobs 4 \
+            --exclude apps/backend/node_modules \
+            --exclude apps/admin/node_modules \
+            --exclude infra/mcp \
+            --exclude infra/onprem \
+            --exclude apps/admin/.next \
+            --exclude output \
+            --exclude build \
+            --exclude apps/backend/src/logs \
+            --exclude apps/patient/build \
+            --exclude apps/staff/build
+
+      - name: Semgrep healthcare/web baseline (broad, advisory)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          /tmp/vh-semgrep-venv/bin/semgrep scan \
+            --config p/owasp-top-ten \
+            --config p/secrets \
+            --config p/javascript \
+            --config p/typescript \
+            --sarif \
+            --timeout 300 \
+            --output output/security/semgrep-broad.sarif \
+            --exclude apps/backend/node_modules \
+            --exclude apps/admin/node_modules \
+            --exclude infra/mcp \
+            --exclude output \
+            --exclude build
+
+      - name: Trivy filesystem scan (blocking on CRITICAL/HIGH + secrets)
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/vh-security-tools output/security
+          curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/v0.70.0/contrib/install.sh \
+            | sh -s -- -b /tmp/vh-security-tools v0.70.0
+          /tmp/vh-security-tools/trivy fs \
+            --db-repository public.ecr.aws/aquasecurity/trivy-db:2 \
+            --db-repository docker.io/aquasec/trivy-db:2 \
+            --scanners vuln,secret \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --exit-code 1 \
+            --timeout 15m \
+            --skip-version-check \
+            --skip-dirs output \
+            --skip-dirs apps/backend/src/logs \
+            --skip-dirs apps/patient/build \
+            --skip-dirs apps/staff/build \
+            --skip-dirs apps/admin/.next \
+            --skip-dirs apps/admin/node_modules \
+            --skip-dirs apps/backend/node_modules \
+            --skip-dirs infra/mcp/vh-mcp-postgres/node_modules \
+            --skip-dirs infra/onprem/vh-checks/node_modules \
+            --format sarif \
+            --output output/security/trivy-fs.sarif \
+            .
+
+      - name: Trivy misconfiguration scan (advisory)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          /tmp/vh-security-tools/trivy fs \
+            --db-repository public.ecr.aws/aquasecurity/trivy-db:2 \
+            --db-repository docker.io/aquasec/trivy-db:2 \
+            --scanners misconfig \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --exit-code 0 \
+            --timeout 10m \
+            --skip-version-check \
+            --skip-dirs output \
+            --skip-dirs apps/backend/src/logs \
+            --skip-dirs apps/patient/build \
+            --skip-dirs apps/staff/build \
+            --skip-dirs apps/admin/.next \
+            --skip-dirs apps/admin/node_modules \
+            --skip-dirs apps/backend/node_modules \
+            --skip-dirs infra/mcp/vh-mcp-postgres/node_modules \
+            --skip-dirs infra/onprem/vh-checks/node_modules \
+            --format sarif \
+            --output output/security/trivy-misconfig.sarif \
+            .
+
+      - name: Upload security reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: security-sweep
+          path: output/security
+          if-no-files-found: ignore

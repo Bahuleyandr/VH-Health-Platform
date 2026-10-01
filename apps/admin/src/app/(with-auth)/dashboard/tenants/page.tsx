@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Building2, ChevronDown, Globe2, KeyRound, Palette, RefreshCw, RotateCcw, ShieldCheck } from "lucide-react";
-import { toast } from "react-hot-toast";
+import {
+  ActingTenantReadinessNotice,
+  useActiveTenantScope,
+} from "@/components/ActingTenantBanner";
+import { useActingTenant } from "@/contexts/ActingTenantContext";
+import { usePermissions } from "@/hooks/usePermissions";
 import {
   createTenant,
   getTenantKekRewrapJob,
@@ -20,8 +22,19 @@ import {
   type TenantKekRewrapJob,
   type TenantRegion,
 } from "@/lib/api/tenants";
-import { usePermissions } from "@/hooks/usePermissions";
-import { useActingTenant } from "@/contexts/ActingTenantContext";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  Building2,
+  ChevronDown,
+  Globe2,
+  KeyRound,
+  Palette,
+  RefreshCw,
+  RotateCcw,
+  ShieldCheck,
+} from "lucide-react";
+import { useState } from "react";
+import { toast } from "react-hot-toast";
 
 function fmt(value?: string | null) {
   if (!value) return "-";
@@ -59,7 +72,8 @@ function complianceBadge(profile: TenantComplianceProfile) {
 }
 
 function statusBadge(status: string) {
-  if (status === "active") return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  if (status === "active")
+    return "bg-emerald-100 text-emerald-800 border-emerald-200";
   if (status === "suspended") return "bg-red-100 text-red-800 border-red-200";
   return "bg-amber-100 text-amber-800 border-amber-200";
 }
@@ -71,9 +85,11 @@ function interopKindLabel(kind: TenantInteropSecret["kind"]) {
 }
 
 function jobStatusBadge(status?: TenantKekRewrapJob["status"]) {
-  if (status === "succeeded") return "bg-emerald-100 text-emerald-800 border-emerald-200";
+  if (status === "succeeded")
+    return "bg-emerald-100 text-emerald-800 border-emerald-200";
   if (status === "failed") return "bg-red-100 text-red-800 border-red-200";
-  if (status === "running" || status === "queued") return "bg-blue-100 text-blue-800 border-blue-200";
+  if (status === "running" || status === "queued")
+    return "bg-blue-100 text-blue-800 border-blue-200";
   return "bg-slate-100 text-slate-700 border-slate-200";
 }
 
@@ -93,7 +109,9 @@ type BrandDraft = {
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function asText(value: unknown) {
@@ -145,7 +163,9 @@ function brandPatchFromDraft(draft: BrandDraft): TenantBrandKitPatch {
       replyTo: blankToNull(draft.emailReplyTo),
     },
     assets: {
-      logo: draft.logoStorageKey.trim() ? { storageKey: draft.logoStorageKey.trim() } : null,
+      logo: draft.logoStorageKey.trim()
+        ? { storageKey: draft.logoStorageKey.trim() }
+        : null,
       documentLetterhead: draft.documentLetterheadStorageKey.trim()
         ? { storageKey: draft.documentLetterheadStorageKey.trim() }
         : null,
@@ -154,8 +174,80 @@ function brandPatchFromDraft(draft: BrandDraft): TenantBrandKitPatch {
 }
 
 export default function TenantsAdminPage() {
-  const queryClient = useQueryClient();
+  const [actAsFailed, setActAsFailed] = useState(false);
+  const activeScope = useActiveTenantScope();
   const { isSuperAdmin, loading: permLoading } = usePermissions();
+  const actingScope = useActingTenant();
+  const failure = actAsFailed ? (
+    <p role="alert">
+      The tenant-switch request was not confirmed. Check the current tenant
+      scope before continuing.
+    </p>
+  ) : null;
+  if (permLoading) {
+    return (
+      <div className="p-6 text-sm text-muted-foreground">
+        Checking permissions…
+      </div>
+    );
+  }
+  if (!isSuperAdmin) {
+    return (
+      <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-red-900">
+        <div className="flex items-center gap-2 font-semibold">
+          <ShieldCheck className="h-5 w-5" />
+          Super-admin only
+        </div>
+        <p className="mt-2 text-sm">
+          Tenant administration is restricted to platform-level super-admins.
+          Switch accounts to proceed.
+        </p>
+      </div>
+    );
+  }
+  if (!actingScope.isReady || !actingScope.scopeKey) {
+    return (
+      <>
+        {failure}
+        <ActingTenantReadinessNotice
+          error={actingScope.error}
+          retry={actingScope.retry}
+        />
+      </>
+    );
+  }
+  return (
+    <>
+      {failure}
+      <ScopedTenantsAdminPage
+        key={actingScope.scopeKey}
+        scopeKey={actingScope.scopeKey}
+        actingScope={{
+          ...actingScope,
+          setActAs: async (input) => {
+            setActAsFailed(false);
+            try {
+              await actingScope.setActAs(input);
+            } catch (error) {
+              if (activeScope.current) setActAsFailed(true);
+              throw error;
+            }
+          },
+        }}
+      />
+    </>
+  );
+}
+
+function ScopedTenantsAdminPage({
+  scopeKey,
+  actingScope,
+}: {
+  scopeKey: string;
+  actingScope: ReturnType<typeof useActingTenant>;
+}) {
+  const queryClient = useQueryClient();
+  const activeScope = useActiveTenantScope(scopeKey);
   const [showCreate, setShowCreate] = useState(false);
   const [draft, setDraft] = useState({
     slug: "",
@@ -169,96 +261,168 @@ export default function TenantsAdminPage() {
     senderIdentifier: "",
     secret: "",
   });
-  const [brandDrafts, setBrandDrafts] = useState<Record<string, BrandDraft>>({});
+  const [brandDrafts, setBrandDrafts] = useState<Record<string, BrandDraft>>(
+    {},
+  );
   const [jobIds, setJobIds] = useState<Record<string, string>>({});
 
   const tenants = useQuery({
-    queryKey: ["tenants"],
-    queryFn: () => listTenants(),
+    queryKey: ["tenants", scopeKey],
+    queryFn: async () => {
+      activeScope.assertCurrent();
+      const data = await listTenants();
+      activeScope.assertCurrent();
+      return data;
+    },
   });
 
-  const selectedTenant = tenants.data?.tenants.find((tenant) => tenant.id === selectedTenantId) ?? null;
+  const selectedTenant =
+    tenants.data?.tenants.find((tenant) => tenant.id === selectedTenantId) ??
+    null;
   const selectedJobId = selectedTenantId ? jobIds[selectedTenantId] : undefined;
   const selectedBrandDraft = selectedTenant
-    ? brandDrafts[selectedTenant.id] ?? brandDraftFromTenant(selectedTenant)
+    ? (brandDrafts[selectedTenant.id] ?? brandDraftFromTenant(selectedTenant))
     : null;
 
   const interopSecrets = useQuery({
-    queryKey: ["tenant-interop-secrets", selectedTenantId],
-    queryFn: () => listTenantInteropSecrets(selectedTenantId as string),
+    queryKey: ["tenant-interop-secrets", scopeKey, selectedTenantId],
+    queryFn: async () => {
+      activeScope.assertCurrent();
+      const data = await listTenantInteropSecrets(selectedTenantId as string);
+      activeScope.assertCurrent();
+      return data;
+    },
     enabled: Boolean(selectedTenantId),
   });
 
   const kekJob = useQuery({
-    queryKey: ["tenant-kek-rewrap-job", selectedTenantId, selectedJobId],
-    queryFn: () => getTenantKekRewrapJob(selectedTenantId as string, selectedJobId as string),
+    queryKey: [
+      "tenant-kek-rewrap-job",
+      scopeKey,
+      selectedTenantId,
+      selectedJobId,
+    ],
+    queryFn: async () => {
+      activeScope.assertCurrent();
+      const data = await getTenantKekRewrapJob(
+        selectedTenantId as string,
+        selectedJobId as string,
+      );
+      activeScope.assertCurrent();
+      return data;
+    },
     enabled: Boolean(selectedTenantId && selectedJobId),
     refetchInterval: (query) => {
-      const status = (query.state.data as TenantKekRewrapJob | undefined)?.status;
+      const status = (query.state.data as TenantKekRewrapJob | undefined)
+        ?.status;
       return status === "queued" || status === "running" ? 2000 : false;
     },
   });
 
   const create = useMutation({
-    mutationFn: () => createTenant(draft),
+    mutationFn: () => {
+      activeScope.assertCurrent();
+      return createTenant(draft);
+    },
     onSuccess: () => {
+      if (!activeScope.current) return;
       toast.success("Tenant created");
       setShowCreate(false);
-      setDraft({ slug: "", name: "", region: "IN", compliance_profile: "DPDP" });
-      queryClient.invalidateQueries({ queryKey: ["tenants"] });
+      setDraft({
+        slug: "",
+        name: "",
+        region: "IN",
+        compliance_profile: "DPDP",
+      });
+      queryClient.invalidateQueries({ queryKey: ["tenants", scopeKey] });
     },
-    onError: (err: Error) => toast.error(err.message || "Create failed"),
+    onError: (err: Error) => {
+      if (activeScope.current) toast.error(err.message || "Create failed");
+    },
   });
 
   const update = useMutation({
-    mutationFn: (payload: { id: string; patch: Partial<Tenant> }) => updateTenant(payload.id, payload.patch),
-    onSuccess: () => {
-      toast.success("Tenant updated");
-      queryClient.invalidateQueries({ queryKey: ["tenants"] });
+    mutationFn: (payload: { id: string; patch: Partial<Tenant> }) => {
+      activeScope.assertCurrent();
+      return updateTenant(payload.id, payload.patch);
     },
-    onError: (err: Error) => toast.error(err.message || "Update failed"),
+    onSuccess: () => {
+      if (!activeScope.current) return;
+      toast.success("Tenant updated");
+      queryClient.invalidateQueries({ queryKey: ["tenants", scopeKey] });
+    },
+    onError: (err: Error) => {
+      if (activeScope.current) toast.error(err.message || "Update failed");
+    },
   });
 
   const saveBrandKit = useMutation({
-    mutationFn: (payload: { id: string; draft: BrandDraft }) =>
-      updateTenantBrandKit(payload.id, brandPatchFromDraft(payload.draft)),
+    mutationFn: (payload: { id: string; draft: BrandDraft }) => {
+      activeScope.assertCurrent();
+      return updateTenantBrandKit(
+        payload.id,
+        brandPatchFromDraft(payload.draft),
+      );
+    },
     onSuccess: () => {
+      if (!activeScope.current) return;
       toast.success("Brand kit updated");
-      queryClient.invalidateQueries({ queryKey: ["tenants"] });
+      queryClient.invalidateQueries({ queryKey: ["tenants", scopeKey] });
       queryClient.invalidateQueries({ queryKey: ["tenant-context"] });
     },
-    onError: (err: Error) => toast.error(err.message || "Brand kit update failed"),
+    onError: (err: Error) => {
+      if (activeScope.current)
+        toast.error(err.message || "Brand kit update failed");
+    },
   });
 
   const saveInteropSecret = useMutation({
     mutationFn: () => {
+      activeScope.assertCurrent();
       if (!selectedTenantId) throw new Error("Tenant is required");
       return upsertTenantInteropSecret(selectedTenantId, secretDraft);
     },
     onSuccess: () => {
+      if (!activeScope.current) return;
       toast.success("Interop secret stored");
       setSecretDraft((current) => ({ ...current, secret: "" }));
-      queryClient.invalidateQueries({ queryKey: ["tenant-interop-secrets", selectedTenantId] });
+      queryClient.invalidateQueries({
+        queryKey: ["tenant-interop-secrets", scopeKey, selectedTenantId],
+      });
     },
-    onError: (err: Error) => toast.error(err.message || "Secret update failed"),
+    onError: (err: Error) => {
+      if (activeScope.current)
+        toast.error(err.message || "Secret update failed");
+    },
   });
 
   const queueKekRewrap = useMutation({
     mutationFn: () => {
+      activeScope.assertCurrent();
       if (!selectedTenantId) throw new Error("Tenant is required");
       return startTenantKekRewrapJob(selectedTenantId);
     },
     onSuccess: (job) => {
+      if (!activeScope.current) return;
       toast.success("KEK re-wrap queued");
       setJobIds((current) => ({ ...current, [job.tenant_id]: job.job_id }));
-      queryClient.invalidateQueries({ queryKey: ["tenant-kek-rewrap-job", job.tenant_id, job.job_id] });
+      queryClient.invalidateQueries({
+        queryKey: [
+          "tenant-kek-rewrap-job",
+          scopeKey,
+          job.tenant_id,
+          job.job_id,
+        ],
+      });
     },
-    onError: (err: Error) => toast.error(err.message || "KEK re-wrap failed"),
+    onError: (err: Error) => {
+      if (activeScope.current) toast.error(err.message || "KEK re-wrap failed");
+    },
   });
 
   // W5 S3 — begin operating inside a tenant (SUPER_ADMIN only; the backend
   // audits every override). A reason (>= 8 chars) is required and recorded.
-  const { setActAs, actingTenant, isPending: actingPending } = useActingTenant();
+  const { setActAs, actingTenant, isPending: actingPending } = actingScope;
   const toggleDetails = (row: Tenant) => {
     setSelectedTenantId((current) => {
       const next = current === row.id ? null : row.id;
@@ -282,41 +446,37 @@ export default function TenantsAdminPage() {
     }));
   };
   const handleActAs = async (row: Tenant) => {
-    const reason = typeof window !== "undefined" ? window.prompt(`Reason for acting as "${row.name}" (audited, min 8 chars):`) : null;
+    if (!activeScope.current || actingPending) return;
+    const reason =
+      typeof window !== "undefined"
+        ? window.prompt(
+            `Reason for acting as "${row.name}" (audited, min 8 chars):`,
+          )
+        : null;
     if (reason == null) return; // cancelled
     if (reason.trim().length < 8) {
       toast.error("Reason must be at least 8 characters");
       return;
     }
     try {
-      await setActAs({ tenantId: row.id, slug: row.slug, reason: reason.trim() });
-      toast.success(`Now acting as ${row.name}`);
+      await setActAs({
+        tenantId: row.id,
+        slug: row.slug,
+        reason: reason.trim(),
+      });
+      if (activeScope.current) toast.success(`Now acting as ${row.name}`);
     } catch (err) {
-      toast.error((err as Error).message || "Failed to act as tenant");
+      if (activeScope.current)
+        toast.error((err as Error).message || "Failed to act as tenant");
     }
   };
-
-  if (permLoading) {
-    return <div className="p-6 text-sm text-muted-foreground">Checking permissions…</div>;
-  }
-  if (!isSuperAdmin) {
-    return (
-      <div className="rounded-lg border border-red-200 bg-red-50 p-6 text-red-900">
-        <div className="flex items-center gap-2 font-semibold">
-          <ShieldCheck className="h-5 w-5" />
-          Super-admin only
-        </div>
-        <p className="mt-2 text-sm">
-          Tenant administration is restricted to platform-level super-admins. Switch accounts to proceed.
-        </p>
-      </div>
-    );
-  }
 
   const rows: Tenant[] = tenants.data?.tenants ?? [];
   const currentJob =
     kekJob.data ??
-    (queueKekRewrap.data?.tenant_id === selectedTenantId ? queueKekRewrap.data : null);
+    (queueKekRewrap.data?.tenant_id === selectedTenantId
+      ? queueKekRewrap.data
+      : null);
 
   return (
     <div className="space-y-6">
@@ -327,7 +487,8 @@ export default function TenantsAdminPage() {
             Tenants
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Each tenant is a hospital or clinic. Region + compliance profile shape which AI providers and data-residency rules apply.
+            Each tenant is a hospital or clinic. Region + compliance profile
+            shape which AI providers and data-residency rules apply.
           </p>
         </div>
         <div className="flex gap-2">
@@ -354,7 +515,9 @@ export default function TenantsAdminPage() {
               Slug
               <input
                 value={draft.slug}
-                onChange={(event) => setDraft({ ...draft, slug: event.target.value })}
+                onChange={(event) =>
+                  setDraft({ ...draft, slug: event.target.value })
+                }
                 placeholder="acme-hospital"
                 className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 text-sm font-mono"
               />
@@ -363,7 +526,9 @@ export default function TenantsAdminPage() {
               Hospital name
               <input
                 value={draft.name}
-                onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+                onChange={(event) =>
+                  setDraft({ ...draft, name: event.target.value })
+                }
                 placeholder="Acme Hospital Pvt Ltd"
                 className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 text-sm"
               />
@@ -372,7 +537,12 @@ export default function TenantsAdminPage() {
               Region
               <select
                 value={draft.region}
-                onChange={(event) => setDraft({ ...draft, region: event.target.value as TenantRegion })}
+                onChange={(event) =>
+                  setDraft({
+                    ...draft,
+                    region: event.target.value as TenantRegion,
+                  })
+                }
                 className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 text-sm"
               >
                 <option value="IN">IN — India</option>
@@ -386,7 +556,13 @@ export default function TenantsAdminPage() {
               Compliance profile
               <select
                 value={draft.compliance_profile}
-                onChange={(event) => setDraft({ ...draft, compliance_profile: event.target.value as TenantComplianceProfile })}
+                onChange={(event) =>
+                  setDraft({
+                    ...draft,
+                    compliance_profile: event.target
+                      .value as TenantComplianceProfile,
+                  })
+                }
                 className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 text-sm"
               >
                 <option value="DPDP">DPDP (India)</option>
@@ -412,23 +588,36 @@ export default function TenantsAdminPage() {
         <table className="w-full text-sm">
           <thead className="bg-muted/50">
             <tr>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Tenant</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Tenant
+              </th>
               <th className="px-4 py-3 text-left font-medium text-muted-foreground">
                 <span className="inline-flex items-center gap-1">
                   <Globe2 className="h-3.5 w-3.5" />
                   Region
                 </span>
               </th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Compliance</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Created</th>
-              <th className="px-4 py-3 text-right font-medium text-muted-foreground">Actions</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Compliance
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Status
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Created
+              </th>
+              <th className="px-4 py-3 text-right font-medium text-muted-foreground">
+                Actions
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
             {rows.length === 0 ? (
               <tr>
-                <td className="px-4 py-8 text-center text-muted-foreground" colSpan={6}>
+                <td
+                  className="px-4 py-8 text-center text-muted-foreground"
+                  colSpan={6}
+                >
                   No tenants
                 </td>
               </tr>
@@ -437,53 +626,83 @@ export default function TenantsAdminPage() {
                 <tr key={row.id}>
                   <td className="px-4 py-3">
                     <div className="font-medium">{row.name}</div>
-                    <div className="text-xs text-muted-foreground font-mono">{row.slug} / {row.id.slice(0, 8)}</div>
+                    <div className="text-xs text-muted-foreground font-mono">
+                      {row.slug} / {row.id.slice(0, 8)}
+                    </div>
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${regionBadge(row.region)}`}>
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-xs font-medium ${regionBadge(row.region)}`}
+                    >
                       {row.region}
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${complianceBadge(row.compliance_profile)}`}>
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-xs font-medium ${complianceBadge(row.compliance_profile)}`}
+                    >
                       {row.compliance_profile}
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${statusBadge(row.status)}`}>
+                    <span
+                      className={`rounded-full border px-2 py-0.5 text-xs font-medium ${statusBadge(row.status)}`}
+                    >
                       {row.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-xs text-muted-foreground">{fmt(row.created_at)}</td>
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
+                    {fmt(row.created_at)}
+                  </td>
                   <td className="px-4 py-3 text-right">
                     <div className="inline-flex gap-1">
                       <button
                         onClick={() => toggleDetails(row)}
                         className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-1 text-xs font-medium hover:bg-accent"
                       >
-                        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${selectedTenantId === row.id ? "rotate-180" : ""}`} />
+                        <ChevronDown
+                          className={`h-3.5 w-3.5 transition-transform ${selectedTenantId === row.id ? "rotate-180" : ""}`}
+                        />
                         Details
                       </button>
                       <button
                         onClick={() => void handleActAs(row)}
                         disabled={actingPending || actingTenant?.id === row.id}
-                        title={actingTenant?.id === row.id ? "Already acting as this tenant" : "Operate inside this tenant (audited)"}
+                        title={
+                          actingTenant?.id === row.id
+                            ? "Already acting as this tenant"
+                            : "Operate inside this tenant (audited)"
+                        }
                         className="rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-xs font-medium text-sky-800 hover:bg-sky-100 disabled:opacity-50"
                       >
                         {actingTenant?.id === row.id ? "Acting" : "Act as"}
                       </button>
                       {row.status === "active" ? (
                         <button
-                          onClick={() => update.mutate({ id: row.id, patch: { status: "suspended" } })}
+                          onClick={() =>
+                            update.mutate({
+                              id: row.id,
+                              patch: { status: "suspended" },
+                            })
+                          }
                           disabled={update.isPending || row.slug === "default"}
-                          title={row.slug === "default" ? "Default tenant cannot be suspended" : undefined}
+                          title={
+                            row.slug === "default"
+                              ? "Default tenant cannot be suspended"
+                              : undefined
+                          }
                           className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:opacity-50"
                         >
                           Suspend
                         </button>
                       ) : (
                         <button
-                          onClick={() => update.mutate({ id: row.id, patch: { status: "active" } })}
+                          onClick={() =>
+                            update.mutate({
+                              id: row.id,
+                              patch: { status: "active" },
+                            })
+                          }
                           disabled={update.isPending}
                           className="rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
                         >
@@ -504,7 +723,9 @@ export default function TenantsAdminPage() {
           <div className="flex flex-col gap-3 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <h2 className="text-base font-semibold">{selectedTenant.name}</h2>
-              <div className="mt-1 text-xs font-mono text-muted-foreground">{selectedTenant.slug} / {selectedTenant.id}</div>
+              <div className="mt-1 text-xs font-mono text-muted-foreground">
+                {selectedTenant.slug} / {selectedTenant.id}
+              </div>
             </div>
             <button
               onClick={() => {
@@ -526,7 +747,12 @@ export default function TenantsAdminPage() {
                   Brand kit
                 </h3>
                 <button
-                  onClick={() => saveBrandKit.mutate({ id: selectedTenant.id, draft: selectedBrandDraft })}
+                  onClick={() =>
+                    saveBrandKit.mutate({
+                      id: selectedTenant.id,
+                      draft: selectedBrandDraft,
+                    })
+                  }
                   disabled={saveBrandKit.isPending}
                   className="inline-flex items-center gap-1.5 rounded-md border border-border bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                 >
@@ -538,7 +764,9 @@ export default function TenantsAdminPage() {
                   Brand name
                   <input
                     value={selectedBrandDraft.name}
-                    onChange={(event) => setBrandField("name", event.target.value)}
+                    onChange={(event) =>
+                      setBrandField("name", event.target.value)
+                    }
                     placeholder={selectedTenant.name}
                     className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 text-sm"
                   />
@@ -547,7 +775,9 @@ export default function TenantsAdminPage() {
                   Primary color
                   <input
                     value={selectedBrandDraft.primaryColor}
-                    onChange={(event) => setBrandField("primaryColor", event.target.value)}
+                    onChange={(event) =>
+                      setBrandField("primaryColor", event.target.value)
+                    }
                     placeholder="#007A64"
                     className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 font-mono text-sm"
                   />
@@ -556,7 +786,9 @@ export default function TenantsAdminPage() {
                   Support email
                   <input
                     value={selectedBrandDraft.supportEmail}
-                    onChange={(event) => setBrandField("supportEmail", event.target.value)}
+                    onChange={(event) =>
+                      setBrandField("supportEmail", event.target.value)
+                    }
                     placeholder="support@example.com"
                     className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 text-sm"
                   />
@@ -565,7 +797,9 @@ export default function TenantsAdminPage() {
                   Logo URL
                   <input
                     value={selectedBrandDraft.logoUrl}
-                    onChange={(event) => setBrandField("logoUrl", event.target.value)}
+                    onChange={(event) =>
+                      setBrandField("logoUrl", event.target.value)
+                    }
                     placeholder="https://..."
                     className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 text-sm"
                   />
@@ -574,7 +808,9 @@ export default function TenantsAdminPage() {
                   Logo storage key
                   <input
                     value={selectedBrandDraft.logoStorageKey}
-                    onChange={(event) => setBrandField("logoStorageKey", event.target.value)}
+                    onChange={(event) =>
+                      setBrandField("logoStorageKey", event.target.value)
+                    }
                     placeholder="uploads/<admin-uid>/logo.png"
                     className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 font-mono text-sm"
                   />
@@ -583,7 +819,9 @@ export default function TenantsAdminPage() {
                   Help center URL
                   <input
                     value={selectedBrandDraft.helpCenterUrl}
-                    onChange={(event) => setBrandField("helpCenterUrl", event.target.value)}
+                    onChange={(event) =>
+                      setBrandField("helpCenterUrl", event.target.value)
+                    }
                     placeholder="https://..."
                     className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 text-sm"
                   />
@@ -592,7 +830,9 @@ export default function TenantsAdminPage() {
                   Legal name
                   <input
                     value={selectedBrandDraft.legalName}
-                    onChange={(event) => setBrandField("legalName", event.target.value)}
+                    onChange={(event) =>
+                      setBrandField("legalName", event.target.value)
+                    }
                     placeholder={selectedTenant.name}
                     className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 text-sm"
                   />
@@ -601,7 +841,9 @@ export default function TenantsAdminPage() {
                   Legal footer
                   <input
                     value={selectedBrandDraft.legalFooter}
-                    onChange={(event) => setBrandField("legalFooter", event.target.value)}
+                    onChange={(event) =>
+                      setBrandField("legalFooter", event.target.value)
+                    }
                     placeholder="Registered hospital footer"
                     className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 text-sm"
                   />
@@ -610,7 +852,12 @@ export default function TenantsAdminPage() {
                   Letterhead storage key
                   <input
                     value={selectedBrandDraft.documentLetterheadStorageKey}
-                    onChange={(event) => setBrandField("documentLetterheadStorageKey", event.target.value)}
+                    onChange={(event) =>
+                      setBrandField(
+                        "documentLetterheadStorageKey",
+                        event.target.value,
+                      )
+                    }
                     placeholder="uploads/<admin-uid>/letterhead.png"
                     className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 font-mono text-sm"
                   />
@@ -619,7 +866,9 @@ export default function TenantsAdminPage() {
                   Document footer
                   <input
                     value={selectedBrandDraft.documentFooterText}
-                    onChange={(event) => setBrandField("documentFooterText", event.target.value)}
+                    onChange={(event) =>
+                      setBrandField("documentFooterText", event.target.value)
+                    }
                     placeholder="Document footer"
                     className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 text-sm"
                   />
@@ -628,7 +877,9 @@ export default function TenantsAdminPage() {
                   Email from name
                   <input
                     value={selectedBrandDraft.emailFromName}
-                    onChange={(event) => setBrandField("emailFromName", event.target.value)}
+                    onChange={(event) =>
+                      setBrandField("emailFromName", event.target.value)
+                    }
                     placeholder={selectedBrandDraft.name || selectedTenant.name}
                     className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 text-sm"
                   />
@@ -637,8 +888,12 @@ export default function TenantsAdminPage() {
                   Email reply-to
                   <input
                     value={selectedBrandDraft.emailReplyTo}
-                    onChange={(event) => setBrandField("emailReplyTo", event.target.value)}
-                    placeholder={selectedBrandDraft.supportEmail || "support@example.com"}
+                    onChange={(event) =>
+                      setBrandField("emailReplyTo", event.target.value)
+                    }
+                    placeholder={
+                      selectedBrandDraft.supportEmail || "support@example.com"
+                    }
                     className="mt-1 w-full rounded-md border border-border bg-card px-2 py-1 text-sm"
                   />
                 </label>
@@ -662,26 +917,45 @@ export default function TenantsAdminPage() {
                 <table className="w-full text-sm">
                   <thead className="bg-muted/50">
                     <tr>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Kind</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Sender</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Secret</th>
-                      <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">Updated</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">
+                        Kind
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">
+                        Sender
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">
+                        Secret
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-muted-foreground">
+                        Updated
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
                     {(interopSecrets.data?.secrets ?? []).length === 0 ? (
                       <tr>
-                        <td className="px-3 py-5 text-center text-sm text-muted-foreground" colSpan={4}>
+                        <td
+                          className="px-3 py-5 text-center text-sm text-muted-foreground"
+                          colSpan={4}
+                        >
                           No interop secrets
                         </td>
                       </tr>
                     ) : (
                       (interopSecrets.data?.secrets ?? []).map((secret) => (
                         <tr key={`${secret.kind}:${secret.sender_identifier}`}>
-                          <td className="px-3 py-2">{interopKindLabel(secret.kind)}</td>
-                          <td className="px-3 py-2 font-mono text-xs">{secret.sender_identifier}</td>
-                          <td className="px-3 py-2 font-mono text-xs">{secret.secret_masked ?? "-"}</td>
-                          <td className="px-3 py-2 text-xs text-muted-foreground">{fmt(secret.updated_at)}</td>
+                          <td className="px-3 py-2">
+                            {interopKindLabel(secret.kind)}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-xs">
+                            {secret.sender_identifier}
+                          </td>
+                          <td className="px-3 py-2 font-mono text-xs">
+                            {secret.secret_masked ?? "-"}
+                          </td>
+                          <td className="px-3 py-2 text-xs text-muted-foreground">
+                            {fmt(secret.updated_at)}
+                          </td>
                         </tr>
                       ))
                     )}
@@ -693,7 +967,12 @@ export default function TenantsAdminPage() {
                 <select
                   aria-label="Interop kind"
                   value={secretDraft.kind}
-                  onChange={(event) => setSecretDraft({ ...secretDraft, kind: event.target.value as TenantInteropSecret["kind"] })}
+                  onChange={(event) =>
+                    setSecretDraft({
+                      ...secretDraft,
+                      kind: event.target.value as TenantInteropSecret["kind"],
+                    })
+                  }
                   className="rounded-md border border-border bg-card px-2 py-2 text-sm"
                 >
                   <option value="abdm_callback">ABDM callback</option>
@@ -702,7 +981,12 @@ export default function TenantsAdminPage() {
                 <input
                   aria-label="Sender identifier"
                   value={secretDraft.senderIdentifier}
-                  onChange={(event) => setSecretDraft({ ...secretDraft, senderIdentifier: event.target.value })}
+                  onChange={(event) =>
+                    setSecretDraft({
+                      ...secretDraft,
+                      senderIdentifier: event.target.value,
+                    })
+                  }
                   placeholder="Sender identifier"
                   className="rounded-md border border-border bg-card px-2 py-2 text-sm"
                 />
@@ -710,13 +994,22 @@ export default function TenantsAdminPage() {
                   aria-label="Secret value"
                   type="password"
                   value={secretDraft.secret}
-                  onChange={(event) => setSecretDraft({ ...secretDraft, secret: event.target.value })}
+                  onChange={(event) =>
+                    setSecretDraft({
+                      ...secretDraft,
+                      secret: event.target.value,
+                    })
+                  }
                   placeholder="Secret value"
                   className="rounded-md border border-border bg-card px-2 py-2 text-sm"
                 />
                 <button
                   onClick={() => saveInteropSecret.mutate()}
-                  disabled={!secretDraft.senderIdentifier.trim() || !secretDraft.secret || saveInteropSecret.isPending}
+                  disabled={
+                    !secretDraft.senderIdentifier.trim() ||
+                    !secretDraft.secret ||
+                    saveInteropSecret.isPending
+                  }
                   className="inline-flex items-center justify-center gap-1.5 rounded-md border border-border bg-primary px-3 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
                 >
                   <KeyRound className="h-4 w-4" />
@@ -732,12 +1025,18 @@ export default function TenantsAdminPage() {
               </h3>
               <div className="rounded-md border border-border p-3">
                 <div className="flex items-center justify-between gap-3">
-                  <span className={`rounded-full border px-2 py-0.5 text-xs font-medium ${jobStatusBadge(currentJob?.status)}`}>
+                  <span
+                    className={`rounded-full border px-2 py-0.5 text-xs font-medium ${jobStatusBadge(currentJob?.status)}`}
+                  >
                     {currentJob?.status ?? "idle"}
                   </span>
                   <button
                     onClick={() => queueKekRewrap.mutate()}
-                    disabled={queueKekRewrap.isPending || currentJob?.status === "queued" || currentJob?.status === "running"}
+                    disabled={
+                      queueKekRewrap.isPending ||
+                      currentJob?.status === "queued" ||
+                      currentJob?.status === "running"
+                    }
                     className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-accent disabled:opacity-50"
                   >
                     <RotateCcw className="h-4 w-4" />
@@ -750,11 +1049,14 @@ export default function TenantsAdminPage() {
                     <div>Updated {fmt(currentJob.updated_at)}</div>
                     {currentJob.summary ? (
                       <div>
-                        Re-wrapped {currentJob.summary.rewrapped} value{currentJob.summary.rewrapped === 1 ? "" : "s"}
+                        Re-wrapped {currentJob.summary.rewrapped} value
+                        {currentJob.summary.rewrapped === 1 ? "" : "s"}
                       </div>
                     ) : null}
                     {currentJob.error ? (
-                      <div className="text-red-700">{currentJob.error.message}</div>
+                      <div className="text-red-700">
+                        {currentJob.error.message}
+                      </div>
                     ) : null}
                   </div>
                 ) : null}

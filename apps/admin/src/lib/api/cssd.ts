@@ -1,37 +1,8 @@
-// CSSD (Central Sterile Services Department) admin API.
-//
-// Re-audit lane L (2026-08-25): the CSSD console called GET /cssd/board and
-// nothing else, so the sterilization board — and the theatre page's
-// `cssd_warnings`, which are derived from set_issue_log rows — could never show
-// anything in production. Nothing else writes instrument_sets /
-// sterilization_loads / set_issue_log: a repo-wide search for those table names
-// returns only cssdService.js, migrations 421-423 and tests — no cron, no job,
-// no seed. (The generated Dart chopper stubs in packages/vhhealth_core are spec
-// codegen, not call sites.)
-//
-// cssdRoutes.js mounts FOURTEEN routes. Twelve are wired here and driven from
-// dashboard/cssd. The fourteenth, GET /cssd/theatre/{otScheduleId}/warnings, is
-// deliberately left without a caller: theatreService.getTodaySchedule() already
-// calls getOtSterilityWarnings() in-process and returns the same payload inline
-// as `cssd_warnings` on GET /theatre/today, which is what the theatre page
-// renders. src/__tests__/dashboard/cssd/router-coverage.test.ts pins that
-// exemption by name so a genuinely-unwired route cannot hide behind it.
-//
-// Authz, checked before each was wired: app.js mounts the whole router behind
-// ONE gate, `requireRole(...CSSD_ROUTE_ROLES)`, with no per-route re-gate and
-// no role check inside cssdService.js. The proxy allowlist carries
-// "api/v1/cssd" and no PERMISSION_GATES entry matches it; routePolicy has
-// `cssd: { minRank: STAFF }`. Every role that can already load the board can
-// drive every action below.
-//
-// The one call this console makes OUTSIDE that gate is GET /theatre/today,
-// used to pick the OT case an instrument set is issued against. THEATRE_ROUTE_
-// ROLES is a subset of CSSD_ROUTE_ROLES, so theatre roles (and ADMIN) reach it;
-// the CSSD-only roles (STORES_PURCHASE_INCHARGE, QUALITY_OFFICER,
-// INFECTION_CONTROL_OFFICER) do not, and the Issue dialog shows them the
-// backend's own refusal rather than an empty picker.
+// Case-directory access is independent of instrument-set write authorization.
+// Theatre warnings remain served by the theatre page's existing schedule contract.
 
 import { fetchAdminAPI } from "@/lib/api";
+import { z } from "zod";
 
 /** Mirror of SET_STATUSES in apps/backend/src/services/cssd/cssdService.js. */
 export const CSSD_SET_STATUSES = [
@@ -227,14 +198,10 @@ export type CssdIssuePatch = {
   notes?: string;
 };
 
-/** An OT case, from GET /theatre/today — the pick list for issuing a set. */
 export type OtScheduleOption = {
   id: number;
-  procedure_name?: string;
-  ot_room?: string | null;
-  scheduled_date?: string | null;
-  scheduled_time?: string | null;
-  status?: string;
+  scheduled_date: string;
+  scheduled_time: string | null;
 };
 
 export function getCssdBoard(params?: { limit?: number }) {
@@ -390,12 +357,30 @@ export function cancelCssdIssue(id: number, body: CssdIssuePatch = {}) {
   });
 }
 
-/**
- * GET /theatre/today?date=… — the OT cases a set can be issued against.
- * Outside the CSSD gate (see the file header); callers must surface the error.
- */
-export function listOtSchedulesForDate(date: string) {
-  return fetchAdminAPI<OtScheduleOption[]>(
-    `/theatre/today?date=${encodeURIComponent(date)}`,
-  );
+const theatrePageSchema = z.object({
+  items: z.array(z.object({
+    id: z.number().int().positive(),
+    scheduled_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    scheduled_time: z.string().regex(/^(?:(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d{1,6})?|24:00:00)$/).nullable(),
+  }).strict()).max(200),
+  next_cursor: z.string().min(1).max(2048).nullable(),
+}).strict();
+
+export type CssdTheatrePage = z.infer<typeof theatrePageSchema>;
+
+export async function listOtSchedulesForDate(
+  date: string,
+  cursor?: string,
+  signal?: AbortSignal,
+): Promise<CssdTheatrePage> {
+  signal?.throwIfAborted();
+  const query = new URLSearchParams({ date });
+  if (cursor) query.set("cursor", cursor);
+  const payload = await fetchAdminAPI<unknown>(`/cssd/theatre-options?${query}`);
+  signal?.throwIfAborted();
+  const parsed = theatrePageSchema.safeParse(payload);
+  if (!parsed.success || parsed.data.items.some(item => item.scheduled_date !== date)) {
+    throw new Error("Could not read the case directory");
+  }
+  return parsed.data;
 }

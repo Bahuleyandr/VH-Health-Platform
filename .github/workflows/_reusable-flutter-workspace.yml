@@ -45,7 +45,7 @@ jobs:
 
       # Same class, same placement, same cost as the vital-bounds gate above:
       # the staff role contract is rendered from backend role/route/RBAC policy
-      # and byte-compared. scripts/ci/flutter.mjs (the Forgejo/local canonical
+      # and byte-compared. scripts/ci/flutter.mjs (the local canonical
       # half) has run both since addce0351; this step is what keeps the GitHub
       # half in parity, so a backend RBAC change that never regenerated the
       # Dart contract fails here instead of shipping a client that disagrees
@@ -160,7 +160,7 @@ jobs:
       - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
         with:
           # Same pin as the workspace job above and every other Flutter site in
-          # the repo (ci.yml, .forgejo/workflows/ci.yml, deploy-*-staging.yml,
+          # the repo (ci.yml, deploy-*-staging.yml,
           # release-*.yml) — bump them together.
           flutter-version: 3.47.0
           cache: true

@@ -8,6 +8,7 @@ import React, {
   useEffect,
   type ReactNode,
   useCallback,
+  useRef,
 } from "react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
@@ -54,6 +55,8 @@ export type LoginOutcome =
 interface AuthContextType {
   user: AdminUser | null;
   loading: boolean;
+  sessionRevision: number;
+  isSessionCurrent: (revision: number) => boolean;
   error: string | null;
   /** Admin password login. Returns a discriminated union so the caller can
    *  render a TOTP prompt when the backend asks for a second factor. */
@@ -88,11 +91,14 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AdminUser | null>(null);
   const [loading, setLoading] = useState(true);
+  const [sessionRevision, setSessionRevision] = useState(0);
+  const sessionRevisionRef = useRef(0);
   const [error, setError] = useState<string | null>(null);
   const router = useRouter();
 
   const checkAuth = useCallback(async () => {
     try {
+      setSessionRevision(++sessionRevisionRef.current);
       setLoading(true);
       setError(null);
 
@@ -137,6 +143,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(
     async (username: string, password: string): Promise<LoginOutcome> => {
       try {
+        setSessionRevision(++sessionRevisionRef.current);
         setLoading(true);
         setError(null);
 
@@ -196,6 +203,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       useBackupCode?: boolean;
     }) => {
       try {
+        setSessionRevision(++sessionRevisionRef.current);
         setLoading(true);
         setError(null);
         const result = await verifyAdminMfa(args);
@@ -225,6 +233,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       backupCodes: string[];
     }) => {
       try {
+        setSessionRevision(++sessionRevisionRef.current);
         setLoading(true);
         setError(null);
         const result = await adminMfaSetupConfirm(args);
@@ -244,6 +253,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const loginStaff = useCallback(
     async (employeeId: string, password: string) => {
       try {
+        setSessionRevision(++sessionRevisionRef.current);
         setLoading(true);
         setError(null);
 
@@ -265,6 +275,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
+      setSessionRevision(++sessionRevisionRef.current);
       setLoading(true);
       setError(null);
       // Clears local storage + cookie inside, and reports whether the BACKEND
@@ -305,6 +316,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user,
         loading,
+        sessionRevision,
+        isSessionCurrent: (revision) => revision === sessionRevisionRef.current,
         error,
         login,
         verifyMfa,

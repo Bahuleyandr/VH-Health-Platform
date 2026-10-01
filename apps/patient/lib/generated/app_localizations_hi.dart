@@ -10,6 +10,38 @@ class AppLocalizationsHi extends AppLocalizations {
   AppLocalizationsHi([String locale = 'hi']) : super(locale);
 
   @override
+  String get abdmAddressInvalidError =>
+      'यह ABHA पता सही नहीं लगता। इसे name@abdm जैसा होना चाहिए।';
+
+  @override
+  String get abdmAlreadyLinkedError =>
+      'यह ABHA पहले से किसी अन्य मरीज़ से जुड़ा है। कृपया नंबर जाँचें या अस्पताल के स्वागत कक्ष से सहायता लें।';
+
+  @override
+  String get abdmVerificationFailedError =>
+      'अभी हम ABDM से इस ABHA की पुष्टि नहीं कर पाए, इसलिए इसे जोड़ा नहीं गया है। कृपया कुछ मिनट बाद फिर प्रयास करें।';
+
+  @override
+  String get abdmPatientNotFoundError =>
+      'हमें आपका मरीज़ रिकॉर्ड नहीं मिला। कृपया अस्पताल के स्वागत कक्ष से अपना पंजीकरण जाँचने को कहें।';
+
+  @override
+  String get abdmConsentLoadFailed =>
+      'सहमति अनुरोध लोड नहीं हो सके। कृपया फिर प्रयास करें।';
+
+  @override
+  String get abdmConsentGrantFailed =>
+      'सहमति नहीं दी जा सकी। कृपया फिर प्रयास करें।';
+
+  @override
+  String get abdmConsentDenyFailed =>
+      'सहमति अनुरोध अस्वीकार नहीं किया जा सका। कृपया फिर प्रयास करें।';
+
+  @override
+  String get abdmConsentRevokeFailed =>
+      'सहमति वापस नहीं ली जा सकी। कृपया फिर प्रयास करें।';
+
+  @override
   String get authLoginTitle => 'अपने खाते में लॉग इन करें';
 
   @override

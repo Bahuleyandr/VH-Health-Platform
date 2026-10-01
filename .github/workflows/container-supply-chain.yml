@@ -1,0 +1,136 @@
+name: Container Supply Chain
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    name: ${{ matrix.app }} image
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - app: backend
+            image_name: vhhealth-backend
+            context: apps/backend
+            dockerfile: apps/backend/Dockerfile
+            build_contexts: ''
+            build_args: 'NODE_IMAGE=node:26.5.0-alpine@sha256:e88a35be04478413b7c71c455cd9865de9b9360e1f43456be5951032d7ac1a66'
+          - app: admin
+            image_name: vhhealth-admin
+            context: apps/admin
+            dockerfile: apps/admin/Dockerfile
+            build_contexts: 'backend=apps/backend'
+            build_args: |
+              NEXT_PUBLIC_API_URL=http://127.0.0.1:5206
+              NEXT_PUBLIC_APP_NAME=VHHealthAdmin
+              NEXT_PUBLIC_ALLOWED_ORIGIN=http://127.0.0.1:3001
+              NEXT_PUBLIC_SENTRY_ENVIRONMENT=ci
+              NEXT_PUBLIC_SENTRY_RELEASE=${{ github.sha }}
+              SENTRY_UPLOAD_SOURCE_MAPS=false
+          - app: staff-web
+            image_name: vhhealth-staff-web
+            context: .
+            dockerfile: apps/staff/Dockerfile.web
+            build_contexts: ''
+            build_args: |
+              VH_BASE_URL=http://127.0.0.1:5206/api/v1
+              APP_NAME=VHHealthStaff
+              SENTRY_ENVIRONMENT=ci
+              SENTRY_RELEASE=${{ github.sha }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          fetch-depth: 0
+
+      - name: Prepare output
+        run: mkdir -p output/container/${{ matrix.app }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+        with:
+          driver: docker-container
+          driver-opts: image=moby/buildkit@sha256:28a898719c18a33f4e8000685287fa36fd0dd9560c6440227d3a732d79bb41d8
+
+      - name: Build local image
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          build-contexts: ${{ matrix.build_contexts }}
+          build-args: ${{ matrix.build_args }}
+          tags: local/${{ matrix.image_name }}:${{ github.sha }}
+          platforms: linux/amd64
+          push: false
+          load: true
+
+      - name: Record local image metadata
+        run: |
+          docker image inspect local/${{ matrix.image_name }}:${{ github.sha }} \
+            > output/container/${{ matrix.app }}/image-inspect.json
+
+      - name: Save image archive for offline scanners
+        run: |
+          set -euo pipefail
+          docker save local/${{ matrix.image_name }}:${{ github.sha }} \
+            -o /tmp/${{ matrix.app }}-image.tar
+
+      - name: Install image scanners (pinned versions + pinned script refs)
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/vh-scanners
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/v1.18.1/install.sh \
+            | sh -s -- -b /tmp/vh-scanners v1.18.1
+          curl -sSfL https://raw.githubusercontent.com/aquasecurity/trivy/v0.71.0/contrib/install.sh \
+            | sh -s -- -b /tmp/vh-scanners v0.71.0
+
+      - name: Generate SBOM
+        continue-on-error: true
+        run: |
+          /tmp/vh-scanners/syft \
+            docker-archive:/tmp/${{ matrix.app }}-image.tar \
+            -o spdx-json=output/container/${{ matrix.app }}/sbom.spdx.json
+
+      - name: Trivy image scan (blocking on CRITICAL/HIGH + secrets)
+        run: |
+          /tmp/vh-scanners/trivy image \
+            --input /tmp/${{ matrix.app }}-image.tar \
+            --db-repository public.ecr.aws/aquasecurity/trivy-db:2 \
+            --db-repository docker.io/aquasec/trivy-db:2 \
+            --scanners vuln,secret \
+            --skip-version-check \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --exit-code 1 \
+            --format sarif \
+            --output output/container/${{ matrix.app }}/trivy-image.sarif
+
+      - name: Trivy image misconfiguration scan (advisory)
+        if: ${{ !cancelled() }}
+        continue-on-error: true
+        run: |
+          /tmp/vh-scanners/trivy image \
+            --input /tmp/${{ matrix.app }}-image.tar \
+            --db-repository public.ecr.aws/aquasecurity/trivy-db:2 \
+            --db-repository docker.io/aquasec/trivy-db:2 \
+            --scanners misconfig \
+            --skip-version-check \
+            --severity CRITICAL,HIGH \
+            --ignore-unfixed \
+            --exit-code 0 \
+            --format sarif \
+            --output output/container/${{ matrix.app }}/trivy-image-misconfig.sarif
+
+      - name: Upload image reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: container-${{ matrix.app }}
+          path: output/container/${{ matrix.app }}
+          if-no-files-found: ignore

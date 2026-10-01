@@ -22,7 +22,7 @@ import {
   type LinenCycle,
 } from "@/lib/api/linenLaundry";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "react-hot-toast";
 
 import {
@@ -60,16 +60,26 @@ export function NewCycleDialog({ onClose }: { onClose: () => void }) {
     wards,
     isLoading: wardsLoading,
     error: wardsError,
-  } = useWardOptions();
+    scopeKey, ready, changed, isFetching, hasNextPage,
+    isFetchingNextPage, fetchNextPage, validateSelection,
+  } = useWardOptions(onClose);
   const itemTypes = useQuery({
-    queryKey: ["linen-laundry", "item-types"],
+    queryKey: ["linen-laundry", "item-types", scopeKey],
     queryFn: () => listLinenItemTypes({ active: true }),
+    enabled: ready,
+    gcTime: 0,
   });
 
   const [wardId, setWardId] = useState("");
   const [notes, setNotes] = useState("");
   const [planned, setPlanned] = useState<Record<number, string>>({});
   const [failure, setFailure] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isFetching && wardId && !wards.some(ward => ward.id === Number(wardId))) {
+      setWardId("");
+    }
+  }, [isFetching, wards, wardId]);
 
   const available = useMemo(() => itemTypes.data ?? [], [itemTypes.data]);
   const items = useMemo(
@@ -88,12 +98,19 @@ export function NewCycleDialog({ onClose }: { onClose: () => void }) {
   );
 
   const create = useMutation({
-    mutationFn: () =>
-      createLinenCycle({
+    mutationFn: async () => {
+      try {
+        await validateSelection(Number(wardId));
+      } catch (err) {
+        setWardId("");
+        throw err;
+      }
+      return createLinenCycle({
         ward_id: Number(wardId),
         items,
         notes: notes.trim() || undefined,
-      }),
+      });
+    },
     onSuccess: (cycle) => {
       toast.success(`Cycle ${cycle.cycle_code} created`);
       qc.invalidateQueries({ queryKey: ["linen-laundry"] });
@@ -103,7 +120,10 @@ export function NewCycleDialog({ onClose }: { onClose: () => void }) {
       setFailure(errorMessage(err, "Could not create the laundry cycle")),
   });
 
-  const canCreate = wardId !== "" && items.length > 0;
+  const canCreate = ready && !isFetching && !wardsError
+    && wards.some(ward => ward.id === Number(wardId)) && items.length > 0;
+
+  if (changed) return null;
 
   return (
     <Modal
@@ -136,7 +156,7 @@ export function NewCycleDialog({ onClose }: { onClose: () => void }) {
       <DialogError message={failure} />
       {wardsError && (
         <DialogError
-          message={`Ward list unavailable — ${wardsError}. A cycle belongs to a ward, so this needs an account that can read the ward list.`}
+          message={`Ward directory unavailable — ${wardsError}`}
         />
       )}
       {itemTypes.error instanceof Error && (
@@ -151,7 +171,7 @@ export function NewCycleDialog({ onClose }: { onClose: () => void }) {
           aria-label="Ward"
           className={inputClass}
           value={wardId}
-          disabled={wardsLoading}
+          disabled={!ready || wardsLoading || Boolean(wardsError) || create.isPending}
           onChange={(e) => setWardId(e.target.value)}
         >
           <option value="">
@@ -164,6 +184,16 @@ export function NewCycleDialog({ onClose }: { onClose: () => void }) {
           ))}
         </select>
       </Field>
+
+      {!wardsLoading && !wardsError && wards.length === 0 && (
+        <p className="text-sm text-muted-foreground">No wards are available.</p>
+      )}
+      {hasNextPage && (
+        <button type="button" disabled={isFetchingNextPage || create.isPending}
+          onClick={() => void fetchNextPage()} className="text-sm text-primary">
+          {isFetchingNextPage ? "Loading wards…" : "Load more wards"}
+        </button>
+      )}
 
       {available.length > 0 && (
         <div className="rounded-lg border border-border">

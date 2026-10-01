@@ -90,11 +90,11 @@ Health check: `node apps/backend/scripts/warehouse-verify.mjs`
 (`DATABASE_URL` = OLTP, `WAREHOUSE_URL` = warehouse) — publication, slot
 state/lag, subscription workers, spot row-count compare, marts freshness.
 
-CI: `.forgejo/workflows/ci-warehouse.yml` is the canonical hosted gate and
-`.github/workflows/ci-warehouse.yml` is the mirror. Both apply the full
-migration chain to a service Postgres and run `dbt build` — model-vs-schema
+CI: `.github/workflows/ci-warehouse.yml` is the sole hosted warehouse gate.
+It applies the full migration chain to a service Postgres and runs `dbt build` — model-vs-schema
 drift fails in PR, plus a `kustomize build` of the module so the ConfigMap file
-list can't go stale silently.
+list can't go stale silently. Forgejo mirroring is retired; warehouse production
+activation still requires the separate owner decision below.
 
 ## G4 pairing (deferred until F1 runs in prod)
 

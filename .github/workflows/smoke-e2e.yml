@@ -23,7 +23,7 @@ jobs:
         # Prod parity: production CNPG pins PostgreSQL 17.10 — keep CI on pg17
         # until the held PG18 cutover ladder lands (pg18-canary.yml is the
         # non-required qualification canary).
-        image: pgvector/pgvector:pg17
+        image: pgvector/pgvector:pg17@sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f
         env:
           POSTGRES_USER: vhhealth
           POSTGRES_PASSWORD: ${{ github.run_id }}

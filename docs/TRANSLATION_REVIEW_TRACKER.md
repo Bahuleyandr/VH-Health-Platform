@@ -43,6 +43,17 @@ Reviewers should focus on high-risk wording first:
 
 ## Follow-ups
 
+- **OPEN — patient ABDM technical error presentation (2026-09-30).**
+  The eight new keys `abdmAddressInvalidError`, `abdmAlreadyLinkedError`,
+  `abdmVerificationFailedError`, `abdmPatientNotFoundError`,
+  `abdmConsentLoadFailed`, `abdmConsentGrantFailed`, `abdmConsentDenyFailed`
+  and `abdmConsentRevokeFailed` have structural en/hi/ta/te/ml parity.
+  The Hindi, Tamil, Telugu and Malayalam values are provisional AI wording;
+  human linguistic review is **PENDING**. This is technical error and retry
+  wording, not approval of consent disclosures, clinical meaning, ABDM
+  integration or release activation. Existing ABHA/ABDM copy remains under
+  its existing review gates.
+
 Work items surfaced by a review but deliberately not done in the batch that surfaced them. Not a
 priority queue (those are review queues); this is a queue of engineering/process work a review
 identified as needed later.

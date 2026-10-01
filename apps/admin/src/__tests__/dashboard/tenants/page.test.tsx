@@ -95,6 +95,12 @@ describe("<TenantsAdminPage /> tenant operations", () => {
     (useActingTenant as jest.Mock).mockReturnValue({
       actingTenant: null,
       isPending: false,
+      isReady: true,
+      scopeKey: "session-a:own",
+      isScopeCurrent: (captured: string) => captured === "session-a:own",
+      status: "ready",
+      error: null,
+      retry: jest.fn().mockResolvedValue(undefined),
       setActAs: jest.fn(),
     });
     (listTenants as jest.Mock).mockResolvedValue({
@@ -214,6 +220,21 @@ describe("<TenantsAdminPage /> tenant operations", () => {
       }),
     );
     expect(screen.queryByText("secret-value")).not.toBeInTheDocument();
+  });
+
+  it("does not fetch tenants or expose actions before scope is confirmed", () => {
+    (useActingTenant as jest.Mock).mockReturnValue({
+      actingTenant: null,
+      isPending: true,
+      isReady: false,
+      scopeKey: null,
+      error: null,
+      retry: jest.fn().mockResolvedValue(undefined),
+    });
+    renderPage();
+    expect(screen.getByText("Confirming tenant scope…")).toBeInTheDocument();
+    expect(listTenants).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /New Tenant/ })).toBeNull();
   });
 
   it("queues a tenant KEK re-wrap job from the details panel", async () => {

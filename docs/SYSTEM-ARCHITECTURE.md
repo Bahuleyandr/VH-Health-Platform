@@ -50,7 +50,7 @@ The platform has three distinct user populations:
 Production runs on a **3-node on-prem RKE2 Kubernetes cluster** inside
 the hospital, with **CloudNativePG** running a PostgreSQL 17 cluster
 (3 replicas, synchronous replication). Deploys are **GitOps via
-ArgoCD**: Forgejo Actions builds, scans, signs, and pushes container images to
+ArgoCD**: authorized GitHub Actions release jobs build, scan, sign, and push container images to
 GHCR; ArgoCD watches this repo, but **prod sync is manual** — no Application
 sets `syncPolicy.automated`, so a merge to `main` stays inert until an operator
 syncs deliberately. All
@@ -832,10 +832,11 @@ release tag / manual dispatch
                             └─> zero-downtime cutover
 ```
 
-Prod pins to semver tags (`backend-v1.5.2`, `admin-v1.5.2`). Bumping
-is either a `kustomize edit set image ...` + commit (manual) or via
-the planned ArgoCD image updater. Staging can track manually published
-`main-<sha>` images. Tag convention is documented in root
+Prod pins immutable digests from approved semver release builds
+(`backend-v1.5.2`, `admin-v1.5.2`). The GitHub digest-pin workflow verifies the
+build-emitted image reference and OIDC signature before committing the pin;
+ArgoCD still requires a separately authorized manual sync. Plain main pushes
+do not publish release images. Tag convention is documented in root
 [`CLAUDE.md`](../CLAUDE.md).
 
 ### Ingress — zero inbound ports
@@ -883,51 +884,43 @@ Full end-to-end runbook: **[`docs/DEPLOYMENT_GUIDE.md`](DEPLOYMENT_GUIDE.md)**.
 
 ### Workflow catalogue
 
-Forgejo is the canonical hosted CI/CD target. GitHub Actions remain useful
-mirrors for external visibility.
+GitHub is the sole repository and hosted CI/release authority. The owner
+permanently retired Forgejo, including mirroring, on 2026-09-30. Source retirement
+preserves useful checks below but does not establish that remote jobs or
+credentials have been disabled. INF-006 / PR #872 remains held for the external
+receipts in [`RELEASE_READINESS.md`](RELEASE_READINESS.md). The retired public
+key remains historical verification evidence, not an active signer.
 
-Root [`.forgejo/workflows/`](../.forgejo/workflows/):
-
-| Workflow | Fires on | What it runs |
-|---|---|---|
-| [`ci.yml`](../.forgejo/workflows/ci.yml) | push + PR + manual | Matrix over repo-owned `security`, `backend`, `fhir`, `admin`, `flutter`, `infra` stages. |
-| [`full-stack-sweep.yml`](../.forgejo/workflows/full-stack-sweep.yml) | manual + weekdays | Scheduled full-stack sweep of the same six repo-owned stages. |
-| [`secret-scan.yml`](../.forgejo/workflows/secret-scan.yml) | main push + PR + manual | Service-account scanner, `gitleaks`, and optional GitGuardian parity. |
-| [`dependency-review.yml`](../.forgejo/workflows/dependency-review.yml) | dependency PRs + manual | Provider-neutral high-severity npm dependency audit. |
-| [`security-sweep.yml`](../.forgejo/workflows/security-sweep.yml) | main push + PR + weekly + manual | Repo security stage, `npm audit`, OSV/Semgrep reports, blocking Trivy vuln/secret filesystem scan, and advisory misconfiguration reporting. |
-| [`container-supply-chain.yml`](../.forgejo/workflows/container-supply-chain.yml) | app/container paths | Build backend/admin/staff-web images, SBOM, blocking Trivy image scan, optional push/sign. |
-| [`smoke-e2e.yml`](../.forgejo/workflows/smoke-e2e.yml) | backend/admin smoke paths + manual | Local backend/admin/API smoke coverage and Clinical AI rollout preflight. |
-| [`ci-warehouse.yml`](../.forgejo/workflows/ci-warehouse.yml) | warehouse paths + manual | Migration-built Postgres, `dbt build`, and analytics-warehouse kustomize render. |
-| [`openapi-client-drift.yml`](../.forgejo/workflows/openapi-client-drift.yml) | API/client paths | OpenAPI regeneration/validation and generated-client smoke. |
-| [`schema-policy-drift.yml`](../.forgejo/workflows/schema-policy-drift.yml) | backend/policy paths | DB schema drift, PHI tenant guardrails, and role-policy graph tests. |
-| [`post-deploy-smoke.yml`](../.forgejo/workflows/post-deploy-smoke.yml) | main push + manual | Deployed API/admin/Sentry smoke when `VH_TRIAL_API_ORIGIN` and `VH_TRIAL_ADMIN_ORIGIN` are configured. |
-| [`deploy-patient-staging.yml`](../.forgejo/workflows/deploy-patient-staging.yml) | main push touching patient + manual | Build patient debug APKs, upload Forgejo artifacts, and distribute via Firebase when secrets are configured. |
-| [`deploy-staff-staging.yml`](../.forgejo/workflows/deploy-staff-staging.yml) | main push touching staff + manual | Build staff debug APKs, upload Forgejo artifacts, and distribute via Firebase when secrets are configured. |
-| [`release-patient.yml`](../.forgejo/workflows/release-patient.yml) | tag `patient-v*` + manual | Signed patient APK/AAB -> Forgejo Release assets. |
-| [`release-staff.yml`](../.forgejo/workflows/release-staff.yml) | tag `staff-v*` + manual | Signed staff APK/AAB -> Forgejo Release assets. |
-| [`release-images.yml`](../.forgejo/workflows/release-images.yml) | `backend-v*`, `admin-v*`, `staff-web-v*`, manual | Build, push, SBOM, Trivy scan, cosign-sign, and GitOps-pin container images. |
-| [`release-pin-digests.yml`](../.forgejo/workflows/release-pin-digests.yml) | manual | Operator repair path for production image digest pinning. |
-| [`deploy-dalekdefender.yml`](../.forgejo/workflows/deploy-dalekdefender.yml) | main push touching backend/admin/dalek overlay + manual | Build, scan, sign, verify, and deploy backend/admin images to Dalekdefender by digest. |
-| [`renovate.yml`](../.forgejo/workflows/renovate.yml) | weekly + manual | Forgejo Renovate dependency updates. |
-| [`staff-windows-build.yml`](../.forgejo/workflows/staff-windows-build.yml) | manual | Windows build readiness until a Windows runner is registered. |
-| [`trial-readiness-smoke.yml`](../.forgejo/workflows/trial-readiness-smoke.yml) | manual | Deployed staff role workflow sweep. |
-
-Root [`.github/workflows/`](../.github/workflows/) mirrors:
+Root [`.github/workflows/`](../.github/workflows/):
 
 | Workflow | Fires on | What it runs |
 |---|---|---|
-| [`all.yml`](../.github/workflows/all.yml) | `workflow_dispatch` + weekdays 01:30 UTC | Full-stack sweep (Flutter + backend + admin + FHIR). |
-| [`ci-flutter.yml`](../.github/workflows/ci-flutter.yml) | patient/staff/core paths | Melos bootstrap → analyze → test → format. |
-| [`ci-backend.yml`](../.github/workflows/ci-backend.yml) | backend paths | Lint + swagger + prisma + tests (Postgres 16 service) + CodeQL + FHIR conformance. |
-| [`ci-admin.yml`](../.github/workflows/ci-admin.yml) | admin paths | Lint + type-check + jest + next build. |
-| [`deploy-patient-staging.yml`](../.github/workflows/deploy-patient-staging.yml) | main push touching patient | GitHub mirror of patient Firebase staging. |
-| [`deploy-staff-staging.yml`](../.github/workflows/deploy-staff-staging.yml) | main push touching staff | GitHub mirror of staff Firebase staging. |
-| [`release-patient.yml`](../.github/workflows/release-patient.yml) | tag `patient-v*` | GitHub mirror release assets. |
-| [`release-staff.yml`](../.github/workflows/release-staff.yml) | tag `staff-v*` | GitHub mirror release assets. |
-| [`release-images.yml`](../.github/workflows/release-images.yml) | main push, `backend-v*`, `admin-v*`, manual | GitHub mirror for signed GHCR image releases. |
+| [`ci.yml`](../.github/workflows/ci.yml) | non-main push + manual diagnostic | Affected-stack checks, then full matrix on final `[full-ci]`; exact-head `Merge Gate` and `Full Merge Gate`. |
+| [`all.yml`](../.github/workflows/all.yml) | manual + weekdays 01:30 UTC | Full stack, contracts, device gateway, infrastructure and retained security/container checks. |
+| [`ci-flutter.yml`](../.github/workflows/ci-flutter.yml) | manual diagnostic | Flutter workspace format, codegen, analyze, tests and Staff web compilation. |
+| [`ci-backend.yml`](../.github/workflows/ci-backend.yml) | CodeQL on backend PR/main; full diagnostic manual | Backend reusable lint/schema/OpenAPI/DB/test checks and FHIR. |
+| [`ci-admin.yml`](../.github/workflows/ci-admin.yml) | manual diagnostic | Lint, type-check, Jest and Next build. |
+| [`security-sweep.yml`](../.github/workflows/security-sweep.yml) | reusable + manual | Canonical/full-sweep repository Trivy gate and advisory OSV, Semgrep and misconfiguration reports. |
+| [`container-supply-chain.yml`](../.github/workflows/container-supply-chain.yml) | reusable + manual | Canonical/full-sweep local backend/admin/staff-web image builds and scans; no push or signing. |
+| [`deploy-patient-staging.yml`](../.github/workflows/deploy-patient-staging.yml) | main push touching patient + manual | Patient Firebase staging distribution, subject to release authority. |
+| [`deploy-staff-staging.yml`](../.github/workflows/deploy-staff-staging.yml) | main push touching staff + manual | Staff Firebase staging distribution, subject to release authority. |
+| [`release-patient.yml`](../.github/workflows/release-patient.yml) | tag `patient-v*` + manual | Signed patient release artifacts. |
+| [`release-staff.yml`](../.github/workflows/release-staff.yml) | tag `staff-v*` + manual | Signed staff Android and Windows release artifacts. |
+| [`release-images.yml`](../.github/workflows/release-images.yml) | app version tags + manual | Signed GHCR images after main-ancestry validation; plain main pushes only emit a no-publish notice. |
+| [`release-pin-digests.yml`](../.github/workflows/release-pin-digests.yml) | successful tagged image release | Verify build-emitted digest and GitHub OIDC signature, then commit the production pin; no ArgoCD sync. |
+| [`deploy-dalekdefender.yml`](../.github/workflows/deploy-dalekdefender.yml) | configured main paths + manual | Authorized test-rig image build, scan, signature verification and digest deployment. |
 | [`secret-scan.yml`](../.github/workflows/secret-scan.yml) | main push + PR + manual | Service-account scanner, `gitleaks`, and optional GitGuardian scan. |
-| [`smoke-e2e.yml`](../.github/workflows/smoke-e2e.yml) | PR + manual | Mirror of the local backend/admin/API smoke coverage. |
-| [`ci-warehouse.yml`](../.github/workflows/ci-warehouse.yml) | warehouse paths | Mirror of the analytics warehouse dbt/kustomize gate. |
+| [`smoke-e2e.yml`](../.github/workflows/smoke-e2e.yml) | nightly + manual | Isolated backend/admin/API and Clinical AI smoke coverage. |
+| [`ci-warehouse.yml`](../.github/workflows/ci-warehouse.yml) | warehouse paths on PR/main | Migration-built warehouse dbt/kustomize gate. |
+| [`post-deploy-smoke.yml`](../.github/workflows/post-deploy-smoke.yml) | manual only | Approved external API/admin/version probes; Sentry submission separately opted in. |
+| [`trial-readiness-smoke.yml`](../.github/workflows/trial-readiness-smoke.yml) | manual only | Approved hosted staff-role/login sweep; create probes separately opted in. |
+
+The two hosted smoke workflows require named authority, its reference, approved
+origins and an exact expected commit before any probe. Creates and Sentry
+submission default off; creates require their own write-authority reference.
+No workflow definition or source change is permission to execute these checks,
+publish an artifact, distribute an app or deploy. See
+[`FORGEJO_RETIREMENT.md`](FORGEJO_RETIREMENT.md) for the detailed mapping.
 
 Shared job definitions live in reusable workflows:
 
@@ -942,30 +935,29 @@ This keeps path-filtered CI and the scheduled sweep in lockstep.
 
 | Gate | Where | Behaviour |
 |---|---|---|
-| `npm audit --audit-level=high` | `_reusable-backend-lint-test.yml:66`, `_reusable-admin-ci.yml:52` | Fails CI on any high-severity advisory. |
+| `npm audit --audit-level=high` | Backend/admin reusables | Findings fail at high severity; advisory-service outages may skip only when dependency inputs are unchanged. |
 | `audit-ci --critical` | backend reusable | Second pass, fails on critical only. |
-| Trivy **filesystem** scan | Forgejo `security-sweep.yml` and GitHub reusables | Forgejo blocks on CRITICAL/HIGH vulnerabilities and secrets while emitting advisory misconfiguration SARIF; GitHub reusables block CRITICAL/HIGH source-tree scans. |
-| Trivy **image** scan | `release-images.yml:130-147`, `:285-302` | Scans the built container at its digest; SARIF upload to GitHub Security; `exit-code: 1` CRITICAL,HIGH, `ignore-unfixed: true`. |
-| Cosign keyless sign | `release-images.yml:162-177`, `:317-331` | Every tag at digest signed via GitHub OIDC. Verifiable with `cosign verify --certificate-identity-regexp ...`. |
-| SPDX SBOM | `release-images.yml:121-128`, `:276-283` | `anchore/sbom-action` uploads SBOM artefact per image. |
+| Trivy **filesystem** scan | `security-sweep.yml` and backend/admin reusables | Repository sweep blocks fixable CRITICAL/HIGH vulnerabilities and secrets; misconfiguration reports are advisory. |
+| Semgrep | Canonical security and `all.yml`; `security-sweep.yml` reports | Focused ERROR findings block; broad community rules and all-severity focused reports remain advisory. |
+| OSV | `security-sweep.yml` | Backend/admin/Dart lockfile findings are advisory pending triage. |
+| Trivy **image** scan | `container-supply-chain.yml`, `release-images.yml`, `deploy-dalekdefender.yml` | Local validation blocks fixable CRITICAL/HIGH vulnerabilities and secrets; release workflows retain their image vulnerability gates. |
+| Cosign keyless sign and verify | GitHub release/deploy workflows | Uses the workflow's GitHub OIDC identity; local container validation does not sign or publish. |
+| SPDX SBOM | `release-images.yml`, `container-supply-chain.yml` | Release artifacts retained; local validation's SBOM generation remains advisory. |
 
-Forgejo CD now supersedes the GitHub-specific image rows above: Forgejo
-`release-images.yml`, `deploy-dalekdefender.yml`, and
-`container-supply-chain.yml` run the blocking Trivy image scans; Forgejo release
-images are key-signed from `COSIGN_PRIVATE_KEY`; Dalek deploy verifies with
-`COSIGN_PUBLIC_KEY`; SBOMs upload as Forgejo workflow artifacts.
+External credential retirement, retained rollback-image trust and any live
+admission-policy sync require separate receipts. Retaining a historical public
+key does not authorize it as an active signer.
 
 ### API contract gates
 
 The OpenAPI spec at `apps/backend/src/docs/openapi.json` is **generated** from
 route registration, not hand-written, and four blocking gates keep it honest.
 All four are chained in the backend's `ci` script
-([`apps/backend/package.json:38`](../apps/backend/package.json)), which is what
-both CI trees ultimately run — GitHub via
-[`_reusable-backend-lint-test.yml`](../.github/workflows/_reusable-backend-lint-test.yml)
-(which also invokes `openapi:lint-budget` directly at line 111), Forgejo via the
-`backend` matrix stage in [`ci.yml`](../.forgejo/workflows/ci.yml) →
-`scripts/ci/backend.mjs` → `npm run ci`.
+([`apps/backend/package.json`](../apps/backend/package.json)) and invoked
+explicitly by GitHub's
+[`_reusable-backend-lint-test.yml`](../.github/workflows/_reusable-backend-lint-test.yml).
+The same reusable retains the SQL-column/schema drift and Prisma relation-budget
+checks; role-policy tests remain part of the complete backend Jest discovery.
 
 | Gate | Script | Behaviour |
 |---|---|---|
@@ -988,16 +980,19 @@ barrel router — are in
 
 [`.github/dependabot.yml`](../.github/dependabot.yml) covers:
 
-- `pub` (Dart): `/apps/patient`, `/apps/staff`, `/packages/vhhealth_core`
-- `npm`: `/apps/backend`, `/apps/admin`
+- `pub` (Dart): the root workspace plus patient/staff/core member manifests
+- `npm`: backend, admin, device gateway and the declared infrastructure tools
 - `github-actions`: `/` (workflow `uses:` refs)
-- `docker`: `/infra/kubernetes/apps/{backend,admin}` (image refs)
+- `docker`: the actual application Dockerfile directories
 
 All weekly, grouped (minor + patch into one PR), major-version bumps
 ignored (manual review). Helm chart bumps under
 `infra/kubernetes/base/*` are **not** Dependabot-tracked; a manual
 record lives at
 [`infra/kubernetes/base/CHART_UPDATES.md`](../infra/kubernetes/base/CHART_UPDATES.md).
+Kubernetes manifest-image update parity with retired Renovate remains held;
+Dockerfile coverage is not evidence of Kubernetes YAML coverage. See
+[`qa/dependency-updates.md`](qa/dependency-updates.md).
 
 ### CODEOWNERS
 

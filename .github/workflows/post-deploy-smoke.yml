@@ -1,0 +1,79 @@
+name: Post Deploy Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorized_by:
+        description: 'Named owner authorizing this hosted smoke run'
+        required: true
+        type: string
+      authority_ref:
+        description: 'Owner approval receipt for the target and smoke scope'
+        required: true
+        type: string
+      api_origin:
+        description: 'Approved API origin, without a path'
+        required: true
+        type: string
+      expected_commit:
+        description: 'Full 40-character commit SHA deployed at the approved origin'
+        required: true
+        type: string
+      admin_origin:
+        description: 'Approved admin origin, without a path'
+        required: true
+        type: string
+      include_sentry:
+        description: 'Submit test envelopes to all three approved Sentry projects'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: post-deploy-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: Authorized API and admin smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VH_SMOKE_AUTHORIZED_BY: ${{ inputs.authorized_by }}
+      VH_SMOKE_AUTHORITY_REF: ${{ inputs.authority_ref }}
+      VH_TRIAL_API_ORIGIN: ${{ inputs.api_origin }}
+      VH_TRIAL_ADMIN_ORIGIN: ${{ inputs.admin_origin }}
+      VH_SMOKE_EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+      VH_REQUIRE_VERSION_MATCH: 'true'
+      VH_SMOKE_INCLUDE_SENTRY: ${{ inputs.include_sentry && 'true' || 'false' }}
+      SENTRY_SMOKE_REQUIRED: ${{ inputs.include_sentry && 'true' || 'false' }}
+      SENTRY_SMOKE_ENVIRONMENT: github-post-deploy
+      VH_MONITORING_TOKEN: ${{ secrets.VH_MONITORING_TOKEN }}
+      SENTRY_DSN_BACKEND: ${{ secrets.SENTRY_DSN_BACKEND }}
+      SENTRY_DSN_ADMIN: ${{ secrets.SENTRY_DSN_ADMIN }}
+      SENTRY_DSN_STAFF: ${{ secrets.SENTRY_DSN_STAFF }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '26.5.0'
+
+      - name: Require smoke authority and target configuration
+        run: node scripts/ci/manual-smoke-preflight.mjs --mode post-deploy
+
+      - name: Check the approved deployed target
+        run: node scripts/ci/post-deploy-smoke.mjs
+
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: post-deploy-smoke
+          path: output/post-deploy-smoke
+          if-no-files-found: ignore

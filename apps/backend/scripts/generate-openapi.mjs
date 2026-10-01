@@ -72,6 +72,7 @@ import * as facilityAssets from './openapi/schemas/facilityAssets.mjs';
 import * as integrationGates from './openapi/schemas/integrationGates.mjs';
 import * as terminology from './openapi/schemas/terminology.mjs';
 import * as uhi from './openapi/schemas/uhi.mjs';
+import * as operationalLookups from './openapi/schemas/operationalLookups.mjs';
 
 const SCHEMA_MODULES = [
   abdm,
@@ -132,7 +133,8 @@ const SCHEMA_MODULES = [
   facilityAssets,
   integrationGates,
   terminology,
-  uhi
+  uhi,
+  operationalLookups
 ];
 
 /** Merge subsystem schema modules: base schemas first (order preserved), then the

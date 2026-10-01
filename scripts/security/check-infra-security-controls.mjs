@@ -28,12 +28,8 @@ const adminLock = JSON.parse(read('apps/admin/package-lock.json'));
 const staffWebDockerfile = read('apps/staff/Dockerfile.web');
 const mcpIndex = read('infra/mcp/vh-mcp-postgres/index.js');
 const mcpK8s = read('infra/mcp/vh-mcp-postgres/k8s.yaml');
-const forgejoReleaseImages = read('.forgejo/workflows/release-images.yml');
-const forgejoDalekDeploy = read('.forgejo/workflows/deploy-dalekdefender.yml');
-const forgejoContainerSupplyChain = read('.forgejo/workflows/container-supply-chain.yml');
-const forgejoSecuritySweep = read('.forgejo/workflows/security-sweep.yml');
-const forgejoBuildkitHelper = read('scripts/ci/forgejo-buildkit-builder.mjs');
-const forgejoCosignPublicKey = read('infra/forgejo/signing/cosign.pub');
+const containerSupplyChain = read('.github/workflows/container-supply-chain.yml');
+const securitySweep = read('.github/workflows/security-sweep.yml');
 const githubReleaseImages = read('.github/workflows/release-images.yml');
 const githubDalekDeploy = read('.github/workflows/deploy-dalekdefender.yml');
 const backendIngress = read('infra/kubernetes/apps/backend/ingress.yaml');
@@ -119,14 +115,11 @@ check('minimatch, brace-expansion and js-yaml resolve at patched releases in bot
   lockfileMeetsPatchedFloors(adminLock));
 
 check('release workflows keep backend base image overrides digest-pinned', () => {
-  const workflowBuilds = `${forgejoReleaseImages}\n${forgejoDalekDeploy}\n${forgejoContainerSupplyChain}\n${githubReleaseImages}\n${githubDalekDeploy}`;
-  return !/NODE_IMAGE=(?![^\r\n]*@sha256:[a-f0-9]{64})/m.test(workflowBuilds) &&
-    new RegExp(`^  'mirror\\.gcr\\.io/library/node:26\\.5\\.0-alpine${sha256Digest}';$`, 'm')
-      .test(forgejoBuildkitHelper) &&
-    forgejoBuildkitHelper.includes('`NODE_IMAGE=${NODE_IMAGE}`');
+  const workflowBuilds = [containerSupplyChain, githubReleaseImages, githubDalekDeploy].join('\n');
+  return !/NODE_IMAGE=(?![^\r\n]*@sha256:[a-f0-9]{64})/m.test(workflowBuilds);
 });
 
-check('backend generation stays within the Forgejo runner memory budget', () =>
+check('backend generation retains the bounded memory budget', () =>
   backendDockerfile.includes(
     'RUN NODE_OPTIONS=--max-old-space-size=4096 npx prisma generate',
   ) && backendCi.includes("NODE_OPTIONS: '--max-old-space-size=4096'"));
@@ -159,49 +152,25 @@ check('runtime images apply Alpine security updates unscoped', () =>
 // constrained to linux/amd64 while the Dockerfile stays x64-tarball-only.
 check('staff web image builds stay amd64-only while Flutter ships no linux-arm64 SDK', () =>
   staffWebDockerfile.includes('this image is linux/amd64-ONLY') &&
-  /file: \.\/apps\/staff\/Dockerfile\.web[\s\S]{0,900}?platforms: linux\/amd64\n/.test(githubReleaseImages) &&
-  forgejoReleaseImages.includes('build_platforms="linux/amd64"'));
+  /file: \.\/apps\/staff\/Dockerfile\.web[\s\S]{0,900}?platforms: linux\/amd64\n/.test(githubReleaseImages));
 
-check('Forgejo admin image builds provide the backend named context', () =>
-  forgejoContainerSupplyChain.includes(
-    "build_contexts: '--build-context backend=apps/backend'",
-  ) &&
-  forgejoDalekDeploy.includes(
-    'node scripts/ci/forgejo-buildkit-builder.mjs build dalek',
-  ) &&
-  forgejoReleaseImages.includes(
-    'node scripts/ci/forgejo-buildkit-builder.mjs build release',
-  ) &&
-  (forgejoBuildkitHelper.match(/buildContexts: \['backend=apps\/backend'\]/g) || []).length === 2);
+check('GitHub admin image builds provide the backend named context', () =>
+  [containerSupplyChain, githubDalekDeploy, githubReleaseImages].every(
+    (workflow) => workflow.includes('backend=apps/backend'),
+  ));
 
-check('Forgejo image scans use resilient official Trivy DB fallbacks', () => {
-  const workflows = [
-    forgejoContainerSupplyChain,
-    forgejoDalekDeploy,
-    forgejoReleaseImages,
-    forgejoSecuritySweep,
-  ];
-  return workflows.every(
-    (workflow) =>
-      workflow.includes(
-        '--db-repository public.ecr.aws/aquasecurity/trivy-db:2',
-      ) &&
+check('GitHub image scans use resilient official Trivy DB fallbacks', () =>
+  [containerSupplyChain, githubDalekDeploy, githubReleaseImages, securitySweep].every(
+    (workflow) => workflow.includes('--db-repository public.ecr.aws/aquasecurity/trivy-db:2') &&
       workflow.includes('--db-repository docker.io/aquasec/trivy-db:2'),
-  );
-});
-
-check('Forgejo Dalekdefender transport fails closed on missing prerequisites', () =>
-  forgejoDalekDeploy.includes(
-    'forgejo-deploy-preflight.mjs --mode dalek-deploy',
-  ) &&
-  !forgejoDalekDeploy.includes(
-    'forgejo-deploy-preflight.mjs --mode dalek-deploy --allow-skip',
   ));
 
-check('Forgejo signing public key is retained for admission verification', () =>
-  /^-----BEGIN PUBLIC KEY-----\n[A-Za-z0-9+/=\n]+\n-----END PUBLIC KEY-----\n$/.test(
-    forgejoCosignPublicKey,
-  ));
+check('GitHub Dalekdefender transport fails closed on missing prerequisites', () =>
+  githubDalekDeploy.includes('::error::') &&
+  githubDalekDeploy.includes('Deployment requires configured credentials and pinned host keys') &&
+  !githubDalekDeploy.includes('Skipping deploy') &&
+  !githubDalekDeploy.includes('skip=true') &&
+  /Deployment requires configured credentials and pinned host keys[\s\S]{0,200}exit 1/.test(githubDalekDeploy));
 
 check('MCP bridge rejects query-string tokens', () =>
   !mcpIndex.includes('req.query.token') &&
@@ -217,12 +186,12 @@ check('MCP Kubernetes service remains ClusterIP with no NodePort', () =>
   !/type:\s*NodePort/i.test(mcpK8s) &&
   !/nodePort:/i.test(mcpK8s));
 
-check('Forgejo release image job does not pass SENTRY_AUTH_TOKEN as build arg', () =>
-  !forgejoReleaseImages.includes('SENTRY_AUTH_TOKEN=${SENTRY_AUTH_TOKEN') &&
-  !forgejoReleaseImages.includes('--build-arg "SENTRY_AUTH_TOKEN='));
+check('GitHub release image job does not pass SENTRY_AUTH_TOKEN as build arg', () =>
+  !githubReleaseImages.includes('SENTRY_AUTH_TOKEN=${SENTRY_AUTH_TOKEN') &&
+  !githubReleaseImages.includes('--build-arg "SENTRY_AUTH_TOKEN='));
 
-check('Forgejo secret-bearing jobs do not execute downloaded install scripts', () => {
-  const combined = `${forgejoReleaseImages}\n${forgejoDalekDeploy}`;
+check('GitHub secret-bearing jobs do not execute downloaded install scripts', () => {
+  const combined = `${githubReleaseImages}\n${githubDalekDeploy}`;
   return !/curl[\s\S]{0,160}\|\s*sh\b/.test(combined) &&
     !/curl[\s\S]{0,160}\|\s*bash\b/.test(combined);
 });

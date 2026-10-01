@@ -1,0 +1,211 @@
+name: vhhealth-laptop
+
+x-contained: &contained
+  restart: "no"
+  pull_policy: never
+  init: true
+  dns: [127.0.0.1]
+  dns_search: ["."]
+  networks: [laptop]
+  security_opt: [no-new-privileges:true]
+  stop_grace_period: 30s
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  postgres:
+    <<: *contained
+    profiles: [database, runtime]
+    image: pgvector/pgvector@sha256:494dff7e67e7bc2c826b94c331364978d145ebb86fd338154138b084223b7f67
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 128
+    shm_size: 128m
+    environment:
+      PGDATA: /var/lib/postgresql/data/pgdata
+    entrypoint: [/bin/sh, -ec]
+    command:
+      - |
+        test -s "$$PGDATA/PG_VERSION" || { echo 'Refusing an uninitialized restore volume' >&2; exit 1; }
+        test "$$(cat "$$PGDATA/PG_VERSION")" = 17 || { echo 'Expected restored PostgreSQL 17 data' >&2; exit 1; }
+        test -s "$$PGDATA/global/pg_control" || { echo 'Restored control file missing' >&2; exit 1; }
+        exec /usr/local/bin/docker-entrypoint.sh postgres -c listen_addresses='*' -c shared_buffers=256MB -c max_connections=60
+    volumes:
+      - type: volume
+        source: restored_postgres
+        target: /var/lib/postgresql/data
+        volume:
+          nocopy: true
+    healthcheck:
+      test: [CMD, pg_isready, -h, 127.0.0.1, -p, "5432"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
+  backend:
+    <<: *contained
+    profiles: [runtime]
+    image: ghcr.io/bahuleyandr/vh-health-platform-backend@sha256:94739041b7d96e30517085a8950544953fd062dbeb34c478d57140e03d46d883
+    user: "1000:1000"
+    read_only: true
+    cap_drop: [ALL]
+    mem_limit: 1536m
+    cpus: 1.0
+    pids_limit: 128
+    entrypoint: [node]
+    command: [src/bin/www.js]
+    env_file:
+      - path: ${LAPTOP_BACKEND_ENV_FILE:?Provide the reviewed private backend env file}
+        required: true
+        format: raw
+    environment:
+      NODE_ENV: production
+      NODE_OPTIONS: --max-old-space-size=768
+      PORT: "5000"
+      RUN_MIGRATIONS: "false"
+      AUTH_ENFORCE_TENANT_RLS: "true"
+      AUTH_TENANT_RLS_RUNTIME_ROLE: vhhealth_app
+      AUTH_TENANT_RLS_TEST_ROLE: ""
+      AUTH_TENANT_RLS_FAIL_OPEN: "false"
+      ALLOW_DEV_OTP: "false"
+      ALLOWED_ORIGINS: https://localhost:8445
+      PUBLIC_BASE_URL: https://localhost:8444
+      API_PUBLIC_URL: https://localhost:8444
+      ADMIN_IP_ALLOWLIST: 127.0.0.1
+      REDIS_REQUIRE_SENTINEL: "false"
+      REDIS_URL: ""
+      REDIS_SENTINEL_HOSTS: ""
+      SENTRY_DSN: ""
+      SECURITY_WEBHOOKS_ENABLED: "false"
+      FIREBASE_AUTH_ENABLED: "false"
+      SMS_PROVIDER: logger
+      LOG_DIR: /state/logs
+      STORAGE_LOCAL_DIR: /state/storage/local-r2
+      STORAGE_PUBLIC_BASE_URL: https://localhost:8444
+      STORAGE_ALLOWED_BASE_URLS: https://localhost:8444
+      DOWNTIME_MIRROR_DIR: /state/downtime
+    volumes:
+      - type: bind
+        source: ${LAPTOP_BACKEND_STATE_DIR:?Provide a new private writable backend state directory}
+        target: /state
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m,mode=1777
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, --input-type=module, -e, "const r = await fetch('http://127.0.0.1:5000/health/ready', { headers: { 'x-forwarded-proto': 'https', 'x-monitoring-token': process.env.MONITORING_TOKEN || '' }, signal: AbortSignal.timeout(4000) }); if (!r.ok) process.exit(1);"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 60s
+
+  admin:
+    <<: *contained
+    profiles: [runtime]
+    image: ${LAPTOP_ADMIN_IMAGE_ID:?Provide the verified local Admin sha256 image ID}
+    user: "1001:1001"
+    read_only: true
+    cap_drop: [ALL]
+    mem_limit: 1g
+    cpus: 1.0
+    pids_limit: 128
+    entrypoint: [node]
+    command: [node_modules/next/dist/bin/next, start, -p, "3001", -H, 0.0.0.0]
+    env_file:
+      - path: ${LAPTOP_ADMIN_ENV_FILE:?Provide the reviewed private Admin env file}
+        required: true
+        format: raw
+    environment:
+      NODE_ENV: production
+      NODE_OPTIONS: --max-old-space-size=768
+      NEXT_TELEMETRY_DISABLED: "1"
+      BACKEND_URL: http://backend:5000
+      NEXT_PUBLIC_API_URL: https://localhost:8444
+      NEXT_PUBLIC_ALLOWED_ORIGIN: https://localhost:8445
+      ADMIN_CANONICAL_ORIGIN: https://localhost:8445
+      ADMIN_IP_ALLOWLIST: 127.0.0.1
+      NEXT_PUBLIC_WS_URL: wss://localhost:8444
+      NEXT_PUBLIC_METABASE_ORIGIN: ""
+      NEXT_PUBLIC_SENTRY_DSN: ""
+      SENTRY_DSN: ""
+      SENTRY_UPLOAD_SOURCE_MAPS: "false"
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m,mode=1777
+      - /app/.next/cache:rw,noexec,nosuid,nodev,size=128m,uid=1001,gid=1001,mode=0700
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, --input-type=module, -e, "const r = await fetch('http://127.0.0.1:3001/login', { headers: { host: 'localhost:8445', 'x-forwarded-proto': 'https', 'x-forwarded-for': '127.0.0.1' }, redirect: 'manual', signal: AbortSignal.timeout(4000) }); if (r.status !== 200) process.exit(1);"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 30s
+
+  proxy:
+    <<: *contained
+    profiles: [runtime]
+    networks: [laptop, edge]
+    image: nginxinc/nginx-unprivileged@sha256:f35982400455b4f359083ba9d1ef573fbbe4221a6a8a194dc7a14beb4e2cd3dc
+    read_only: true
+    cap_drop: [ALL]
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 64
+    entrypoint: [nginx]
+    command: [-g, "daemon off;"]
+    ports:
+      - "127.0.0.1:8444:8444"
+      - "127.0.0.1:8445:8445"
+    volumes:
+      - type: bind
+        source: ./nginx.conf
+        target: /etc/nginx/nginx.conf
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${LAPTOP_TLS_DIR:?Provide the private localhost TLS directory}
+        target: /etc/nginx/tls
+        read_only: true
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m,mode=1777
+    depends_on:
+      backend:
+        condition: service_healthy
+      admin:
+        condition: service_healthy
+
+networks:
+  laptop:
+    name: vhhealth-laptop-internal
+    driver: bridge
+    internal: true
+    enable_ipv6: false
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+    ipam:
+      config:
+        - subnet: 10.231.254.32/28
+  edge:
+    name: vhhealth-laptop-edge
+    driver: bridge
+    internal: false
+    enable_ipv6: false
+    ipam:
+      config:
+        - subnet: 10.231.254.48/28
+
+volumes:
+  restored_postgres:
+    external: true
+    name: ${LAPTOP_POSTGRES_VOLUME:?Provide the verified already-restored external volume}

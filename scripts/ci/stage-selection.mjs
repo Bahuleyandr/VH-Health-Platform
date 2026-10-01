@@ -57,6 +57,7 @@ const infraPatterns = [
   /^infra\/kubernetes\//,
   /^docs\/CNPG_POSTGRES_18_QUALIFICATION\.md$/,
   /^docs\/DEPLOYMENT_GUIDE\.md$/,
+  /^docs\/WORKFLOW_SUPPLY_CHAIN_PINS\.md$/,
   /^scripts\/validate-kubernetes-manifests\.mjs$/,
   /^scripts\/check-c1-1-manifest-contract\.mjs$/,
   /^scripts\/check-c1-1-manifest-contract\.test\.mjs$/,
@@ -86,8 +87,7 @@ const infraInputPatterns = [
   // Container build definitions. backend-image-command-contract parses
   // apps/backend/Dockerfile into the image model it checks every manifest
   // command against; the admin and staff images the same overlays deploy are
-  // built from theirs, and scripts/ci/forgejo-buildkit-builder.mjs — contract
-  // tested inside this stage — names all three as its build inputs.
+  // built from theirs. The container-validation workflow builds all three.
   /^apps\/[^/]+\/Dockerfile(\.[^/]+)?$/,
   // Everything that same contract resolves *inside* the image: the `npm run`
   // script table it maps aliases through, the CMD/HEALTHCHECK target, and the
@@ -102,8 +102,7 @@ const infraInputPatterns = [
   /^CLAUDE\.md$/,
   /^docs\/HARDWARE_REQUIREMENTS\.md$/,
   /^apps\/device-gateway\/README\.md$/,
-  // The non-Kubernetes infra trees these jobs also run: infra/forgejo's
-  // ci-image Dockerfile (supply-chain pins), infra/cloudflare (zero-trust
+  // The non-Kubernetes infra trees these jobs also run: infra/cloudflare (zero-trust
   // pack), infra/continuity-edge (`npm test --prefix` in the reusable
   // workflow). Unknown to every stage today, so they still force a full sweep;
   // listing them keeps infra selected if that ever stops being true.

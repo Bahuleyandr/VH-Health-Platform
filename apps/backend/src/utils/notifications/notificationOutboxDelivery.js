@@ -1,7 +1,9 @@
-import prisma, { setTenant } from '../../lib/prisma.js';
+import { performance } from 'node:perf_hooks';
+import prisma, { setTenant, setTenantTx } from '../../lib/prisma.js';
 import { runInTenantContext } from '../../lib/tenantContext.js';
 import logger from '../../logging/logger.js';
 import { sendSMS } from '../../services/smsService.js';
+import { normalizeIndianSmsPhone } from '../phoneUtils.js';
 import {
   applyProviderReceiptToCursor,
   beginProviderAttempts,
@@ -227,6 +229,118 @@ function uncertain(providerCode, err) {
 }
 
 const SMS_OUTCOMES = new Set(['acknowledged', 'rejected', 'uncertain']);
+const BOOKING_SMS_TYPES = new Set(['investigation_confirmed', 'investigation_result_ready']);
+const BOOKING_SMS_SOURCE = /^investigation-(?:booking-confirmed|result-ready):/;
+const RECIPIENT_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const BOOKING_SMS_TRANSACTION_MS = 20_000;
+const BOOKING_SMS_TRANSPORT_MS = 10_000;
+const BOOKING_SMS_COMMIT_RESERVE_MS = 2_000;
+
+function isBookingSms(row) {
+  const payload = payloadObject(row);
+  return [row.type, payload.type].some(value => BOOKING_SMS_TYPES.has(String(value || '').trim().toLowerCase()))
+    || /^sms\.investigation_(?:booking_confirmed|result_ready)\./.test(row.template_version || '')
+    || BOOKING_SMS_SOURCE.test(row.source_event_key || '');
+}
+
+function positiveInt8Text(value) {
+  if (typeof value === 'number' && !Number.isSafeInteger(value)) return null;
+  if (!['string', 'number', 'bigint'].includes(typeof value)) return null;
+  const text = String(value).trim();
+  if (!/^\d+$/.test(text) || text.length > 19) return null;
+  const integer = BigInt(text);
+  return integer > 0n && integer <= 9223372036854775807n ? integer.toString() : null;
+}
+
+async function deliverBookingSms(row, tenantId) {
+  const bookingId = positiveInt8Text(payloadObject(row).booking_id);
+  const recipientId = positiveInt8Text(row.recipient_id);
+  const recipientUid = typeof row.recipient_id === 'string'
+    && RECIPIENT_UUID_RE.test(row.recipient_id.trim()) ? row.recipient_id.trim().toLowerCase() : null;
+  const phone = typeof row.recipient_phone === 'string'
+    ? normalizeIndianSmsPhone(row.recipient_phone) : null;
+  if (!bookingId || (!recipientId && !recipientUid) || !phone) {
+    return rejected('booking_sms_recipient_mismatch');
+  }
+  if (BOOKING_SMS_SOURCE.test(row.source_event_key || '')) {
+    const sourceId = row.source_event_key.match(/^[^:]+:(\d+)(?:[:~]|$)/)?.[1];
+    if (positiveInt8Text(sourceId) !== bookingId) {
+      return rejected('booking_sms_recipient_mismatch');
+    }
+  }
+  try {
+    return normalizeSmsProviderResult(await runInTenantContext(tenantId, () => sendSMS(
+      row.recipient_phone,
+      `${row.title ? `${row.title}: ` : ''}${row.body || ''}`,
+      {
+        tenantId, templateVersion: row.template_version || null, outboxId: row.id,
+        withPreparedSend: async prepared => {
+          let providerResult;
+          let transportStarted = false;
+          let controller;
+          const deadline = performance.now() + BOOKING_SMS_TRANSACTION_MS;
+          try {
+            return await setTenantTx(tenantId, async tx => {
+              await tx.$queryRawUnsafe("SELECT set_config('lock_timeout', '2000ms', true)");
+              // Patient-first ordering agrees with merge and deletion. Both
+              // locks must survive until the prepared transport settles.
+              const patients = await tx.$queryRawUnsafe(
+                `SELECT p.id::text AS patient_id, p.uid::text AS patient_uid, p.phone
+                   FROM users p
+                  WHERE p.tenant_id = $1::uuid
+                    AND (p.id = $2::bigint OR p.uid = $3::uuid)
+                    AND p.role = 'PATIENT' AND p.is_active = true AND p.status = 'active'
+                    AND p.is_deleted = false AND p.deleted_at IS NULL
+                    AND p.merged_into_uid IS NULL AND p.merged_at IS NULL
+                  FOR SHARE`,
+                tenantId, recipientId, recipientUid,
+              );
+              const patient = patients[0];
+              if (patients.length !== 1 || !patient
+                || (recipientId !== patient.patient_id && recipientUid !== patient.patient_uid)
+                || normalizeIndianSmsPhone(patient.phone) !== phone) {
+                return rejected('booking_sms_recipient_mismatch');
+              }
+              const bookings = await tx.$queryRawUnsafe(
+                `SELECT patient_id::text AS patient_id FROM investigation_bookings
+                  WHERE tenant_id = $1::uuid AND id = $2::bigint FOR SHARE`,
+                tenantId, bookingId,
+              );
+              if (bookings.length !== 1 || bookings[0].patient_id !== patient.patient_id) {
+                return rejected('booking_sms_recipient_mismatch');
+              }
+              if (prepared.result) return prepared.result;
+              if (deadline - performance.now() < BOOKING_SMS_TRANSPORT_MS + BOOKING_SMS_COMMIT_RESERVE_MS) {
+                return { outcome: 'uncertain', providerReference: null,
+                  providerCode: 'booking_sms_send_budget_exhausted', evidence: {} };
+              }
+              transportStarted = true;
+              controller = new AbortController();
+              providerResult = normalizeSmsProviderResult(await prepared.send({
+                signal: AbortSignal.any([controller.signal, AbortSignal.timeout(BOOKING_SMS_TRANSPORT_MS)]),
+                startBefore: deadline - BOOKING_SMS_TRANSPORT_MS - BOOKING_SMS_COMMIT_RESERVE_MS,
+              }));
+              return providerResult;
+            }, { maxWait: 2_000, timeout: BOOKING_SMS_TRANSACTION_MS });
+          } catch {
+            controller?.abort();
+            // A read-only COMMIT failure cannot revoke provider acceptance.
+            // Never retry this transaction or the external send.
+            return providerResult || { outcome: 'uncertain', providerReference: null,
+              providerCode: transportStarted
+                ? 'booking_sms_transport_unresolved' : 'booking_sms_recipient_lookup_failed',
+              evidence: {} };
+          }
+        },
+      },
+    )));
+  } catch {
+    return {
+      outcome: 'uncertain', providerReference: null,
+      providerCode: 'booking_sms_preparation_failed', evidence: {},
+    };
+  }
+}
 
 /** Defensive pass-through: sendSMS already returns the receipt shape; a
  * malformed/absent result must classify as uncertain, never acknowledged. */
@@ -339,7 +453,15 @@ export async function deliverNotificationOutboxRow(row) {
     }
   }
 
-  if (pendingAttempts.length > 0 && decision.source === 'tenant') {
+  let routedAttempts = pendingAttempts;
+  if (pendingAttempts.some(attempt => attempt.channel === 'sms') && isBookingSms(row)) {
+    providerResults.sms = await deliverBookingSms(row, decision.tenantId);
+    // Tenant dispatch resolves the current phone again. A booking's rendered
+    // intent must instead retain its captured, now-checked recipient address.
+    routedAttempts = pendingAttempts.filter(attempt => attempt.channel !== 'sms');
+  }
+
+  if (routedAttempts.length > 0 && decision.source === 'tenant') {
     const userId = row.recipient_id !== null && row.recipient_id !== undefined && row.recipient_id !== ''
       ? String(row.recipient_id)
       : String(row.recipient_phone || '').trim();
@@ -349,7 +471,7 @@ export async function deliverNotificationOutboxRow(row) {
     // throwing here left the row leased until lease-expiry marked it
     // RECONCILIATION_REQUIRED and paused the whole channel).
 
-    const pendingChannels = pendingAttempts.map(attempt => attempt.channel);
+    const pendingChannels = routedAttempts.map(attempt => attempt.channel);
     const dryRun = forceDryRunProviders(pendingChannels);
     if (dryRun.dryRunChannels.length > 0) {
       logger.info('notification-outbox-drain: provider unavailable for durable delivery', {
@@ -378,10 +500,10 @@ export async function deliverNotificationOutboxRow(row) {
     } finally {
       dryRun.restore();
     }
-  } else if (pendingAttempts.length > 0) {
+  } else if (routedAttempts.length > 0) {
     Object.assign(providerResults, await deliverLegacyWithProviderReceipt(
       row,
-      pendingAttempts.map(attempt => attempt.channel),
+      routedAttempts.map(attempt => attempt.channel),
       decision.tenantId,
     ));
   }

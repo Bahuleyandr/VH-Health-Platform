@@ -1,11 +1,11 @@
 # VH Health Full-Repository Audit — Reconciled Ledger
 
-**Latest bounded reconciliation:** 2026-09-27, authoritative `github/main`
-`6543707c78ef01bd3e4894f5f38e162bcf462ee9`. This update records the merged
-scope of #1094–#1095 and #1097–#1100, preserving the September 26 receipts for #1023 and
+**Latest bounded reconciliation:** 2026-09-29, authoritative `github/main`
+`a38055b8d2f3e2215ccc17338f6e199d0a063685`. This update records #1102's merged
+scope, preserving the #1094–#1095/#1097–#1100 and September 26 receipts for #1023 and
 #1091; it is **not a new whole-repository audit**. OPEN-23 retains its
 September 16 constraint receipt below. Other rows retain their explicitly
-dated evidence, not an implied September 27 verification.
+dated evidence, not an implied September 29 verification.
 
 The original remediation snapshot was branch `fix/full-repository-audit-2026-08`,
 head `b3807dccbc9281e94182041dd440542e6e77f14d`, draft PR
@@ -127,22 +127,24 @@ Live exact-head hosted evidence read for this bounded receipt:
 | #1099 final head | `a7134f4f317dc5b1a6ae718a560a78c23e48452d` | [36233930556](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/36233930556) | Both exact aggregate names: success. |
 | #1100 final head | `fb9d5b6c3851d30e40e0081da1d28762ab27e09a` | [36246946190](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/36246946190) | Both exact aggregate names: success. |
 
+At the September 27 checkpoint,
 [PR #1102](https://github.com/Bahuleyandr/VH-Health-Platform/pull/1102) was
 queried separately: **OPEN, draft**, head
 `55a7c0a5f39ba7f1e7b8b50936528885e5385c4f`. Its Ward-indent, booking-access,
-theatre-read and RLS-census repairs are not implemented-on-main evidence.
+theatre-read and RLS-census repairs were not yet implemented-on-main evidence.
 Hosted run [36333311625](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/36333311625)
 completed successfully on that exact head: `Merge Gate`, `Full Merge Gate`,
 three backend shards and six `full_*` jobs all succeeded. That result and the
-local verification packet do not close any finding in this ledger before a
-reviewed merge. External authority stops below remain unchanged.
+local verification packet did not close findings before a reviewed merge.
+The final merge receipt below supersedes that draft status, not those results.
 
-### 2026-09-28 local expansion of draft #1102
+### 2026-09-28 local expansion of draft #1102 — historical focused receipts
 
 The owner requested consolidation of further technical remediation into #1102.
-The local integration includes the independently verified Admin incident-dialog,
-Staff MAR navigation and audit-documentation lanes. The published head above
-has not changed; its green checks do not verify this expanded local tree.
+The local integration included the independently verified Admin incident-dialog,
+Staff MAR navigation and audit-documentation lanes. At this intermediate
+checkpoint, the published head above had not changed; its green checks did not
+verify the expanded local tree.
 
 Three additional repairs now have independently reviewed focused verification:
 
@@ -198,10 +200,51 @@ summaries are `tenant-cd664440d-focused-verification.md` and
 artifact directory; the first vitals evidence is retained separately in
 `vitals-21f23720a-attempt1-evidence`, and the later two-pass receipt is
 `vitals-21f23720a-focused-verification.md`. No application tests were rerun for this
-documentation update. The final combined head still requires reviewed
-RLS-census regeneration, a fresh presentation rescan and all applicable CI
-before publication and independent merge review. None of these focused
-receipts establishes full-CI, implemented-on-main or release qualification.
+documentation update. At that checkpoint, the combined head still required
+reviewed RLS-census regeneration, a fresh presentation rescan and all applicable
+CI before publication and independent merge review. None of these focused
+receipts alone establishes full-CI, implemented-on-main or release qualification.
+
+### 2026-09-29 bounded merged-scope receipt — #1102
+
+GitHub confirms #1102 merged on September 28 at 02:04:59 UTC as
+`a38055b8d2f3e2215ccc17338f6e199d0a063685`, still the authoritative main tip
+when rechecked on September 29. Its parents are reviewed base
+`6543707c78ef01bd3e4894f5f38e162bcf462ee9` and final source
+`0b69f9a95a6bfa0fe08c901a26d5a12a9e2f6b64`. The merge tree matches the tested
+source tree exactly: `661aa918b20f463f1063302a69c5884a5548c8c2`.
+
+The 59-path merged scope includes Ward-indent concurrency guards,
+patient/tenant-scoped booking access, theatre read contracts and the fail-closed
+checklist editor, Admin incident-dialog races, Staff MAR navigation, tenant
+provisioning atomicity, presentation-inventory reconciliation, test-fixture/mock
+repairs and reviewed RLS-census generation/CI assurance. It adds no migration,
+dependency lockfile or Dockerfile change. The census dispositions and all 806
+presentation review entries remain pending; the complete theatre write contract
+is not approved by the read-only restriction.
+
+Final-source [Canonical CI run 36364104026](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/36364104026)
+completed successfully: literal `Merge Gate` and `Full Merge Gate`, three backend
+shards and all six `full_*` jobs succeeded. Seven QUICK jobs were intentionally
+skipped, not passed. Independent review accepted the exact source before the
+normal protected merge; no administrator bypass was used.
+
+The independently reviewed isolated-Linux local evidence is a composite, not a
+single successful driver run. The original driver completed 18 green phases,
+including all 341 backend chunks, then exited 1 when Flutter's first-run
+analytics notice followed its version JSON. That failed receipt is preserved.
+A separately reviewed same-source continuation passed Flutter formatting,
+generation, analysis, tests and Staff web build without weakening the version
+parser. Core/Patient/Staff tests passed 468/773/1,834 cases respectively; one
+pre-existing Staff scaffold smoke test remained skipped. No application tests
+were rerun for this documentation closeout.
+
+Automatic non-production [Dalek deployment run 36368429296](https://github.com/Bahuleyandr/VH-Health-Platform/actions/runs/36368429296)
+also completed successfully at the merge SHA. The September 28 read-only target
+receipt recorded one ready and available backend replica and one Admin replica.
+That is bounded rollout evidence, not production or clinical certification.
+Forgejo remediation is outside the September 29 resumption scope; this receipt
+does not claim its publication or distribution checks passed.
 
 Migration 803, booking-alert ownership/recovery decisions, maternity D2/D8,
 clinical configuration inheritance, linguistic sign-off, storage qualification
@@ -356,7 +399,7 @@ historical test measurements remain attributed to their PRs/runs.
 | OPEN-11 / OPEN-14 / OPEN-16 / OPEN-20 | PR #982 `9e70d950d`, #985 `15c4327b4`, #987 `0357b7f5f`, and #975 through train #978 `f4b6aa989`; existing closed-row receipts below. Current source retains the MAR query guards (`apps/admin/src/app/(with-auth)/dashboard/mar/page.tsx:164,174`), column-bound seed import (`apps/backend/scripts/seed-comprehensive-test-data.mjs:13`), approval-hash comparison (`apps/backend/src/services/engagement/engagementCampaignService.js:1258`), and mandatory retirement gate (`scripts/ci/security.mjs:216-217`). | Remain verified implemented; removed from ROADMAP's stale immediate queue. Earlier detailed test counts are not new measurements. |
 | OPEN-25 | PR #992 `25c8c99f9` and #996 `31be6be31`; `useFacilityAuthority.ts:42-75`, `OverviewTab.tsx:33-75`, `OrdersTab.tsx:78-115,229-241` under `apps/admin/src/app/(with-auth)/dashboard/pharmacy/components/`. | Verified implemented for the Overview and Orders reads. No synthetic staff/grant authority was added to make an unassigned administrator appear assigned. |
 | OPEN-26 | PR #986 teardown repair plus #1026 `3d091a510` (source `353d727ca`); `apps/backend/src/services/import/patientDataImport.js:50-69,1003-1019`, `apps/backend/src/tests/patient-data-import-vitals.deep.test.js:2965-3055`. | Verified implemented for the two named races. Nested PostgreSQL SQLSTATE now reaches the existing bounded fresh-transaction retry; this is not a waiver for unrelated flaky suites. |
-| OPEN-18 | `apps/admin/src/app/(with-auth)/dashboard/linen-laundry/components/useWardOptions.ts:41-42` still reads `/wards`; `apps/admin/src/lib/api/cssd.ts:394-399` still reads `/theatre/today`. | Still open. The least-privilege cross-module lookup decision is not supplied by the reprocessing kernel. |
+| OPEN-18 | `apps/admin/src/app/(with-auth)/dashboard/linen-laundry/components/useWardOptions.ts:41-42` still reads `/wards`; `apps/admin/src/lib/api/cssd.ts:394-399` still reads `/theatre/today`. | Still technically open. On 2026-09-30 the owner approved tenant-wide minimal projections, exact 21-role Linen / 15-role CSSD audiences and selector eligibility; ROADMAP records the decision and exclusions. Implementation, independent write prerequisites and verified role journeys remain open. The reprocessing kernel is not closure evidence. |
 | OPEN-21 | PR #1013 `212af1e95` lands Batch 1/1.1; #1027 `eb0dfeba1` lands Batch 1.2. `TRANSLATION_REVIEW_TRACKER.md:14-23,48-54,444,686-710` records the exact review boundaries. | Partial human review and bounded technical follow-up, not blanket language approval. Twenty-four new non-English device-status labels still require review; the 4,008 English-source Malayalam placeholder baseline is not translated by these batches. |
 | Cath readiness / isolation / reprocessing | #1025 `db30fe80b` fixes database-clock/date handling; #1028 `1c970c16e` supplies migration 767 and `dialysisIsolationResolver.js`; #1014 `e9bd6675d` and #1029 `c48e5f429` carry design/evidence decisions; #1030 `bbd69efc1` supplies migration 768; #1031 `4c1f5654c` supplies `reprocessableDeviceService.js`, rules/projections, and `reprocessableDeviceKernel.deep.test.js`. | Landed slices, **not a closed or activated Plan 4 program**. The plan's remaining workflows, independent acceptance and tenant clinical activation remain separate. Migration 767 is already applied-source territory, not a free slot. Cath-readiness redesign #1023 remains open/draft; #872 remains held by design. |
 
@@ -673,7 +716,7 @@ IDs without leaving them falsely open.
 | OPEN-8 | **Interoperability has no protocol conformance evidence.** The canonical write paths, adapters, retry, and replay are implemented and unit/deep-tested, but no HL7v2 or FHIR conformance suite has been run against a live endpoint. | Protocol E2E/conformance run recorded before any interop activation. |
 | OPEN-13 | **Migration 757 only partially supersedes the migration-753 JSON-scalar finding.** Migration 757 (`78e077e3a`) correctly normalizes SQL NULL and the JSON `null` scalar to `[]` (`757_pharmacy_clinical_projection_json_null.sql:74-76`), repairing the product order lifecycle without weakening the comparison fence. Other non-array scalars still raise SQLSTATE 22023 by design (`:32-34`). Re-verified through migration 762 on `61e7dcf7a`: nothing further addresses the scalar policy. Migration 758 re-creates only the parent `pharmacy_patient_safety_projection_753` (`758_pharmacy_advance_funding_authority.sql:10048`) and still routes `chronic_medications`/`medications`/`items_list`/`dispensed_medications` through the unchanged child (`:10062,10086,10100-10101`); it does not redefine `pharmacy_erx_clinical_projection_753`, so 757's normalization stands and the residual abort is unchanged. No migration installs a `jsonb_typeof` array fence on those columns, so a malformed scalar can still be written and then block an unrelated update. | Pharmacy/clinical data owner decides whether every non-null scalar is irrecoverably malformed and should keep aborting, or must instead enter a governed recovery/quarantine path (`GO_LIVE_READINESS_GAP_MATRIX.md:68-89` 753-D2, both options still blank; `apps/backend/docs/DB-MIGRATION-PLAN.md:66` disposition still `______`). Any change is a new migration; do not edit 753, 757, or 758. |
 | OPEN-17 | **First-bed ADT emission remains an explicit interface-contract decision.** The capability string was narrowed rather than inventing an A02/A01 semantic. | Integration owner and receiving-vendor contract decide the event semantics before implementation or activation. ROADMAP `:1256-1288`. |
-| OPEN-18 | **Linen ward and CSSD theatre-case pickers remain unavailable to some roles already allowed to open their consoles.** Rechecked at `4c1f5654c`: the linen hook still calls `/wards` (`apps/admin/src/app/(with-auth)/dashboard/linen-laundry/components/useWardOptions.ts:41-42`), and CSSD still calls `/theatre/today` (`apps/admin/src/lib/api/cssd.ts:394-399`), retaining the narrower source-module authorization. | Owner-approved least-privilege lookup contract and role/journey tests; do not broadly grant ward/theatre PHI access. See ROADMAP's “Explicitly parked” section. The separately callerless CSSD warning endpoint is an intentional duplicate, not this finding. Plan 4 is not closure evidence for these existing controls. |
+| OPEN-18 | **Linen ward and CSSD theatre-case pickers remain technically open.** Source review at `a38055b8d` confirms the linen hook still calls `/wards` (`apps/admin/src/app/(with-auth)/dashboard/linen-laundry/components/useWardOptions.ts`), and CSSD still calls `/theatre/today` (`apps/admin/src/lib/api/cssd.ts`), retaining narrower source-module authorization. The owner approved a tenant-wide minimal directory contract on 2026-09-30, not completed code. | Implement and verify the exact ROADMAP contract: ward id/name for 21 approved roles; case id/date/time for 15 approved roles; five named CSSD roles intentionally denied the new read, without changing their existing writes. Patient/procedure/room free text and occupancy are excluded. Independent write-side tenant/resource/lifecycle checks remain separate prerequisites. Do not broadly grant ward/theatre PHI access or claim the approved design closes the workflow. The callerless CSSD warning endpoint remains an intentional duplicate; Plan 4 is not closure evidence. |
 | OPEN-21 | **Bounded five-locale technical parity and backend presentation-contract discovery are merged; human review is partial and all-string coverage is not established.** #970 (`d8930c98c`) closed its Patient/Staff/four-backend-contract technical scope, including the Staff Malayalam exemption (`apps/staff/scripts/i18n-verify.mjs:54`). The former 1,447 Patient / 6,502 Staff key counts describe that merge, not a new current count. #1013 (`212af1e95`) landed cath Batch 1/1.1 corrections and bounded review; #1027 (`eb0dfeba1`) shares six device-status labels. #1098 (`b727ce31e`) adds discovered exported presentation-contract coverage and five-locale routing for investigation results and patient appointment reminders, confirmations and reschedules, with selector and persisted SMS compatibility tests; see the September 27 receipt. `TRANSLATION_REVIEW_TRACKER.md` retains partial Staff review, pending Patient review, the historical 4,008 English-source Malayalam placeholder baseline, 24 device-status labels and the new notification placeholders awaiting review. These are not blanket translation or activation approvals. | Continue the named human review queues (clinical, dosage/MAR, consent, emergency, controlled-drug, finance and legal wording first), preserving each approval boundary. Payment templates retain frozen English/Hindi copy (`apps/backend/src/services/billing/paymentLinkService.js:46-52`); the staff-facing doctor reminder remains a separate English-only path. Guardianship/consent and Staff Web copy retain legal/linguistic and operator/release stops. The discovered `*_PRESENTATIONS` inventory is not every hardcoded string; the explicit Admin-localization scope decision and remaining engineering coverage stay open. Do not reopen delivered parity or describe these remaining engineering/scope gaps as entirely human review. |
 | OPEN-23 | **Partly remediated: migrations 800–802 / #1079 and #1088 restore eight maternity CHECKs and labor status width; 403 absent declarations remain.** See the separate September 16 receipts above for source, CI and evidence boundaries. The current manifest has 465 declarations, 62 enforced and 403 absent (178 tables, 86 declaring files); declaration identity includes the declaring file, so repeated declarations do not represent distinct physical constraints. **Historical #989 measurement:** 2,194 inline CHECKs; 465 in `IF NOT EXISTS` re-declarations of baseline-owned tables (209 tables, 101 files), 411 absent (182 tables, 86 files) and 54 enforced. Later `CREATE TABLE IF NOT EXISTS` statements cannot add CHECKs to an existing baseline table; generating a new Prisma-derived baseline does not restore them. #989 added the unconditional static census/mutation gate and backend `--verify-db` calibration in both directions; its first CI calibration reported zero discrepancies over 2,108 database CHECKs. #1079 changes three enforced flags and #1088 changes five more, leaving all declarations and census protections intact. Pregnancy domains, labor admission reason/status, partograph descent/intensity and delivery mode now have database guards. When newly added, the delivery CHECK is `NOT VALID` and enforces new writes; an existing same-name CHECK's validation state is preserved. New historical validation is not authorized here. Migration 802 makes the existing 22-character labor status representable; this does not close the whole maternity workflow. | **Risk-based next batch, not MFA-first.** `mfa_devices` belongs to the retired duplicate MFA stack documented at `apps/backend/src/routes/admin/mfaApiClientsRoutes.js:5-12`; retain its five unresolved entries until an approved schema disposition, without claiming a current-login vulnerability or deleting the table. The five `abdm_consent_requests` enums have application guards in the examined create/transition paths (`apps/backend/src/services/abdmFull/abdmHipHiuService.js:48-58,125-135,562-651`), not proof of all writers or consent activation. Compare remaining supported clinical/consent paths for sole-guard loss. Counts alone are not risk: ambulance predicates repeat in migrations 126 and 233; `dialysis_patients` has zero absent and six enforced. Before a new batch, derive a nonempty missing set from a full-chain database, scan allocated migration slots, and obtain explicit disposition for violating data. Add explicitly named, lineage-safe `NOT VALID` constraints; validate only with documented zero-violation evidence and named-constraint/23514 tests under the tenant runtime role. Never silently backfill/quarantine, widen predicates, drop equivalent constraints, or edit applied migrations. No next migration number or external clinical, finance, consent or operator authority is granted here. |
 

@@ -30,6 +30,7 @@ export const TERMINAL_REJECTION_CODES = Object.freeze([
   'recipient_not_found',
   'email_address_missing',
   'phone_missing',
+  'booking_sms_recipient_mismatch',
   // Migration 699 DLT fail-closed gate: this outbox row's template kind has
   // no active sms_template_registrations row, so THIS intent can never be
   // sent as rendered (an unregistered send is forbidden). Terminal per-row,

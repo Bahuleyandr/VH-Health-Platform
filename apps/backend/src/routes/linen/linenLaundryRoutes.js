@@ -1,5 +1,8 @@
 import { Router } from 'express';
+import { LINEN_WARD_LOOKUP_ROUTE_ROLES } from '../../config/routeRolePolicy.js';
+import { requireRole } from '../../middleware/rbacMiddleware.js';
 import * as linenLaundry from '../../services/linen/linenLaundryService.js';
+import { listLinenWardOptions } from '../../services/linen/linenWardLookupService.js';
 import { resolveTenantOrThrow } from '../../services/tenant/tenantService.js';
 import { success, relayAppError } from '../../utils/responseHelper.js';
 
@@ -24,6 +27,11 @@ function wrap(handler, { status = 200, message = 'Success' } = {}) {
     }
   };
 }
+
+router.get('/wards', requireRole(...LINEN_WARD_LOOKUP_ROUTE_ROLES), wrap((req, res) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  return listLinenWardOptions({ tenantId: req.tenantId, query: req.query });
+}));
 
 router.get('/board', wrap((req) =>
   linenLaundry.getLinenBoard({

@@ -1,0 +1,87 @@
+name: Trial Readiness Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      authorized_by:
+        description: 'Named owner authorizing this hosted smoke run'
+        required: true
+        type: string
+      authority_ref:
+        description: 'Owner approval receipt for the target and smoke scope'
+        required: true
+        type: string
+      api_origin:
+        description: 'Approved API origin, without a path'
+        required: true
+        type: string
+      expected_commit:
+        description: 'Full 40-character commit SHA deployed at the approved origin'
+        required: true
+        type: string
+      include_creates:
+        description: 'Run write probes in the approved seeded environment'
+        required: false
+        type: boolean
+        default: false
+      writes_authority_ref:
+        description: 'Separate owner approval receipt required for write probes'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trial-readiness-smoke
+  cancel-in-progress: false
+
+jobs:
+  staff-role-workflows:
+    name: Authorized staff role workflow sweep
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      VH_SMOKE_AUTHORIZED_BY: ${{ inputs.authorized_by }}
+      VH_SMOKE_AUTHORITY_REF: ${{ inputs.authority_ref }}
+      VH_TRIAL_API_ORIGIN: ${{ inputs.api_origin }}
+      VH_SMOKE_EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+      VH_SMOKE_INCLUDE_CREATES: ${{ inputs.include_creates && 'true' || 'false' }}
+      VH_SMOKE_WRITES_AUTHORITY_REF: ${{ inputs.writes_authority_ref }}
+      VH_BASE_URL: ${{ inputs.api_origin }}/api/v1
+      VH_API_KEY: ${{ secrets.VH_API_KEY }}
+      VH_STAFF_TEST_PASSWORD: ${{ secrets.VH_STAFF_TEST_PASSWORD }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: '26.5.0'
+
+      - name: Require smoke authority, credentials, and the deployed commit
+        run: node scripts/ci/manual-smoke-preflight.mjs --mode trial-readiness
+
+      - name: Run authorized staff role workflow smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path output/trial-readiness | Out-Null
+          $env:VH_BASE_URL = $env:VH_TRIAL_API_ORIGIN.Trim().TrimEnd('/') + '/api/v1'
+          $includeCreates = $env:VH_SMOKE_INCLUDE_CREATES -eq 'true'
+          ./scripts/smoke-staff-role-workflows.ps1 `
+            -BaseUrl $env:VH_BASE_URL `
+            -ApiKey $env:VH_API_KEY `
+            -StaffPassword $env:VH_STAFF_TEST_PASSWORD `
+            -ReportPath output/trial-readiness/STAFF_ROLE_WORKFLOW_SWEEP.md `
+            -FailOnFailure $true `
+            -IncludeCreates:$includeCreates
+
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: trial-readiness-smoke
+          path: output/trial-readiness
+          if-no-files-found: ignore

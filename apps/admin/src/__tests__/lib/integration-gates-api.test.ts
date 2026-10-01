@@ -124,6 +124,54 @@ describe("tenant gate flag flip (settings PATCH is a full replace)", () => {
     );
     expect(updateTenantMock).not.toHaveBeenCalled();
   });
+
+  it("does not read or write when its captured scope is already obsolete", async () => {
+    const assertScope = jest.fn(() => {
+      throw new Error("Tenant scope is not ready");
+    });
+    await expect(
+      setTenantGateFlag(TENANT.id, "sms", true, assertScope),
+    ).rejects.toThrow("Tenant scope is not ready");
+    expect(listTenantsMock).not.toHaveBeenCalled();
+    expect(updateTenantMock).not.toHaveBeenCalled();
+  });
+
+  it("does not PATCH if a tenant switch starts during the settings read", async () => {
+    let resolve!: (value: unknown) => void;
+    listTenantsMock.mockReturnValueOnce(
+      new Promise((done) => {
+        resolve = done;
+      }),
+    );
+    let scopeCurrent = true;
+    const assertScope = jest.fn(() => {
+      if (!scopeCurrent) throw new Error("Tenant scope is not ready");
+    });
+    const pending = setTenantGateFlag(TENANT.id, "sms", true, assertScope);
+    expect(listTenantsMock).toHaveBeenCalledTimes(1);
+    scopeCurrent = false;
+    resolve({ tenants: [TENANT], count: 1 });
+    await expect(pending).rejects.toThrow("Tenant scope is not ready");
+    expect(updateTenantMock).not.toHaveBeenCalled();
+  });
+
+  it("revalidates the captured scope before writing unchanged tenant settings", async () => {
+    listTenantsMock.mockResolvedValueOnce({ tenants: [TENANT], count: 1 });
+    updateTenantMock.mockResolvedValueOnce(TENANT);
+    const assertScope = jest.fn();
+    await expect(
+      setTenantGateFlag(TENANT.id, "sms", true, assertScope),
+    ).resolves.toEqual(TENANT);
+    expect(assertScope).toHaveBeenCalledTimes(2);
+    expect(updateTenantMock).toHaveBeenCalledWith(TENANT.id, {
+      settings: {
+        branding: { name: "VH" },
+        sms: { enabled: true },
+        paymentGateway: { enabled: false },
+        ambulanceGpsTracking: { enabled: false, retentionDays: 14 },
+      },
+    });
+  });
 });
 
 describe("provider-config mutations reuse the existing endpoints", () => {

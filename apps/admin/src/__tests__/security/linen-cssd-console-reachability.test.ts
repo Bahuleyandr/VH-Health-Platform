@@ -10,10 +10,8 @@
 //   2. the proxy allowlist (ALLOWED_PATH_PREFIXES) — is the path forwardable;
 //   3. PERMISSION_GATES — does a per-admin flag scope an ADMIN out of it.
 //
-// The backend role gate is the fourth and is not testable from here; it is
-// recorded in the header of src/lib/api/{cssd,linenLaundry}.ts (one
-// requireRole at the mount for the whole router, no per-route re-gate), which
-// is why "the board loads" implies "the actions are reachable" for these two.
+// Backend role gates are tested separately. The minimal directories have
+// explicit audiences; opening a console does not grant every source read.
 //
 // This drives the REAL proxy handler for every path these consoles call. The
 // cath device-reuse governance mount joined them on the same reasoning: its
@@ -67,6 +65,7 @@ function call(method: string, path: string) {
 // Every path/verb pair the two consoles send, taken from
 // src/lib/api/linenLaundry.ts and src/lib/api/cssd.ts.
 const LINEN_CALLS: [string, string][] = [
+  ["GET", "linen-laundry/wards?limit=100"],
   ["GET", "linen-laundry/board?limit=25"],
   ["GET", "linen-laundry/item-types?active=true"],
   ["POST", "linen-laundry/item-types"],
@@ -81,6 +80,7 @@ const LINEN_CALLS: [string, string][] = [
 ];
 
 const CSSD_CALLS: [string, string][] = [
+  ["GET", "cssd/theatre-options?date=2001-01-01&limit=100"],
   ["GET", "cssd/board"],
   ["GET", "cssd/sets?limit=200"],
   ["POST", "cssd/sets"],
@@ -170,10 +170,7 @@ describe("linen + CSSD console reachability through the portal proxy", () => {
   });
 });
 
-describe("the two supporting reads that sit outside those gates", () => {
-  // Both consoles need one list from another module to name a foreign key.
-  // Neither is on the linen/CSSD gate, so record what they actually require —
-  // the dialogs surface the backend's refusal instead of an empty picker.
+describe("source endpoint permissions remain independent of directory access", () => {
   it("GET /wards is scoped by the departmentManagement admin flag", () => {
     expect(requiredProxyPermission("api/v1/wards", "GET")).toBe(
       "departmentManagement",
