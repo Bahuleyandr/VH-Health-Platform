@@ -1,6 +1,6 @@
 # RLS bypass-reacher census — 2026-09-08
 
-Source revision: `913b1f0a84731209826cd9380908628391a42a1d`. Exact normalized source and migration SHA-256 manifests are in the adjacent JSON pin.
+Source revision: `0ffb5180fa468e63f2ecdc0d9208c2c15b05814c`. Exact normalized source and migration SHA-256 manifests are in the adjacent JSON pin.
 
 **Census only: no policy changes, conversions, completed dispositions or runtime acceptance claims.** Every entry is PENDING with an intended disposition and future module PR. A closure must reduce K to zero for its table and carry the disposition tests in that same PR.
 
@@ -18,7 +18,7 @@ Run from apps/backend: `node scripts/rls-bypass-reacher-census.mjs --check`. Reg
 
 Lexical planning predicates (src excluding tests): 29 lines in 6 files match `runWithSuperAdmin\(`; 84 scheduler lines match `withJobLock\(`. These include comments/definitions and are not reaching statements.
 
-Measured populations: **109 entry-point calls; 84 registered jobs; 8503 database-call/source-statement records; 14597 split migration statements.** Entry points by kind: runWithSuperAdmin=25, withJobLock=83, withReplicaLocalJobGuard=1.
+Measured populations: **109 entry-point calls; 84 registered jobs; 8508 database-call/source-statement records; 14597 split migration statements.** Entry points by kind: runWithSuperAdmin=25, withJobLock=83, withReplicaLocalJobGuard=1.
 
 ## Table pins (users first)
 
@@ -26,7 +26,7 @@ The 22 relations are the unique tenant-bearing tables at the original 22 confirm
 
 | Table | Runtime candidates | Administrative candidates | N reachers = M dispositioned + K pending | Owning module PR |
 |---|---:|---:|---|---|
-| users | 225 | 176 | 401 reachers = 0 dispositioned + 401 pending | feat/rls-t2-appointments |
+| users | 226 | 176 | 402 reachers = 0 dispositioned + 402 pending | feat/rls-t2-appointments |
 | housekeeping_logs | 4 | 27 | 31 reachers = 0 dispositioned + 31 pending | feat/rls-t2-housekeeping |
 | housekeeping_floor_assignments | 3 | 26 | 29 reachers = 0 dispositioned + 29 pending | feat/rls-t2-housekeeping |
 | housekeeping_zones | 2 | 33 | 35 reachers = 0 dispositioned + 35 pending | feat/rls-t2-housekeeping |
@@ -34,7 +34,7 @@ The 22 relations are the unique tenant-bearing tables at the original 22 confirm
 | housekeeping_requests | 7 | 28 | 35 reachers = 0 dispositioned + 35 pending | feat/rls-t2-housekeeping |
 | doctors | 14 | 31 | 45 reachers = 0 dispositioned + 45 pending | feat/rls-t2-appointments |
 | investigations | 13 | 35 | 48 reachers = 0 dispositioned + 48 pending | feat/rls-t2-investigations |
-| investigation_bookings | 3 | 31 | 34 reachers = 0 dispositioned + 34 pending | feat/rls-t2-investigations |
+| investigation_bookings | 4 | 31 | 35 reachers = 0 dispositioned + 35 pending | feat/rls-t2-investigations |
 | appointment_queues | 2 | 31 | 33 reachers = 0 dispositioned + 33 pending | feat/rls-t2-appointments |
 | appointments | 38 | 46 | 84 reachers = 0 dispositioned + 84 pending | feat/rls-t2-appointments |
 | emergency_visits | 4 | 35 | 39 reachers = 0 dispositioned + 39 pending | feat/rls-t2-appointments |
@@ -45,7 +45,7 @@ The 22 relations are the unique tenant-bearing tables at the original 22 confirm
 | incident_reports | 0 | 26 | 26 reachers = 0 dispositioned + 26 pending | feat/rls-t2-staff-admin |
 | report_updates | 0 | 26 | 26 reachers = 0 dispositioned + 26 pending | feat/rls-t2-staff-admin |
 | staff_grievances | 0 | 26 | 26 reachers = 0 dispositioned + 26 pending | feat/rls-t2-staff-admin |
-| wards | 4 | 46 | 50 reachers = 0 dispositioned + 50 pending | feat/rls-t2-wards-consent-roster-rx |
+| wards | 5 | 46 | 51 reachers = 0 dispositioned + 51 pending | feat/rls-t2-wards-consent-roster-rx |
 | patient_data_rights_requests | 0 | 26 | 26 reachers = 0 dispositioned + 26 pending | feat/rls-t2-wards-consent-roster-rx |
 | e_prescriptions | 5 | 44 | 49 reachers = 0 dispositioned + 49 pending | feat/rls-t2-wards-consent-roster-rx |
 
@@ -166,7 +166,7 @@ The second query must reconcile to the migration manifest before a historical ad
 
 ## users
 
-**401 reachers = 0 dispositioned + 401 pending.** 1335 source statement candidates reference this table before root tracing. Module PR: `feat/rls-t2-appointments`.
+**402 reachers = 0 dispositioned + 402 pending.** 1336 source statement candidates reference this table before root tracing. Module PR: `feat/rls-t2-appointments`.
 
 | Statement | Contexts | Entry/job origins | PENDING intended disposition |
 |---|---|---|---|
@@ -382,9 +382,10 @@ The second query must reconcile to the migration manifest before a historical ad
 | [apps/backend/src/utils/notifications/notificationDispatcher.js:143:15:$queryRawUnsafe](../../apps/backend/src/utils/notifications/notificationDispatcher.js#L143) | tenant | entry:apps/backend/src/utils/scheduler.js:1623; job:fhir-vital-effects-recovery; job:notification-outbox-drain; residual:pre-global-tenant-route:apps/backend/src/routes/fhir/fhirRoutes.js:1224; residual:pre-global-tenant-route:apps/backend/src/routes/health/protectedRoutes.js:76; residual:pre-global-tenant-route:apps/backend/src/routes/health/protectedRoutes.js:94; residual:pre-global-tenant-route:apps/backend/src/routes/health/protectedRoutes.js:95 | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
 | [apps/backend/src/utils/notifications/notificationDispatcher.js:150:15:$queryRawUnsafe](../../apps/backend/src/utils/notifications/notificationDispatcher.js#L150) | tenant | entry:apps/backend/src/utils/scheduler.js:1623; job:fhir-vital-effects-recovery; job:notification-outbox-drain; residual:pre-global-tenant-route:apps/backend/src/routes/fhir/fhirRoutes.js:1224; residual:pre-global-tenant-route:apps/backend/src/routes/health/protectedRoutes.js:76; residual:pre-global-tenant-route:apps/backend/src/routes/health/protectedRoutes.js:94; residual:pre-global-tenant-route:apps/backend/src/routes/health/protectedRoutes.js:95 | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
 | [apps/backend/src/utils/notifications/notificationOutbox.js:125:24:$queryRawUnsafe](../../apps/backend/src/utils/notifications/notificationOutbox.js#L125) | bypass, pre-global-tenant-route, tenant | entry:apps/backend/src/utils/scheduler.js:1623; entry:apps/backend/src/utils/scheduler.js:1672; entry:apps/backend/src/utils/scheduler.js:1698; entry:apps/backend/src/utils/scheduler.js:1744; entry:apps/backend/src/utils/scheduler.js:1765; entry:apps/backend/src/utils/scheduler.js:1778; job:biomed-cmms-maintenance-sweep; job:credential-expiry-radar; job:fhir-vital-effects-recovery; job:gateway-refund-reconciliation-notification; job:investigation-notifications; job:mar-medication-exception-reconciliation; job:monthly-payroll; job:notification-outbox-auto-replay; job:notification-outbox-drain; job:operational-alert-sweep; job:payment-gateway-refund-recovery; job:process-scheduled-notifications; job:results-inbox-escalation; job:retry-failed-notifications; job:timed-reminders; job:ward-indent-notification-coverage-recovery; residual:pre-global-tenant-route:apps/backend/src/routes/billing/paymentGatewayWebhookRoutes.js:43; residual:pre-global-tenant-route:apps/backend/src/routes/coldChainRoutes.js:33; residual:pre-global-tenant-route:apps/backend/src/routes/fhir/fhirRoutes.js:1150; residual:pre-global-tenant-route:apps/backend/src/routes/fhir/fhirRoutes.js:1224; residual:pre-global-tenant-route:apps/backend/src/routes/health/protectedRoutes.js:76; residual:pre-global-tenant-route:apps/backend/src/routes/health/protectedRoutes.js:94; residual:pre-global-tenant-route:apps/backend/src/routes/health/protectedRoutes.js:95 | converted; Convert every listed bypass/no-context path to per-tenant scope and prove nonzero tenant work under vhhealth_app. |
-| [apps/backend/src/utils/notifications/notificationOutboxDelivery.js:101:26:$queryRawUnsafe](../../apps/backend/src/utils/notifications/notificationOutboxDelivery.js#L101) | tenant | entry:apps/backend/src/utils/scheduler.js:1623; job:notification-outbox-drain | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
-| [apps/backend/src/utils/notifications/notificationOutboxDelivery.js:124:26:$queryRawUnsafe](../../apps/backend/src/utils/notifications/notificationOutboxDelivery.js#L124) | tenant | entry:apps/backend/src/utils/scheduler.js:1623; job:notification-outbox-drain | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
-| [apps/backend/src/utils/notifications/notificationOutboxDelivery.js:65:28:via:apps/backend/src/utils/notifications/notificationOutboxDelivery.js:60:11:$queryRawUnsafe](../../apps/backend/src/utils/notifications/notificationOutboxDelivery.js#L65) (sink: apps/backend/src/utils/notifications/notificationOutboxDelivery.js:60:11:$queryRawUnsafe) | tenant | residual:tenant:apps/backend/src/utils/notifications/notificationOutboxDelivery.js:65 | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
+| [apps/backend/src/utils/notifications/notificationOutboxDelivery.js:103:26:$queryRawUnsafe](../../apps/backend/src/utils/notifications/notificationOutboxDelivery.js#L103) | tenant | entry:apps/backend/src/utils/scheduler.js:1623; job:notification-outbox-drain | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
+| [apps/backend/src/utils/notifications/notificationOutboxDelivery.js:126:26:$queryRawUnsafe](../../apps/backend/src/utils/notifications/notificationOutboxDelivery.js#L126) | tenant | entry:apps/backend/src/utils/scheduler.js:1623; job:notification-outbox-drain | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
+| [apps/backend/src/utils/notifications/notificationOutboxDelivery.js:287:38:$queryRawUnsafe](../../apps/backend/src/utils/notifications/notificationOutboxDelivery.js#L287) | tenant | entry:apps/backend/src/utils/scheduler.js:1623; job:notification-outbox-drain | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
+| [apps/backend/src/utils/notifications/notificationOutboxDelivery.js:67:28:via:apps/backend/src/utils/notifications/notificationOutboxDelivery.js:62:11:$queryRawUnsafe](../../apps/backend/src/utils/notifications/notificationOutboxDelivery.js#L67) (sink: apps/backend/src/utils/notifications/notificationOutboxDelivery.js:62:11:$queryRawUnsafe) | tenant | residual:tenant:apps/backend/src/utils/notifications/notificationOutboxDelivery.js:67 | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
 | [apps/backend/src/utils/notifications/patientNotificationFeed.js:91:22:$queryRawUnsafe](../../apps/backend/src/utils/notifications/patientNotificationFeed.js#L91) | tenant | job:diagnostic-result-patient-notification; job:process-scheduled-notifications; job:timed-reminders | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
 | [apps/backend/src/utils/notifications/sendPushNotification.js:205:21:$queryRawUnsafe](../../apps/backend/src/utils/notifications/sendPushNotification.js#L205) | tenant | entry:apps/backend/src/utils/scheduler.js:1623; entry:apps/backend/src/utils/scheduler.js:1765; job:escalate-stuck-orders; job:fhir-vital-effects-recovery; job:investigation-notifications; job:notification-outbox-drain; job:retry-failed-notifications; residual:pre-global-tenant-route:apps/backend/src/routes/fhir/fhirRoutes.js:1224; residual:pre-global-tenant-route:apps/backend/src/routes/health/protectedRoutes.js:76; residual:pre-global-tenant-route:apps/backend/src/routes/health/protectedRoutes.js:94; residual:pre-global-tenant-route:apps/backend/src/routes/health/protectedRoutes.js:95 | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
 | [apps/backend/src/utils/notifications/stuckOrderEscalation.js:89:26:$queryRawUnsafe](../../apps/backend/src/utils/notifications/stuckOrderEscalation.js#L89) | tenant | job:escalate-stuck-orders | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
@@ -936,12 +937,13 @@ Administrative entries (35); each is **PENDING → proven-unreachable**, owned b
 
 ## investigation_bookings
 
-**34 reachers = 0 dispositioned + 34 pending.** 34 source statement candidates reference this table before root tracing. Module PR: `feat/rls-t2-investigations`.
+**35 reachers = 0 dispositioned + 35 pending.** 35 source statement candidates reference this table before root tracing. Module PR: `feat/rls-t2-investigations`.
 
 | Statement | Contexts | Entry/job origins | PENDING intended disposition |
 |---|---|---|---|
 | [apps/backend/src/services/integrations/externalLabRecoveryService.js:468:22:$queryRawUnsafe](../../apps/backend/src/services/integrations/externalLabRecoveryService.js#L468) | tenant | residual:pre-global-tenant-route:apps/backend/src/routes/fhir/fhirRoutes.js:1150 | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
 | [apps/backend/src/services/lab/labCriticalThresholdService.js:205:24:$queryRawUnsafe](../../apps/backend/src/services/lab/labCriticalThresholdService.js#L205) | tenant | residual:pre-global-tenant-route:apps/backend/src/routes/fhir/fhirRoutes.js:1150 | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
+| [apps/backend/src/utils/notifications/notificationOutboxDelivery.js:304:38:$queryRawUnsafe](../../apps/backend/src/utils/notifications/notificationOutboxDelivery.js#L304) | tenant | entry:apps/backend/src/utils/scheduler.js:1623; job:notification-outbox-drain | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
 | [apps/backend/src/utils/notifications/stuckOrderEscalation.js:73:37:$queryRawUnsafe](../../apps/backend/src/utils/notifications/stuckOrderEscalation.js#L73) | tenant | job:escalate-stuck-orders | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
 
 Administrative entries (31); each is **PENDING → proven-unreachable**, owned by `feat/rls-t2-investigations`. The shared statement catalog below resolves each ID to its source SQL; the JSON repeats each table-specific disposition explicitly.
@@ -1431,13 +1433,14 @@ Administrative entries (26); each is **PENDING → proven-unreachable**, owned b
 
 ## wards
 
-**50 reachers = 0 dispositioned + 50 pending.** 42 source statement candidates reference this table before root tracing. Module PR: `feat/rls-t2-wards-consent-roster-rx`.
+**51 reachers = 0 dispositioned + 51 pending.** 43 source statement candidates reference this table before root tracing. Module PR: `feat/rls-t2-wards-consent-roster-rx`.
 
 | Statement | Contexts | Entry/job origins | PENDING intended disposition |
 |---|---|---|---|
 | [apps/backend/src/services/clinical/drugChartSlaService.js:137:10:$queryRawUnsafe](../../apps/backend/src/services/clinical/drugChartSlaService.js#L137) | bypass, tenant | entry:apps/backend/src/utils/scheduler.js:1660; job:drug-chart-missing-sla | converted; Convert every listed bypass/no-context path to per-tenant scope and prove nonzero tenant work under vhhealth_app. |
 | [apps/backend/src/services/downtime/wardDowntimePackOutputProbe.js:131:18:$queryRawUnsafe](../../apps/backend/src/services/downtime/wardDowntimePackOutputProbe.js#L131) | bypass | job:ward-downtime-pack-output-probe | converted; Convert every listed bypass/no-context path to per-tenant scope and prove nonzero tenant work under vhhealth_app. |
 | [apps/backend/src/services/downtime/wardDowntimePackOutputProbe.js:177:35:$queryRawUnsafe](../../apps/backend/src/services/downtime/wardDowntimePackOutputProbe.js#L177) | bypass | job:ward-downtime-pack-output-probe | converted; Convert every listed bypass/no-context path to per-tenant scope and prove nonzero tenant work under vhhealth_app. |
+| [apps/backend/src/services/linen/linenWardLookupService.js:76:50:$queryRawUnsafe](../../apps/backend/src/services/linen/linenWardLookupService.js#L76) | tenant | residual:read-only-transaction:apps/backend/src/services/linen/linenWardLookupService.js:76 | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
 | [apps/backend/src/services/staff/housekeepingTaskDispatchService.js:107:22:$queryRawUnsafe](../../apps/backend/src/services/staff/housekeepingTaskDispatchService.js#L107) | tenant | job:bed-cleaning-dispatch-sweep | proven-unreachable; The static path enters tenant scope; prove the bypass path cannot execute this statement without that scope under vhhealth_app. |
 
 Administrative entries (46); each is **PENDING → proven-unreachable**, owned by `feat/rls-t2-wards-consent-roster-rx`. The shared statement catalog below resolves each ID to its source SQL; the JSON repeats each table-specific disposition explicitly.
@@ -1842,6 +1845,8 @@ The JSON also enumerates indirect callback calls encountered on the source trace
 - apps/backend/src/services/workflow/workflowDefinitionCompiler.js:186: resolver — Indirect callback: source callback arguments/defaults are traced at their callers; no empirical dispatch claim.
 - apps/backend/src/services/pathways/pathwayExecutorService.js:583: fn — Indirect callback: source callback arguments/defaults are traced at their callers; no empirical dispatch claim.
 - apps/backend/src/services/pathways/pathwayExecutorService.js:587: fn — Indirect callback: source callback arguments/defaults are traced at their callers; no empirical dispatch claim.
+- apps/backend/src/utils/notifications/smsProviders/twilioSmsProvider.js:110: create — Indirect callback: source callback arguments/defaults are traced at their callers; no empirical dispatch claim.
+- apps/backend/src/services/smsService.js:62: context.withPreparedSend — Indirect callback: source callback arguments/defaults are traced at their callers; no empirical dispatch claim.
 - apps/backend/src/utils/notifications/notificationDispatcher.js:121: factory — Indirect callback: source callback arguments/defaults are traced at their callers; no empirical dispatch claim.
 - apps/backend/src/services/clinical/canonicalOperationalBridgeService.js:67: task — Indirect callback: source callback arguments/defaults are traced at their callers; no empirical dispatch claim.
 - apps/backend/src/services/emr/clinicalTimelineService.js:29: fn — Indirect callback: source callback arguments/defaults are traced at their callers; no empirical dispatch claim.
