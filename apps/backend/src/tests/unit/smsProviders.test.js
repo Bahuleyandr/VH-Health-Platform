@@ -12,6 +12,7 @@
 //   * the Twilio adapter does the same through the SDK.
 
 import crypto from 'node:crypto';
+import { performance } from 'node:perf_hooks';
 import { jest } from '@jest/globals';
 
 const TENANT_ID = '00000000-0000-4000-8000-000000000021';
@@ -22,6 +23,11 @@ const queryRawUnsafeMock = jest.fn();
 const decryptFieldMock = jest.fn();
 const twilioCreateMock = jest.fn();
 const twilioClientMock = jest.fn(() => ({ messages: { create: twilioCreateMock } }));
+const requestInterceptorMock = jest.fn();
+const requestClientMock = jest.fn(function () {
+  this.axios = { interceptors: { request: { use: requestInterceptorMock } } };
+});
+twilioClientMock.RequestClient = requestClientMock;
 const loggerMock = { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() };
 
 jest.unstable_mockModule('../../lib/prisma.js', () => ({
@@ -123,6 +129,55 @@ beforeEach(() => {
 
 afterAll(() => {
   global.fetch = realFetch;
+});
+
+describe('prepared provider transport boundary', () => {
+  it.each(['msg91', 'twilio'])('finishes all %s provider preparation before the authority callback', async provider => {
+    stubDb({
+      configs: [configRow({ provider, account_sid: 'AC0011' })],
+      templates: [registrationRow()],
+    });
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ type: 'success', message: 'request-id' }) });
+    twilioCreateMock.mockResolvedValue({ sid: 'SM-prepared', status: 'queued' });
+    const result = await sendSMS('9000000001', 'Synthetic message', {
+      tenantId: TENANT_ID, templateVersion: TEMPLATE_KEY,
+      withPreparedSend: async prepared => {
+        expect(prepared.send).toEqual(expect.any(Function));
+        expect(getSmsSettingsMock).toHaveBeenCalledTimes(1);
+        expect(queryRawUnsafeMock).toHaveBeenCalledTimes(2);
+        expect(decryptFieldMock).toHaveBeenCalled();
+        if (provider === 'twilio') {
+          expect(requestClientMock).toHaveBeenCalledWith({ autoRetry: false, keepAlive: false });
+          expect(twilioClientMock).toHaveBeenCalledWith('AC0011', 'decrypted-auth-key', expect.objectContaining({ autoRetry: false }));
+        }
+        expect(fetchMock).not.toHaveBeenCalled();
+        expect(twilioCreateMock).not.toHaveBeenCalled();
+        getSmsSettingsMock.mockImplementation(() => { throw new Error('settings inside authority transaction'); });
+        queryRawUnsafeMock.mockImplementation(() => { throw new Error('query inside authority transaction'); });
+        decryptFieldMock.mockImplementation(() => { throw new Error('decrypt inside authority transaction'); });
+        return prepared.send({ signal: new AbortController().signal, startBefore: performance.now() + 1000 });
+      },
+    });
+    expect(result.outcome).toBe('acknowledged');
+    expect(queryRawUnsafeMock).toHaveBeenCalledTimes(2);
+  });
+
+  it.each(['invalid_phone', 'dry_run', 'missing_template', 'credentials'])('passes %s no-send preparation through the authority callback', async reason => {
+    stubDb({ configs: [configRow()], templates: reason === 'missing_template' ? [] : [registrationRow()] });
+    if (reason === 'dry_run') process.env.SMS_PROVIDER = 'logger';
+    if (reason === 'credentials') decryptFieldMock.mockImplementation(() => { throw new Error('unreadable'); });
+    const boundary = jest.fn(async prepared => {
+      expect(prepared).toHaveProperty('result');
+      expect(prepared).not.toHaveProperty('send');
+      return { outcome: 'rejected', providerCode: 'booking_sms_recipient_mismatch', evidence: {} };
+    });
+    expect(await sendSMS(reason === 'invalid_phone' ? '+449000000001' : '9000000001', 'Synthetic', {
+      tenantId: TENANT_ID, templateVersion: TEMPLATE_KEY, withPreparedSend: boundary,
+    })).toMatchObject({ providerCode: 'booking_sms_recipient_mismatch' });
+    expect(boundary).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(twilioCreateMock).not.toHaveBeenCalled();
+  });
 });
 
 describe('provider resolution (config-gated DEFAULT OFF)', () => {

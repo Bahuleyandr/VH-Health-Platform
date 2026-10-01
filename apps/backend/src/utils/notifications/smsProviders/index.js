@@ -30,8 +30,8 @@ import logger from '../../../logging/logger.js';
 import { decryptField } from '../../fieldEncryption.js';
 import { normalizeIndianSmsPhone } from '../../phoneUtils.js';
 import { getSmsSettings } from '../../../services/tenant/tenantSettingsService.js';
-import { sendViaMsg91 } from './msg91Provider.js';
-import { sendViaTwilioSms } from './twilioSmsProvider.js';
+import { prepareMsg91Sms } from './msg91Provider.js';
+import { prepareTwilioSms } from './twilioSmsProvider.js';
 import { mintEnvTwilioCallbackToken } from './twilioCallbackAuth.js';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -229,15 +229,15 @@ function twilioStatusCallbackUrl(token) {
  * faults classify as `uncertain`, configuration/registration gaps as
  * `rejected`.
  */
-export async function sendThroughResolvedProvider({ phone, message, tenantId, templateVersion, outboxId }) {
+async function prepareResolvedProvider({ phone, message, tenantId, templateVersion, outboxId, withPreparedSend }) {
   const normalizedPhone = normalizeIndianSmsPhone(phone);
-  if (!normalizedPhone) return rejected('phone_missing', { invalid_phone: true });
+  if (!normalizedPhone) return { result: rejected('phone_missing', { invalid_phone: true }) };
 
   let resolution;
   try {
     resolution = await resolveSmsProviderContext(tenantId);
   } catch {
-    return uncertain('sms_provider_resolution_failed');
+    return { result: uncertain('sms_provider_resolution_failed') };
   }
 
   if (resolution.provider === 'dry_run') {
@@ -249,10 +249,10 @@ export async function sendThroughResolvedProvider({ phone, message, tenantId, te
       destination_present: true,
       message_length: String(message || '').length,
     });
-    return rejected('sms_gateway_not_configured', {
+    return { result: rejected('sms_gateway_not_configured', {
       dry_run: true,
       reason: resolution.reason || null,
-    });
+    }) };
   }
 
   let credentials;
@@ -264,7 +264,7 @@ export async function sendThroughResolvedProvider({ phone, message, tenantId, te
     // decryptField failure — configuration exists but is unreadable. This is
     // a channel-level configuration fault (pause is honest), not transport.
     logger.error('sms provider credentials unreadable', { error: err?.message });
-    return rejected('sms_config_credentials_unreadable', { source: resolution.source });
+    return { result: rejected('sms_config_credentials_unreadable', { source: resolution.source }) };
   }
 
   // DLT fail-closed gate: a real provider send requires an active template
@@ -278,18 +278,18 @@ export async function sendThroughResolvedProvider({ phone, message, tenantId, te
       resolution.provider,
     );
   } catch {
-    return uncertain('sms_template_lookup_failed');
+    return { result: uncertain('sms_template_lookup_failed') };
   }
   if (!registration) {
-    return rejected('dlt_template_not_registered', {
+    return { result: rejected('dlt_template_not_registered', {
       template_key: String(templateVersion || '') || null,
       provider: resolution.provider,
-    });
+    }) };
   }
 
   try {
     if (resolution.provider === 'msg91') {
-      return await sendViaMsg91({
+      return prepareMsg91Sms({
         authKey: credentials.authKey,
         senderId: credentials.senderId,
         dltEntityId: credentials.dltEntityId,
@@ -299,17 +299,25 @@ export async function sendThroughResolvedProvider({ phone, message, tenantId, te
         message,
       });
     }
-    return await sendViaTwilioSms({
+    return await prepareTwilioSms({
       accountSid: credentials.accountSid,
       authToken: credentials.authKey,
       from: credentials.senderId,
       phone: normalizedPhone,
       message,
       statusCallback: twilioStatusCallbackUrl(credentials.callbackToken),
+      boundedTransport: Boolean(withPreparedSend),
     });
   } catch {
-    return uncertain(`${resolution.provider}_transport_failure`);
+    return { result: uncertain(`${resolution.provider}_transport_failure`) };
   }
+}
+
+export async function sendThroughResolvedProvider(input) {
+  const prepared = await prepareResolvedProvider(input);
+  return input.withPreparedSend
+    ? input.withPreparedSend(prepared)
+    : prepared.result || prepared.send();
 }
 
 export const __testing__ = Object.freeze({

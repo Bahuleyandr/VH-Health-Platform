@@ -1,11 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import { jest } from '@jest/globals';
 
-import prisma, { setTenant } from '../lib/prisma.js';
+import prisma, { setTenant, setTenantTx } from '../lib/prisma.js';
 import { notificationOutbox } from '../utils/notifications/notificationOutbox.js';
 
 const sendSmsMock = jest.fn();
-jest.unstable_mockModule('../services/smsService.js', () => ({ sendSMS: sendSmsMock }));
+jest.unstable_mockModule('../services/smsService.js', () => ({
+  sendSMS: (phone, message, context) => context.withPreparedSend ? context.withPreparedSend({
+    send: () => sendSmsMock(phone, message, context),
+  }) : sendSmsMock(phone, message, context),
+}));
 const { deliverNotificationOutboxRow } = await import('../utils/notifications/notificationOutboxDelivery.js');
 
 const databaseUrl = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
@@ -115,7 +119,7 @@ describeIfDb('booking SMS recipient binding under the runtime tenant role', () =
     expect(result).toMatchObject({ outcome: 'acknowledged', terminal: false });
     expect(sendSmsMock).toHaveBeenCalledWith(
       request.recipientPhone, `${request.title}: ${request.body}`,
-      { tenantId: fixture.tenantId, templateVersion: request.templateVersion, outboxId: row.id },
+      expect.objectContaining({ tenantId: fixture.tenantId, templateVersion: request.templateVersion, outboxId: row.id }),
     );
     expect(await receipts(row.id)).toEqual([expect.objectContaining({
       outcome: 'acknowledged', provider_code: 'accepted',
@@ -207,6 +211,142 @@ describeIfDb('booking SMS recipient binding under the runtime tenant role', () =
       fixture.tenantId,
     ));
     expect(cursors).toEqual([{ state: 'ready' }]);
+    expect(await receipts(row.id)).toEqual([{
+      outcome: 'rejected', provider_code: 'booking_sms_recipient_mismatch', evidence: {},
+    }]);
+  });
+
+  test.each(['phone update', 'deletion', 'booking reassignment', 'merge ordering'])(
+    'holds real runtime-role row locks against %s until the provider settles', async mutation => {
+      const row = await claim(await notificationOutbox.queue(intent(), { strict: true }));
+      const entered = Promise.withResolvers();
+      const release = Promise.withResolvers();
+      const writerStarted = Promise.withResolvers();
+      sendSmsMock.mockImplementation(async () => {
+        entered.resolve();
+        await release.promise;
+        return { outcome: 'acknowledged', providerReference: 'synthetic-accepted', providerCode: 'accepted', evidence: {} };
+      });
+      const sending = deliverNotificationOutboxRow(row);
+      let writer;
+      let writerCommitted = false;
+      try {
+        await entered.promise;
+        writer = setTenantTx(fixture.tenantId, async tx => {
+          const [context] = await tx.$queryRawUnsafe(
+            `SELECT pg_backend_pid() AS pid, current_user AS role,
+                    current_setting('app.current_tenant_id') AS tenant_id`,
+          );
+          expect(context.role).toBe('vhhealth_app');
+          expect(context.tenant_id).toBe(fixture.tenantId);
+          writerStarted.resolve(context.pid);
+          if (mutation === 'merge ordering') {
+            const locked = await tx.$queryRawUnsafe(
+              `SELECT id FROM users WHERE tenant_id = $1::uuid ORDER BY uid FOR UPDATE`, fixture.tenantId,
+            );
+            expect(locked).toHaveLength(2);
+          }
+          if (mutation === 'booking reassignment' || mutation === 'merge ordering') {
+            await tx.$executeRawUnsafe(
+              `UPDATE investigation_bookings SET patient_id = (
+                 SELECT id FROM users WHERE tenant_id = $1::uuid AND uid <> $3::uuid ORDER BY id LIMIT 1
+               ) WHERE tenant_id = $1::uuid AND id = $2::bigint`,
+              fixture.tenantId, fixture.bookingId, fixture.patientUid,
+            );
+          }
+          if (mutation === 'phone update') {
+            await tx.$executeRawUnsafe(
+              `UPDATE users SET phone = $3::text WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+              fixture.tenantId, fixture.patientUid, NEXT_PHONE,
+            );
+          } else if (mutation !== 'booking reassignment') {
+            await tx.$executeRawUnsafe(
+              `UPDATE users SET is_active = false, is_deleted = true, deleted_at = NOW(), phone = NULL
+                WHERE tenant_id = $1::uuid AND uid = $2::uuid`, fixture.tenantId, fixture.patientUid,
+            );
+          }
+        }, { maxWait: 1000, timeout: 4000 }).then(() => { writerCommitted = true; });
+        // Attach a handler immediately; finally still awaits and reports the failure.
+        writer.catch(() => {});
+        const writerPid = await writerStarted.promise;
+        let blockers = [];
+        for (let poll = 0; poll < 50 && blockers.length === 0; poll += 1) {
+          const [state] = await setTenant(fixture.tenantId, tx => tx.$queryRawUnsafe(
+            `SELECT pg_blocking_pids($1::integer) AS blockers`, writerPid,
+          ));
+          blockers = state.blockers;
+          if (blockers.length === 0) await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        expect(blockers.length).toBeGreaterThan(0);
+        const locks = await setTenant(fixture.tenantId, tx => tx.$queryRawUnsafe(
+          `SELECT c.relname FROM pg_locks l JOIN pg_class c ON c.oid = l.relation
+            WHERE l.pid = ANY($1::integer[]) AND l.granted = true AND l.mode = 'RowShareLock'
+              AND c.relname IN ('users', 'investigation_bookings')`, blockers,
+        ));
+        expect(new Set(locks.map(lock => lock.relname))).toEqual(new Set(['users', 'investigation_bookings']));
+        expect(writerCommitted).toBe(false);
+        expect(sendSmsMock).toHaveBeenCalledTimes(1);
+      } finally {
+        release.resolve();
+        await sending;
+        if (writer) await writer;
+      }
+      expect(writerCommitted).toBe(true);
+      const [binding] = await setTenant(fixture.tenantId, tx => tx.$queryRawUnsafe(
+        `SELECT p.phone, p.is_active, p.is_deleted, b.patient_id::text AS patient_id
+           FROM users p JOIN investigation_bookings b ON b.tenant_id = p.tenant_id
+          WHERE p.tenant_id = $1::uuid AND p.uid = $2::uuid AND b.id = $3::bigint`,
+        fixture.tenantId, fixture.patientUid, fixture.bookingId,
+      ));
+      if (mutation === 'phone update') expect(binding.phone).toBe(NEXT_PHONE);
+      if (mutation === 'deletion' || mutation === 'merge ordering') {
+        expect(binding).toMatchObject({ is_active: false, is_deleted: true, phone: null });
+      }
+      if (mutation === 'booking reassignment' || mutation === 'merge ordering') {
+        expect(binding.patient_id).not.toBe(fixture.patientId);
+      }
+      expect(await receipts(row.id)).toEqual([expect.objectContaining({
+        outcome: 'acknowledged', provider_code: 'accepted',
+      })]);
+      expect(sendSmsMock).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  test('rechecks the committed phone after waiting behind a competing patient writer', async () => {
+    const row = await claim(await notificationOutbox.queue(intent(), { strict: true }));
+    const locked = Promise.withResolvers();
+    const release = Promise.withResolvers();
+    const writer = setTenantTx(fixture.tenantId, async tx => {
+      await tx.$executeRawUnsafe(
+        `UPDATE users SET phone = $3::text WHERE tenant_id = $1::uuid AND uid = $2::uuid`,
+        fixture.tenantId, fixture.patientUid, NEXT_PHONE,
+      );
+      const [state] = await tx.$queryRawUnsafe(`SELECT pg_backend_pid() AS pid, current_user AS role`);
+      expect(state.role).toBe('vhhealth_app');
+      locked.resolve(state.pid);
+      await release.promise;
+    }, { maxWait: 1000, timeout: 4000 });
+    writer.catch(() => {});
+    const writerPid = await locked.promise;
+    const sending = deliverNotificationOutboxRow(row);
+    let blocked = [];
+    let sendResult;
+    try {
+      for (let poll = 0; poll < 50 && blocked.length === 0; poll += 1) {
+        blocked = await setTenant(fixture.tenantId, tx => tx.$queryRawUnsafe(
+          `SELECT pid FROM pg_stat_activity WHERE $1::integer = ANY(pg_blocking_pids(pid))`, writerPid,
+        ));
+        if (blocked.length === 0) await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      expect(blocked.length).toBeGreaterThan(0);
+      expect(sendSmsMock).not.toHaveBeenCalled();
+    } finally {
+      release.resolve();
+      await writer;
+      sendResult = await sending;
+    }
+    expect(sendResult).toMatchObject({ outcome: 'rejected', terminal: true });
+    expect(sendSmsMock).not.toHaveBeenCalled();
     expect(await receipts(row.id)).toEqual([{
       outcome: 'rejected', provider_code: 'booking_sms_recipient_mismatch', evidence: {},
     }]);

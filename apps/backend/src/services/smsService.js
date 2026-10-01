@@ -46,17 +46,20 @@ import { normalizeIndianSmsPhone } from '../utils/phoneUtils.js';
  * @param {string} [context.templateVersion] - Outbox template key, resolved
  *   against sms_template_registrations (DLT fail-closed gate)
  * @param {number} [context.outboxId] - notification_outbox id (evidence only)
+ * @param {Function} [context.withPreparedSend] - Booking drain authority boundary;
+ *   invoked after provider preparation with either a transport or a no-send result.
  */
 export async function sendSMS(phone, message, context = {}) {
   const intlPhone = normalizeIndianSmsPhone(phone);
   if (!intlPhone) {
     logger.warn('[SMS] Invalid/missing phone, skipping');
-    return {
+    const result = {
       outcome: 'rejected',
       providerReference: null,
       providerCode: 'phone_missing',
       evidence: { invalid_phone: true },
     };
+    return context.withPreparedSend ? context.withPreparedSend({ result }) : result;
   }
 
   return sendThroughResolvedProvider({
@@ -65,5 +68,6 @@ export async function sendSMS(phone, message, context = {}) {
     tenantId: context.tenantId || getCurrentTenantId() || null,
     templateVersion: context.templateVersion || null,
     outboxId: context.outboxId ?? null,
+    withPreparedSend: context.withPreparedSend,
   });
 }
